@@ -1,0 +1,166 @@
+'use client';
+
+import type { RecordingState } from '@/types';
+import {
+  MicrophoneIcon,
+  MicrophoneOffIcon,
+  RecordIcon,
+  PauseIcon,
+  PlayIcon,
+  StopIcon,
+} from '@/components/icons';
+
+interface TransportBarProps {
+  recordingState: RecordingState;
+  canRecord: boolean;
+  hasRecording: boolean;
+  isMicMuted: boolean;
+  elapsedSeconds: number;
+  onMicToggle: () => void;
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+}
+
+export function TransportBar({
+  recordingState,
+  canRecord,
+  hasRecording,
+  isMicMuted,
+  elapsedSeconds,
+  onMicToggle,
+  onStart,
+  onPause,
+  onResume,
+  onStop,
+}: TransportBarProps) {
+  const isIdle = recordingState === 'idle' || recordingState === 'completed';
+  const isRecording = recordingState === 'recording';
+  const isPaused = recordingState === 'paused';
+
+  return (
+    <footer className="h-16 border-t border-border-subtle bg-surface flex items-center px-6 shrink-0" aria-label="Recording controls">
+      {/* Left: Recording Status */}
+      <div className="flex items-center gap-3 min-w-[160px]">
+        {isRecording && (
+          <div className="flex items-center gap-2 animate-fade-in">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-recording opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-recording" />
+            </span>
+            <span className="text-[12px] font-bold text-recording">REC</span>
+          </div>
+        )}
+        {(isRecording || isPaused || elapsedSeconds > 0) && (
+          <div className="flex flex-col">
+            <span className="text-[16px] font-mono font-bold text-text-primary tabular-nums">
+              {formatTime(elapsedSeconds)}
+            </span>
+            {isRecording && (
+              <span className="text-[10px] text-recording">Recording...</span>
+            )}
+            {isPaused && (
+              <span className="text-[10px] text-warning">Paused</span>
+            )}
+          </div>
+        )}
+        {isIdle && !hasRecording && (
+          <div className="flex flex-col">
+            <span className="text-[16px] font-mono font-bold text-text-primary tabular-nums">00:00:00</span>
+            <span className="text-[10px] text-text-muted">Ready to record</span>
+          </div>
+        )}
+        {isRecording && (
+          <div className="flex items-end gap-0.5 h-4">
+            {[...Array(8)].map((_, i) => (
+              <div
+                key={i}
+                className="w-0.5 bg-recording rounded-full animate-pulse"
+                style={{
+                  height: `${Math.random() * 12 + 4}px`,
+                  animationDelay: `${i * 0.1}s`,
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Center: Transport Controls */}
+      <div className="flex-1 flex items-center justify-center gap-3">
+        <button
+          onClick={onMicToggle}
+          className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] ${
+            isMicMuted ? 'text-recording' : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
+          }`}
+        >
+          {isMicMuted ? (
+            <MicrophoneOffIcon className="w-5 h-5" />
+          ) : (
+            <MicrophoneIcon className="w-5 h-5" />
+          )}
+          <span className="text-[10px] font-medium">{isMicMuted ? 'Unmute' : 'Mute'}</span>
+        </button>
+
+        {isIdle && (
+          <button
+            onClick={onStart}
+            disabled={!canRecord}
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-recording hover:bg-red-600 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-recording/30"
+            title="Start Recording"
+          >
+            <RecordIcon className="w-5 h-5" />
+          </button>
+        )}
+
+        {isRecording && (
+          <>
+            <button
+              onClick={onPause}
+              className="flex items-center justify-center w-12 h-12 rounded-full bg-recording hover:bg-red-600 text-white transition-all shadow-lg shadow-recording/30"
+              title="Pause Recording"
+            >
+              <PauseIcon className="w-5 h-5" />
+            </button>
+            <button
+              onClick={onStop}
+              className="flex flex-col items-center gap-0.5 p-2 rounded-lg text-text-secondary hover:text-recording hover:bg-recording/10 transition-colors min-w-[48px]"
+            >
+              <StopIcon className="w-5 h-5" />
+              <span className="text-[10px] font-medium">Stop</span>
+            </button>
+          </>
+        )}
+
+        {isPaused && (
+          <>
+            <button
+              onClick={onResume}
+              className="flex items-center justify-center w-12 h-12 rounded-full bg-accent hover:bg-accent-hover text-white transition-all shadow-lg shadow-accent/30"
+              title="Resume Recording"
+            >
+              <PlayIcon className="w-5 h-5" />
+            </button>
+            <button
+              onClick={onStop}
+              className="flex flex-col items-center gap-0.5 p-2 rounded-lg text-text-secondary hover:text-recording hover:bg-recording/10 transition-colors min-w-[48px]"
+            >
+              <StopIcon className="w-5 h-5" />
+              <span className="text-[10px] font-medium">Stop</span>
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Right: spacer for layout balance */}
+      <div className="min-w-[160px]" />
+    </footer>
+  );
+}
+
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}

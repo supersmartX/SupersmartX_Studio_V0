@@ -1,0 +1,35 @@
+'use client';
+
+import { useEffect, useRef } from 'react';
+
+interface CameraPreviewProps {
+  stream: MediaStream | null;
+  isMirrored?: boolean;
+  focusViewEnabled: boolean;
+}
+
+export function CameraPreview({
+  stream,
+  isMirrored = true,
+  focusViewEnabled,
+}: CameraPreviewProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      muted
+      className={`absolute inset-0 w-full h-full object-cover transition-all duration-300 ${
+        isMirrored ? 'mirrored' : ''
+      } ${focusViewEnabled ? 'blur-xl opacity-40' : ''}`}
+    />
+  );
+}
