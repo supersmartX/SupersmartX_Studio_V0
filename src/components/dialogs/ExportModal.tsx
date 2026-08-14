@@ -59,6 +59,11 @@ function VideoPlayer({ videoUrl, onError }: { videoUrl: string; onError: (msg: s
         onError('Could not read video metadata');
         return;
       }
+      if (video.duration < 30) {
+        setValidationError('Invalid video duration (minimum 30 seconds)');
+        onError('Video is too short');
+        return;
+      }
       setDuration(video.duration);
       setIsValidated(true);
     };
@@ -335,6 +340,10 @@ export function ExportModal({
           throw new Error('Invalid video duration');
         }
 
+        if (video.duration < 30) {
+          throw new Error('Invalid video duration (minimum 30 seconds)');
+        }
+
         setValidationPassed(true);
       } catch (err) {
         setValidationError(err instanceof Error ? err.message : 'Validation failed');
@@ -351,6 +360,11 @@ export function ExportModal({
 
     if (!isAuthenticated) {
       onAuthRequired();
+      return;
+    }
+
+    if (recordingResult.duration < 30) {
+      showToast('Invalid video duration (minimum 30 seconds)');
       return;
     }
 
