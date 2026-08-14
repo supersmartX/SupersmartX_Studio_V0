@@ -39,6 +39,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           ${className}
         `}
         {...props}
+        suppressHydrationWarning
       >
         {children}
       </button>
