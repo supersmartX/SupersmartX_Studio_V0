@@ -22,8 +22,14 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function generateId(): string {
+  // Works in both Node.js and Edge runtime
+  return globalThis.crypto?.randomUUID?.() 
+    || Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
 async function createCashfreeOrder(data: CashfreeOrderRequest) {
-  const orderId = `sxs-support-${crypto.randomUUID()}`;
+  const orderId = `sxs-support-${generateId()}`;
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
   const payload = {
@@ -31,7 +37,7 @@ async function createCashfreeOrder(data: CashfreeOrderRequest) {
     order_amount: data.amount,
     order_currency: 'INR',
     customer_details: {
-      customer_id: `user-${crypto.randomUUID().slice(0, 8)}`,
+      customer_id: `user-${generateId().slice(0, 8)}`,
       customer_name: sanitizeInput(data.name) || 'Supporter',
       customer_email: sanitizeInput(data.email),
       customer_phone: data.phone || '9999999999',
@@ -60,9 +66,37 @@ async function createCashfreeOrder(data: CashfreeOrderRequest) {
   return response.json();
 }
 
+// Simple in-memory rate limit (per-instance only)
+// For production multi-instance, replace with Redis/Upstash
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW = 60_000;
 const RATE_LIMIT_MAX = 5;
+
+function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: number } {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (entry && now < entry.resetAt) {
+    if (entry.count >= RATE_LIMIT_MAX) {
+      return { allowed: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) };
+    }
+    entry.count++;
+    return { allowed: true };
+  }
+
+  rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+  return { allowed: true };
+}
+
+// Cleanup old entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitMap.entries()) {
+    if (now >= entry.resetAt) {
+      rateLimitMap.delete(ip);
+    }
+  }
+}, 5 * 60 * 1000);
 
 export async function POST(request: NextRequest) {
   try {
@@ -75,16 +109,13 @@ export async function POST(request: NextRequest) {
 
     const forwarded = request.headers.get('x-forwarded-for');
     const ip = forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip') || 'unknown';
-    const now = Date.now();
-    const entry = rateLimitMap.get(ip);
 
-    if (entry && now < entry.resetAt) {
-      if (entry.count >= RATE_LIMIT_MAX) {
-        return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
-      }
-      entry.count++;
-    } else {
-      rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+    const { allowed, retryAfter } = checkRateLimit(ip);
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests' },
+        { status: 429, headers: { 'Retry-After': String(retryAfter || 60) } }
+      );
     }
 
     const body = await request.json();

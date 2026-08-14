@@ -30,7 +30,11 @@ function verifyWebhookSignature(
   }
 }
 
-const processedOrders = new Set<string>();
+// In-memory processed orders (per-instance only)
+// For production, replace with Redis/Upstash with TTL
+const processedOrders = new Map<string, number>(); // orderId -> timestamp
+const PROCESSED_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_PROCESSED = 10000;
 
 async function getOrderStatus(orderId: string) {
   const response = await fetch(`${CASHFREE_BASE_URL}/orders/${orderId}`, {
@@ -48,6 +52,26 @@ async function getOrderStatus(orderId: string) {
 
   return response.json();
 }
+
+// Cleanup old processed orders
+function cleanupProcessedOrders() {
+  const now = Date.now();
+  for (const [orderId, timestamp] of processedOrders.entries()) {
+    if (now - timestamp > PROCESSED_TTL) {
+      processedOrders.delete(orderId);
+    }
+  }
+  // If still too many, remove oldest
+  if (processedOrders.size > MAX_PROCESSED) {
+    const entries = Array.from(processedOrders.entries())
+      .sort((a, b) => a[1] - b[1]);
+    const toRemove = entries.slice(0, processedOrders.size - MAX_PROCESSED + 1000);
+    toRemove.forEach(([id]) => processedOrders.delete(id));
+  }
+}
+
+// Run cleanup every hour
+setInterval(cleanupProcessedOrders, 60 * 60 * 1000);
 
 export async function POST(request: NextRequest) {
   try {
@@ -75,6 +99,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing order_id' }, { status: 400 });
     }
 
+    // Check if already processed (in-memory)
     if (processedOrders.has(orderId)) {
       return NextResponse.json({ status: 'ok' });
     }
@@ -86,12 +111,8 @@ export async function POST(request: NextRequest) {
 
     if (order.order_status === 'PAID' || paymentStatus === 'SUCCESS') {
       console.warn(`Payment successful for order ${orderId}: INR ${order.order_amount}`);
-      processedOrders.add(orderId);
-
-      if (processedOrders.size > 10000) {
-        const firstEntries = Array.from(processedOrders).slice(0, 5000);
-        firstEntries.forEach((id) => processedOrders.delete(id));
-      }
+      processedOrders.set(orderId, Date.now());
+      cleanupProcessedOrders();
     }
 
     return NextResponse.json({ status: 'ok' });
