@@ -33,6 +33,7 @@ export function Toggle({ checked, onChange, label, description, disabled = false
           disabled:opacity-40 disabled:cursor-not-allowed
           ${checked ? 'bg-accent' : 'bg-border-strong'}
         `}
+        suppressHydrationWarning
       >
         <span
           className={`

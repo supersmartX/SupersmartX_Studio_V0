@@ -23,6 +23,7 @@ export function InspirationLoader({ onLoad }: InspirationLoaderProps) {
           }}
           defaultValue=""
           className="w-full bg-elevated border border-border-subtle rounded-lg px-3 py-2 text-xs text-text-secondary appearance-none cursor-pointer outline-none focus:border-accent transition-colors pr-8"
+          suppressHydrationWarning
         >
           <option value="" disabled>
             Load a preset script...

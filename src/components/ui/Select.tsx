@@ -26,6 +26,7 @@ export function Select({ label, value, onChange, options }: SelectProps) {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="w-full bg-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary appearance-none cursor-pointer outline-none focus:border-accent transition-colors pr-8"
+          suppressHydrationWarning
         >
           {options.map((opt) => (
             <option key={opt.value} value={opt.value}>
