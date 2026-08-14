@@ -1,47 +1,19 @@
 'use client';
 
 import { Button } from '@/components/ui/Button';
-import { CameraIcon, SettingsIcon } from '@/components/icons';
+import { CameraIcon } from '@/components/icons';
 
-type InitStatus = 'idle' | 'requesting' | 'permission-denied' | 'devices-unavailable' | 'error';
-type PermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported';
+type InitStatus = 'idle' | 'requesting' | 'ready' | 'error';
 
 interface InitOverlayProps {
   onInitialize: () => void;
   status: InitStatus;
   errorMessage?: string | null;
-  permissionState?: PermissionState;
 }
 
-export function InitOverlay({ onInitialize, status, errorMessage, permissionState }: InitOverlayProps) {
-  const isPermissionDenied = status === 'permission-denied' || permissionState === 'denied';
-
-  const title =
-    status === 'permission-denied' || permissionState === 'denied'
-      ? 'Permission Required'
-      : status === 'devices-unavailable'
-      ? 'Device Not Found'
-      : status === 'requesting'
-      ? 'Requesting Access...'
-      : 'Studio Ready';
-
-  const description =
-    isPermissionDenied
-      ? 'Camera/microphone access was blocked. Please enable it in your browser settings, then click Retry.'
-      : status === 'devices-unavailable'
-      ? 'No camera or microphone was detected. Connect a device and retry.'
-      : status === 'requesting'
-      ? 'Please allow camera and microphone access when prompted.'
-      : 'Enable your camera and microphone to begin recording. Everything stays on your device.';
-
-  const buttonLabel =
-    status === 'permission-denied' || status === 'devices-unavailable' || permissionState === 'denied'
-      ? 'Retry Initialization'
-      : status === 'requesting'
-      ? 'Please Wait...'
-      : 'Enable Camera & Microphone';
-
+export function InitOverlay({ onInitialize, status, errorMessage }: InitOverlayProps) {
   const isLoading = status === 'requesting';
+  const hasError = status === 'error';
 
   return (
     <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-canvas/90 backdrop-blur-md">
@@ -50,33 +22,15 @@ export function InitOverlay({ onInitialize, status, errorMessage, permissionStat
           <CameraIcon className="w-7 h-7 text-text-secondary" />
         </div>
         <h3 className="text-base font-semibold text-text-primary mb-1.5">
-          {title}
+          {hasError ? 'Camera Access Required' : isLoading ? 'Starting Camera...' : 'Studio Ready'}
         </h3>
         <p className="text-[13px] text-text-secondary mb-4 leading-relaxed">
-          {description}
+          {hasError
+            ? errorMessage ?? 'Unable to access camera. Please retry.'
+            : isLoading
+            ? 'Please allow camera and microphone access when prompted.'
+            : 'Enable your camera and microphone to begin recording. Everything stays on your device.'}
         </p>
-        {errorMessage && (
-          <div className="bg-error/10 border border-error/20 rounded-lg px-3 py-2 mb-4 text-[12px] text-error text-left w-full">
-            {errorMessage}
-          </div>
-        )}
-        {isPermissionDenied && (
-          <div className="w-full mb-3">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                if (typeof window !== 'undefined') {
-                  window.open('https://support.google.com/chrome/answer/2693767', '_blank');
-                }
-              }}
-              className="w-full gap-2"
-            >
-              <SettingsIcon className="w-4 h-4" />
-              Open Chrome Camera Settings
-            </Button>
-          </div>
-        )}
         <Button
           variant="primary"
           size="lg"
@@ -84,7 +38,7 @@ export function InitOverlay({ onInitialize, status, errorMessage, permissionStat
           className="w-full"
           disabled={isLoading}
         >
-          {buttonLabel}
+          {isLoading ? 'Please Wait...' : hasError ? 'Retry' : 'Enable Camera & Microphone'}
         </Button>
         <p className="text-[11px] text-text-muted mt-4 max-w-xs leading-relaxed">
           Your script is saved locally so you can return later and continue where you left off.
