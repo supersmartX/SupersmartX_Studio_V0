@@ -531,6 +531,7 @@ function InspectorContent({
             <button
               onClick={onClearScript}
               className="text-[11px] text-text-muted hover:text-text-secondary transition-colors"
+              suppressHydrationWarning
             >
               Clear
             </button>
