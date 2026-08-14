@@ -20,7 +20,6 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
     return (
       <button
         ref={ref}
-        title={tooltip}
         aria-label={tooltip}
         className={`
           inline-flex items-center justify-center

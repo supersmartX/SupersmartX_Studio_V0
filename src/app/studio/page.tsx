@@ -73,7 +73,6 @@ export default function HomePage() {
   const [selectedVideoDevice, setSelectedVideoDevice] = useState('');
   const [selectedAudioDevice, setSelectedAudioDevice] = useState('');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
-  const [isTeleprompterVisible] = useState(true);
   const prompterContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(null);
 
@@ -96,7 +95,7 @@ export default function HomePage() {
     if (camera.audioDevices.length > 0 && !selectedAudioDevice) {
       setSelectedAudioDevice(camera.audioDevices[0].deviceId);
     }
-  }, [camera.videoDevices, camera.audioDevices, selectedVideoDevice, selectedAudioDevice]);
+  }, [camera.videoDevices, camera.audioDevices]);
 
   useEffect(() => {
     if (recorder.recordingState === 'recording') {
@@ -349,14 +348,12 @@ export default function HomePage() {
                     focusViewEnabled={focusView.isEnabled}
                   />
 
-                  {isTeleprompterVisible && (
-                    <TeleprompterOverlay
-                      ref={prompterContainerRef}
-                      script={scriptStorage.script}
-                      settings={settings}
-                      containerMaxWidth={isMobile ? 375 : undefined}
-                    />
-                  )}
+                  <TeleprompterOverlay
+                    ref={prompterContainerRef}
+                    script={scriptStorage.script}
+                    settings={settings}
+                    containerMaxWidth={isMobile ? 375 : undefined}
+                  />
 
                   <FocalGuideway position={settings.textStartPosition} />
 

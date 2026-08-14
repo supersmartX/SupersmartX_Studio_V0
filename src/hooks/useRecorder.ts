@@ -48,6 +48,11 @@ export function useRecorder(stream: MediaStream | null) {
   const startTimeRef = useRef<number>(0);
   const selectedMimeRef = useRef<{ mimeType: string; extension: string }>({ mimeType: 'video/webm', extension: 'webm' });
 
+  const revokeUrls = useCallback(() => {
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+  }, [videoUrl, audioUrl]);
+
   const clearCountdownInterval = useCallback(() => {
     if (countIntervalRef.current) {
       clearInterval(countIntervalRef.current);
@@ -80,6 +85,7 @@ export function useRecorder(stream: MediaStream | null) {
       clearCountdownInterval();
       clearRecordingIntervals();
       stopAudioRecorder();
+      revokeUrls();
 
       setRecordingState('countdown');
       setVideoUrl('');
@@ -127,7 +133,8 @@ export function useRecorder(stream: MediaStream | null) {
 
               if (hasAudio) {
                 const audioOnlyChunks: Blob[] = [];
-                const audioStream = new MediaStream(stream.getAudioTracks());
+                const audioTracks = stream.getAudioTracks().map(track => track.clone());
+                const audioStream = new MediaStream(audioTracks);
                 const audioMimeType = 'audio/webm;codecs=opus';
                 const audioRecorder = new MediaRecorder(audioStream, {
                   mimeType: audioMimeType,
@@ -170,13 +177,16 @@ export function useRecorder(stream: MediaStream | null) {
             }, 200);
           } catch (err) {
             clearCountdownInterval();
+            clearRecordingIntervals();
+            stopAudioRecorder();
+            revokeUrls();
             console.error('Recording failed:', err);
             setRecordingState('idle');
           }
         }
       }, 800);
     },
-    [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder, stream]
+    [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder, stream, revokeUrls]
   );
 
   const pauseRecording = useCallback(() => {
@@ -215,11 +225,12 @@ export function useRecorder(stream: MediaStream | null) {
     clearRecordingIntervals();
     clearCountdownInterval();
     stopAudioRecorder();
+    revokeUrls();
     setRecordingState('idle');
     setVideoUrl('');
     setAudioUrl('');
     setRecordingResult(null);
-  }, [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder]);
+  }, [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder, revokeUrls]);
 
   return {
     recordingState,

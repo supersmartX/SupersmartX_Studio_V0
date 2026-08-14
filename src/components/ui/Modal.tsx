@@ -13,6 +13,7 @@ interface ModalProps {
 
 export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg' }: ModalProps) {
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     if (isOpen) {
       document.body.style.overflow = 'hidden';
     } else {

@@ -1,10 +1,14 @@
 import NextAuth from 'next-auth';
 import Google from 'next-auth/providers/google';
 import Credentials from 'next-auth/providers/credentials';
-import crypto from 'crypto';
+import { createHash } from 'crypto';
+
+if (!process.env.NEXTAUTH_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('NEXTAUTH_SECRET must be set in production');
+}
 
 function getGravatarUrl(email: string): string {
-  const hash = crypto.createHash('md5').update(email.trim().toLowerCase()).digest('hex');
+  const hash = createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
   return `https://www.gravatar.com/avatar/${hash}?d=identicon&s=128`;
 }
 
@@ -43,7 +47,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   providers,
   session: { strategy: 'jwt' },
   trustHost: true,
-  secret: process.env.NEXTAUTH_SECRET || 'dev-secret-change-in-production',
+  secret: process.env.NEXTAUTH_SECRET!,
   callbacks: {
     async jwt({ token, user }) {
       if (user) {

@@ -34,10 +34,12 @@ function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Failed to access camera/microphone';
 }
 
-const DEFAULT_CONSTRAINTS: MediaStreamConstraints = {
-  video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-  audio: true,
-};
+const FALLBACK_CONSTRAINTS: MediaStreamConstraints[] = [
+  { video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: true },
+  { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }, audio: true },
+  { video: { facingMode: 'user' }, audio: true },
+  { video: true, audio: true },
+];
 
 export function useCamera(): UseCameraReturn {
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -61,24 +63,45 @@ export function useCamera(): UseCameraReturn {
     refreshDevices();
     navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
     return () => navigator.mediaDevices.removeEventListener('devicechange', refreshDevices);
-  }, [refreshDevices]);
+  }, []);
 
   const initialize = useCallback(async (constraints?: MediaStreamConstraints) => {
     setStatus('requesting');
     setErrorMessage(null);
 
+    let newStream: MediaStream | null = null;
     try {
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints || DEFAULT_CONSTRAINTS);
+      const constraintsToTry = constraints ? [constraints] : FALLBACK_CONSTRAINTS;
+      let lastError: Error | null = null;
 
-      setStream(mediaStream);
+      for (const c of constraintsToTry) {
+        try {
+          newStream = await navigator.mediaDevices.getUserMedia(c);
+          break;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          if (err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'NotFoundError' || err.name === 'SecurityError')) {
+            throw err;
+          }
+        }
+      }
+
+      if (!newStream) {
+        throw lastError;
+      }
+
+      setStream(newStream);
       setIsInitialized(true);
       setStatus('ready');
       await refreshDevices();
     } catch (err) {
+      if (newStream) {
+        newStream.getTracks().forEach((track) => track.stop());
+      }
       setStatus('error');
       setErrorMessage(getErrorMessage(err));
       setIsInitialized(false);
