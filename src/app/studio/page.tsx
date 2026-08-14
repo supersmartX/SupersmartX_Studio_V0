@@ -377,6 +377,7 @@ export default function HomePage() {
                       onInitialize={handleCameraInitialize}
                       status={camera.status === 'ready' ? 'idle' : camera.status}
                       errorMessage={camera.errorMessage}
+                      permissionState={camera.permissionState}
                     />
                   )}
                 </Canvas>

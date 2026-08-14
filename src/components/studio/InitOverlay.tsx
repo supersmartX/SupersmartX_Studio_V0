@@ -1,35 +1,47 @@
 'use client';
 
 import { Button } from '@/components/ui/Button';
-import { CameraIcon } from '@/components/icons';
+import { CameraIcon, SettingsIcon } from '@/components/icons';
 
 type InitStatus = 'idle' | 'requesting' | 'permission-denied' | 'devices-unavailable' | 'error';
+type PermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported';
 
 interface InitOverlayProps {
   onInitialize: () => void;
   status: InitStatus;
   errorMessage?: string | null;
+  permissionState?: PermissionState;
 }
 
-export function InitOverlay({ onInitialize, status, errorMessage }: InitOverlayProps) {
+export function InitOverlay({ onInitialize, status, errorMessage, permissionState }: InitOverlayProps) {
+  const isPermissionDenied = status === 'permission-denied' || permissionState === 'denied';
+
   const title =
-    status === 'permission-denied'
+    status === 'permission-denied' || permissionState === 'denied'
       ? 'Permission Required'
       : status === 'devices-unavailable'
       ? 'Device Not Found'
+      : status === 'requesting'
+      ? 'Requesting Access...'
       : 'Studio Ready';
 
   const description =
-    status === 'permission-denied'
-      ? 'Camera or microphone permission is required. Please allow access in your browser settings and retry.'
+    isPermissionDenied
+      ? 'Camera/microphone access was blocked. Please enable it in your browser settings, then click Retry.'
       : status === 'devices-unavailable'
-      ? 'No camera or microphone was detected. Connect a device and retry, then press the button below.'
+      ? 'No camera or microphone was detected. Connect a device and retry.'
+      : status === 'requesting'
+      ? 'Please allow camera and microphone access when prompted.'
       : 'Enable your camera and microphone to begin recording. Everything stays on your device.';
 
   const buttonLabel =
-    status === 'permission-denied' || status === 'devices-unavailable'
+    status === 'permission-denied' || status === 'devices-unavailable' || permissionState === 'denied'
       ? 'Retry Initialization'
+      : status === 'requesting'
+      ? 'Please Wait...'
       : 'Enable Camera & Microphone';
+
+  const isLoading = status === 'requesting';
 
   return (
     <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-canvas/90 backdrop-blur-md">
@@ -48,11 +60,29 @@ export function InitOverlay({ onInitialize, status, errorMessage }: InitOverlayP
             {errorMessage}
           </div>
         )}
+        {isPermissionDenied && (
+          <div className="w-full mb-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  window.open('https://support.google.com/chrome/answer/2693767', '_blank');
+                }
+              }}
+              className="w-full gap-2"
+            >
+              <SettingsIcon className="w-4 h-4" />
+              Open Chrome Camera Settings
+            </Button>
+          </div>
+        )}
         <Button
           variant="primary"
           size="lg"
           onClick={onInitialize}
           className="w-full"
+          disabled={isLoading}
         >
           {buttonLabel}
         </Button>
