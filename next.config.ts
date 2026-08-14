@@ -19,6 +19,8 @@ const securityHeaders = [
       "img-src 'self' data: blob: https://sdk.cashfree.com",
       "font-src 'self' data:",
       "connect-src 'self' https://api.cashfree.com https://sandbox.cashfree.com",
+      "media-src 'self' blob: mediastream:",
+      "worker-src 'self' blob:",
       "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
     ].join('; '),
   },
