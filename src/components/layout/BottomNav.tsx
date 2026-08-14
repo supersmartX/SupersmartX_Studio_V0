@@ -8,6 +8,7 @@ import {
   CameraIcon,
   BookOpenIcon,
   SettingsIcon,
+  HeartIcon,
 } from '@/components/icons';
 
 interface BottomNavProps {
@@ -16,6 +17,7 @@ interface BottomNavProps {
   recordingState: RecordingState;
   onRecordToggle: () => void;
   onSettingsToggle: () => void;
+  onSupportClick: () => void;
   isCameraInitialized: boolean;
   onCameraInitialize: () => void;
 }
@@ -26,6 +28,7 @@ export function BottomNav({
   recordingState,
   onRecordToggle,
   onSettingsToggle,
+  onSupportClick,
   isCameraInitialized,
   onCameraInitialize,
 }: BottomNavProps) {
@@ -90,6 +93,17 @@ export function BottomNav({
         >
           <CameraIcon className="w-5 h-5" />
           <span className="text-[9px] font-medium">Camera</span>
+        </button>
+      </Tooltip>
+
+      <Tooltip content="Support" side="top">
+        <button
+          onClick={onSupportClick}
+          className="flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center text-text-muted hover:text-text-secondary hover:bg-accent/10"
+          aria-label="Support SupersmartX"
+        >
+          <HeartIcon className="w-5 h-5" />
+          <span className="text-[9px] font-medium">Support</span>
         </button>
       </Tooltip>
 

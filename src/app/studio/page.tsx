@@ -73,10 +73,13 @@ export default function HomePage() {
   const [selectedVideoDevice, setSelectedVideoDevice] = useState('');
   const [selectedAudioDevice, setSelectedAudioDevice] = useState('');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+  const [recordingCount, setRecordingCount] = useState(0);
+  const [showSupportAfterRecording, setShowSupportAfterRecording] = useState(false);
   const prompterContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(null);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
 
   const handleAuthRequired = useCallback(() => {
     setIsAuthModalOpen(true);
@@ -251,13 +254,15 @@ export default function HomePage() {
     setIsInspectorOpen(true);
   }, []);
 
-  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
-
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const support = new URLSearchParams(window.location.search).get('support');
-    if (support === '1') {
-      setIsSupportModalOpen(true);
+    if (typeof window !== 'undefined') {
+      const count = parseInt(localStorage.getItem('sxs-recording-count') || '0', 10);
+      setRecordingCount(count);
+      
+      const support = new URLSearchParams(window.location.search).get('support');
+      if (support === '1') {
+        setIsSupportModalOpen(true);
+      }
     }
   }, []);
 
@@ -279,6 +284,17 @@ export default function HomePage() {
   useEffect(() => {
     if (recorder.recordingState === 'completed') {
       setIsDrawerVisible(true);
+      
+      // Track recording count and show support modal
+      if (typeof window !== 'undefined') {
+        const count = parseInt(localStorage.getItem('sxs-recording-count') || '0', 10) + 1;
+        localStorage.setItem('sxs-recording-count', count.toString());
+        setRecordingCount(count);
+        
+        // Show support modal after every recording (or first only - change to count === 1 for first only)
+        setShowSupportAfterRecording(true);
+        setIsSupportModalOpen(true);
+      }
     }
   }, [recorder.recordingState]);
 
@@ -458,6 +474,7 @@ export default function HomePage() {
             recordingState={recorder.recordingState}
             onRecordToggle={handleRecordStop}
             onSettingsToggle={handleToggleInspector}
+            onSupportClick={handleSupportClick}
             isCameraInitialized={camera.isInitialized}
             onCameraInitialize={handleCameraInitialize}
           />
