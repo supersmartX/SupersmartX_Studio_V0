@@ -2,7 +2,7 @@ import { KeyboardIcon } from '@/components/icons';
 
 export function Footer() {
   return (
-    <footer className="h-7 sm:h-7 border-t border-border-subtle bg-surface flex items-center px-4 justify-between text-[10px] text-text-muted shrink-0 safe-area-bottom" role="contentinfo">
+    <footer className="hidden md:flex h-7 border-t border-border-subtle bg-surface items-center px-4 justify-between text-[10px] text-text-muted shrink-0 safe-area-bottom" role="contentinfo">
       <div className="flex items-center gap-4">
         <span className="hidden sm:flex items-center gap-1.5">
           <KeyboardIcon className="w-3 h-3" />

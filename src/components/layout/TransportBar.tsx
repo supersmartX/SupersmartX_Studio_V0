@@ -40,39 +40,40 @@ export function TransportBar({
   const isPaused = recordingState === 'paused';
 
   return (
-    <footer className="h-16 border-t border-border-subtle bg-surface flex items-center px-6 shrink-0" aria-label="Recording controls">
+    <footer className="h-14 sm:h-16 border-t border-border-subtle bg-surface flex items-center px-3 sm:px-6 shrink-0" aria-label="Recording controls">
       {/* Left: Recording Status */}
-      <div className="flex items-center gap-3 min-w-[160px]">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 sm:min-w-[160px]">
         {isRecording && (
           <div className="flex items-center gap-2 animate-fade-in">
             <span className="relative flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-recording opacity-75" />
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-recording" />
             </span>
-            <span className="text-[12px] font-bold text-recording">REC</span>
+            <span className="text-[12px] font-bold text-recording hidden sm:inline">REC</span>
           </div>
         )}
         {(isRecording || isPaused || elapsedSeconds > 0) && (
-          <div className="flex flex-col">
-            <span className="text-[16px] font-mono font-bold text-text-primary tabular-nums">
+          <div className="flex flex-col min-w-0">
+            <span className="text-[14px] sm:text-[16px] font-mono font-bold text-text-primary tabular-nums">
               {formatTime(elapsedSeconds)}
             </span>
             {isRecording && (
-              <span className="text-[10px] text-recording">Recording...</span>
+              <span className="text-[10px] text-recording hidden sm:block">Recording...</span>
             )}
             {isPaused && (
-              <span className="text-[10px] text-warning">Paused</span>
+              <span className="text-[10px] text-warning hidden sm:block">Paused</span>
             )}
           </div>
         )}
         {isIdle && !hasRecording && (
-          <div className="flex flex-col">
-            <span className="text-[16px] font-mono font-bold text-text-primary tabular-nums">00:00:00</span>
-            <span className="text-[10px] text-text-muted">Ready to record</span>
+          <div className="flex flex-col min-w-0">
+            <span className="text-[14px] sm:text-[16px] font-mono font-bold text-text-primary tabular-nums">00:00</span>
+            <span className="text-[10px] text-text-muted hidden sm:block">Ready to record</span>
           </div>
         )}
+        {/* Audio visualizer - hidden on mobile to save space */}
         {isRecording && (
-          <div className="flex items-end gap-0.5 h-4">
+          <div className="hidden sm:flex items-end gap-0.5 h-4">
             {[...Array(8)].map((_, i) => (
               <div
                 key={i}
@@ -88,10 +89,10 @@ export function TransportBar({
       </div>
 
       {/* Center: Transport Controls */}
-      <div className="flex-1 flex items-center justify-center gap-3">
+      <div className="flex-1 flex items-center justify-center gap-2 sm:gap-3">
         <button
           onClick={onMicToggle}
-          className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] ${
+          className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[44px] min-h-[44px] justify-center ${
             isMicMuted ? 'text-recording' : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
           }`}
         >
@@ -100,7 +101,7 @@ export function TransportBar({
           ) : (
             <MicrophoneIcon className="w-5 h-5" />
           )}
-          <span className="text-[10px] font-medium">{isMicMuted ? 'Unmute' : 'Mute'}</span>
+          <span className="text-[9px] sm:text-[10px] font-medium">{isMicMuted ? 'Unmute' : 'Mute'}</span>
         </button>
 
         {isIdle && (
@@ -125,10 +126,10 @@ export function TransportBar({
             </button>
             <button
               onClick={onStop}
-              className="flex flex-col items-center gap-0.5 p-2 rounded-lg text-text-secondary hover:text-recording hover:bg-recording/10 transition-colors min-w-[48px]"
+              className="flex flex-col items-center gap-0.5 p-2 rounded-lg text-text-secondary hover:text-recording hover:bg-recording/10 transition-colors min-w-[44px] min-h-[44px] justify-center"
             >
               <StopIcon className="w-5 h-5" />
-              <span className="text-[10px] font-medium">Stop</span>
+              <span className="text-[9px] sm:text-[10px] font-medium">Stop</span>
             </button>
           </>
         )}
@@ -144,17 +145,17 @@ export function TransportBar({
             </button>
             <button
               onClick={onStop}
-              className="flex flex-col items-center gap-0.5 p-2 rounded-lg text-text-secondary hover:text-recording hover:bg-recording/10 transition-colors min-w-[48px]"
+              className="flex flex-col items-center gap-0.5 p-2 rounded-lg text-text-secondary hover:text-recording hover:bg-recording/10 transition-colors min-w-[44px] min-h-[44px] justify-center"
             >
               <StopIcon className="w-5 h-5" />
-              <span className="text-[10px] font-medium">Stop</span>
+              <span className="text-[9px] sm:text-[10px] font-medium">Stop</span>
             </button>
           </>
         )}
       </div>
 
-      {/* Right: spacer for layout balance */}
-      <div className="min-w-[160px]" />
+      {/* Right: spacer for layout balance - hidden on mobile */}
+      <div className="hidden sm:block min-w-[160px]" />
     </footer>
   );
 }

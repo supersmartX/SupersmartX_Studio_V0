@@ -61,7 +61,8 @@ export default function HomePage() {
   const scriptStorage = useScriptStorage();
   const { data: session } = useSession();
 
-  const isMobile = useMediaQuery('(max-width: 768px)');
+  // Only used for drawer/modal state logic, NOT for layout visibility
+  const isMobile = useMediaQuery('(max-width: 640px)');
 
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [activePanel, setActivePanel] = useState<TabType | 'record' | 'share'>('studio');
@@ -284,19 +285,40 @@ export default function HomePage() {
     if (recorder.recordingState === 'completed') {
       setIsDrawerVisible(true);
       
-      // Track recording count and show support modal
       if (typeof window !== 'undefined') {
         const count = parseInt(localStorage.getItem('sxs-recording-count') || '0', 10) + 1;
         localStorage.setItem('sxs-recording-count', count.toString());
         setRecordingCount(count);
         
-        // Show support modal after every recording (or first only - change to count === 1 for first only)
         setIsSupportModalOpen(true);
       }
     }
   }, [recorder.recordingState]);
 
   const isStudio = activePanel === 'studio';
+
+  const inspectorProps = {
+    settings,
+    onSettingsChange: setSettings,
+    focusViewEnabled: focusView.isEnabled,
+    onFocusViewToggle: focusView.toggle,
+    mirrorCamera: isMirrored,
+    onMirrorCameraToggle: () => setIsMirrored((prev) => !prev),
+    countdownEnabled,
+    onCountdownToggle: () => setCountdownEnabled((prev) => !prev),
+    videoDevices: camera.videoDevices,
+    audioDevices: camera.audioDevices,
+    selectedVideoDevice,
+    selectedAudioDevice,
+    onVideoDeviceChange: handleVideoDeviceChange,
+    onAudioDeviceChange: handleAudioDeviceChange,
+    script: scriptStorage.script,
+    onScriptChange: scriptStorage.setScript,
+    onClearScript: scriptStorage.clearScript,
+    wordCount: scriptStorage.wordCount,
+    progress: scriptStorage.progress,
+    onLoadInspiration: scriptStorage.loadInspiration,
+  };
 
   return (
     <>
@@ -315,29 +337,28 @@ export default function HomePage() {
           hasRecording={recorder.recordingState === 'completed'}
           onExport={() => setIsDrawerVisible(true)}
           onShare={share}
-          onToggleInspector={isMobile ? handleToggleInspector : undefined}
+          onToggleInspector={handleToggleInspector}
           onSignIn={handleAuthRequired}
         />
 
         <div className="flex-1 min-h-0 flex overflow-hidden">
-          {!isMobile && (
-            <IconRail
-              activePanel={activePanel}
-              onPanelChange={handlePanelChange}
-              recordingState={recorder.recordingState}
-              onRecordToggle={handleRecordStop}
-              isCameraInitialized={camera.isInitialized}
-              onCameraInitialize={handleCameraInitialize}
-              isMicMuted={isMicMuted}
-              onMicToggle={handleMicToggle}
-              focusViewEnabled={focusView.isEnabled}
-              onFocusViewToggle={focusView.toggle}
-              onPreferencesToggle={handleToggleInspector}
-              onOpenTeleprompter={handleOpenTeleprompter}
-              onShowShortcuts={handleShowShortcuts}
-              onSupportClick={handleSupportClick}
-            />
-          )}
+          {/* IconRail - hidden on mobile/tablet via CSS (hidden lg:flex) */}
+          <IconRail
+            activePanel={activePanel}
+            onPanelChange={handlePanelChange}
+            recordingState={recorder.recordingState}
+            onRecordToggle={handleRecordStop}
+            isCameraInitialized={camera.isInitialized}
+            onCameraInitialize={handleCameraInitialize}
+            isMicMuted={isMicMuted}
+            onMicToggle={handleMicToggle}
+            focusViewEnabled={focusView.isEnabled}
+            onFocusViewToggle={focusView.toggle}
+            onPreferencesToggle={handleToggleInspector}
+            onOpenTeleprompter={handleOpenTeleprompter}
+            onShowShortcuts={handleShowShortcuts}
+            onSupportClick={handleSupportClick}
+          />
 
           <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden" role="main">
             {isStudio && (
@@ -366,7 +387,6 @@ export default function HomePage() {
                     ref={prompterContainerRef}
                     script={scriptStorage.script}
                     settings={settings}
-                    containerMaxWidth={isMobile ? 375 : undefined}
                   />
 
                   <FocalGuideway position={settings.textStartPosition} />
@@ -438,75 +458,31 @@ export default function HomePage() {
             />
           </main>
 
-          {!isMobile && isStudio && isInspectorOpen && (
+          {/* InspectorPanel - single instance, CSS handles visibility per breakpoint */}
+          {isStudio && (
             <InspectorPanel
-              settings={settings}
-              onSettingsChange={setSettings}
-              focusViewEnabled={focusView.isEnabled}
-              onFocusViewToggle={focusView.toggle}
-              mirrorCamera={isMirrored}
-              onMirrorCameraToggle={() => setIsMirrored((prev) => !prev)}
-              countdownEnabled={countdownEnabled}
-              onCountdownToggle={() => setCountdownEnabled((prev) => !prev)}
-              videoDevices={camera.videoDevices}
-              audioDevices={camera.audioDevices}
-              selectedVideoDevice={selectedVideoDevice}
-              selectedAudioDevice={selectedAudioDevice}
-              onVideoDeviceChange={handleVideoDeviceChange}
-              onAudioDeviceChange={handleAudioDeviceChange}
-              script={scriptStorage.script}
-              onScriptChange={scriptStorage.setScript}
-              onClearScript={scriptStorage.clearScript}
-              wordCount={scriptStorage.wordCount}
-              progress={scriptStorage.progress}
-              onLoadInspiration={scriptStorage.loadInspiration}
+              {...inspectorProps}
+              isMobile={isMobile}
+              isOpen={isInspectorOpen}
               onClose={handleToggleInspector}
             />
           )}
         </div>
 
-        {isMobile && (
-          <BottomNav
-            activePanel={activePanel}
-            onPanelChange={handlePanelChange}
-            recordingState={recorder.recordingState}
-            onRecordToggle={handleRecordStop}
-            onSettingsToggle={handleToggleInspector}
-            onSupportClick={handleSupportClick}
-            isCameraInitialized={camera.isInitialized}
-            onCameraInitialize={handleCameraInitialize}
-          />
-        )}
+        {/* BottomNav - hidden on tablet/desktop via CSS (flex md:hidden) */}
+        <BottomNav
+          activePanel={activePanel}
+          onPanelChange={handlePanelChange}
+          recordingState={recorder.recordingState}
+          onRecordToggle={handleRecordStop}
+          onSettingsToggle={handleToggleInspector}
+          onSupportClick={handleSupportClick}
+          isCameraInitialized={camera.isInitialized}
+          onCameraInitialize={handleCameraInitialize}
+        />
 
-        {!isMobile && <Footer />}
-
-        {isMobile && isStudio && (
-          <InspectorPanel
-            settings={settings}
-            onSettingsChange={setSettings}
-            focusViewEnabled={focusView.isEnabled}
-            onFocusViewToggle={focusView.toggle}
-            mirrorCamera={isMirrored}
-            onMirrorCameraToggle={() => setIsMirrored((prev) => !prev)}
-            countdownEnabled={countdownEnabled}
-            onCountdownToggle={() => setCountdownEnabled((prev) => !prev)}
-            videoDevices={camera.videoDevices}
-            audioDevices={camera.audioDevices}
-            selectedVideoDevice={selectedVideoDevice}
-            selectedAudioDevice={selectedAudioDevice}
-            onVideoDeviceChange={handleVideoDeviceChange}
-            onAudioDeviceChange={handleAudioDeviceChange}
-            script={scriptStorage.script}
-            onScriptChange={scriptStorage.setScript}
-            onClearScript={scriptStorage.clearScript}
-            wordCount={scriptStorage.wordCount}
-            progress={scriptStorage.progress}
-            onLoadInspiration={scriptStorage.loadInspiration}
-            isMobile={isMobile}
-            isOpen={isInspectorOpen}
-            onClose={handleToggleInspector}
-          />
-        )}
+        {/* Footer - hidden on mobile/tablet via CSS (hidden md:flex) */}
+        <Footer />
       </div>
 
       <ExportModal

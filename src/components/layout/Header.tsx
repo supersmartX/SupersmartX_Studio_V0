@@ -42,40 +42,40 @@ export function Header({
   const user = session?.user;
 
   return (
-    <header className="h-12 border-b border-border-subtle bg-surface flex items-center px-4 justify-between shrink-0 z-30 safe-area-top">
+    <header className="h-12 border-b border-border-subtle bg-surface flex items-center px-3 sm:px-4 justify-between shrink-0 z-30 safe-area-top">
       {/* Left: Logo */}
-      <div className="flex items-center gap-2">
-        <div className="w-6 h-6 flex items-center justify-center">
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="w-6 h-6 flex items-center justify-center shrink-0">
           <img src="/SXS_ICON.png" alt="SupersmartX" className="w-full h-full object-contain" />
         </div>
-        <span className="text-[13px] font-bold tracking-wide text-text-primary">
+        <span className="text-[13px] font-bold tracking-wide text-text-primary truncate">
           Supersmart<span className="text-accent">X</span> Studio
         </span>
       </div>
 
       {/* Right: Actions */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1">
         <button
           onClick={onShare}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+          className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] justify-center"
         >
           <ShareIcon className="w-3.5 h-3.5" />
-          Share
+          <span className="hidden sm:inline">Share</span>
         </button>
 
         <button
           onClick={onExport}
           disabled={!hasRecording}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] justify-center"
         >
           <DownloadIcon className="w-3.5 h-3.5" />
-          Export
+          <span className="hidden sm:inline">Export</span>
         </button>
 
-        {isMobile && onToggleInspector && (
+        {onToggleInspector && (
           <button
             onClick={onToggleInspector}
-            className="p-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+            className="p-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label="Settings"
           >
             <SettingsIcon className="w-4 h-4" />
@@ -87,7 +87,7 @@ export function Header({
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="w-8 h-8 rounded-full bg-accent/20 text-accent flex items-center justify-center text-[12px] font-bold hover:bg-accent/30 transition-colors overflow-hidden"
+              className="w-8 h-8 rounded-full bg-accent/20 text-accent flex items-center justify-center text-[12px] font-bold hover:bg-accent/30 transition-colors overflow-hidden min-w-[44px] min-h-[44px]"
             >
               {user.image && !imgError ? (
                 <img src={user.image} alt="" className="w-full h-full object-cover" onError={() => setImgError(true)} />
@@ -114,7 +114,7 @@ export function Header({
         ) : (
           <button
             onClick={onSignIn}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] justify-center"
           >
             Sign in
           </button>

@@ -48,7 +48,7 @@ export function IconRail({
 }: IconRailProps) {
 
   return (
-    <nav className="w-[200px] h-full border-r border-border-subtle bg-surface flex flex-col shrink-0 overflow-hidden" aria-label="Main navigation">
+    <nav className="hidden lg:flex w-[200px] h-full border-r border-border-subtle bg-surface flex-col shrink-0 overflow-hidden" aria-label="Main navigation">
       {/* WORKSPACE */}
       <div className="flex flex-col gap-0.5 px-3 pt-4 pb-2">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2 px-2">Workspace</span>

@@ -19,7 +19,7 @@ export const TeleprompterOverlay = forwardRef<HTMLDivElement, TeleprompterOverla
       <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
         <div
           ref={ref}
-          className="absolute top-0 left-0 right-0 overflow-hidden focus-mask"
+          className="absolute top-0 left-0 right-0 bottom-0 overflow-y-auto overflow-x-hidden focus-mask"
           style={{ height: `${settings.areaHeight}%` }}
         >
           <div

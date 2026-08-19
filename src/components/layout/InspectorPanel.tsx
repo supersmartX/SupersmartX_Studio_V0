@@ -64,6 +64,34 @@ export function InspectorPanel({
     onSettingsChange({ ...settings, ...partial });
   };
 
+  const content = (
+    <InspectorContent
+      settings={settings}
+      updateSettings={updateSettings}
+      focusViewEnabled={focusViewEnabled}
+      onFocusViewToggle={onFocusViewToggle}
+      mirrorCamera={mirrorCamera}
+      onMirrorCameraToggle={onMirrorCameraToggle}
+      countdownEnabled={countdownEnabled}
+      onCountdownToggle={onCountdownToggle}
+      videoDevices={videoDevices}
+      audioDevices={audioDevices}
+      selectedVideoDevice={selectedVideoDevice}
+      selectedAudioDevice={selectedAudioDevice}
+      onVideoDeviceChange={onVideoDeviceChange}
+      onAudioDeviceChange={onAudioDeviceChange}
+      script={script}
+      onScriptChange={onScriptChange}
+      onClearScript={onClearScript}
+      wordCount={wordCount}
+      progress={progress}
+      onLoadInspiration={onLoadInspiration}
+    />
+  );
+
+  // Mobile: full-height slide-in drawer from right
+  // Tablet: bottom sheet overlay (60vh)
+  // Desktop: inline aside panel
   if (isMobile) {
     return (
       <>
@@ -78,234 +106,39 @@ export function InspectorPanel({
           aria-modal="true"
           aria-label="Inspector panel"
         >
-          <MobileContent
-            settings={settings}
-            updateSettings={updateSettings}
-            focusViewEnabled={focusViewEnabled}
-            onFocusViewToggle={onFocusViewToggle}
-            mirrorCamera={mirrorCamera}
-            onMirrorCameraToggle={onMirrorCameraToggle}
-            countdownEnabled={countdownEnabled}
-            onCountdownToggle={onCountdownToggle}
-            videoDevices={videoDevices}
-            audioDevices={audioDevices}
-            selectedVideoDevice={selectedVideoDevice}
-            selectedAudioDevice={selectedAudioDevice}
-            onVideoDeviceChange={onVideoDeviceChange}
-            onAudioDeviceChange={onAudioDeviceChange}
-            script={script}
-            onScriptChange={onScriptChange}
-            onClearScript={onClearScript}
-            wordCount={wordCount}
-            progress={progress}
-            onLoadInspiration={onLoadInspiration}
-            onClose={onClose}
-          />
+          <PanelHeader onClose={onClose} />
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {content}
+          </div>
         </div>
       </>
     );
   }
 
   return (
-    <aside className="w-[280px] lg:w-[300px] h-full border-l border-border-subtle bg-surface flex flex-col shrink-0 overflow-hidden" aria-label="Inspector panel">
-      <DesktopContent
-        settings={settings}
-        updateSettings={updateSettings}
-        focusViewEnabled={focusViewEnabled}
-        onFocusViewToggle={onFocusViewToggle}
-        mirrorCamera={mirrorCamera}
-        onMirrorCameraToggle={onMirrorCameraToggle}
-        countdownEnabled={countdownEnabled}
-        onCountdownToggle={onCountdownToggle}
-        videoDevices={videoDevices}
-        audioDevices={audioDevices}
-        selectedVideoDevice={selectedVideoDevice}
-        selectedAudioDevice={selectedAudioDevice}
-        onVideoDeviceChange={onVideoDeviceChange}
-        onAudioDeviceChange={onAudioDeviceChange}
-        script={script}
-        onScriptChange={onScriptChange}
-        onClearScript={onClearScript}
-        wordCount={wordCount}
-        progress={progress}
-        onLoadInspiration={onLoadInspiration}
-        onClose={onClose}
-      />
+    <aside className="hidden lg:flex w-[280px] xl:w-[300px] h-full border-l border-border-subtle bg-surface flex-col shrink-0 overflow-hidden" aria-label="Inspector panel">
+      <PanelHeader onClose={onClose} />
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {content}
+      </div>
     </aside>
   );
 }
 
-function MobileContent({
-  settings,
-  updateSettings,
-  focusViewEnabled,
-  onFocusViewToggle,
-  mirrorCamera,
-  onMirrorCameraToggle,
-  countdownEnabled,
-  onCountdownToggle,
-  videoDevices,
-  audioDevices,
-  selectedVideoDevice,
-  selectedAudioDevice,
-  onVideoDeviceChange,
-  onAudioDeviceChange,
-  script,
-  onScriptChange,
-  onClearScript,
-  wordCount,
-  progress,
-  onLoadInspiration,
-  onClose,
-}: {
-  settings: TeleprompterSettings;
-  updateSettings: (partial: Partial<TeleprompterSettings>) => void;
-  focusViewEnabled: boolean;
-  onFocusViewToggle: () => void;
-  mirrorCamera: boolean;
-  onMirrorCameraToggle: () => void;
-  countdownEnabled: boolean;
-  onCountdownToggle: () => void;
-  videoDevices: MediaDeviceInfo[];
-  audioDevices: MediaDeviceInfo[];
-  selectedVideoDevice: string;
-  selectedAudioDevice: string;
-  onVideoDeviceChange: (deviceId: string) => void;
-  onAudioDeviceChange: (deviceId: string) => void;
-  script: string;
-  onScriptChange: (value: string) => void;
-  onClearScript: () => void;
-  wordCount: number;
-  progress: number;
-  onLoadInspiration: (key: string) => void;
-  onClose?: () => void;
-}) {
+function PanelHeader({ onClose }: { onClose?: () => void }) {
   return (
-    <>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
-        <span className="text-[13px] font-semibold text-text-primary">Inspector</span>
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="p-2 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-              aria-label="Close inspector"
-            >
-              <CloseIcon className="w-4 h-4" />
-            </button>
-          )}
-      </div>
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <InspectorContent
-          settings={settings}
-          updateSettings={updateSettings}
-          focusViewEnabled={focusViewEnabled}
-          onFocusViewToggle={onFocusViewToggle}
-          mirrorCamera={mirrorCamera}
-          onMirrorCameraToggle={onMirrorCameraToggle}
-          countdownEnabled={countdownEnabled}
-          onCountdownToggle={onCountdownToggle}
-          videoDevices={videoDevices}
-          audioDevices={audioDevices}
-          selectedVideoDevice={selectedVideoDevice}
-          selectedAudioDevice={selectedAudioDevice}
-          onVideoDeviceChange={onVideoDeviceChange}
-          onAudioDeviceChange={onAudioDeviceChange}
-          script={script}
-          onScriptChange={onScriptChange}
-          onClearScript={onClearScript}
-          wordCount={wordCount}
-          progress={progress}
-          onLoadInspiration={onLoadInspiration}
-        />
-      </div>
-    </>
-  );
-}
-
-function DesktopContent({
-  settings,
-  updateSettings,
-  focusViewEnabled,
-  onFocusViewToggle,
-  mirrorCamera,
-  onMirrorCameraToggle,
-  countdownEnabled,
-  onCountdownToggle,
-  videoDevices,
-  audioDevices,
-  selectedVideoDevice,
-  selectedAudioDevice,
-  onVideoDeviceChange,
-  onAudioDeviceChange,
-  script,
-  onScriptChange,
-  onClearScript,
-  wordCount,
-  progress,
-  onLoadInspiration,
-  onClose,
-}: {
-  settings: TeleprompterSettings;
-  updateSettings: (partial: Partial<TeleprompterSettings>) => void;
-  focusViewEnabled: boolean;
-  onFocusViewToggle: () => void;
-  mirrorCamera: boolean;
-  onMirrorCameraToggle: () => void;
-  countdownEnabled: boolean;
-  onCountdownToggle: () => void;
-  videoDevices: MediaDeviceInfo[];
-  audioDevices: MediaDeviceInfo[];
-  selectedVideoDevice: string;
-  selectedAudioDevice: string;
-  onVideoDeviceChange: (deviceId: string) => void;
-  onAudioDeviceChange: (deviceId: string) => void;
-  script: string;
-  onScriptChange: (value: string) => void;
-  onClearScript: () => void;
-  wordCount: number;
-  progress: number;
-  onLoadInspiration: (key: string) => void;
-  onClose?: () => void;
-}) {
-  return (
-    <>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
-        <span className="text-[13px] font-semibold text-text-primary">Inspector</span>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors"
-            aria-label="Close inspector"
-          >
-            <CloseIcon className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <InspectorContent
-          settings={settings}
-          updateSettings={updateSettings}
-          focusViewEnabled={focusViewEnabled}
-          onFocusViewToggle={onFocusViewToggle}
-          mirrorCamera={mirrorCamera}
-          onMirrorCameraToggle={onMirrorCameraToggle}
-          countdownEnabled={countdownEnabled}
-          onCountdownToggle={onCountdownToggle}
-          videoDevices={videoDevices}
-          audioDevices={audioDevices}
-          selectedVideoDevice={selectedVideoDevice}
-          selectedAudioDevice={selectedAudioDevice}
-          onVideoDeviceChange={onVideoDeviceChange}
-          onAudioDeviceChange={onAudioDeviceChange}
-          script={script}
-          onScriptChange={onScriptChange}
-          onClearScript={onClearScript}
-          wordCount={wordCount}
-          progress={progress}
-          onLoadInspiration={onLoadInspiration}
-        />
-      </div>
-    </>
+    <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
+      <span className="text-[13px] font-semibold text-text-primary">Inspector</span>
+      {onClose && (
+        <button
+          onClick={onClose}
+          className="p-2 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+          aria-label="Close inspector"
+        >
+          <CloseIcon className="w-4 h-4" />
+        </button>
+      )}
+    </div>
   );
 }
 
