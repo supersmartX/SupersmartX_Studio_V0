@@ -33,7 +33,7 @@ function formatTime(seconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-function VideoPlayer({ videoUrl, onError }: { videoUrl: string; onError: (msg: string) => void }) {
+function VideoPlayer({ videoUrl, recordedDuration, onError }: { videoUrl: string; recordedDuration: number; onError: (msg: string) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
@@ -54,17 +54,20 @@ function VideoPlayer({ videoUrl, onError }: { videoUrl: string; onError: (msg: s
     if (!video) return;
 
     const handleLoadedMetadata = () => {
-      if (video.duration === Infinity || isNaN(video.duration)) {
+      const videoDur = video.duration;
+      const validVideoDuration = videoDur && !isNaN(videoDur) && videoDur !== Infinity;
+      
+      // Use recordedDuration as primary, fall back to video duration
+      const effectiveDuration = recordedDuration > 0 ? recordedDuration : 
+        (validVideoDuration ? videoDur : 0);
+
+      if (effectiveDuration <= 0) {
         setValidationError('Invalid video duration');
         onError('Could not read video metadata');
         return;
       }
-      if (video.duration < 30) {
-        setValidationError('Invalid video duration (minimum 30 seconds)');
-        onError('Video is too short');
-        return;
-      }
-      setDuration(video.duration);
+
+      setDuration(effectiveDuration);
       setIsValidated(true);
     };
 
@@ -92,7 +95,7 @@ function VideoPlayer({ videoUrl, onError }: { videoUrl: string; onError: (msg: s
       video.removeEventListener('ended', handleEnded);
       video.removeEventListener('error', handleError);
     };
-  }, [videoUrl, onError]);
+  }, [videoUrl, recordedDuration, onError]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -312,69 +315,36 @@ export function ExportModal({
       return;
     }
 
-    let cancelled = false;
-    let tempVideoUrl = '';
-
-    const validate = async () => {
+    const validate = () => {
       setIsValidating(true);
       setValidationError('');
 
-      try {
-        const response = await fetch(videoUrl);
-        const blob = await response.blob();
+      const recordedDuration = recordingResult?.duration || 0;
 
-        if (cancelled) return;
-
-        if (blob.size === 0) {
-          throw new Error('Video file is empty');
-        }
-
-        const video = document.createElement('video');
-        tempVideoUrl = URL.createObjectURL(blob);
-        const canPlay = await new Promise<boolean>((resolve) => {
-          video.onloadedmetadata = () => resolve(true);
-          video.onerror = () => resolve(false);
-          video.src = tempVideoUrl;
-          setTimeout(() => resolve(false), 10000);
-        });
-
-        if (cancelled) return;
-
-        if (!canPlay) {
-          throw new Error('Video cannot be played');
-        }
-
-        const recordedDuration = recordingResult?.duration || 0;
-        const videoDuration = video.duration;
-        
-        const effectiveDuration = recordedDuration > 0 ? recordedDuration : 
-          (videoDuration && !isNaN(videoDuration) && videoDuration !== Infinity ? videoDuration : 0);
-
-        if (effectiveDuration <= 0) {
-          throw new Error('Invalid video duration - recording may be too short');
-        }
-
-        if (effectiveDuration < 30) {
-          throw new Error('Invalid video duration (minimum 30 seconds)');
-        }
-
-        setValidationPassed(true);
-      } catch (err) {
-        if (!cancelled) {
-          setValidationError(err instanceof Error ? err.message : 'Validation failed');
-        }
-      } finally {
-        if (tempVideoUrl) URL.revokeObjectURL(tempVideoUrl);
-        if (!cancelled) setIsValidating(false);
+      if (recordedDuration <= 0) {
+        setValidationError('Invalid video duration - recording may be too short');
+        setIsValidating(false);
+        return;
       }
+
+      if (recordedDuration < 30) {
+        setValidationError('Invalid video duration (minimum 30 seconds)');
+        setIsValidating(false);
+        return;
+      }
+
+      if (!videoUrl) {
+        setValidationError('No video URL');
+        setIsValidating(false);
+        return;
+      }
+
+      setValidationPassed(true);
+      setIsValidating(false);
     };
 
     validate();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isVisible, videoUrl]);
+  }, [isVisible, videoUrl, recordingResult]);
 
   const handleDownload = useCallback(() => {
     if (!recordingResult) return;
@@ -424,7 +394,7 @@ export function ExportModal({
         </div>
 
         <div className="p-4 sm:p-5 flex flex-col gap-4">
-          <VideoPlayer videoUrl={videoUrl} onError={setValidationError} />
+          <VideoPlayer videoUrl={videoUrl} recordedDuration={recordingResult?.duration || 0} onError={setValidationError} />
 
           {recordingResult && (
             <div className="grid grid-cols-2 gap-3">
