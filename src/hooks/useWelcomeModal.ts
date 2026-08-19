@@ -9,8 +9,13 @@ export function useWelcomeModal() {
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
   useEffect(() => {
-    const hidden = localStorage.getItem(STORAGE_KEY);
-    if (!hidden) {
+    try {
+      const hidden = localStorage.getItem(STORAGE_KEY);
+      if (!hidden) {
+        const timer = setTimeout(() => setIsVisible(true), 500);
+        return () => clearTimeout(timer);
+      }
+    } catch {
       const timer = setTimeout(() => setIsVisible(true), 500);
       return () => clearTimeout(timer);
     }
@@ -18,7 +23,11 @@ export function useWelcomeModal() {
 
   const closeModal = () => {
     if (dontShowAgain) {
-      localStorage.setItem(STORAGE_KEY, 'true');
+      try {
+        localStorage.setItem(STORAGE_KEY, 'true');
+      } catch {
+        // localStorage not available
+      }
     }
     setIsVisible(false);
   };

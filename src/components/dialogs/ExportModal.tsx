@@ -312,6 +312,9 @@ export function ExportModal({
       return;
     }
 
+    let cancelled = false;
+    let tempVideoUrl = '';
+
     const validate = async () => {
       setIsValidating(true);
       setValidationError('');
@@ -320,28 +323,30 @@ export function ExportModal({
         const response = await fetch(videoUrl);
         const blob = await response.blob();
 
+        if (cancelled) return;
+
         if (blob.size === 0) {
           throw new Error('Video file is empty');
         }
 
         const video = document.createElement('video');
+        tempVideoUrl = URL.createObjectURL(blob);
         const canPlay = await new Promise<boolean>((resolve) => {
           video.onloadedmetadata = () => resolve(true);
           video.onerror = () => resolve(false);
-          video.src = URL.createObjectURL(blob);
+          video.src = tempVideoUrl;
           setTimeout(() => resolve(false), 10000);
         });
+
+        if (cancelled) return;
 
         if (!canPlay) {
           throw new Error('Video cannot be played');
         }
 
-        // Use recordingResult.duration as primary source (calculated from actual recording time)
-        // Fall back to video.duration if available
         const recordedDuration = recordingResult?.duration || 0;
         const videoDuration = video.duration;
         
-        // Check if we have a valid duration from either source
         const effectiveDuration = recordedDuration > 0 ? recordedDuration : 
           (videoDuration && !isNaN(videoDuration) && videoDuration !== Infinity ? videoDuration : 0);
 
@@ -355,13 +360,20 @@ export function ExportModal({
 
         setValidationPassed(true);
       } catch (err) {
-        setValidationError(err instanceof Error ? err.message : 'Validation failed');
+        if (!cancelled) {
+          setValidationError(err instanceof Error ? err.message : 'Validation failed');
+        }
       } finally {
-        setIsValidating(false);
+        if (tempVideoUrl) URL.revokeObjectURL(tempVideoUrl);
+        if (!cancelled) setIsValidating(false);
       }
     };
 
     validate();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isVisible, videoUrl]);
 
   const handleDownload = useCallback(() => {

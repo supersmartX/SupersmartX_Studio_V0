@@ -74,7 +74,6 @@ export default function HomePage() {
   const [selectedAudioDevice, setSelectedAudioDevice] = useState('');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [recordingCount, setRecordingCount] = useState(0);
-  const [showSupportAfterRecording, setShowSupportAfterRecording] = useState(false);
   const prompterContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(null);
 
@@ -292,7 +291,6 @@ export default function HomePage() {
         setRecordingCount(count);
         
         // Show support modal after every recording (or first only - change to count === 1 for first only)
-        setShowSupportAfterRecording(true);
         setIsSupportModalOpen(true);
       }
     }

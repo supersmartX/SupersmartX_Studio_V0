@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { RecordingState } from '@/types';
 
 interface RecordingResult {
@@ -47,11 +47,33 @@ export function useRecorder(stream: MediaStream | null) {
   const checkEndRef = useRef<(() => boolean) | null>(null);
   const startTimeRef = useRef<number>(0);
   const selectedMimeRef = useRef<{ mimeType: string; extension: string }>({ mimeType: 'video/webm', extension: 'webm' });
+  const videoUrlRef = useRef('');
+  const audioUrlRef = useRef('');
+
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {
+        mediaRecorderRef.current.stop();
+      }
+      if (audioRecorderRef.current?.state === 'recording') {
+        audioRecorderRef.current.stop();
+      }
+      if (scrollIntervalRef.current) clearInterval(scrollIntervalRef.current);
+      if (countIntervalRef.current) clearInterval(countIntervalRef.current);
+      if (endCheckIntervalRef.current) clearInterval(endCheckIntervalRef.current);
+      if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    };
+  }, []);
 
   const revokeUrls = useCallback(() => {
-    if (videoUrl) URL.revokeObjectURL(videoUrl);
-    if (audioUrl) URL.revokeObjectURL(audioUrl);
-  }, [videoUrl, audioUrl]);
+    if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+    videoUrlRef.current = '';
+    setVideoUrl('');
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    audioUrlRef.current = '';
+    setAudioUrl('');
+  }, []);
 
   const clearCountdownInterval = useCallback(() => {
     if (countIntervalRef.current) {
@@ -88,8 +110,6 @@ export function useRecorder(stream: MediaStream | null) {
       revokeUrls();
 
       setRecordingState('countdown');
-      setVideoUrl('');
-      setAudioUrl('');
       setRecordingResult(null);
       let count = 3;
 
@@ -129,7 +149,9 @@ export function useRecorder(stream: MediaStream | null) {
               };
 
               setRecordingResult(result);
-              setVideoUrl(URL.createObjectURL(blob));
+              const newVideoUrl = URL.createObjectURL(blob);
+              videoUrlRef.current = newVideoUrl;
+              setVideoUrl(newVideoUrl);
 
               if (hasAudio) {
                 const audioOnlyChunks: Blob[] = [];
@@ -151,7 +173,9 @@ export function useRecorder(stream: MediaStream | null) {
                     const audioBlob = new Blob(audioOnlyChunks, {
                       type: audioMimeType,
                     });
-                    setAudioUrl(URL.createObjectURL(audioBlob));
+                    const newAudioUrl = URL.createObjectURL(audioBlob);
+                    audioUrlRef.current = newAudioUrl;
+                    setAudioUrl(newAudioUrl);
                   }
                   audioRecorderRef.current = null;
                 };
@@ -192,7 +216,14 @@ export function useRecorder(stream: MediaStream | null) {
   const pauseRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.pause();
-      if (scrollIntervalRef.current) clearInterval(scrollIntervalRef.current);
+      if (scrollIntervalRef.current) {
+        clearInterval(scrollIntervalRef.current);
+        scrollIntervalRef.current = null;
+      }
+      if (endCheckIntervalRef.current) {
+        clearInterval(endCheckIntervalRef.current);
+        endCheckIntervalRef.current = null;
+      }
       setRecordingState('paused');
     }
   }, []);
@@ -227,8 +258,6 @@ export function useRecorder(stream: MediaStream | null) {
     stopAudioRecorder();
     revokeUrls();
     setRecordingState('idle');
-    setVideoUrl('');
-    setAudioUrl('');
     setRecordingResult(null);
   }, [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder, revokeUrls]);
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 type CameraStatus = 'idle' | 'requesting' | 'ready' | 'error';
 
@@ -48,6 +48,13 @@ export function useCamera(): UseCameraReturn {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
 
   const refreshDevices = useCallback(async () => {
     try {
@@ -94,6 +101,7 @@ export function useCamera(): UseCameraReturn {
         throw lastError;
       }
 
+      streamRef.current = newStream;
       setStream(newStream);
       setIsInitialized(true);
       setStatus('ready');

@@ -26,6 +26,7 @@ export function Header({
 }: HeaderProps) {
   const { data: session } = useSession();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -88,8 +89,8 @@ export function Header({
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="w-8 h-8 rounded-full bg-accent/20 text-accent flex items-center justify-center text-[12px] font-bold hover:bg-accent/30 transition-colors overflow-hidden"
             >
-              {user.image ? (
-                <img src={user.image} alt="" className="w-full h-full object-cover" />
+              {user.image && !imgError ? (
+                <img src={user.image} alt="" className="w-full h-full object-cover" onError={() => setImgError(true)} />
               ) : (
                 (user.name?.[0] || user.email?.[0] || '?').toUpperCase()
               )}

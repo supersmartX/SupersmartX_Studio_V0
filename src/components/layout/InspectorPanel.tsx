@@ -184,13 +184,15 @@ function MobileContent({
     <>
       <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
         <span className="text-[13px] font-semibold text-text-primary">Inspector</span>
-          <button
-            onClick={onClose!}
-            className="p-2 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-            aria-label="Close inspector"
-          >
-          <CloseIcon className="w-4 h-4" />
-        </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-2 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+              aria-label="Close inspector"
+            >
+              <CloseIcon className="w-4 h-4" />
+            </button>
+          )}
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
         <InspectorContent
@@ -352,6 +354,51 @@ function InspectorContent({
 }) {
   return (
     <div className="p-4 flex flex-col gap-5">
+      {/* SCRIPT Section */}
+      <Card>
+        <div className="flex flex-col gap-3">
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Script</h3>
+
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-secondary">{wordCount} words</span>
+            <span className="text-[10px] text-text-muted">{Math.round(progress)}% of target</span>
+          </div>
+
+          <div className="w-full h-1.5 bg-border-default rounded-full overflow-hidden">
+            <div
+              className="h-full bg-accent rounded-full transition-all"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+
+          <textarea
+            value={script}
+            onChange={(e) => onScriptChange(e.target.value)}
+            className="w-full min-h-[120px] bg-elevated border border-border-subtle rounded-lg p-3 text-[13px] text-text-primary placeholder-text-muted resize-none outline-none focus:border-accent transition-colors leading-relaxed"
+            placeholder="Paste or write your script here..."
+            aria-label="Script Editor"
+          />
+
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-text-muted flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-success" />
+              Saved locally
+            </span>
+            <button
+              onClick={onClearScript}
+              className="text-[11px] text-text-muted hover:text-text-secondary transition-colors"
+              suppressHydrationWarning
+            >
+              Clear
+            </button>
+          </div>
+
+          <InspirationLoader onLoad={onLoadInspiration} />
+        </div>
+      </Card>
+
+      <div className="h-px bg-border-subtle" />
+
       {/* TELEPROMPTER Section */}
       <Card>
         <div className="flex flex-col gap-3">
@@ -493,51 +540,6 @@ function InspectorContent({
             label="Countdown"
             description="Show 3-2-1 countdown before recording."
           />
-        </div>
-      </Card>
-
-      <div className="h-px bg-border-subtle" />
-
-      {/* SCRIPT Section */}
-      <Card>
-        <div className="flex flex-col gap-3">
-          <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Script</h3>
-
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-text-secondary">{wordCount} words</span>
-            <span className="text-[10px] text-text-muted">{Math.round(progress)}% of target</span>
-          </div>
-
-          <div className="w-full h-1.5 bg-border-default rounded-full overflow-hidden">
-            <div
-              className="h-full bg-accent rounded-full transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-
-          <textarea
-            value={script}
-            onChange={(e) => onScriptChange(e.target.value)}
-            className="w-full min-h-[120px] bg-elevated border border-border-subtle rounded-lg p-3 text-[13px] text-text-primary placeholder-text-muted resize-none outline-none focus:border-accent transition-colors leading-relaxed"
-            placeholder="Paste or write your script here..."
-            aria-label="Script Editor"
-          />
-
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-text-muted flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-success" />
-              Saved locally
-            </span>
-            <button
-              onClick={onClearScript}
-              className="text-[11px] text-text-muted hover:text-text-secondary transition-colors"
-              suppressHydrationWarning
-            >
-              Clear
-            </button>
-          </div>
-
-          <InspirationLoader onLoad={onLoadInspiration} />
         </div>
       </Card>
     </div>
