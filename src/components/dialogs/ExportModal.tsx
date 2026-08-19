@@ -329,18 +329,27 @@ export function ExportModal({
           video.onloadedmetadata = () => resolve(true);
           video.onerror = () => resolve(false);
           video.src = URL.createObjectURL(blob);
-          setTimeout(() => resolve(false), 5000);
+          setTimeout(() => resolve(false), 10000);
         });
 
         if (!canPlay) {
           throw new Error('Video cannot be played');
         }
 
-        if (video.duration === Infinity || isNaN(video.duration) || video.duration <= 0) {
-          throw new Error('Invalid video duration');
+        // Use recordingResult.duration as primary source (calculated from actual recording time)
+        // Fall back to video.duration if available
+        const recordedDuration = recordingResult?.duration || 0;
+        const videoDuration = video.duration;
+        
+        // Check if we have a valid duration from either source
+        const effectiveDuration = recordedDuration > 0 ? recordedDuration : 
+          (videoDuration && !isNaN(videoDuration) && videoDuration !== Infinity ? videoDuration : 0);
+
+        if (effectiveDuration <= 0) {
+          throw new Error('Invalid video duration - recording may be too short');
         }
 
-        if (video.duration < 30) {
+        if (effectiveDuration < 30) {
           throw new Error('Invalid video duration (minimum 30 seconds)');
         }
 
@@ -363,6 +372,7 @@ export function ExportModal({
       return;
     }
 
+    // Use recordingResult.duration (calculated from actual recording time)
     if (recordingResult.duration < 30) {
       showToast('Invalid video duration (minimum 30 seconds)');
       return;
