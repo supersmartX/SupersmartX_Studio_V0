@@ -92,11 +92,21 @@ export default function HomePage() {
   const recorder = useRecorder(camera.stream);
 
   useEffect(() => {
-    if (camera.videoDevices.length > 0 && !selectedVideoDevice) {
-      setSelectedVideoDevice(camera.videoDevices[0].deviceId);
+    if (camera.videoDevices.length > 0) {
+      const stillExists = camera.videoDevices.some(d => d.deviceId === selectedVideoDevice);
+      if (!selectedVideoDevice || !stillExists) {
+        setSelectedVideoDevice(camera.videoDevices[0].deviceId);
+      }
+    } else {
+      setSelectedVideoDevice('');
     }
-    if (camera.audioDevices.length > 0 && !selectedAudioDevice) {
-      setSelectedAudioDevice(camera.audioDevices[0].deviceId);
+    if (camera.audioDevices.length > 0) {
+      const stillExists = camera.audioDevices.some(d => d.deviceId === selectedAudioDevice);
+      if (!selectedAudioDevice || !stillExists) {
+        setSelectedAudioDevice(camera.audioDevices[0].deviceId);
+      }
+    } else {
+      setSelectedAudioDevice('');
     }
   }, [camera.videoDevices, camera.audioDevices]);
 
@@ -158,6 +168,12 @@ export default function HomePage() {
     setIsDrawerVisible(false);
   }, []);
 
+  const handleDownloadComplete = useCallback(() => {
+    setIsDrawerVisible(false);
+    recorder.resetRecording();
+    setElapsedSeconds(0);
+  }, [recorder]);
+
   const handlePracticeAgain = useCallback(() => {
     setIsDrawerVisible(false);
     recorder.resetRecording();
@@ -212,7 +228,12 @@ export default function HomePage() {
         : true,
     };
 
-    await camera.initialize(constraints);
+    try {
+      await camera.initialize(constraints);
+    } catch {
+      // If exact deviceId failed, retry without specific device constraints
+      await camera.initialize();
+    }
   }, [camera, selectedAudioDevice, selectedVideoDevice]);
 
   const handleVideoDeviceChange = useCallback(async (deviceId: string) => {
@@ -290,7 +311,8 @@ export default function HomePage() {
         localStorage.setItem('sxs-recording-count', count.toString());
         setRecordingCount(count);
         
-        setIsSupportModalOpen(true);
+        // Delay support modal to avoid blocking ExportModal
+        setTimeout(() => setIsSupportModalOpen(true), 3000);
       }
     }
   }, [recorder.recordingState]);
@@ -493,6 +515,7 @@ export default function HomePage() {
         onClose={handleCloseDrawer}
         onPracticeAgain={handlePracticeAgain}
         onShare={share}
+        onDownloadComplete={handleDownloadComplete}
         showToast={showToast}
         isAuthenticated={!!session?.user}
         onAuthRequired={handleAuthRequired}

@@ -135,6 +135,13 @@ export function useRecorder(stream: MediaStream | null) {
               if (e.data.size > 0) chunksRef.current.push(e.data);
             };
 
+            recorder.onerror = () => {
+              clearRecordingIntervals();
+              clearCountdownInterval();
+              setRecordingState('idle');
+              setCountdownText('');
+            };
+
             recorder.onstop = () => {
               const duration = (Date.now() - startTimeRef.current) / 1000;
               const hasAudio = stream.getAudioTracks().length > 0;

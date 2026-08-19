@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { DownloadIcon, CloseIcon, PlayIcon, PauseIcon, ShareIcon } from '@/components/icons';
 import { DiscordFeedback } from './DiscordFeedback';
 import { generateFilename } from '@/services/download.service';
+import { setPendingDownload } from '@/lib/auth-guard';
 
 interface RecordingResult {
   blob: Blob;
@@ -22,6 +23,7 @@ interface ExportModalProps {
   onClose: () => void;
   onPracticeAgain: () => void;
   onShare: () => void;
+  onDownloadComplete?: () => void;
   showToast: (message: string) => void;
   isAuthenticated: boolean;
   onAuthRequired: () => void;
@@ -299,6 +301,7 @@ export function ExportModal({
   onClose,
   onPracticeAgain,
   onShare,
+  onDownloadComplete,
   showToast,
   isAuthenticated,
   onAuthRequired,
@@ -349,26 +352,31 @@ export function ExportModal({
   const handleDownload = useCallback(() => {
     if (!recordingResult) return;
 
-    if (!isAuthenticated) {
-      onAuthRequired();
-      return;
-    }
-
-    // Use recordingResult.duration (calculated from actual recording time)
     if (recordingResult.duration < 30) {
       showToast('Invalid video duration (minimum 30 seconds)');
       return;
     }
 
-    const filename = generateFilename('video', recordingResult.extension);
-    const a = document.createElement('a');
-    a.href = videoUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    showToast(`Downloaded: ${filename}`);
-  }, [videoUrl, recordingResult, showToast, isAuthenticated, onAuthRequired]);
+    const doDownload = () => {
+      const filename = generateFilename('video', recordingResult.extension);
+      const a = document.createElement('a');
+      a.href = videoUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast(`Downloaded: ${filename}`);
+      onDownloadComplete?.();
+    };
+
+    if (!isAuthenticated) {
+      setPendingDownload(doDownload);
+      onAuthRequired();
+      return;
+    }
+
+    doDownload();
+  }, [videoUrl, recordingResult, showToast, isAuthenticated, onAuthRequired, onDownloadComplete]);
 
   if (!isVisible) return null;
 

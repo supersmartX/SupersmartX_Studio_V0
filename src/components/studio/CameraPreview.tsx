@@ -32,7 +32,7 @@ export function CameraPreview({
       autoPlay
       playsInline
       muted
-      className={`absolute inset-0 w-full h-full object-cover transition-all duration-300 ${
+      className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
         isMirrored ? 'mirrored' : ''
       } ${focusViewEnabled ? 'blur-xl opacity-40' : ''}`}
     />

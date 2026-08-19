@@ -49,6 +49,8 @@ export function useCamera(): UseCameraReturn {
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const statusRef = useRef<CameraStatus>('idle');
+  const initializeRef = useRef<((constraints?: MediaStreamConstraints) => Promise<void>) | null>(null);
 
   useEffect(() => {
     return () => {
@@ -72,14 +74,25 @@ export function useCamera(): UseCameraReturn {
     return () => navigator.mediaDevices.removeEventListener('devicechange', refreshDevices);
   }, []);
 
+  const handleTrackEnded = useCallback(() => {
+    streamRef.current = null;
+    setStream(null);
+    setIsInitialized(false);
+    setStatus('error');
+    setErrorMessage('Camera was disconnected. Please reconnect and retry.');
+  }, []);
+
   const initialize = useCallback(async (constraints?: MediaStreamConstraints) => {
+    if (statusRef.current === 'requesting') return;
+    
     setStatus('requesting');
+    statusRef.current = 'requesting';
     setErrorMessage(null);
 
     let newStream: MediaStream | null = null;
     try {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
 
       const constraintsToTry = constraints ? [constraints] : FALLBACK_CONSTRAINTS;
@@ -101,20 +114,28 @@ export function useCamera(): UseCameraReturn {
         throw lastError;
       }
 
+      newStream.getTracks().forEach((track) => {
+        track.addEventListener('ended', handleTrackEnded);
+      });
+
       streamRef.current = newStream;
       setStream(newStream);
       setIsInitialized(true);
       setStatus('ready');
+      statusRef.current = 'ready';
       await refreshDevices();
     } catch (err) {
       if (newStream) {
         newStream.getTracks().forEach((track) => track.stop());
       }
       setStatus('error');
+      statusRef.current = 'error';
       setErrorMessage(getErrorMessage(err));
       setIsInitialized(false);
     }
-  }, [stream, refreshDevices]);
+  }, [refreshDevices, handleTrackEnded]);
+
+  initializeRef.current = initialize;
 
   return {
     stream,
