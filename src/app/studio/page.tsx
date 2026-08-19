@@ -162,6 +162,7 @@ export default function HomePage() {
     ) {
       handleRecordStart();
     }
+    // Ignore countdown — don't start or stop while countdown is active
   }, [recorder, camera.stream, isDrawerVisible, handleRecordStart]);
 
   const handleCloseDrawer = useCallback(() => {
@@ -368,8 +369,6 @@ export default function HomePage() {
           <IconRail
             activePanel={activePanel}
             onPanelChange={handlePanelChange}
-            recordingState={recorder.recordingState}
-            onRecordToggle={handleRecordStop}
             isCameraInitialized={camera.isInitialized}
             onCameraInitialize={handleCameraInitialize}
             isMicMuted={isMicMuted}
@@ -383,58 +382,57 @@ export default function HomePage() {
           />
 
           <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden" role="main">
-            {isStudio && (
-              <>
-                <DeviceSelectorBar
-                  videoDevices={camera.videoDevices}
-                  audioDevices={camera.audioDevices}
-                  selectedVideoDevice={selectedVideoDevice}
-                  selectedAudioDevice={selectedAudioDevice}
-                  onVideoDeviceChange={handleVideoDeviceChange}
-                  onAudioDeviceChange={handleAudioDeviceChange}
-                  onRefresh={camera.refreshDevices}
+            {/* Studio view — CSS visibility prevents unmount/remount of CameraPreview stream */}
+            <div className={`flex-1 min-h-0 flex flex-col overflow-hidden ${isStudio ? '' : 'hidden'}`}>
+              <DeviceSelectorBar
+                videoDevices={camera.videoDevices}
+                audioDevices={camera.audioDevices}
+                selectedVideoDevice={selectedVideoDevice}
+                selectedAudioDevice={selectedAudioDevice}
+                onVideoDeviceChange={handleVideoDeviceChange}
+                onAudioDeviceChange={handleAudioDeviceChange}
+                onRefresh={camera.refreshDevices}
+              />
+
+              <Canvas
+                focusViewEnabled={focusView.isEnabled}
+                onFocusViewToggle={focusView.toggle}
+              >
+                <CameraPreview
+                  stream={camera.stream}
+                  isMirrored={isMirrored}
+                  focusViewEnabled={focusView.isEnabled}
                 />
 
-                <Canvas
-                  focusViewEnabled={focusView.isEnabled}
-                  onFocusViewToggle={focusView.toggle}
-                >
-                  <CameraPreview
-                    stream={camera.stream}
-                    isMirrored={isMirrored}
-                    focusViewEnabled={focusView.isEnabled}
+                <TeleprompterOverlay
+                  ref={prompterContainerRef}
+                  script={scriptStorage.script}
+                  settings={settings}
+                />
+
+                <FocalGuideway position={settings.textStartPosition} />
+
+                <RecordingBadge recordingState={recorder.recordingState} />
+
+                <Timer
+                  isRunning={recorder.recordingState === 'recording'}
+                  elapsedSeconds={elapsedSeconds}
+                />
+
+                <CountdownOverlay
+                  countdownText={recorder.countdownText}
+                  isVisible={recorder.recordingState === 'countdown' && countdownEnabled}
+                />
+
+                {!camera.isInitialized && (
+                  <InitOverlay
+                    onInitialize={handleCameraInitialize}
+                    status={camera.status === 'ready' ? 'idle' : camera.status}
+                    errorMessage={camera.errorMessage}
                   />
-
-                  <TeleprompterOverlay
-                    ref={prompterContainerRef}
-                    script={scriptStorage.script}
-                    settings={settings}
-                  />
-
-                  <FocalGuideway position={settings.textStartPosition} />
-
-                  <RecordingBadge recordingState={recorder.recordingState} />
-
-                  <Timer
-                    isRunning={recorder.recordingState === 'recording'}
-                    elapsedSeconds={elapsedSeconds}
-                  />
-
-                  <CountdownOverlay
-                    countdownText={recorder.countdownText}
-                    isVisible={recorder.recordingState === 'countdown' && countdownEnabled}
-                  />
-
-                  {!camera.isInitialized && (
-                    <InitOverlay
-                      onInitialize={handleCameraInitialize}
-                      status={camera.status === 'ready' ? 'idle' : camera.status}
-                      errorMessage={camera.errorMessage}
-                    />
-                  )}
-                </Canvas>
-              </>
-            )}
+                )}
+              </Canvas>
+            </div>
 
             {activePanel === 'library' && (
               <div className="flex-1 min-h-0 overflow-auto">
@@ -480,15 +478,15 @@ export default function HomePage() {
             />
           </main>
 
-          {/* InspectorPanel - single instance, CSS handles visibility per breakpoint */}
-          {isStudio && (
+          {/* InspectorPanel - CSS visibility prevents unmount/remount on tab switch */}
+          <div className={isStudio ? '' : 'hidden'}>
             <InspectorPanel
               {...inspectorProps}
               isMobile={isMobile}
               isOpen={isInspectorOpen}
               onClose={handleToggleInspector}
             />
-          )}
+          </div>
         </div>
 
         {/* BottomNav - hidden on tablet/desktop via CSS (flex md:hidden) */}

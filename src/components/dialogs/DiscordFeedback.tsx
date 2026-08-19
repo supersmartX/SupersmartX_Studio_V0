@@ -26,8 +26,7 @@ export function DiscordFeedback({ onSuccess }: DiscordFeedbackProps) {
       onSuccess('Successfully connected! Thank you!');
       setInput('');
     } catch {
-      onSuccess('Successfully connected! Thank you!');
-      setInput('');
+      onSuccess('Could not send feedback. Please try again later.');
     } finally {
       setIsSending(false);
     }

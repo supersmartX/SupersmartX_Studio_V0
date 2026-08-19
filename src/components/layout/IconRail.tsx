@@ -1,6 +1,6 @@
 'use client';
 
-import type { RecordingState, TabType } from '@/types';
+import type { TabType } from '@/types';
 import {
   FileTextIcon,
   BookOpenIcon,
@@ -16,8 +16,6 @@ import {
 interface IconRailProps {
   activePanel: TabType | 'record' | 'share';
   onPanelChange: (panel: TabType | 'record' | 'share') => void;
-  recordingState: RecordingState;
-  onRecordToggle: () => void;
   isCameraInitialized: boolean;
   onCameraInitialize: () => void;
   isMicMuted: boolean;
@@ -33,8 +31,6 @@ interface IconRailProps {
 export function IconRail({
   activePanel,
   onPanelChange,
-  recordingState: _recordingState,
-  onRecordToggle: _onRecordToggle,
   isCameraInitialized,
   onCameraInitialize,
   isMicMuted,

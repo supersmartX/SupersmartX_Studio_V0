@@ -103,6 +103,7 @@ export function useRecorder(stream: MediaStream | null) {
   const startRecording = useCallback(
     (scrollCallback: () => void, checkEndCallback: () => boolean) => {
       if (!stream) return;
+      if (recordingState !== 'idle') return;
 
       clearCountdownInterval();
       clearRecordingIntervals();
@@ -138,7 +139,20 @@ export function useRecorder(stream: MediaStream | null) {
             recorder.onerror = () => {
               clearRecordingIntervals();
               clearCountdownInterval();
-              setRecordingState('idle');
+              // Save partial recording if chunks exist
+              if (chunksRef.current.length > 0) {
+                const duration = (Date.now() - startTimeRef.current) / 1000;
+                const hasAudio = stream.getAudioTracks().length > 0;
+                const blob = new Blob(chunksRef.current, { type: supported.mimeType });
+                const result: RecordingResult = { blob, mimeType: supported.mimeType, extension: supported.extension, duration, hasAudio };
+                setRecordingResult(result);
+                const newVideoUrl = URL.createObjectURL(blob);
+                videoUrlRef.current = newVideoUrl;
+                setVideoUrl(newVideoUrl);
+                setRecordingState('completed');
+              } else {
+                setRecordingState('idle');
+              }
               setCountdownText('');
             };
 
@@ -173,6 +187,11 @@ export function useRecorder(stream: MediaStream | null) {
 
                 audioRecorder.ondataavailable = (e) => {
                   if (e.data.size > 0) audioOnlyChunks.push(e.data);
+                };
+
+                audioRecorder.onerror = () => {
+                  // Audio extraction failed — video recording is already saved, just clean up
+                  audioRecorderRef.current = null;
                 };
 
                 audioRecorder.onstop = () => {
@@ -217,7 +236,7 @@ export function useRecorder(stream: MediaStream | null) {
         }
       }, 800);
     },
-    [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder, stream, revokeUrls]
+    [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder, stream, revokeUrls, recordingState]
   );
 
   const pauseRecording = useCallback(() => {

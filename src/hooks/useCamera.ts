@@ -92,7 +92,10 @@ export function useCamera(): UseCameraReturn {
     let newStream: MediaStream | null = null;
     try {
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current.getTracks().forEach((track) => {
+          track.removeEventListener('ended', handleTrackEnded);
+          track.stop();
+        });
       }
 
       const constraintsToTry = constraints ? [constraints] : FALLBACK_CONSTRAINTS;

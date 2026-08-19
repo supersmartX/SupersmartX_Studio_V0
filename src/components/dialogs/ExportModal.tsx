@@ -120,11 +120,11 @@ function VideoPlayer({ videoUrl, recordedDuration, onError }: { videoUrl: string
   const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const video = videoRef.current;
     const bar = progressRef.current;
-    if (!video || !bar) return;
+    if (!video || !bar || !Number.isFinite(duration)) return;
     const rect = bar.getBoundingClientRect();
     const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    video.currentTime = percent * video.duration;
-  }, []);
+    video.currentTime = percent * duration;
+  }, [duration]);
 
   const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const video = videoRef.current;
@@ -155,9 +155,9 @@ function VideoPlayer({ videoUrl, recordedDuration, onError }: { videoUrl: string
 
   const skip = useCallback((seconds: number) => {
     const video = videoRef.current;
-    if (!video) return;
-    video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
-  }, []);
+    if (!video || !Number.isFinite(duration)) return;
+    video.currentTime = Math.max(0, Math.min(duration, video.currentTime + seconds));
+  }, [duration]);
 
   const toggleFullscreen = useCallback(() => {
     const container = containerRef.current;
