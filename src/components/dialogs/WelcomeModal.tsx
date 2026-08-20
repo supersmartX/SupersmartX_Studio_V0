@@ -40,7 +40,7 @@ export function WelcomeModal({
             <img
               src="/SXS_ICON.png"
               alt="SupersmartX Logo"
-              className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(59,130,246,0.3)]"
+              className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(124,58,237,0.3)]"
             />
           </div>
 

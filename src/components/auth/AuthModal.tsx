@@ -263,7 +263,7 @@ export function AuthModal({
                   />
                   <SocialButton
                     label="GitHub"
-                    onClick={() => {}}
+                    onClick={() => signIn('github', { callbackUrl })}
                     disabled={isLoading}
                     icon={<GithubIcon />}
                   />
@@ -342,7 +342,7 @@ export function AuthModal({
                 <p className="text-sm text-white/40 text-center">
                   Already have an account?{' '}
                   <button
-                    onClick={handleEmailSubmit}
+                    onClick={() => setStep('email')}
                     className="text-white font-medium hover:underline"
                   >
                     Log in

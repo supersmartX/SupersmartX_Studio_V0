@@ -2,58 +2,12 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { useSession } from 'next-auth/react';
 import { AuthModal } from '@/components/auth/AuthModal';
 
 const NAV_LINKS = [
-  { label: 'Features', href: '#features' },
+  { label: 'Studio', href: '#top' },
   { label: 'How It Works', href: '#how-it-works' },
   { label: 'Pricing', href: '#pricing' },
-  { label: 'Contact', href: '#contact' },
-];
-
-const STATS = [
-  {
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <rect x="3.4" y="2.6" width="7.2" height="18.8" rx="3.6" fill="url(#s1a)" />
-        <rect x="13.4" y="2.6" width="7.2" height="18.8" rx="3.6" fill="url(#s1b)" />
-        <rect x="9.2" y="10.9" width="5.6" height="2.2" rx="1.1" fill="#4a4a4a" />
-        <defs>
-          <linearGradient id="s1a" x1="3" y1="2" x2="14" y2="22"><stop offset="0" stopColor="#fff" stopOpacity="0.38" /><stop offset="1" stopColor="#3a3a3a" stopOpacity="0.62" /></linearGradient>
-          <linearGradient id="s1b" x1="14" y1="2" x2="25" y2="22"><stop offset="0" stopColor="#3a3a3a" stopOpacity="0.38" /><stop offset="1" stopColor="#fff" stopOpacity="0.62" /></linearGradient>
-        </defs>
-      </svg>
-    ),
-    label: '50K+ scripts written',
-  },
-  {
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <rect x="2.4" y="2.4" width="19.2" height="19.2" rx="6.2" fill="#fff" />
-        <path d="M12 7.1v7.4M8.15 12.35L12 16.2l3.85-3.85" stroke="#111" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    ),
-    label: '4K video recording',
-  },
-  {
-    icon: (
-      <svg width="38" height="21" viewBox="0 0 40 22" fill="none" className="lsx-stat-icon-wide">
-        <circle cx="10.2" cy="11" r="9.2" fill="#2b2b2b" />
-        <ellipse cx="10.2" cy="12.1" rx="4.15" ry="3.7" fill="#f4f4f4" />
-        <circle cx="8.5" cy="11.2" r="0.7" fill="#1a1a1a" />
-        <circle cx="11.9" cy="11.2" r="0.7" fill="#1a1a1a" />
-        <circle cx="20.2" cy="11" r="9.2" fill="#fff" />
-        <circle cx="18.5" cy="9.5" r="1.7" fill="#1a1a1a" />
-        <circle cx="21.9" cy="9.5" r="1.7" fill="#1a1a1a" />
-        <ellipse cx="20.2" cy="12" rx="1.5" ry="1.2" fill="#ddd" />
-        <path d="M17.5 14.5c.9 1.2 2.4 1.8 2.7 1.8s1.8-.6 2.7-1.8" stroke="#111" strokeWidth="1.2" strokeLinecap="round" fill="none" />
-        <circle cx="30.2" cy="11" r="9.2" fill="#f26b1d" />
-        <text x="30.2" y="15.1" textAnchor="middle" fill="#fff" fontFamily="Inter, sans-serif" fontWeight="700" fontSize="12.5">S</text>
-      </svg>
-    ),
-    label: '10K+ creators onboarded',
-  },
 ];
 
 function GrainOverlay() {
@@ -94,7 +48,6 @@ function HeroVideo() {
 }
 
 export default function LandingPage() {
-  const { data: session } = useSession();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -103,9 +56,9 @@ export default function LandingPage() {
 
   useEffect(() => {
     document.documentElement.style.height = menuOpen ? 'auto' : '';
-    document.documentElement.style.overflow = menuOpen ? 'auto' : '';
+    document.documentElement.style.overflow = menuOpen ? 'hidden' : '';
     document.body.style.height = menuOpen ? 'auto' : '';
-    document.body.style.overflow = menuOpen ? 'auto' : '';
+    document.body.style.overflow = menuOpen ? 'hidden' : '';
     return () => {
       document.documentElement.style.height = '';
       document.documentElement.style.overflow = '';
@@ -239,10 +192,9 @@ export default function LandingPage() {
 }
 .lsx-nav-pill:hover {
   background: rgba(255,255,255,0.05);
-  border-color: rgba(255,255,255,0.16);
 }
 .lsx-nav-pill:focus-visible {
-  outline: 2px solid #3B82F6;
+  outline: 2px solid #8B5CF6;
   outline-offset: 2px;
 }
 
@@ -269,17 +221,16 @@ export default function LandingPage() {
 }
 
 .lsx-btn-solid {
-  background: #fff;
-  color: #000;
-  border: 1px solid #fff;
+  background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
+  color: #fff;
+  border: 1px solid #7C3AED;
 }
 .lsx-btn-solid:hover {
-  background: rgba(255,255,255,0.9);
-  border-color: #f2f6ff;
-  box-shadow: 0 0 22px rgba(59,130,246,0.25);
+  background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+  border-color: #8B5CF6;
 }
 .lsx-btn-solid:focus-visible {
-  outline: 2px solid #3B82F6;
+  outline: 2px solid #8B5CF6;
   outline-offset: 2px;
 }
 
@@ -290,19 +241,15 @@ export default function LandingPage() {
 }
 .lsx-btn-ghost:hover {
   background: rgba(255,255,255,0.05);
-  border-color: rgba(255,255,255,0.16);
 }
 .lsx-btn-ghost:focus-visible {
-  outline: 2px solid #3B82F6;
+  outline: 2px solid #8B5CF6;
   outline-offset: 2px;
 }
 
 .lsx-hero-btn {
   height: var(--lsx-hero-btn-h, 42px);
   padding: 0 18px;
-}
-.lsx-hero-solid:hover {
-  box-shadow: 0 0 26px rgba(59,130,246,0.30);
 }
 .lsx-hero-ghost {
   background: #111113;
@@ -312,8 +259,6 @@ export default function LandingPage() {
 }
 .lsx-hero-ghost:hover {
   background: rgba(255,255,255,0.05);
-  border-color: rgba(255,255,255,0.16);
-  box-shadow: 0 0 24px rgba(59,130,246,0.18);
 }
 
 .lsx-hero {
@@ -341,9 +286,9 @@ export default function LandingPage() {
   gap: 8px;
   margin-bottom: 22px;
   padding: 9px 15px;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid rgba(124,58,237,0.25);
   border-radius: 5px;
-  background: #111113;
+  background: rgba(124,58,237,0.08);
   color: #fff;
   font-size: var(--lsx-badge, 12.5px);
   font-weight: 400;
@@ -397,25 +342,6 @@ export default function LandingPage() {
   justify-content: center;
   gap: 10px;
   margin-top: 26px;
-}
-
-.lsx-stats {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 0 var(--lsx-stats-x, 72px) var(--lsx-stats-y, 36px);
-  padding-bottom: max(var(--lsx-stats-y, 36px), env(safe-area-inset-bottom));
-  color: #d8d8d8;
-}
-
-.lsx-stat {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  font-size: var(--lsx-stat-size, 13.5px);
-  letter-spacing: -0.015em;
-  white-space: nowrap;
 }
 
 .lsx-menu-backdrop {
@@ -521,7 +447,7 @@ export default function LandingPage() {
 }
 
 @media (min-width: 901px) {
-  .lsx-page { height: 100vh; height: 100dvh; overflow: hidden; }
+  .lsx-page { min-height: 100vh; min-height: 100dvh; }
 }
 
 @media (max-width: 900px) {
@@ -539,13 +465,68 @@ export default function LandingPage() {
   .lsx-site-nav .lsx-nav-pill { width: 100%; height: 56px; font-size: 19px; border-radius: 10px; }
   .lsx-hero { padding: 20px 20px 64px; align-items: flex-end; }
   .lsx-stats { flex-direction: column; align-items: center; gap: 16px; white-space: normal; padding: 20px 24px 48px; }
-  .lsx-page { --lsx-logo: 16px; --lsx-btn: 15px; --lsx-btn-h: 46px; --lsx-hero-btn-h: 48px; --lsx-h1: 36px; --lsx-lede: 16.5px; --lsx-badge: 13.5px; --lsx-stat-size: 15px; --lsx-header-x: 18px; --lsx-stats-x: 20px; --lsx-stats-y: 28px; --lsx-hero-gap: 36px; --lsx-copy-max: 100%; --lsx-lede-max: 100%; }
+  .lsx-page { --lsx-logo: 16px; --lsx-btn: 15px; --lsx-btn-h: 46px; --lsx-hero-btn-h: 48px; --lsx-h1: 36px; --lsx-lede: 16.5px; --lsx-badge: 13.5px; --lsx-header-x: 18px; --lsx-hero-gap: 36px; --lsx-copy-max: 100%; --lsx-lede-max: 100%; }
 }
 
 @media (max-width: 560px) {
   .lsx-page { --lsx-h1: 34px; --lsx-lede: 16px; --lsx-header-x: 16px; }
   .lsx-hero-actions { flex-direction: column; width: 100%; }
   .lsx-hero-actions .lsx-btn { width: 100%; }
+  .lsx-footer-columns { grid-template-columns: 1fr; gap: 32px; }
+}
+
+.lsx-footer {
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding: 48px var(--lsx-header-x, 40px) 24px;
+}
+.lsx-footer-inner {
+  display: flex;
+  justify-content: space-between;
+  gap: 48px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.lsx-footer-brand {
+  max-width: 260px;
+}
+.lsx-footer-tagline {
+  margin-top: 12px;
+  color: rgba(255,255,255,0.4);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.lsx-footer-columns {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 56px;
+}
+.lsx-footer-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lsx-footer-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 4px;
+}
+.lsx-footer-link {
+  font-size: 13px;
+  color: rgba(255,255,255,0.4);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.lsx-footer-link:hover {
+  color: #fff;
+}
+.lsx-footer-bottom {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255,255,255,0.3);
 }
 `,
         }}
@@ -562,18 +543,10 @@ export default function LandingPage() {
 
         <header className="lsx-header">
           <Link href="/" className="lsx-logo lsx-appear" style={{ '--lsx-d': '0.08s' } as React.CSSProperties} aria-label="SupersmartX Studio">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-              <g transform="rotate(-30 12 12)">
-                <circle cx="7.3" cy="3.2" r="1.45" />
-                <rect x="5.5" y="4.7" width="3.6" height="14.6" rx="1.8" />
-                <rect x="14.9" y="4.7" width="3.6" height="14.6" rx="1.8" />
-                <circle cx="16.7" cy="20.8" r="1.45" />
-              </g>
-            </svg>
-            <span>SuperSmart<span className="lsx-logo-suffix">X</span></span>
+            SUPERSMARTX<span className="text-white/40 font-normal">Studio</span>
           </Link>
 
-          <nav className="lsx-site-nav" aria-label="Primary">
+          <nav className="lsx-site-nav" id="lsx-site-nav" aria-label="Primary">
             {NAV_LINKS.map((link, i) => (
               <a
                 key={link.label}
@@ -588,15 +561,21 @@ export default function LandingPage() {
           </nav>
 
           <div className="lsx-header-cta-wrap">
-            {session?.user ? (
-              <Link href="/studio" className="lsx-btn lsx-btn-solid lsx-appear lsx-appear--scale" style={{ '--lsx-d': '0.34s' } as React.CSSProperties}>
-                Open Studio
-              </Link>
-            ) : (
-              <button onClick={() => { setIsAuthModalOpen(true); closeMenu(); }} className="lsx-btn lsx-btn-solid lsx-appear lsx-appear--scale" style={{ '--lsx-d': '0.34s' } as React.CSSProperties}>
-                Start for Free
+            <div className="lsx-appear lsx-appear--scale" style={{ '--lsx-d': '0.34s' } as React.CSSProperties}>
+              <button
+                onClick={() => { setIsAuthModalOpen(true); closeMenu(); }}
+                className="lsx-btn lsx-btn-ghost"
+                style={{ marginRight: '8px' }}
+              >
+                Sign In
               </button>
-            )}
+              <button
+                onClick={() => { setIsAuthModalOpen(true); closeMenu(); }}
+                className="lsx-btn lsx-btn-solid"
+              >
+                Open Studio
+              </button>
+            </div>
           </div>
 
           <button
@@ -635,29 +614,48 @@ export default function LandingPage() {
             </p>
 
             <div className="lsx-hero-actions">
-              {session?.user ? (
-                <Link href="/studio" className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-appear lsx-appear--btn lsx-hero-solid" style={{ '--lsx-d': '0.96s' } as React.CSSProperties}>
-                  Open Studio
-                </Link>
-              ) : (
-                <button onClick={() => setIsAuthModalOpen(true)} className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-appear lsx-appear--btn lsx-hero-solid" style={{ '--lsx-d': '0.96s' } as React.CSSProperties}>
-                  Start for Free
-                </button>
-              )}
-              <a href="#demo" className="lsx-btn lsx-btn-ghost lsx-hero-btn lsx-appear lsx-appear--side lsx-hero-ghost" style={{ '--lsx-d': '1.10s' } as React.CSSProperties}>
-                See it in action
-              </a>
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-appear lsx-appear--btn lsx-hero-solid"
+                style={{ '--lsx-d': '0.96s' } as React.CSSProperties}
+              >
+                Open Studio
+              </button>
             </div>
           </div>
         </main>
 
-        <footer className="lsx-stats">
-          {STATS.map((stat, i) => (
-            <div key={stat.label} className="lsx-stat lsx-appear lsx-appear--stat" style={{ '--lsx-d': `${1.12 + i * 0.16}s` } as React.CSSProperties}>
-              {stat.icon}
-              <span>{stat.label}</span>
+        <footer className="lsx-footer">
+          <div className="lsx-footer-inner">
+            <div className="lsx-footer-brand">
+              <Link href="/" className="lsx-logo" aria-label="SupersmartX Studio">
+                SUPERSMARTX<span className="text-white/40 font-normal">Studio</span>
+              </Link>
+              <p className="lsx-footer-tagline">Browser-based teleprompter and recording studio.</p>
             </div>
-          ))}
+
+            <div className="lsx-footer-columns">
+              <div className="lsx-footer-col">
+                <h4 className="lsx-footer-heading">Product</h4>
+                <button onClick={() => setIsAuthModalOpen(true)} className="lsx-footer-link text-left">Studio</button>
+                <a href="#pricing" className="lsx-footer-link">Pricing</a>
+              </div>
+              <div className="lsx-footer-col">
+                <h4 className="lsx-footer-heading">Company</h4>
+                <span className="lsx-footer-link text-white/20 cursor-default">About</span>
+                <span className="lsx-footer-link text-white/20 cursor-default">Contact</span>
+              </div>
+              <div className="lsx-footer-col">
+                <h4 className="lsx-footer-heading">Legal</h4>
+                <span className="lsx-footer-link text-white/20 cursor-default">Privacy</span>
+                <span className="lsx-footer-link text-white/20 cursor-default">Terms</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="lsx-footer-bottom">
+            <span>&copy; {new Date().getFullYear()} SupersmartX. All rights reserved.</span>
+          </div>
         </footer>
       </div>
 

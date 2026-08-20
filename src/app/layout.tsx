@@ -15,6 +15,31 @@ export const metadata: Metadata = {
   icons: {
     icon: '/SXS_ICON.png',
   },
+  metadataBase: new URL('https://studio.supersmartx.com'),
+  openGraph: {
+    title: 'SupersmartX Studio',
+    description: 'Interactive Teleprompter and Video Script Reader — Record professional videos from your browser.',
+    url: 'https://studio.supersmartx.com',
+    siteName: 'SupersmartX Studio',
+    images: [
+      {
+        url: '/SXS_ICON.png',
+        width: 512,
+        height: 512,
+        alt: 'SupersmartX Studio',
+      },
+    ],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'SupersmartX Studio',
+    description: 'Interactive Teleprompter and Video Script Reader — Record professional videos from your browser.',
+    images: ['/SXS_ICON.png'],
+  },
+  other: {
+    'theme-color': '#09090B',
+  },
 };
 
 export default function RootLayout({

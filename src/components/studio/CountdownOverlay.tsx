@@ -14,7 +14,7 @@ export function CountdownOverlay({ countdownText, isVisible }: CountdownOverlayP
     >
       <span
         key={countdownText}
-        className="text-7xl font-bold text-accent drop-shadow-[0_0_40px_rgba(59,130,246,0.5)] animate-countdown"
+        className="text-7xl font-bold text-accent drop-shadow-[0_0_40px_rgba(124,58,237,0.5)] animate-countdown"
       >
         {countdownText}
       </span>

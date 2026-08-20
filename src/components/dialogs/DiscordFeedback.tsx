@@ -49,7 +49,7 @@ export function DiscordFeedback({ onSuccess }: DiscordFeedbackProps) {
       </div>
 
       <a
-        href="https://discord.gg/"
+        href="https://discord.gg/supersmartx"
         target="_blank"
         rel="noopener noreferrer"
         className="w-full py-2 bg-[#5865F2] hover:bg-[#4752C4] text-white text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2"

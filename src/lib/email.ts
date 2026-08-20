@@ -136,14 +136,14 @@ function buildUserConfirmationHtml(data: PaymentEmailData): string {
 
         <!-- CTA -->
         <tr><td style="padding:0 32px 32px;">
-          <a href="${APP_URL}/studio" style="display:block;width:100%;padding:14px;background-color:#6366f1;color:#ffffff;text-align:center;text-decoration:none;border-radius:10px;font-size:14px;font-weight:600;">Open SupersmartX Studio</a>
+          <a href="${APP_URL}/studio" style="display:block;width:100%;padding:14px;background-color:#7C3AED;color:#ffffff;text-align:center;text-decoration:none;border-radius:10px;font-size:14px;font-weight:600;">Open SupersmartX Studio</a>
         </td></tr>
 
         <!-- Footer -->
         <tr><td style="padding:20px 32px;border-top:1px solid #1e1e2e;">
           <p style="margin:0;font-size:11px;color:#52525b;text-align:center;">
             This is a receipt for your payment. No further action is required.<br>
-            Questions? Reply to this email or contact <a href="mailto:${sanitizeAttr(ADMIN_EMAIL)}" style="color:#6366f1;">${sanitizeHtml(ADMIN_EMAIL)}</a>
+            Questions? Reply to this email or contact <a href="mailto:${sanitizeAttr(ADMIN_EMAIL)}" style="color:#7C3AED;">${sanitizeHtml(ADMIN_EMAIL)}</a>
           </p>
         </td></tr>
       </table>
