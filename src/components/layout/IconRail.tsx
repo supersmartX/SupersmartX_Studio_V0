@@ -25,7 +25,7 @@ interface IconRailProps {
   onPreferencesToggle: () => void;
   onOpenTeleprompter: () => void;
   onShowShortcuts: () => void;
-  onSupportClick: () => void;
+  onPricingClick: () => void;
 }
 
 export function IconRail({
@@ -40,7 +40,7 @@ export function IconRail({
   onPreferencesToggle,
   onOpenTeleprompter,
   onShowShortcuts,
-  onSupportClick,
+  onPricingClick,
 }: IconRailProps) {
 
   return (
@@ -172,20 +172,20 @@ export function IconRail({
 
       <div className="flex-1" />
 
-      {/* Support Card */}
+      {/* Upgrade Card */}
       <div className="px-3 pb-4">
         <button
-          onClick={onSupportClick}
+          onClick={onPricingClick}
           className="w-full bg-elevated border border-border-subtle rounded-xl p-3.5 flex flex-col gap-2 hover:bg-subtle hover:border-accent/30 transition-colors text-left group"
         >
           <p className="text-[11px] text-text-secondary leading-relaxed group-hover:text-text-primary transition-colors">
-            Enjoying SupersmartX? <span role="img" aria-label="coffee">&#9749;</span>
+            Upgrade to Pro
           </p>
           <p className="text-[10px] text-text-muted leading-relaxed">
-            Your support helps me keep building and improving it.
+            Unlock unlimited recording and 4K export.
           </p>
           <span className="text-[10px] font-semibold text-accent opacity-0 group-hover:opacity-100 transition-opacity">
-            Support now &rarr;
+            View plans &rarr;
           </span>
         </button>
       </div>

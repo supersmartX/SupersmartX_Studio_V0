@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { sendPaymentConfirmationEmail, sendAdminNotification } from '@/lib/email';
 
 const CASHFREE_BASE_URL =
   process.env.CASHFREE_ENV === 'production'
@@ -30,10 +31,8 @@ function verifyWebhookSignature(
   }
 }
 
-// In-memory processed orders (per-instance only)
-// For production, replace with Redis/Upstash with TTL
-const processedOrders = new Map<string, number>(); // orderId -> timestamp
-const PROCESSED_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const processedOrders = new Map<string, number>();
+const PROCESSED_TTL = 24 * 60 * 60 * 1000;
 const MAX_PROCESSED = 10000;
 
 async function getOrderStatus(orderId: string) {
@@ -53,7 +52,6 @@ async function getOrderStatus(orderId: string) {
   return response.json();
 }
 
-// Cleanup old processed orders
 function cleanupProcessedOrders() {
   const now = Date.now();
   for (const [orderId, timestamp] of processedOrders.entries()) {
@@ -61,7 +59,6 @@ function cleanupProcessedOrders() {
       processedOrders.delete(orderId);
     }
   }
-  // If still too many, remove oldest
   if (processedOrders.size > MAX_PROCESSED) {
     const entries = Array.from(processedOrders.entries())
       .sort((a, b) => a[1] - b[1]);
@@ -70,8 +67,11 @@ function cleanupProcessedOrders() {
   }
 }
 
-// Run cleanup every hour
-setInterval(cleanupProcessedOrders, 60 * 60 * 1000);
+function extractPlanFromOrderId(orderId: string): string {
+  if (orderId.includes('pro_yearly')) return 'pro_yearly';
+  if (orderId.includes('pro_monthly')) return 'pro_monthly';
+  return 'pro_monthly';
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -99,20 +99,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing order_id' }, { status: 400 });
     }
 
-    // Check if already processed (in-memory)
     if (processedOrders.has(orderId)) {
       return NextResponse.json({ status: 'ok' });
     }
 
+    processedOrders.set(orderId, Date.now());
+    cleanupProcessedOrders();
+
     const order = await getOrderStatus(orderId);
     const paymentStatus = body.data?.payment?.payment_status;
 
-    console.warn(`Webhook received: ${eventType} for order ${orderId} - status: ${paymentStatus || order.order_status}`);
-
     if (order.order_status === 'PAID' || paymentStatus === 'SUCCESS') {
-      console.warn(`Payment successful for order ${orderId}: INR ${order.order_amount}`);
-      processedOrders.set(orderId, Date.now());
-      cleanupProcessedOrders();
+      const plan = extractPlanFromOrderId(orderId);
+      const billingPeriod = plan === 'pro_yearly' ? 'yearly' as const : 'monthly' as const;
+
+      const emailData = {
+        orderId,
+        plan,
+        amount: order.order_amount,
+        currency: order.order_currency || 'INR',
+        customerName: order.customer_details?.customer_name || '',
+        customerEmail: order.customer_details?.customer_email || '',
+        billingPeriod,
+      };
+
+      if (emailData.customerEmail) {
+        await Promise.allSettled([
+          sendPaymentConfirmationEmail(emailData),
+          sendAdminNotification(emailData),
+        ]);
+      }
     }
 
     return NextResponse.json({ status: 'ok' });

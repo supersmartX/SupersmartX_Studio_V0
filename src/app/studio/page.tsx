@@ -30,7 +30,7 @@ import { InitOverlay } from '@/components/studio/InitOverlay';
 import { FocalGuideway } from '@/components/studio/FocalGuideway';
 import { WelcomeModal } from '@/components/dialogs/WelcomeModal';
 import { ExportModal } from '@/components/dialogs/ExportModal';
-import { SupportModal } from '@/components/dialogs/SupportModal';
+import { PricingModal } from '@/components/dialogs/PricingModal';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { executePendingDownload } from '@/lib/auth-guard';
 import { LibraryPlaceholder } from '@/features/library/LibraryPlaceholder';
@@ -75,11 +75,15 @@ export default function HomePage() {
   const [selectedAudioDevice, setSelectedAudioDevice] = useState('');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [recordingCount, setRecordingCount] = useState(0);
+  const [downloadCount, setDownloadCount] = useState(0);
   const prompterContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(null);
 
+  const FREE_VIDEO_DOWNLOAD_LIMIT = 3;
+  const FREE_MAX_RECORDING_SECONDS = 300; // 5 minutes
+
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
+  const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
 
   const handleAuthRequired = useCallback(() => {
     setIsAuthModalOpen(true);
@@ -113,7 +117,15 @@ export default function HomePage() {
   useEffect(() => {
     if (recorder.recordingState === 'recording') {
       timerRef.current = setInterval(() => {
-        setElapsedSeconds((prev) => prev + 1);
+        setElapsedSeconds((prev) => {
+          if (prev + 1 >= FREE_MAX_RECORDING_SECONDS) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            setTimeout(() => recorder.stopRecording(), 0);
+            showToast('Recording stopped — 5 minute limit reached on Free plan');
+            return FREE_MAX_RECORDING_SECONDS;
+          }
+          return prev + 1;
+        });
       }, 1000);
     } else if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -122,7 +134,7 @@ export default function HomePage() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [recorder.recordingState]);
+  }, [recorder.recordingState, recorder, showToast]);
 
   const handleRecordStart = useCallback(() => {
     if (!camera.stream) return;
@@ -173,6 +185,11 @@ export default function HomePage() {
     setIsDrawerVisible(false);
     recorder.resetRecording();
     setElapsedSeconds(0);
+    if (typeof window !== 'undefined') {
+      const count = parseInt(localStorage.getItem('sxs-download-count') || '0', 10) + 1;
+      localStorage.setItem('sxs-download-count', count.toString());
+      setDownloadCount(count);
+    }
   }, [recorder]);
 
   const handlePracticeAgain = useCallback(() => {
@@ -280,16 +297,18 @@ export default function HomePage() {
     if (typeof window !== 'undefined') {
       const count = parseInt(localStorage.getItem('sxs-recording-count') || '0', 10);
       setRecordingCount(count);
+      const dlCount = parseInt(localStorage.getItem('sxs-download-count') || '0', 10);
+      setDownloadCount(dlCount);
       
-      const support = new URLSearchParams(window.location.search).get('support');
-      if (support === '1') {
-        setIsSupportModalOpen(true);
+      const plan = new URLSearchParams(window.location.search).get('plan');
+      if (plan) {
+        setIsPricingModalOpen(true);
       }
     }
   }, []);
 
-  const handleSupportClick = useCallback(() => {
-    setIsSupportModalOpen(true);
+  const handlePricingClick = useCallback(() => {
+    setIsPricingModalOpen(true);
   }, []);
 
   useKeyboardShortcuts({
@@ -311,9 +330,6 @@ export default function HomePage() {
         const count = parseInt(localStorage.getItem('sxs-recording-count') || '0', 10) + 1;
         localStorage.setItem('sxs-recording-count', count.toString());
         setRecordingCount(count);
-        
-        // Delay support modal to avoid blocking ExportModal
-        setTimeout(() => setIsSupportModalOpen(true), 3000);
       }
     }
   }, [recorder.recordingState]);
@@ -378,7 +394,7 @@ export default function HomePage() {
             onPreferencesToggle={handleToggleInspector}
             onOpenTeleprompter={handleOpenTeleprompter}
             onShowShortcuts={handleShowShortcuts}
-            onSupportClick={handleSupportClick}
+            onPricingClick={handlePricingClick}
           />
 
           <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden" role="main">
@@ -496,7 +512,7 @@ export default function HomePage() {
           recordingState={recorder.recordingState}
           onRecordToggle={handleRecordStop}
           onSettingsToggle={handleToggleInspector}
-          onSupportClick={handleSupportClick}
+          onPricingClick={handlePricingClick}
           isCameraInitialized={camera.isInitialized}
           onCameraInitialize={handleCameraInitialize}
         />
@@ -517,11 +533,14 @@ export default function HomePage() {
         showToast={showToast}
         isAuthenticated={!!session?.user}
         onAuthRequired={handleAuthRequired}
+        downloadCount={downloadCount}
+        downloadLimit={FREE_VIDEO_DOWNLOAD_LIMIT}
+        onDownloadLimitReached={() => setIsPricingModalOpen(true)}
       />
 
-      <SupportModal
-        isOpen={isSupportModalOpen}
-        onClose={() => setIsSupportModalOpen(false)}
+      <PricingModal
+        isOpen={isPricingModalOpen}
+        onClose={() => setIsPricingModalOpen(false)}
         showToast={showToast}
       />
 

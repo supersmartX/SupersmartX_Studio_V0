@@ -6,16 +6,26 @@ const CASHFREE_BASE_URL =
     ? 'https://api.cashfree.com/pg'
     : 'https://sandbox.cashfree.com/pg';
 
+const VALID_CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'BRL', 'MXN', 'NGN', 'ZAR', 'SGD', 'AED', 'SAR', 'PKR', 'BDT', 'PHP', 'IDR', 'MYR', 'THB', 'KRW', 'VND'];
+
+const VALID_PLANS = ['free', 'pro_monthly', 'pro_yearly'];
+
 interface CashfreeOrderRequest {
-  amount: number;
+  plan: string;
+  currency?: string;
+  country?: string;
+  amount?: number;
   name: string;
   email: string;
   phone?: string;
-  message?: string;
 }
 
 function sanitizeInput(input: string): string {
   return input.replace(/[<>"'&]/g, '').trim().slice(0, 200);
+}
+
+function sanitizePhone(input: string): string {
+  return input.replace(/[^0-9+\-\s()]/g, '').trim().slice(0, 15);
 }
 
 function isValidEmail(email: string): boolean {
@@ -23,27 +33,26 @@ function isValidEmail(email: string): boolean {
 }
 
 function generateId(): string {
-  // Works in both Node.js and Edge runtime
   return globalThis.crypto?.randomUUID?.() 
     || Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-async function createCashfreeOrder(data: CashfreeOrderRequest) {
-  const orderId = `sxs-support-${generateId()}`;
+async function createCashfreeOrder(data: { amount: number; currency: string; plan: string; name: string; email: string; phone?: string }) {
+  const orderId = `sxs-${data.plan}-${generateId()}`;
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
   const payload = {
     order_id: orderId,
     order_amount: data.amount,
-    order_currency: 'INR',
+    order_currency: data.currency,
     customer_details: {
       customer_id: `user-${generateId().slice(0, 8)}`,
-      customer_name: sanitizeInput(data.name) || 'Supporter',
+      customer_name: sanitizeInput(data.name) || 'User',
       customer_email: sanitizeInput(data.email),
-      customer_phone: data.phone || '9999999999',
+      customer_phone: sanitizePhone(data.phone || ''),
     },
     order_meta: {
-      return_url: `${baseUrl}/support/success?order_id={order_id}`,
+      return_url: `${baseUrl}/support/success?order_id={order_id}&plan=${data.plan}`,
       notify_url: `${baseUrl}/api/cashfree/webhook`,
     },
   };
@@ -66,14 +75,19 @@ async function createCashfreeOrder(data: CashfreeOrderRequest) {
   return response.json();
 }
 
-// Simple in-memory rate limit (per-instance only)
-// For production multi-instance, replace with Redis/Upstash
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW = 60_000;
 const RATE_LIMIT_MAX = 5;
 
 function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: number } {
   const now = Date.now();
+
+  if (rateLimitMap.size > 1000) {
+    for (const [key, entry] of rateLimitMap.entries()) {
+      if (now >= entry.resetAt) rateLimitMap.delete(key);
+    }
+  }
+
   const entry = rateLimitMap.get(ip);
 
   if (entry && now < entry.resetAt) {
@@ -87,16 +101,6 @@ function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: number } {
   rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
   return { allowed: true };
 }
-
-// Cleanup old entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of rateLimitMap.entries()) {
-    if (now >= entry.resetAt) {
-      rateLimitMap.delete(ip);
-    }
-  }
-}, 5 * 60 * 1000);
 
 export async function POST(request: NextRequest) {
   try {
@@ -119,11 +123,21 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { amount, name, email, phone, message } = body as CashfreeOrderRequest;
+    const { plan, currency, amount, name, email, phone } = body as CashfreeOrderRequest;
 
-    if (typeof amount !== 'number' || !Number.isFinite(amount) || !Number.isInteger(amount) || amount < 1 || amount > 10000) {
+    if (!plan || typeof plan !== 'string' || !VALID_PLANS.includes(plan)) {
+      return NextResponse.json({ error: 'Invalid plan' }, { status: 400 });
+    }
+
+    if (plan === 'free') {
+      return NextResponse.json({ error: 'Free plan does not require payment' }, { status: 400 });
+    }
+
+    if (!amount || typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 || amount > 100000) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
     }
+
+    const finalCurrency = currency && VALID_CURRENCIES.includes(currency) ? currency : 'INR';
 
     if (name && (typeof name !== 'string' || name.length > 200)) {
       return NextResponse.json({ error: 'Invalid name' }, { status: 400 });
@@ -133,16 +147,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid email' }, { status: 400 });
     }
 
-    if (message && (typeof message !== 'string' || message.length > 500)) {
-      return NextResponse.json({ error: 'Invalid message' }, { status: 400 });
-    }
-
     const order = await createCashfreeOrder({
       amount,
-      name: name || 'Supporter',
+      currency: finalCurrency,
+      plan,
+      name: name || 'User',
       email,
       phone,
-      message,
     });
 
     return NextResponse.json({

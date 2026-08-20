@@ -4,11 +4,13 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import { AuthModal } from '@/components/auth/AuthModal';
+import { detectCountry, getPricingForCountry, formatPrice, type RegionalPricing } from '@/lib/pricing';
 
 export default function LandingPage() {
   const { data: session } = useSession();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [pricing, setPricing] = useState<RegionalPricing | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -19,6 +21,12 @@ export default function LandingPage() {
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    detectCountry().then(country => {
+      setPricing(getPricingForCountry(country));
+    });
   }, []);
 
   return (
@@ -40,8 +48,8 @@ export default function LandingPage() {
             <Link href="#how-it-works" className="text-[13px] text-zinc-400 hover:text-white transition-colors duration-200">
               How It Works
             </Link>
-            <Link href="/studio?support=1" className="text-[13px] text-zinc-400 hover:text-white transition-colors duration-200">
-              Support
+            <Link href="#pricing" className="text-[13px] text-zinc-400 hover:text-white transition-colors duration-200">
+              Pricing
             </Link>
           </nav>
 
@@ -409,43 +417,74 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ═══════════ FEEDBACK + SUPPORT ═══════════ */}
-      <section className="py-20 border-t border-white/[0.04] bg-gradient-to-b from-transparent to-[#3B82F6]/[0.02]">
-        <div className="max-w-[700px] mx-auto px-6">
-          <div className="grid sm:grid-cols-2 gap-8">
-            {/* Feedback */}
-            <div className="text-center sm:text-left">
-              <h3 className="text-[18px] font-bold mb-2">Help shape SuperSmartX.</h3>
-              <p className="text-[14px] text-zinc-400 mb-5">
-                Found something that could be better? Tell us what you think.
-              </p>
-              <a
-                href="https://discord.gg/supersmartx"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 rounded-xl font-medium text-[13px] transition-all duration-200 border border-white/[0.08]"
-              >
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.67 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.094 13.094 0 01-1.873-.894.077.077 0 01-.008-.128c.126-.093.252-.19.372-.287a.075.075 0 01.077-.011c3.92 1.793 8.18 1.793 12.061 0a.073.073 0 01.078.009c.12.099.246.195.373.289a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.894.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.156-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.156 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.156-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.156 2.418z" /></svg>
-                Send Feedback
-              </a>
-            </div>
-
-            {/* Support */}
-            <div className="text-center sm:text-left">
-              <h3 className="text-[18px] font-bold mb-2">
-                <span className="mr-2">&#9749;</span>Enjoying SuperSmartX?
-              </h3>
-              <p className="text-[14px] text-zinc-400 mb-5">
-                Your support helps us keep building and improving the Studio.
-              </p>
-              <Link
-                href="/studio?support=1"
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#FFDD00] hover:bg-[#FFEA4D] text-slate-900 rounded-xl font-semibold text-[13px] transition-all duration-200"
-              >
-                Support SuperSmartX
-              </Link>
-            </div>
+      {/* ═══════════ PRICING ═══════════ */}
+      <section id="pricing" className="py-24 border-t border-white/[0.04]">
+        <div className="max-w-[900px] mx-auto px-6">
+          <div className="text-center mb-16">
+            <h2 className="text-[clamp(1.75rem,4vw,2.75rem)] font-bold tracking-tight mb-4">
+              Simple, transparent pricing
+            </h2>
+            <p className="text-[16px] text-zinc-400 max-w-[500px] mx-auto">
+              Start for free. Upgrade when you need more.
+            </p>
           </div>
+
+          {(() => {
+            const p = pricing || getPricingForCountry('IN');
+            const fmt = (amount: number) => formatPrice(amount, p.symbol, p.locale);
+            return (
+              <div className="grid sm:grid-cols-2 gap-6 max-w-[700px] mx-auto">
+                {/* Free Plan */}
+                <div className="bg-[#111113] border border-white/[0.06] rounded-2xl p-7 flex flex-col">
+                  <h3 className="text-[18px] font-bold mb-1">Free</h3>
+                  <p className="text-[14px] text-zinc-400 mb-6">Get started with the basics.</p>
+                  <div className="text-[32px] font-bold mb-6">Free<span className="text-[14px] text-zinc-500 font-normal">/forever</span></div>
+                  <ul className="space-y-3 mb-8 flex-1">
+                    {['Teleprompter (always free)', 'Audio recording & download', '3 video downloads free', 'Videos up to 5 min duration'].map((item) => (
+                      <li key={item} className="flex items-start gap-2 text-[13px] text-zinc-300">
+                        <svg className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                  <Link
+                    href="/studio"
+                    className="block w-full py-3 text-center bg-white/[0.06] hover:bg-white/[0.1] text-zinc-300 rounded-xl font-semibold text-[14px] transition-all duration-200 border border-white/[0.08]"
+                  >
+                    Get Started Free
+                  </Link>
+                </div>
+
+                {/* Pro Plan */}
+                <div className="bg-[#111113] border-2 border-[#3B82F6]/40 rounded-2xl p-7 flex flex-col relative">
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-[#3B82F6] text-white text-[10px] font-bold rounded-full uppercase tracking-wider">
+                    Most Popular
+                  </span>
+                  <h3 className="text-[18px] font-bold mb-1">Pro</h3>
+                  <p className="text-[14px] text-zinc-400 mb-6">Everything you need to create professionally.</p>
+                  <div className="mb-6">
+                    <span className="text-[32px] font-bold">{fmt(p.monthly)}</span>
+                    <span className="text-[14px] text-zinc-500">/month</span>
+                    <span className="block text-[12px] text-emerald-400 mt-1">Save 17% with yearly — {fmt(p.yearly)}/year</span>
+                  </div>
+                  <ul className="space-y-3 mb-8 flex-1">
+                    {['Everything in Free', 'Unlimited recording length', '4K export quality', 'Priority support', 'Custom branding', 'Cloud sync'].map((item) => (
+                      <li key={item} className="flex items-start gap-2 text-[13px] text-zinc-300">
+                        <svg className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                  <Link
+                    href="/studio"
+                    className="block w-full py-3 text-center bg-[#3B82F6] hover:bg-[#2563EB] text-white rounded-xl font-semibold text-[14px] transition-all duration-200 shadow-lg shadow-[#3B82F6]/25"
+                  >
+                    Start Pro Trial
+                  </Link>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </section>
 
@@ -502,8 +541,8 @@ export default function LandingPage() {
               <Link href="#features" className="text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors">
                 Features
               </Link>
-              <Link href="/studio?support=1" className="text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors">
-                Support
+              <Link href="#pricing" className="text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors">
+                Pricing
               </Link>
               <Link href="#privacy" className="text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors">
                 Privacy
