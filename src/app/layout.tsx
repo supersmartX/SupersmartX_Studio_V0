@@ -25,8 +25,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.variable} h-screen flex flex-col overflow-hidden text-sm antialiased`}
-        style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif' }}
+        className={`${inter.variable} text-sm antialiased`}
+        style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', background: '#000', color: '#fff' }}
         suppressHydrationWarning
       >
         <AuthProvider>{children}</AuthProvider>
