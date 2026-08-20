@@ -16,18 +16,12 @@ const STATS = [
   {
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <rect x="3.4" y="2.6" width="7.2" height="18.8" rx="3.6" fill="url(#stat1a)" />
-        <rect x="13.4" y="2.6" width="7.2" height="18.8" rx="3.6" fill="url(#stat1b)" />
+        <rect x="3.4" y="2.6" width="7.2" height="18.8" rx="3.6" fill="url(#s1a)" />
+        <rect x="13.4" y="2.6" width="7.2" height="18.8" rx="3.6" fill="url(#s1b)" />
         <rect x="9.2" y="10.9" width="5.6" height="2.2" rx="1.1" fill="#4a4a4a" />
         <defs>
-          <linearGradient id="stat1a" x1="3" y1="2" x2="14" y2="22">
-            <stop offset="0" stopColor="#fff" stopOpacity="0.38" />
-            <stop offset="1" stopColor="#3a3a3a" stopOpacity="0.62" />
-          </linearGradient>
-          <linearGradient id="stat1b" x1="14" y1="2" x2="25" y2="22">
-            <stop offset="0" stopColor="#3a3a3a" stopOpacity="0.38" />
-            <stop offset="1" stopColor="#fff" stopOpacity="0.62" />
-          </linearGradient>
+          <linearGradient id="s1a" x1="3" y1="2" x2="14" y2="22"><stop offset="0" stopColor="#fff" stopOpacity="0.38" /><stop offset="1" stopColor="#3a3a3a" stopOpacity="0.62" /></linearGradient>
+          <linearGradient id="s1b" x1="14" y1="2" x2="25" y2="22"><stop offset="0" stopColor="#3a3a3a" stopOpacity="0.38" /><stop offset="1" stopColor="#fff" stopOpacity="0.62" /></linearGradient>
         </defs>
       </svg>
     ),
@@ -44,7 +38,7 @@ const STATS = [
   },
   {
     icon: (
-      <svg width="38" height="21" viewBox="0 0 40 22" fill="none" className="stat-icon-wide">
+      <svg width="38" height="21" viewBox="0 0 40 22" fill="none" className="lsx-stat-icon-wide">
         <circle cx="10.2" cy="11" r="9.2" fill="#2b2b2b" />
         <ellipse cx="10.2" cy="12.1" rx="4.15" ry="3.7" fill="#f4f4f4" />
         <circle cx="8.5" cy="11.2" r="0.7" fill="#1a1a1a" />
@@ -65,7 +59,7 @@ const STATS = [
 function GrainOverlay() {
   return (
     <div
-      className="grain"
+      className="lsx-grain"
       style={{
         position: 'fixed',
         inset: 0,
@@ -81,7 +75,7 @@ function GrainOverlay() {
 
 function HeroVideo() {
   return (
-    <div className="hero-photo" style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
+    <div className="lsx-hero-photo" style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
       <video
         autoPlay
         muted
@@ -94,13 +88,7 @@ function HeroVideo() {
           type="video/mp4"
         />
       </video>
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          background: 'linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.5) 100%)',
-        }}
-      />
+      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.5) 100%)' }} />
     </div>
   );
 }
@@ -114,12 +102,16 @@ export default function LandingPage() {
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   useEffect(() => {
-    if (menuOpen) {
-      document.body.classList.add('menu-open');
-    } else {
-      document.body.classList.remove('menu-open');
-    }
-    return () => document.body.classList.remove('menu-open');
+    document.documentElement.style.height = menuOpen ? 'auto' : '';
+    document.documentElement.style.overflow = menuOpen ? 'auto' : '';
+    document.body.style.height = menuOpen ? 'auto' : '';
+    document.body.style.overflow = menuOpen ? 'auto' : '';
+    return () => {
+      document.documentElement.style.height = '';
+      document.documentElement.style.overflow = '';
+      document.body.style.height = '';
+      document.body.style.overflow = '';
+    };
   }, [menuOpen]);
 
   useEffect(() => {
@@ -144,42 +136,33 @@ export default function LandingPage() {
   useEffect(() => {
     const raf1 = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const appears = document.querySelectorAll<HTMLElement>('.appear');
-        const heroPhoto = document.querySelector('.hero-photo');
-        let needsFallback = false;
+        const appears = document.querySelectorAll<HTMLElement>('.lsx-appear');
+        const heroPhoto = document.querySelector('.lsx-hero-photo');
 
         appears.forEach((el) => {
           const anims = el.getAnimations();
           if (anims.length === 0) {
-            el.classList.add('is-in');
+            el.classList.add('lsx-is-in');
           } else {
-            el.addEventListener(
-              'animationend',
-              () => el.classList.add('is-in'),
-              { once: true }
-            );
+            el.addEventListener('animationend', () => el.classList.add('lsx-is-in'), { once: true });
           }
         });
 
         if (heroPhoto) {
           const anims = heroPhoto.getAnimations();
           if (anims.length === 0) {
-            heroPhoto.classList.add('is-in');
+            heroPhoto.classList.add('lsx-is-in');
           } else {
-            heroPhoto.addEventListener(
-              'animationend',
-              () => heroPhoto.classList.add('is-in'),
-              { once: true }
-            );
+            heroPhoto.addEventListener('animationend', () => heroPhoto.classList.add('lsx-is-in'), { once: true });
           }
         }
 
         setTimeout(() => {
           appears.forEach((el) => {
-            if (!el.classList.contains('is-in')) el.classList.add('is-in');
+            if (!el.classList.contains('lsx-is-in')) el.classList.add('lsx-is-in');
           });
-          if (heroPhoto && !heroPhoto.classList.contains('is-in')) {
-            heroPhoto.classList.add('is-in');
+          if (heroPhoto && !heroPhoto.classList.contains('lsx-is-in')) {
+            heroPhoto.classList.add('lsx-is-in');
           }
         }, 2500);
       });
@@ -194,50 +177,10 @@ export default function LandingPage() {
           __html: `
 @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Instrument+Serif:ital@1&display=swap');
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { background: #000000 !important; color: #ffffff; background: #000000; background: var(--bg, #000000); color: #ffffff; color: var(--text, #ffffff); }
-html { scroll-behavior: smooth; }
-a { color: inherit; text-decoration: none; }
-button { font-family: inherit; }
-body {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-  overflow-x: hidden;
-  position: relative;
-}
+.lsx-hero-photo { opacity: 0; transition: opacity 1.05s cubic-bezier(0.16, 1, 0.3, 1); }
+.lsx-hero-photo.lsx-is-in { opacity: 1; }
 
-:root {
-  --bg: #000000;
-  --text: #ffffff;
-  --muted: #9a9a9a;
-  --stat: #d8d8d8;
-  --border: rgba(255, 255, 255, 0.16);
-  --border-soft: rgba(255, 255, 255, 0.12);
-  --logo: 15.5px;
-  --logo-mark: 22px;
-  --nav: 14px;
-  --nav-h: 40px;
-  --btn: 13.5px;
-  --btn-h: 40px;
-  --hero-btn-h: 42px;
-  --h1: 48px;
-  --lede: 15.5px;
-  --badge: 12.5px;
-  --stat-size: 13.5px;
-  --header-y: 22px;
-  --header-x: 40px;
-  --stats-x: 72px;
-  --stats-y: 36px;
-  --hero-gap: 85px;
-  --copy-max: 860px;
-  --lede-max: 470px;
-}
-
-.hero-photo { opacity: 0; transition: opacity 1.05s cubic-bezier(0.16, 1, 0.3, 1); }
-.hero-photo.is-in { opacity: 1; }
-
-.page {
+.lsx-page {
   position: relative;
   z-index: 1;
   display: grid;
@@ -246,36 +189,36 @@ body {
   min-height: 100dvh;
 }
 
-.header {
+.lsx-header {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  padding: var(--header-y) var(--header-x) 10px;
+  padding: var(--lsx-header-y, 22px) var(--lsx-header-x, 40px) 10px;
   z-index: 50;
   position: relative;
 }
 
-.logo {
+.lsx-logo {
   display: inline-flex;
   align-items: center;
   gap: 9px;
   justify-self: start;
-  font-size: var(--logo);
+  font-size: var(--lsx-logo, 15.5px);
   font-weight: 600;
   letter-spacing: -0.03em;
   color: #fff;
 }
-.logo-suffix { font-weight: 400; }
+.lsx-logo-suffix { font-weight: 400; }
 
-#site-nav {
+.lsx-site-nav {
   display: flex;
   align-items: center;
   gap: 8px;
   justify-self: center;
 }
 
-.nav-pill {
-  height: var(--nav-h);
+.lsx-nav-pill {
+  height: var(--lsx-nav-h, 40px);
   padding: 0 18px;
   border-radius: 7px;
   overflow: hidden;
@@ -283,7 +226,7 @@ body {
   border: 1px solid rgba(198,198,198,0.55);
   background: linear-gradient(105deg, #050505 0%, #2a2a2a 48%, #4a4a4a 100%);
   color: #f3f3f3;
-  font-size: var(--nav);
+  font-size: var(--lsx-nav, 14px);
   font-weight: 400;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -294,7 +237,7 @@ body {
   font-family: inherit;
   transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
 }
-.nav-pill::before {
+.lsx-nav-pill::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -303,26 +246,26 @@ body {
   transition: transform 0.6s ease;
   z-index: 1;
 }
-.nav-pill:hover::before { transform: translateX(120%); }
-.nav-pill:hover {
+.lsx-nav-pill:hover::before { transform: translateX(120%); }
+.lsx-nav-pill:hover {
   border-color: rgba(235,235,235,0.9);
   background: linear-gradient(105deg, #111 0%, #3a3a3a 45%, #6a6a6a 100%);
   box-shadow: 0 0 18px rgba(200,210,230,0.18);
 }
 
-.header-cta-wrap { justify-self: end; }
+.lsx-header-cta-wrap { justify-self: end; }
 
-.btn {
+.lsx-btn {
   position: relative;
   isolation: isolate;
   overflow: hidden;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: var(--btn-h);
+  height: var(--lsx-btn-h, 40px);
   padding: 0 16px;
   border-radius: 6px;
-  font-size: var(--btn);
+  font-size: var(--lsx-btn, 13.5px);
   font-weight: 500;
   letter-spacing: -0.02em;
   line-height: 1;
@@ -331,7 +274,7 @@ body {
   font-family: inherit;
   transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease, color 0.35s ease, filter 0.35s ease;
 }
-.btn::after {
+.lsx-btn::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -341,70 +284,70 @@ body {
   z-index: 1;
   pointer-events: none;
 }
-.btn:hover::after { transform: translateX(130%); }
+.lsx-btn:hover::after { transform: translateX(130%); }
 
-.btn-solid {
+.lsx-btn-solid {
   background: linear-gradient(180deg, #ffffff 0%, #e7e7e7 48%, #cfcfcf 100%);
   color: #111;
   border: 1px solid #fff;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.95);
 }
-.btn-solid:hover {
+.lsx-btn-solid:hover {
   background: linear-gradient(180deg, #fff 0%, #f3f6ff 42%, #d5def2 100%);
   border-color: #f2f6ff;
   box-shadow: inset 0 1px 0 #fff, 0 0 22px rgba(186,208,255,0.35), 0 8px 18px rgba(255,255,255,0.12);
 }
 
-.btn-ghost {
+.lsx-btn-ghost {
   background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(0,0,0,0.45) 50%, rgba(160,175,200,0.08));
   color: #fff;
   border: 1px solid rgba(198,198,198,0.45);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
 }
-.btn-ghost:hover {
+.lsx-btn-ghost:hover {
   background: linear-gradient(135deg, rgba(210,225,255,0.18), rgba(0,0,0,0.35) 48%, rgba(180,195,220,0.16));
   border-color: rgba(220,230,255,0.75);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 0 20px rgba(170,200,255,0.22);
 }
 
-.hero-btn {
-  height: var(--hero-btn-h);
+.lsx-hero-btn {
+  height: var(--lsx-hero-btn-h, 42px);
   padding: 0 18px;
 }
-.hero-solid:hover {
+.lsx-hero-solid:hover {
   box-shadow: inset 0 1px 0 #fff, 0 0 26px rgba(186,208,255,0.4), 0 8px 18px rgba(255,255,255,0.14);
 }
-.hero-ghost {
+.lsx-hero-ghost {
   background: linear-gradient(135deg, rgba(255,255,255,0.12), rgba(0,0,0,0.5) 46%, rgba(150,170,200,0.1));
   border: 1px solid rgba(198,198,198,0.55);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
-.hero-ghost:hover {
+.lsx-hero-ghost:hover {
   box-shadow: 0 0 24px rgba(170,200,255,0.28), inset 0 1px 0 rgba(255,255,255,0.22);
   border-color: rgba(220,230,255,0.8);
 }
 
-.hero {
+.lsx-hero {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 8px 24px var(--hero-gap);
+  padding: 8px 24px var(--lsx-hero-gap, 85px);
   min-height: 0;
 }
 
-.hero-copy {
+.lsx-hero-copy {
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: var(--copy-max);
+  max-width: var(--lsx-copy-max, 860px);
   width: 100%;
 }
 
-.badge {
+.lsx-badge {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -414,17 +357,17 @@ body {
   border-radius: 5px;
   background: linear-gradient(90deg, #7d7d7d 0%, #2a2a2a 52%, #0a0a0a 100%);
   color: #f2f2f2;
-  font-size: var(--badge);
+  font-size: var(--lsx-badge, 12.5px);
   font-weight: 400;
   letter-spacing: -0.01em;
 }
-.badge-star {
+.lsx-badge-star {
   filter: drop-shadow(0 0 3px rgba(255,255,255,0.45));
 }
 
-.hero h1 {
+.lsx-hero h1 {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: var(--h1);
+  font-size: var(--lsx-h1, 48px);
   font-weight: 500;
   letter-spacing: -0.045em;
   line-height: 1.12;
@@ -435,13 +378,13 @@ body {
   gap: 0;
 }
 
-.headline-line {
+.lsx-headline-line {
   display: block;
   overflow: hidden;
   padding: 0.06em 0.15em 0.14em;
 }
 
-.headline-line em {
+.lsx-headline-line em {
   font-family: 'Instrument Serif', 'Times New Roman', Times, serif;
   font-style: italic;
   font-weight: 400;
@@ -450,17 +393,17 @@ body {
   color: #9a9a9a;
 }
 
-.lede {
-  max-width: var(--lede-max);
+.lsx-lede {
+  max-width: var(--lsx-lede-max, 470px);
   margin-top: 18px;
   color: #9a9a9a;
-  font-size: var(--lede);
+  font-size: var(--lsx-lede, 15.5px);
   font-weight: 400;
   line-height: 1.55;
   letter-spacing: -0.015em;
 }
 
-.hero-actions {
+.lsx-hero-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
@@ -468,26 +411,26 @@ body {
   margin-top: 26px;
 }
 
-.stats {
+.lsx-stats {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 0 var(--stats-x) var(--stats-y);
-  padding-bottom: max(var(--stats-y), env(safe-area-inset-bottom));
+  padding: 0 var(--lsx-stats-x, 72px) var(--lsx-stats-y, 36px);
+  padding-bottom: max(var(--lsx-stats-y, 36px), env(safe-area-inset-bottom));
   color: #d8d8d8;
 }
 
-.stat {
+.lsx-stat {
   display: inline-flex;
   align-items: center;
   gap: 14px;
-  font-size: var(--stat-size);
+  font-size: var(--lsx-stat-size, 13.5px);
   letter-spacing: -0.015em;
   white-space: nowrap;
 }
 
-.menu-backdrop {
+.lsx-menu-backdrop {
   display: block;
   position: fixed;
   inset: 0;
@@ -499,19 +442,19 @@ body {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-body.menu-open .menu-backdrop {
+.lsx-menu-open .lsx-menu-backdrop {
   opacity: 1;
   visibility: visible;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
 }
 
-.burger {
+.lsx-burger {
   display: none;
   width: 42px;
   height: 42px;
   border-radius: 6px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255,255,255,0.16);
   background: rgba(8,8,8,0.55);
   z-index: 60;
   cursor: pointer;
@@ -521,7 +464,7 @@ body.menu-open .menu-backdrop {
   gap: 5px;
   padding: 0;
 }
-.burger-bar {
+.lsx-burger-bar {
   display: block;
   width: 16px;
   height: 1.5px;
@@ -529,179 +472,92 @@ body.menu-open .menu-backdrop {
   border-radius: 1px;
   transition: transform 0.25s ease, opacity 0.2s ease;
 }
-body.menu-open .burger-bar:nth-child(1) {
-  transform: translateY(6.5px) rotate(45deg);
-}
-body.menu-open .burger-bar:nth-child(2) {
-  opacity: 0;
-}
-body.menu-open .burger-bar:nth-child(3) {
-  transform: translateY(-6.5px) rotate(-45deg);
-}
-.burger:hover {
+.lsx-menu-open .lsx-burger-bar:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
+.lsx-menu-open .lsx-burger-bar:nth-child(2) { opacity: 0; }
+.lsx-menu-open .lsx-burger-bar:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
+.lsx-burger:hover {
   border-color: rgba(255,255,255,0.32);
   background: rgba(255,255,255,0.05);
 }
 
-.appear { opacity: 1; animation-duration: 1.05s; animation-fill-mode: both; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); animation-delay: var(--d, 0.08s); }
-.appear.is-in { animation: none; opacity: 1; transform: none; clip-path: none; filter: none; }
+.lsx-appear { opacity: 1; animation-duration: 1.05s; animation-fill-mode: both; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); animation-delay: var(--lsx-d, 0.08s); }
+.lsx-appear.lsx-is-in { animation: none; opacity: 1; transform: none; clip-path: none; filter: none; }
 
-.appear--scale { animation-name: in-scale; }
-.appear--soft { animation-name: in-soft; }
-.appear--mask { animation-name: in-mask; }
-.appear--pop { animation-name: in-pop; }
-.appear--btn { animation-name: in-btn; }
-.appear--side { animation-name: in-side; }
-.appear--stat { animation-name: in-stat; }
+.lsx-appear--scale { animation-name: lsx-in-scale; }
+.lsx-appear--soft { animation-name: lsx-in-soft; }
+.lsx-appear--mask { animation-name: lsx-in-mask; }
+.lsx-appear--pop { animation-name: lsx-in-pop; }
+.lsx-appear--btn { animation-name: lsx-in-btn; }
+.lsx-appear--side { animation-name: lsx-in-side; }
+.lsx-appear--stat { animation-name: lsx-in-stat; }
 
-.badge-star { animation: in-star 0.9s 0.28s both cubic-bezier(0.16, 1, 0.3, 1); }
-.badge-star.is-in { animation: none; }
-.hero h1 em { animation: in-em 1.2s 0.72s both cubic-bezier(0.16, 1, 0.3, 1); }
-.hero h1 em.is-in { animation: none; opacity: 1; filter: none; }
+.lsx-badge-star { animation: lsx-in-star 0.9s 0.28s both cubic-bezier(0.16, 1, 0.3, 1); }
+.lsx-badge-star.lsx-is-in { animation: none; }
+.lsx-hero h1 em { animation: lsx-in-em 1.2s 0.72s both cubic-bezier(0.16, 1, 0.3, 1); }
+.lsx-hero h1 em.lsx-is-in { animation: none; opacity: 1; filter: none; }
 
-@keyframes in-scale { from { opacity: 0; transform: scale(0.84); } }
-@keyframes in-soft { from { opacity: 0; transform: translateY(14px); } }
-@keyframes in-mask { from { opacity: 0; transform: translateY(40%); } }
-@keyframes in-pop { 0% { opacity: 0; transform: scale(0.9); } 70% { transform: scale(1.03); } 100% { opacity: 1; transform: scale(1); } }
-@keyframes in-btn { from { opacity: 0; transform: translateY(18px) scale(0.94); } }
-@keyframes in-side { from { opacity: 0; transform: translateX(22px); } }
-@keyframes in-stat { from { opacity: 0; transform: translateY(20px); } }
-@keyframes in-star { 0% { opacity: 0; transform: scale(0.2) rotate(-50deg); } 65% { opacity: 1; transform: scale(1.2) rotate(8deg); } 100% { opacity: 1; transform: scale(1) rotate(0deg); } }
-@keyframes in-em { from { opacity: 0.35; filter: blur(4px); } }
+@keyframes lsx-in-scale { from { opacity: 0; transform: scale(0.84); } }
+@keyframes lsx-in-soft { from { opacity: 0; transform: translateY(14px); } }
+@keyframes lsx-in-mask { from { opacity: 0; transform: translateY(40%); } }
+@keyframes lsx-in-pop { 0% { opacity: 0; transform: scale(0.9); } 70% { transform: scale(1.03); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes lsx-in-btn { from { opacity: 0; transform: translateY(18px) scale(0.94); } }
+@keyframes lsx-in-side { from { opacity: 0; transform: translateX(22px); } }
+@keyframes lsx-in-stat { from { opacity: 0; transform: translateY(20px); } }
+@keyframes lsx-in-star { 0% { opacity: 0; transform: scale(0.2) rotate(-50deg); } 65% { opacity: 1; transform: scale(1.2) rotate(8deg); } 100% { opacity: 1; transform: scale(1) rotate(0deg); } }
+@keyframes lsx-in-em { from { opacity: 0.35; filter: blur(4px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition: none !important; animation: none !important; }
-  .appear, .hero-photo, .hero h1 em, .badge-star { opacity: 1; transform: none; clip-path: none; filter: none; }
+  .lsx-appear, .lsx-hero-photo, .lsx-hero h1 em, .lsx-badge-star { opacity: 1 !important; transform: none !important; clip-path: none !important; filter: none !important; animation: none !important; }
 }
 
 @media (min-width: 1600px) {
-  :root {
-    --logo: 17px; --logo-mark: 24px; --nav: 15px; --nav-h: 44px;
-    --btn: 15px; --btn-h: 44px; --hero-btn-h: 48px; --h1: 64px;
-    --lede: 18px; --badge: 13.5px; --stat-size: 15px;
-    --header-y: 28px; --header-x: 64px; --stats-x: 96px; --stats-y: 44px;
-    --copy-max: 980px; --lede-max: 540px;
-  }
+  .lsx-page { --lsx-logo: 17px; --lsx-nav: 15px; --lsx-nav-h: 44px; --lsx-btn: 15px; --lsx-btn-h: 44px; --lsx-hero-btn-h: 48px; --lsx-h1: 64px; --lsx-lede: 18px; --lsx-badge: 13.5px; --lsx-stat-size: 15px; --lsx-header-y: 28px; --lsx-header-x: 64px; --lsx-stats-x: 96px; --lsx-stats-y: 44px; --lsx-copy-max: 980px; --lsx-lede-max: 540px; }
 }
-
 @media (min-width: 1920px) {
-  :root {
-    --logo: 18px; --logo-mark: 26px; --nav: 16px; --nav-h: 48px;
-    --btn: 16px; --btn-h: 48px; --hero-btn-h: 52px; --h1: 76px;
-    --lede: 20px; --badge: 14.5px; --stat-size: 16px;
-    --header-y: 32px; --header-x: 80px; --stats-x: 120px; --stats-y: 52px;
-    --copy-max: 1120px; --lede-max: 620px;
-  }
+  .lsx-page { --lsx-logo: 18px; --lsx-nav: 16px; --lsx-nav-h: 48px; --lsx-btn: 16px; --lsx-btn-h: 48px; --lsx-hero-btn-h: 52px; --lsx-h1: 76px; --lsx-lede: 20px; --lsx-badge: 14.5px; --lsx-stat-size: 16px; --lsx-header-y: 32px; --lsx-header-x: 80px; --lsx-stats-x: 120px; --lsx-stats-y: 52px; --lsx-copy-max: 1120px; --lsx-lede-max: 620px; }
 }
-
 @media (min-width: 2560px) {
-  :root {
-    --h1: 88px; --lede: 22px;
-    --header-x: 120px; --stats-x: 160px;
-    --copy-max: 1280px; --lede-max: 680px;
-  }
+  .lsx-page { --lsx-h1: 88px; --lsx-lede: 22px; --lsx-header-x: 120px; --lsx-stats-x: 160px; --lsx-copy-max: 1280px; --lsx-lede-max: 680px; }
 }
-
 @media (min-width: 901px) and (max-width: 1599px) {
-  :root {
-    --h1: 54px; --lede: 16px;
-    --header-x: 48px; --stats-x: 80px;
-    --copy-max: 900px;
-  }
+  .lsx-page { --lsx-h1: 54px; --lsx-lede: 16px; --lsx-header-x: 48px; --lsx-stats-x: 80px; --lsx-copy-max: 900px; }
 }
-
 @media (min-width: 901px) and (max-width: 1279px) {
-  :root {
-    --logo: 15px; --nav: 13px; --nav-h: 36px;
-    --btn: 13px; --btn-h: 38px; --hero-btn-h: 40px;
-    --h1: 42px; --lede: 15px; --badge: 12px; --stat-size: 12.5px;
-    --header-y: 16px; --header-x: 28px; --stats-x: 36px; --stats-y: 28px;
-    --hero-gap: 64px; --copy-max: 760px; --lede-max: 440px;
-  }
+  .lsx-page { --lsx-logo: 15px; --lsx-nav: 13px; --lsx-nav-h: 36px; --lsx-btn: 13px; --lsx-btn-h: 38px; --lsx-hero-btn-h: 40px; --lsx-h1: 42px; --lsx-lede: 15px; --lsx-badge: 12px; --lsx-stat-size: 12.5px; --lsx-header-y: 16px; --lsx-header-x: 28px; --lsx-stats-x: 36px; --lsx-stats-y: 28px; --lsx-hero-gap: 64px; --lsx-copy-max: 760px; --lsx-lede-max: 440px; }
 }
-
 @media (min-width: 901px) and (max-height: 850px) {
-  :root {
-    --header-y: 14px; --stats-y: 24px; --hero-gap: 48px; --h1: 40px;
-  }
+  .lsx-page { --lsx-header-y: 14px; --lsx-stats-y: 24px; --lsx-hero-gap: 48px; --lsx-h1: 40px; }
 }
-
 @media (min-width: 901px) and (max-height: 720px) {
-  :root {
-    --h1: 34px; --lede: 14px; --hero-gap: 32px; --stats-y: 18px;
-    --nav-h: 30px; --btn-h: 34px; --hero-btn-h: 36px;
-  }
+  .lsx-page { --lsx-h1: 34px; --lsx-lede: 14px; --lsx-hero-gap: 32px; --lsx-stats-y: 18px; --lsx-nav-h: 30px; --lsx-btn-h: 34px; --lsx-hero-btn-h: 36px; }
 }
 
 @media (min-width: 901px) {
-  html, body { height: 100%; overflow: hidden; }
-  .page { height: 100vh; height: 100dvh; overflow: hidden; }
+  .lsx-page { height: 100vh; height: 100dvh; overflow: hidden; }
 }
 
 @media (max-width: 900px) {
-  html, body { height: auto; overflow-y: auto; }
-  .header {
-    grid-template-columns: 1fr auto auto;
-    gap: 8px;
-    padding: 16px 18px;
-  }
-  .burger { display: flex; }
-  #site-nav {
-    position: fixed;
-    inset: 0;
-    z-index: 45;
-    flex-direction: column;
-    background: transparent;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
+  .lsx-header { grid-template-columns: 1fr auto auto; gap: 8px; padding: 16px 18px; }
+  .lsx-burger { display: flex; }
+  .lsx-site-nav {
+    position: fixed; inset: 0; z-index: 45;
+    flex-direction: column; background: transparent;
+    align-items: center; justify-content: center; gap: 12px;
     padding: 96px 22px 32px;
-    opacity: 0;
-    visibility: hidden;
+    opacity: 0; visibility: hidden;
     transition: opacity 0.28s ease, visibility 0.28s ease;
   }
-  body.menu-open #site-nav {
-    opacity: 1;
-    visibility: visible;
-  }
-  #site-nav .nav-pill {
-    width: 100%;
-    height: 56px;
-    font-size: 19px;
-    border-radius: 10px;
-  }
-  .hero {
-    padding: 20px 20px 64px;
-    align-items: flex-end;
-  }
-  .stats {
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    white-space: normal;
-    padding: 20px 24px 48px;
-  }
-  :root {
-    --logo: 16px;
-    --btn: 15px; --btn-h: 46px; --hero-btn-h: 48px;
-    --h1: 36px; --lede: 16.5px; --badge: 13.5px; --stat-size: 15px;
-    --header-x: 18px; --stats-x: 20px; --stats-y: 28px;
-    --hero-gap: 36px;
-    --copy-max: 100%; --lede-max: 100%;
-  }
+  .lsx-menu-open .lsx-site-nav { opacity: 1; visibility: visible; }
+  .lsx-site-nav .lsx-nav-pill { width: 100%; height: 56px; font-size: 19px; border-radius: 10px; }
+  .lsx-hero { padding: 20px 20px 64px; align-items: flex-end; }
+  .lsx-stats { flex-direction: column; align-items: center; gap: 16px; white-space: normal; padding: 20px 24px 48px; }
+  .lsx-page { --lsx-logo: 16px; --lsx-btn: 15px; --lsx-btn-h: 46px; --lsx-hero-btn-h: 48px; --lsx-h1: 36px; --lsx-lede: 16.5px; --lsx-badge: 13.5px; --lsx-stat-size: 15px; --lsx-header-x: 18px; --lsx-stats-x: 20px; --lsx-stats-y: 28px; --lsx-hero-gap: 36px; --lsx-copy-max: 100%; --lsx-lede-max: 100%; }
 }
 
 @media (max-width: 560px) {
-  :root {
-    --h1: 34px; --lede: 16px; --header-x: 16px;
-  }
-  .hero-actions {
-    flex-direction: column;
-    width: 100%;
-  }
-  .hero-actions .btn {
-    width: 100%;
-  }
+  .lsx-page { --lsx-h1: 34px; --lsx-lede: 16px; --lsx-header-x: 16px; }
+  .lsx-hero-actions { flex-direction: column; width: 100%; }
+  .lsx-hero-actions .lsx-btn { width: 100%; }
 }
 `,
         }}
@@ -710,11 +566,14 @@ body.menu-open .burger-bar:nth-child(3) {
       <GrainOverlay />
       <HeroVideo />
 
-      <div className="page" ref={pageRef}>
-        <div className="menu-backdrop" onClick={closeMenu} />
+      <div
+        className={`lsx-page${menuOpen ? ' lsx-menu-open' : ''}`}
+        ref={pageRef}
+      >
+        <div className="lsx-menu-backdrop" onClick={closeMenu} />
 
-        <header className="header">
-          <Link href="/" className="logo appear" style={{ '--d': '0.08s' } as React.CSSProperties} aria-label="SupersmartX Studio">
+        <header className="lsx-header">
+          <Link href="/" className="lsx-logo lsx-appear" style={{ '--lsx-d': '0.08s' } as React.CSSProperties} aria-label="SupersmartX Studio">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
               <g transform="rotate(-30 12 12)">
                 <circle cx="7.3" cy="3.2" r="1.45" />
@@ -723,16 +582,16 @@ body.menu-open .burger-bar:nth-child(3) {
                 <circle cx="16.7" cy="20.8" r="1.45" />
               </g>
             </svg>
-            <span>SuperSmart<span className="logo-suffix">X</span></span>
+            <span>SuperSmart<span className="lsx-logo-suffix">X</span></span>
           </Link>
 
-          <nav id="site-nav" aria-label="Primary">
+          <nav className="lsx-site-nav" aria-label="Primary">
             {NAV_LINKS.map((link, i) => (
               <a
                 key={link.label}
                 href={link.href}
-                className={`nav-pill appear ${i % 2 === 0 ? 'appear--scale' : 'appear--soft'}`}
-                style={{ '--d': `${0.16 + i * 0.12}s` } as React.CSSProperties}
+                className={`lsx-nav-pill lsx-appear ${i % 2 === 0 ? 'lsx-appear--scale' : 'lsx-appear--soft'}`}
+                style={{ '--lsx-d': `${0.16 + i * 0.12}s` } as React.CSSProperties}
                 onClick={closeMenu}
               >
                 {link.label}
@@ -740,93 +599,73 @@ body.menu-open .burger-bar:nth-child(3) {
             ))}
           </nav>
 
-          <div className="header-cta-wrap">
+          <div className="lsx-header-cta-wrap">
             {session?.user ? (
-              <Link
-                href="/studio"
-                className="btn btn-solid appear appear--scale header-cta"
-                style={{ '--d': '0.34s' } as React.CSSProperties}
-              >
+              <Link href="/studio" className="lsx-btn lsx-btn-solid lsx-appear lsx-appear--scale" style={{ '--lsx-d': '0.34s' } as React.CSSProperties}>
                 Open Studio
               </Link>
             ) : (
-              <button
-                onClick={() => { setIsAuthModalOpen(true); closeMenu(); }}
-                className="btn btn-solid appear appear--scale header-cta"
-                style={{ '--d': '0.34s' } as React.CSSProperties}
-              >
+              <button onClick={() => { setIsAuthModalOpen(true); closeMenu(); }} className="lsx-btn lsx-btn-solid lsx-appear lsx-appear--scale" style={{ '--lsx-d': '0.34s' } as React.CSSProperties}>
                 Start for Free
               </button>
             )}
           </div>
 
           <button
-            className="burger"
-            aria-controls="site-nav"
+            className="lsx-burger"
+            aria-controls="lsx-site-nav"
             aria-expanded={menuOpen}
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
             onClick={() => setMenuOpen((v) => !v)}
           >
-            <span className="burger-bar" />
-            <span className="burger-bar" />
-            <span className="burger-bar" />
+            <span className="lsx-burger-bar" />
+            <span className="lsx-burger-bar" />
+            <span className="lsx-burger-bar" />
           </button>
         </header>
 
-        <main className="hero" id="top">
-          <div className="hero-copy">
-            <div className="badge appear appear--pop" style={{ '--d': '0.22s' } as React.CSSProperties}>
-              <svg className="badge-star" width="18" height="20" viewBox="0 0 24 24" fill="white">
+        <main className="lsx-hero" id="top">
+          <div className="lsx-hero-copy">
+            <div className="lsx-badge lsx-appear lsx-appear--pop" style={{ '--lsx-d': '0.22s' } as React.CSSProperties}>
+              <svg className="lsx-badge-star" width="18" height="20" viewBox="0 0 24 24" fill="white">
                 <path d="M12 2.6C12.55 2.6 12.88 3.15 13.08 4.7c.62 4.7 1.52 5.6 6.22 6.22 1.55.2 2.1.53 2.1 1.08s-.55.88-2.1 1.08c-4.7.62-5.6 1.52-6.22 6.22-.2 1.55-.53 2.1-1.08 2.1s-.88-.55-1.08-2.1c-.62-4.7-1.52-5.6-6.22-6.22C3.15 12.88 2.6 12.55 2.6 12s.55-.88 2.1-1.08c4.7-.62 5.6-1.52 6.22-6.22C11.12 3.15 11.45 2.6 12 2.6Z" />
               </svg>
               <span>Browser-based Teleprompter Studio</span>
             </div>
 
             <h1>
-              <span className="headline-line appear appear--mask" style={{ '--d': '0.42s' } as React.CSSProperties}>
+              <span className="lsx-headline-line lsx-appear lsx-appear--mask" style={{ '--lsx-d': '0.42s' } as React.CSSProperties}>
                 Record <em>professional videos</em> on
               </span>
-              <span className="headline-line appear appear--mask" style={{ '--d': '0.62s' } as React.CSSProperties}>
+              <span className="lsx-headline-line lsx-appear lsx-appear--mask" style={{ '--lsx-d': '0.62s' } as React.CSSProperties}>
                 your browser in seconds.
               </span>
             </h1>
 
-            <p className="lede appear appear--soft" style={{ '--d': '0.82s', animationDuration: '1.25s' } as React.CSSProperties}>
+            <p className="lsx-lede lsx-appear lsx-appear--soft" style={{ '--lsx-d': '0.82s', animationDuration: '1.25s' } as React.CSSProperties}>
               A browser-based teleprompter and recording studio that helps you speak naturally, stay on camera, and create better videos.
             </p>
 
-            <div className="hero-actions">
+            <div className="lsx-hero-actions">
               {session?.user ? (
-                <Link
-                  href="/studio"
-                  className="btn btn-solid hero-btn appear appear--btn hero-solid"
-                  style={{ '--d': '0.96s' } as React.CSSProperties}
-                >
+                <Link href="/studio" className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-appear lsx-appear--btn lsx-hero-solid" style={{ '--lsx-d': '0.96s' } as React.CSSProperties}>
                   Open Studio
                 </Link>
               ) : (
-                <button
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="btn btn-solid hero-btn appear appear--btn hero-solid"
-                  style={{ '--d': '0.96s' } as React.CSSProperties}
-                >
+                <button onClick={() => setIsAuthModalOpen(true)} className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-appear lsx-appear--btn lsx-hero-solid" style={{ '--lsx-d': '0.96s' } as React.CSSProperties}>
                   Start for Free
                 </button>
               )}
-              <a href="#demo" className="btn btn-ghost hero-btn appear appear--side hero-ghost" style={{ '--d': '1.10s' } as React.CSSProperties}>
+              <a href="#demo" className="lsx-btn lsx-btn-ghost lsx-hero-btn lsx-appear lsx-appear--side lsx-hero-ghost" style={{ '--lsx-d': '1.10s' } as React.CSSProperties}>
                 See it in action
               </a>
             </div>
           </div>
         </main>
 
-        <footer className="stats">
+        <footer className="lsx-stats">
           {STATS.map((stat, i) => (
-            <div
-              key={stat.label}
-              className="stat appear appear--stat"
-              style={{ '--d': `${1.12 + i * 0.16}s` } as React.CSSProperties}
-            >
+            <div key={stat.label} className="lsx-stat lsx-appear lsx-appear--stat" style={{ '--lsx-d': `${1.12 + i * 0.16}s` } as React.CSSProperties}>
               {stat.icon}
               <span>{stat.label}</span>
             </div>
