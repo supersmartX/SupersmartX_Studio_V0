@@ -223,9 +223,9 @@ export default function LandingPage() {
   border-radius: 7px;
   overflow: hidden;
   position: relative;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
   background: #111113;
-  color: #f3f3f3;
+  color: #fff;
   font-size: var(--lsx-nav, 14px);
   font-weight: 400;
   letter-spacing: -0.01em;
@@ -270,11 +270,11 @@ export default function LandingPage() {
 
 .lsx-btn-solid {
   background: #fff;
-  color: #111;
+  color: #000;
   border: 1px solid #fff;
 }
 .lsx-btn-solid:hover {
-  background: #f3f6ff;
+  background: rgba(255,255,255,0.9);
   border-color: #f2f6ff;
   box-shadow: 0 0 22px rgba(59,130,246,0.25);
 }
@@ -286,7 +286,7 @@ export default function LandingPage() {
 .lsx-btn-ghost {
   background: #111113;
   color: #fff;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
 }
 .lsx-btn-ghost:hover {
   background: rgba(255,255,255,0.05);
@@ -306,7 +306,7 @@ export default function LandingPage() {
 }
 .lsx-hero-ghost {
   background: #111113;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
@@ -344,7 +344,7 @@ export default function LandingPage() {
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 5px;
   background: #111113;
-  color: #f2f2f2;
+  color: #fff;
   font-size: var(--lsx-badge, 12.5px);
   font-weight: 400;
   letter-spacing: -0.01em;
@@ -423,7 +423,7 @@ export default function LandingPage() {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgba(0,0,0,0.60);
+  background: rgba(0,0,0,0.80);
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.28s ease, visibility 0.28s ease;
@@ -442,8 +442,8 @@ export default function LandingPage() {
   width: 42px;
   height: 42px;
   border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.06);
-  background: rgba(9,9,11,0.70);
+  border: 1px solid rgba(255,255,255,0.1);
+  background: #111113;
   z-index: 60;
   cursor: pointer;
   flex-direction: column;
