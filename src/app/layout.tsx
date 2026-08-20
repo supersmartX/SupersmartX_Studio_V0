@@ -26,7 +26,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body
         className={`${inter.variable} text-sm antialiased`}
-        style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', background: '#000', color: '#fff' }}
+        style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', background: '#09090B', color: '#fff' }}
         suppressHydrationWarning
       >
         <AuthProvider>{children}</AuthProvider>

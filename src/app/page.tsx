@@ -223,8 +223,8 @@ export default function LandingPage() {
   border-radius: 7px;
   overflow: hidden;
   position: relative;
-  border: 1px solid rgba(198,198,198,0.55);
-  background: linear-gradient(105deg, #050505 0%, #2a2a2a 48%, #4a4a4a 100%);
+  border: 1px solid rgba(255,255,255,0.06);
+  background: linear-gradient(105deg, #09090B 0%, #1A1A1A 48%, #2a2a2a 100%);
   color: #f3f3f3;
   font-size: var(--lsx-nav, 14px);
   font-weight: 400;
@@ -248,9 +248,9 @@ export default function LandingPage() {
 }
 .lsx-nav-pill:hover::before { transform: translateX(120%); }
 .lsx-nav-pill:hover {
-  border-color: rgba(235,235,235,0.9);
-  background: linear-gradient(105deg, #111 0%, #3a3a3a 45%, #6a6a6a 100%);
-  box-shadow: 0 0 18px rgba(200,210,230,0.18);
+  border-color: rgba(255,255,255,0.16);
+  background: linear-gradient(105deg, #111113 0%, #2A2A2D 45%, #3a3a3a 100%);
+  box-shadow: 0 0 18px rgba(200,210,230,0.12);
 }
 
 .lsx-header-cta-wrap { justify-self: end; }
@@ -299,9 +299,9 @@ export default function LandingPage() {
 }
 
 .lsx-btn-ghost {
-  background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(0,0,0,0.45) 50%, rgba(160,175,200,0.08));
+  background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(9,9,11,0.45) 50%, rgba(160,175,200,0.08));
   color: #fff;
-  border: 1px solid rgba(198,198,198,0.45);
+  border: 1px solid rgba(255,255,255,0.06);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
 }
 .lsx-btn-ghost:hover {
@@ -318,8 +318,8 @@ export default function LandingPage() {
   box-shadow: inset 0 1px 0 #fff, 0 0 26px rgba(186,208,255,0.4), 0 8px 18px rgba(255,255,255,0.14);
 }
 .lsx-hero-ghost {
-  background: linear-gradient(135deg, rgba(255,255,255,0.12), rgba(0,0,0,0.5) 46%, rgba(150,170,200,0.1));
-  border: 1px solid rgba(198,198,198,0.55);
+  background: linear-gradient(135deg, rgba(255,255,255,0.12), rgba(9,9,11,0.5) 46%, rgba(150,170,200,0.1));
+  border: 1px solid rgba(255,255,255,0.06);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
@@ -355,7 +355,7 @@ export default function LandingPage() {
   padding: 9px 15px;
   border: 0;
   border-radius: 5px;
-  background: linear-gradient(90deg, #7d7d7d 0%, #2a2a2a 52%, #0a0a0a 100%);
+  background: linear-gradient(90deg, #3a3a3a 0%, #1A1A1A 52%, #09090B 100%);
   color: #f2f2f2;
   font-size: var(--lsx-badge, 12.5px);
   font-weight: 400;
@@ -435,7 +435,7 @@ export default function LandingPage() {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgba(8,8,8,0.42);
+  background: rgba(0,0,0,0.60);
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.28s ease, visibility 0.28s ease;
@@ -454,8 +454,8 @@ export default function LandingPage() {
   width: 42px;
   height: 42px;
   border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(8,8,8,0.55);
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(9,9,11,0.70);
   z-index: 60;
   cursor: pointer;
   flex-direction: column;
