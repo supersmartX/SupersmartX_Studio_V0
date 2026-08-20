@@ -224,7 +224,7 @@ export default function LandingPage() {
   overflow: hidden;
   position: relative;
   border: 1px solid rgba(255,255,255,0.06);
-  background: linear-gradient(105deg, #09090B 0%, #1A1A1A 48%, #2a2a2a 100%);
+  background: #111113;
   color: #f3f3f3;
   font-size: var(--lsx-nav, 14px);
   font-weight: 400;
@@ -238,18 +238,11 @@ export default function LandingPage() {
   transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
 }
 .lsx-nav-pill::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.16) 50%, transparent 70%);
-  transform: translateX(-120%);
-  transition: transform 0.6s ease;
-  z-index: 1;
+  display: none;
 }
-.lsx-nav-pill:hover::before { transform: translateX(120%); }
 .lsx-nav-pill:hover {
   border-color: rgba(255,255,255,0.16);
-  background: linear-gradient(105deg, #111113 0%, #2A2A2D 45%, #3a3a3a 100%);
+  background: #1A1A1A;
   box-shadow: 0 0 18px rgba(59,130,246,0.15);
 }
 .lsx-nav-pill:focus-visible {
@@ -279,27 +272,18 @@ export default function LandingPage() {
   transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease, color 0.35s ease, filter 0.35s ease;
 }
 .lsx-btn::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(115deg, transparent 20%, rgba(255,255,255,0.45) 48%, transparent 76%);
-  transform: translateX(-130%);
-  transition: transform 0.65s ease;
-  z-index: 1;
-  pointer-events: none;
+  display: none;
 }
-.lsx-btn:hover::after { transform: translateX(130%); }
 
 .lsx-btn-solid {
-  background: linear-gradient(180deg, #ffffff 0%, #e7e7e7 48%, #cfcfcf 100%);
+  background: #ffffff;
   color: #111;
   border: 1px solid #fff;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95);
 }
 .lsx-btn-solid:hover {
-  background: linear-gradient(180deg, #fff 0%, #f3f6ff 42%, #d5def2 100%);
-  border-color: #f2f6ff;
-  box-shadow: inset 0 1px 0 #fff, 0 0 22px rgba(59,130,246,0.30), 0 8px 18px rgba(255,255,255,0.12);
+  background: #f3f3f3;
+  border-color: #f3f3f3;
+  box-shadow: 0 0 22px rgba(59,130,246,0.30), 0 8px 18px rgba(255,255,255,0.12);
 }
 .lsx-btn-solid:focus-visible {
   outline: 2px solid #3B82F6;
@@ -307,15 +291,14 @@ export default function LandingPage() {
 }
 
 .lsx-btn-ghost {
-  background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(9,9,11,0.45) 50%, rgba(160,175,200,0.08));
+  background: transparent;
   color: #fff;
   border: 1px solid rgba(255,255,255,0.06);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
 }
 .lsx-btn-ghost:hover {
-  background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(9,9,11,0.45) 48%, rgba(59,130,246,0.08));
+  background: rgba(255,255,255,0.05);
   border-color: rgba(59,130,246,0.40);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 0 20px rgba(59,130,246,0.18);
+  box-shadow: 0 0 20px rgba(59,130,246,0.18);
 }
 .lsx-btn-ghost:focus-visible {
   outline: 2px solid #3B82F6;
@@ -327,17 +310,16 @@ export default function LandingPage() {
   padding: 0 18px;
 }
 .lsx-hero-solid:hover {
-  box-shadow: inset 0 1px 0 #fff, 0 0 26px rgba(59,130,246,0.35), 0 8px 18px rgba(255,255,255,0.14);
+  box-shadow: 0 0 26px rgba(59,130,246,0.35), 0 8px 18px rgba(255,255,255,0.14);
 }
 .lsx-hero-ghost {
-  background: linear-gradient(135deg, rgba(255,255,255,0.12), rgba(9,9,11,0.5) 46%, rgba(150,170,200,0.1));
+  background: transparent;
   border: 1px solid rgba(255,255,255,0.06);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
 }
 .lsx-hero-ghost:hover {
-  box-shadow: 0 0 24px rgba(59,130,246,0.22), inset 0 1px 0 rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.05);
   border-color: rgba(59,130,246,0.50);
+  box-shadow: 0 0 24px rgba(59,130,246,0.22);
 }
 
 .lsx-hero {
@@ -367,7 +349,7 @@ export default function LandingPage() {
   padding: 9px 15px;
   border: 1px solid rgba(59,130,246,0.20);
   border-radius: 5px;
-  background: linear-gradient(90deg, rgba(59,130,246,0.08) 0%, #111113 52%, #09090B 100%);
+  background: #111113;
   color: #f2f2f2;
   font-size: var(--lsx-badge, 12.5px);
   font-weight: 400;
