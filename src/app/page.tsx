@@ -235,15 +235,11 @@ export default function LandingPage() {
   justify-content: center;
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
-}
-.lsx-nav-pill::before {
-  display: none;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .lsx-nav-pill:hover {
+  background: rgba(255,255,255,0.05);
   border-color: rgba(255,255,255,0.16);
-  background: #1A1A1A;
-  box-shadow: 0 0 18px rgba(59,130,246,0.15);
 }
 .lsx-nav-pill:focus-visible {
   outline: 2px solid #3B82F6;
@@ -269,21 +265,18 @@ export default function LandingPage() {
   white-space: nowrap;
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease, color 0.35s ease, filter 0.35s ease;
-}
-.lsx-btn::after {
-  display: none;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
 }
 
 .lsx-btn-solid {
-  background: #ffffff;
+  background: #fff;
   color: #111;
   border: 1px solid #fff;
 }
 .lsx-btn-solid:hover {
-  background: #f3f3f3;
-  border-color: #f3f3f3;
-  box-shadow: 0 0 22px rgba(59,130,246,0.30), 0 8px 18px rgba(255,255,255,0.12);
+  background: #f3f6ff;
+  border-color: #f2f6ff;
+  box-shadow: 0 0 22px rgba(59,130,246,0.25);
 }
 .lsx-btn-solid:focus-visible {
   outline: 2px solid #3B82F6;
@@ -291,14 +284,13 @@ export default function LandingPage() {
 }
 
 .lsx-btn-ghost {
-  background: transparent;
+  background: #111113;
   color: #fff;
   border: 1px solid rgba(255,255,255,0.06);
 }
 .lsx-btn-ghost:hover {
   background: rgba(255,255,255,0.05);
-  border-color: rgba(59,130,246,0.40);
-  box-shadow: 0 0 20px rgba(59,130,246,0.18);
+  border-color: rgba(255,255,255,0.16);
 }
 .lsx-btn-ghost:focus-visible {
   outline: 2px solid #3B82F6;
@@ -310,16 +302,18 @@ export default function LandingPage() {
   padding: 0 18px;
 }
 .lsx-hero-solid:hover {
-  box-shadow: 0 0 26px rgba(59,130,246,0.35), 0 8px 18px rgba(255,255,255,0.14);
+  box-shadow: 0 0 26px rgba(59,130,246,0.30);
 }
 .lsx-hero-ghost {
-  background: transparent;
+  background: #111113;
   border: 1px solid rgba(255,255,255,0.06);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 .lsx-hero-ghost:hover {
   background: rgba(255,255,255,0.05);
-  border-color: rgba(59,130,246,0.50);
-  box-shadow: 0 0 24px rgba(59,130,246,0.22);
+  border-color: rgba(255,255,255,0.16);
+  box-shadow: 0 0 24px rgba(59,130,246,0.18);
 }
 
 .lsx-hero {
@@ -347,7 +341,7 @@ export default function LandingPage() {
   gap: 8px;
   margin-bottom: 22px;
   padding: 9px 15px;
-  border: 1px solid rgba(59,130,246,0.20);
+  border: 1px solid rgba(255,255,255,0.06);
   border-radius: 5px;
   background: #111113;
   color: #f2f2f2;
