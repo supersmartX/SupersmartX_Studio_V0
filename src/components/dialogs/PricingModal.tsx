@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { CloseIcon } from '@/components/icons';
 import { detectCountry, getPricingForCountry, formatPrice, type RegionalPricing } from '@/lib/pricing';
 import { loadCashfreeSDK } from '@/lib/cashfree';
+import { useModalAnimation } from '@/hooks/useModalAnimation';
 
 interface PricingModalProps {
   isOpen: boolean;
@@ -40,6 +41,7 @@ const COUNTRY_FLAGS: Record<string, string> = {
 };
 
 export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) {
+  const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isOpen, onClose);
   const [step, setStep] = useState<'select' | 'form' | 'processing' | 'error'>('select');
   const [selectedPlan, setSelectedPlan] = useState<string>('pro_monthly');
   const [name, setName] = useState('');
@@ -135,23 +137,23 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
     setName('');
     setEmail('');
     setErrorMessage('');
-    onClose();
-  }, [onClose]);
+    closeModal();
+  }, [closeModal]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   const monthlyPrice = currentPricing.monthly;
   const yearlyPrice = currentPricing.yearly;
   const yearlyOriginal = currentPricing.yearlyOriginal;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Choose Plan">
+    <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Choose Plan" {...swipeHandlers}>
       <div
-        className="absolute inset-0 bg-canvas/80 backdrop-blur-md animate-fade-in"
+        className={`absolute inset-0 bg-canvas/80 backdrop-blur-md ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
         onClick={handleClose}
       />
 
-      <div className="relative w-full max-w-lg bg-surface border border-border-default rounded-xl shadow-2xl animate-scale-in overflow-hidden max-h-[90vh] flex flex-col">
+      <div className={`relative w-full max-w-lg bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] flex flex-col`}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle shrink-0">
           <div className="flex items-center gap-2">

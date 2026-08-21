@@ -1,12 +1,12 @@
 'use client';
 
-import type { TeleprompterSettings, TextAlignment } from '@/types';
+import type { TeleprompterSettings, TextAlignment, AspectRatio } from '@/types';
 import { Slider } from '@/components/ui/Slider';
 import { Toggle } from '@/components/ui/Toggle';
 import { Select } from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
 import { CloseIcon } from '@/components/icons';
-import { FONT_FAMILIES } from '@/constants';
+import { FONT_FAMILIES, ASPECT_RATIO_PRESETS } from '@/constants';
 import { InspirationLoader } from '@/components/editor/InspirationLoader';
 
 interface InspectorPanelProps {
@@ -24,6 +24,8 @@ interface InspectorPanelProps {
   selectedAudioDevice: string;
   onVideoDeviceChange: (deviceId: string) => void;
   onAudioDeviceChange: (deviceId: string) => void;
+  aspectRatio: AspectRatio;
+  onAspectRatioChange: (ratio: AspectRatio) => void;
   script: string;
   onScriptChange: (value: string) => void;
   onClearScript: () => void;
@@ -50,6 +52,8 @@ export function InspectorPanel({
   selectedAudioDevice,
   onVideoDeviceChange,
   onAudioDeviceChange,
+  aspectRatio,
+  onAspectRatioChange,
   script,
   onScriptChange,
   onClearScript,
@@ -80,6 +84,8 @@ export function InspectorPanel({
       selectedAudioDevice={selectedAudioDevice}
       onVideoDeviceChange={onVideoDeviceChange}
       onAudioDeviceChange={onAudioDeviceChange}
+      aspectRatio={aspectRatio}
+      onAspectRatioChange={onAspectRatioChange}
       script={script}
       onScriptChange={onScriptChange}
       onClearScript={onClearScript}
@@ -157,6 +163,8 @@ function InspectorContent({
   selectedAudioDevice,
   onVideoDeviceChange,
   onAudioDeviceChange,
+  aspectRatio,
+  onAspectRatioChange,
   script,
   onScriptChange,
   onClearScript,
@@ -178,6 +186,8 @@ function InspectorContent({
   selectedAudioDevice: string;
   onVideoDeviceChange: (deviceId: string) => void;
   onAudioDeviceChange: (deviceId: string) => void;
+  aspectRatio: AspectRatio;
+  onAspectRatioChange: (ratio: AspectRatio) => void;
   script: string;
   onScriptChange: (value: string) => void;
   onClearScript: () => void;
@@ -332,6 +342,29 @@ function InspectorContent({
       <Card>
         <div className="flex flex-col gap-3">
           <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Recording</h3>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[13px] text-text-secondary">Aspect Ratio</label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {(Object.keys(ASPECT_RATIO_PRESETS) as AspectRatio[]).map((ratio) => {
+                const preset = ASPECT_RATIO_PRESETS[ratio];
+                return (
+                  <button
+                    key={ratio}
+                    onClick={() => onAspectRatioChange(ratio)}
+                    className={`flex flex-col items-center gap-1 py-2 rounded-lg border text-[10px] font-medium transition-all ${
+                      aspectRatio === ratio
+                        ? 'bg-accent/15 text-accent border-accent/30'
+                        : 'bg-elevated text-text-muted border-border-subtle hover:text-text-secondary hover:border-border-default'
+                    }`}
+                  >
+                    <span className="text-sm">{preset.icon}</span>
+                    <span>{ratio}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <Select
             label="Camera"

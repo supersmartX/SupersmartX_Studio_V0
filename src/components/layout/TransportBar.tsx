@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef, useCallback } from 'react';
 import type { RecordingState } from '@/types';
 import {
   MicrophoneIcon,
@@ -38,6 +39,27 @@ export function TransportBar({
   const isIdle = recordingState === 'idle' || recordingState === 'completed';
   const isRecording = recordingState === 'recording';
   const isPaused = recordingState === 'paused';
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isHoldModeRef = useRef(false);
+
+  const handleRecordMouseDown = useCallback(() => {
+    isHoldModeRef.current = false;
+    holdTimerRef.current = setTimeout(() => {
+      isHoldModeRef.current = true;
+      onStart();
+    }, 500);
+  }, [onStart]);
+
+  const handleRecordMouseUp = useCallback(() => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (isHoldModeRef.current) {
+      isHoldModeRef.current = false;
+      if (recordingState === 'recording') onStop();
+    }
+  }, [recordingState, onStop]);
 
   return (
     <footer className="h-14 sm:h-16 border-t border-border-subtle bg-surface flex items-center px-3 sm:px-6 shrink-0" aria-label="Recording controls">
@@ -106,10 +128,17 @@ export function TransportBar({
 
         {isIdle && (
           <button
-            onClick={onStart}
+            onClick={(e) => {
+              if (!isHoldModeRef.current) onStart();
+            }}
+            onMouseDown={handleRecordMouseDown}
+            onMouseUp={handleRecordMouseUp}
+            onMouseLeave={handleRecordMouseUp}
+            onTouchStart={handleRecordMouseDown}
+            onTouchEnd={handleRecordMouseUp}
             disabled={!canRecord}
-            className="flex items-center justify-center w-12 h-12 rounded-full bg-recording hover:bg-red-600 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-recording/30"
-            title="Start Recording"
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-recording hover:bg-red-600 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-recording/30 select-none"
+            title="Start Recording (hold to record-and-stop)"
           >
             <RecordIcon className="w-5 h-5" />
           </button>

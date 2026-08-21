@@ -201,7 +201,7 @@ export function SupportModal({ isOpen, onClose, showToast }: SupportModalProps) 
               <button
                 onClick={handleSubmit}
                 disabled={!finalAmount || finalAmount < 1}
-                className="w-full py-3 bg-[#FFDD00] hover:bg-[#FFEA4D] text-slate-900 rounded-lg font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full py-3 bg-coffee hover:bg-coffee-hover text-slate-900 rounded-lg font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Continue to Payment
               </button>

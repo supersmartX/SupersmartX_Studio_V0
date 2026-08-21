@@ -2,21 +2,29 @@
 
 import { ReactNode } from 'react';
 import { EyeIcon } from '@/components/icons';
+import type { AspectRatio } from '@/types';
+import { ASPECT_RATIO_PRESETS } from '@/constants';
 
 interface CanvasProps {
   children: ReactNode;
   focusViewEnabled: boolean;
   onFocusViewToggle: () => void;
+  aspectRatio: AspectRatio;
 }
 
 export function Canvas({
   children,
   focusViewEnabled,
   onFocusViewToggle,
+  aspectRatio,
 }: CanvasProps) {
+  const preset = ASPECT_RATIO_PRESETS[aspectRatio];
+
   return (
     <div className="flex-1 min-h-0 flex items-center justify-center p-2 sm:p-4 bg-canvas overflow-hidden">
-      <div className="relative w-full h-full max-w-5xl aspect-video sm:aspect-auto sm:h-full bg-canvas rounded-lg overflow-hidden shadow-2xl ring-1 ring-white/5">
+      <div
+        className={`relative w-full h-full max-w-5xl ${preset.cssClass} sm:aspect-auto sm:h-full bg-canvas rounded-lg overflow-hidden shadow-2xl ring-1 ring-white/5`}
+      >
         {children}
 
         {/* Focus View Toggle - moved to top-left to avoid Timer overlap at top-right */}

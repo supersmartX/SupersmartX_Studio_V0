@@ -1,4 +1,11 @@
-import type { TeleprompterSettings } from '@/types';
+import type { TeleprompterSettings, AspectRatio } from '@/types';
+
+export const ASPECT_RATIO_PRESETS: Record<AspectRatio, { label: string; icon: string; width: number; height: number; cssClass: string }> = {
+  '16:9': { label: 'Landscape', icon: '🖥️', width: 1920, height: 1080, cssClass: 'aspect-video' },
+  '9:16': { label: 'Portrait', icon: '📱', width: 1080, height: 1920, cssClass: 'aspect-[9/16]' },
+  '4:3':  { label: 'Standard', icon: '📺', width: 1440, height: 1080, cssClass: 'aspect-[4/3]' },
+  '1:1':  { label: 'Square', icon: '⬜', width: 1080, height: 1080, cssClass: 'aspect-square' },
+};
 
 export const DEFAULT_SETTINGS: TeleprompterSettings = {
   fontFamily: "'Inter', sans-serif",

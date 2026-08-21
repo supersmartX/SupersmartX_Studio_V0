@@ -18,11 +18,11 @@ const securityHeaders = [
     value: [
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''} https://sdk.cashfree.com`,
-      "style-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "img-src 'self' data: blob: https://sdk.cashfree.com",
       "font-src 'self' data: https://fonts.googleapis.com https://fonts.gstatic.com",
       "connect-src 'self' https://api.cashfree.com https://sandbox.cashfree.com",
-      "media-src 'self' blob: mediastream:",
+      "media-src 'self' blob: mediastream: https://d8j0ntlcm91z4.cloudfront.net",
       "worker-src 'self' blob:",
       "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
     ].join('; '),

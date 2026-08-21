@@ -35,8 +35,8 @@ export function DiscordFeedback({ onSuccess }: DiscordFeedbackProps) {
   return (
     <div className="bg-accent/5 border border-accent/15 rounded-xl p-4 flex flex-col gap-3">
       <div className="flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-[#5865F2]/15 flex items-center justify-center shrink-0">
-          <DiscordIcon className="w-4 h-4 text-[#5865F2]" />
+        <div className="w-8 h-8 rounded-lg bg-discord/15 flex items-center justify-center shrink-0">
+          <DiscordIcon className="w-4 h-4 text-discord" />
         </div>
         <div className="flex flex-col">
           <span className="text-xs font-semibold text-text-primary">
@@ -52,7 +52,7 @@ export function DiscordFeedback({ onSuccess }: DiscordFeedbackProps) {
         href="https://discord.gg/supersmartx"
         target="_blank"
         rel="noopener noreferrer"
-        className="w-full py-2 bg-[#5865F2] hover:bg-[#4752C4] text-white text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2"
+        className="w-full py-2 bg-discord hover:bg-discord-hover text-white text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2"
       >
         <DiscordIcon className="w-4 h-4" />
         Join Discord Server

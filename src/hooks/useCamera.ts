@@ -41,20 +41,32 @@ const FALLBACK_CONSTRAINTS: MediaStreamConstraints[] = [
   { video: true, audio: true },
 ];
 
+let globalStream: MediaStream | null = null;
+
 export function useCamera(): UseCameraReturn {
-  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(globalStream);
   const [isInitialized, setIsInitialized] = useState(false);
   const [status, setStatus] = useState<CameraStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
+  const streamRef = useRef<MediaStream | null>(globalStream);
   const statusRef = useRef<CameraStatus>('idle');
   const initializeRef = useRef<((constraints?: MediaStreamConstraints) => Promise<void>) | null>(null);
 
   useEffect(() => {
+    if (globalStream && globalStream.active) {
+      setStream(globalStream);
+      setIsInitialized(true);
+      setStatus('ready');
+      statusRef.current = 'ready';
+    }
+  }, []);
+
+  useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      globalStream = null;
     };
   }, []);
 
@@ -76,6 +88,7 @@ export function useCamera(): UseCameraReturn {
 
   const handleTrackEnded = useCallback(() => {
     streamRef.current = null;
+    globalStream = null;
     setStream(null);
     setIsInitialized(false);
     setStatus('error');
@@ -122,6 +135,7 @@ export function useCamera(): UseCameraReturn {
       });
 
       streamRef.current = newStream;
+      globalStream = newStream;
       setStream(newStream);
       setIsInitialized(true);
       setStatus('ready');

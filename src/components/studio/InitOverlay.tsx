@@ -38,7 +38,7 @@ export function InitOverlay({ onInitialize, status, errorMessage }: InitOverlayP
           className="w-full"
           disabled={isLoading}
         >
-          {isLoading ? 'Please Wait...' : hasError ? 'Retry' : 'Enable Camera & Microphone'}
+          {isLoading ? 'Loading...' : hasError ? 'Retry' : 'Enable Camera & Microphone'}
         </Button>
         <p className="text-[11px] text-text-muted mt-4 max-w-xs leading-relaxed">
           Your script is saved locally so you can return later and continue where you left off.

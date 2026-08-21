@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { DEFAULT_SETTINGS, NUDGE_AMOUNT_KEYBOARD } from '@/constants';
+import { NUDGE_AMOUNT_KEYBOARD, ASPECT_RATIO_PRESETS } from '@/constants';
 
 import { useWelcomeModal } from '@/hooks/useWelcomeModal';
 import { useCamera } from '@/hooks/useCamera';
@@ -12,6 +12,8 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useFocusView } from '@/hooks/useFocusView';
 import { useToast } from '@/hooks/useToast';
 import { useShare } from '@/hooks/useShare';
+import { useLibrary } from '@/hooks/useLibrary';
+import { useSettings } from '@/hooks/useSettings';
 
 import { Header } from '@/components/layout/Header';
 import { IconRail } from '@/components/layout/IconRail';
@@ -33,7 +35,7 @@ import { ExportModal } from '@/components/dialogs/ExportModal';
 import { PricingModal } from '@/components/dialogs/PricingModal';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { executePendingDownload } from '@/lib/auth-guard';
-import { LibraryPlaceholder } from '@/features/library/LibraryPlaceholder';
+import { LibraryPanel } from '@/components/studio/LibraryPanel';
 import { InsightsPlaceholder } from '@/features/insights/InsightsPlaceholder';
 import { Toast } from '@/components/common/Toast';
 import type { TabType } from '@/types';
@@ -60,19 +62,16 @@ export default function HomePage() {
   const focusView = useFocusView();
   const scriptStorage = useScriptStorage();
   const { data: session } = useSession();
+  const library = useLibrary();
+  const settingsStore = useSettings();
 
   // Only used for drawer/modal state logic, NOT for layout visibility
   const isMobile = useMediaQuery('(max-width: 640px)');
 
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [activePanel, setActivePanel] = useState<TabType | 'record' | 'share'>('studio');
   const [isDrawerVisible, setIsDrawerVisible] = useState(false);
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [isMirrored, setIsMirrored] = useState(true);
-  const [countdownEnabled, setCountdownEnabled] = useState(true);
-  const [selectedVideoDevice, setSelectedVideoDevice] = useState('');
-  const [selectedAudioDevice, setSelectedAudioDevice] = useState('');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [recordingCount, setRecordingCount] = useState(0);
   const [downloadCount, setDownloadCount] = useState(0);
@@ -97,36 +96,42 @@ export default function HomePage() {
 
   useEffect(() => {
     if (camera.videoDevices.length > 0) {
-      const stillExists = camera.videoDevices.some(d => d.deviceId === selectedVideoDevice);
-      if (!selectedVideoDevice || !stillExists) {
-        setSelectedVideoDevice(camera.videoDevices[0].deviceId);
+      const stillExists = camera.videoDevices.some(d => d.deviceId === settingsStore.selectedVideoDevice);
+      if (!settingsStore.selectedVideoDevice || !stillExists) {
+        settingsStore.setSelectedVideoDevice(camera.videoDevices[0].deviceId);
       }
     } else {
-      setSelectedVideoDevice('');
+      settingsStore.setSelectedVideoDevice('');
     }
     if (camera.audioDevices.length > 0) {
-      const stillExists = camera.audioDevices.some(d => d.deviceId === selectedAudioDevice);
-      if (!selectedAudioDevice || !stillExists) {
-        setSelectedAudioDevice(camera.audioDevices[0].deviceId);
+      const stillExists = camera.audioDevices.some(d => d.deviceId === settingsStore.selectedAudioDevice);
+      if (!settingsStore.selectedAudioDevice || !stillExists) {
+        settingsStore.setSelectedAudioDevice(camera.audioDevices[0].deviceId);
       }
     } else {
-      setSelectedAudioDevice('');
+      settingsStore.setSelectedAudioDevice('');
     }
-  }, [camera.videoDevices, camera.audioDevices]);
+  }, [camera.videoDevices, camera.audioDevices, settingsStore]);
 
   useEffect(() => {
     if (recorder.recordingState === 'recording') {
       timerRef.current = setInterval(() => {
         setElapsedSeconds((prev) => {
-          if (prev + 1 >= FREE_MAX_RECORDING_SECONDS) {
+          const next = prev + 1;
+          if (next === FREE_MAX_RECORDING_SECONDS - 60) {
+            showToast('1 minute remaining on Free plan recording limit');
+          }
+          if (next >= FREE_MAX_RECORDING_SECONDS) {
             if (timerRef.current) clearInterval(timerRef.current);
             setTimeout(() => recorder.stopRecording(), 0);
             showToast('Recording stopped — 5 minute limit reached on Free plan');
             return FREE_MAX_RECORDING_SECONDS;
           }
-          return prev + 1;
+          return next;
         });
       }, 1000);
+    } else if (recorder.recordingState === 'paused') {
+      if (timerRef.current) clearInterval(timerRef.current);
     } else if (timerRef.current) {
       clearInterval(timerRef.current);
     }
@@ -148,8 +153,8 @@ export default function HomePage() {
     const scrollCallback = () => {
       if (!prompterContainerRef.current) return;
       const container = prompterContainerRef.current;
-      const speed = settings.scrollSpeed;
-      const multiplier = settings.scrollSpeedMultiplier;
+      const speed = settingsStore.teleprompter.scrollSpeed;
+      const multiplier = settingsStore.teleprompter.scrollSpeedMultiplier;
       container.scrollTop += (speed / 20) * multiplier;
     };
 
@@ -162,7 +167,7 @@ export default function HomePage() {
     };
 
     recorder.startRecording(scrollCallback, checkEndCallback);
-  }, [camera.stream, recorder, settings.scrollSpeed, settings.scrollSpeedMultiplier]);
+  }, [camera.stream, recorder, settingsStore.teleprompter.scrollSpeed, settingsStore.teleprompter.scrollSpeedMultiplier]);
 
   const handleRecordStop = useCallback(() => {
     if (recorder.recordingState === 'recording' || recorder.recordingState === 'paused') {
@@ -237,48 +242,54 @@ export default function HomePage() {
   }, [handleRecordStop]);
 
   const handleCameraInitialize = useCallback(async () => {
+    const preset = ASPECT_RATIO_PRESETS[settingsStore.aspectRatio];
     const constraints: MediaStreamConstraints = {
-      video: selectedVideoDevice
-        ? { deviceId: { exact: selectedVideoDevice } }
-        : { width: { ideal: 1920 }, height: { ideal: 1080 }, facingMode: 'user' },
-      audio: selectedAudioDevice
-        ? { deviceId: { exact: selectedAudioDevice } }
+      video: settingsStore.selectedVideoDevice
+        ? { deviceId: { exact: settingsStore.selectedVideoDevice }, width: { ideal: preset.width }, height: { ideal: preset.height } }
+        : { width: { ideal: preset.width }, height: { ideal: preset.height }, facingMode: 'user' },
+      audio: settingsStore.selectedAudioDevice
+        ? { deviceId: { exact: settingsStore.selectedAudioDevice } }
         : true,
     };
 
     try {
       await camera.initialize(constraints);
     } catch {
-      // If exact deviceId failed, retry without specific device constraints
       await camera.initialize();
     }
-  }, [camera, selectedAudioDevice, selectedVideoDevice]);
+  }, [camera, settingsStore.selectedAudioDevice, settingsStore.selectedVideoDevice, settingsStore.aspectRatio]);
 
   const handleVideoDeviceChange = useCallback(async (deviceId: string) => {
-    setSelectedVideoDevice(deviceId);
+    settingsStore.setSelectedVideoDevice(deviceId);
     if (camera.isInitialized) {
       const constraints: MediaStreamConstraints = {
         video: { deviceId: { exact: deviceId } },
-        audio: selectedAudioDevice
-          ? { deviceId: { exact: selectedAudioDevice } }
+        audio: settingsStore.selectedAudioDevice
+          ? { deviceId: { exact: settingsStore.selectedAudioDevice } }
           : true,
       };
       await camera.initialize(constraints);
     }
-  }, [camera, selectedAudioDevice]);
+  }, [camera, settingsStore.selectedAudioDevice, settingsStore.setSelectedVideoDevice]);
 
   const handleAudioDeviceChange = useCallback(async (deviceId: string) => {
-    setSelectedAudioDevice(deviceId);
+    settingsStore.setSelectedAudioDevice(deviceId);
     if (camera.isInitialized) {
       const constraints: MediaStreamConstraints = {
-        video: selectedVideoDevice
-          ? { deviceId: { exact: selectedVideoDevice } }
+        video: settingsStore.selectedVideoDevice
+          ? { deviceId: { exact: settingsStore.selectedVideoDevice } }
           : true,
         audio: { deviceId: { exact: deviceId } },
       };
       await camera.initialize(constraints);
     }
-  }, [camera, selectedVideoDevice]);
+  }, [camera, settingsStore.selectedVideoDevice, settingsStore.setSelectedAudioDevice]);
+
+  useEffect(() => {
+    if (camera.isInitialized && recorder.recordingState === 'idle') {
+      handleCameraInitialize();
+    }
+  }, [settingsStore.aspectRatio]);
 
   const handleToggleInspector = useCallback(() => {
     setIsInspectorOpen((prev) => !prev);
@@ -299,10 +310,9 @@ export default function HomePage() {
       setRecordingCount(count);
       const dlCount = parseInt(localStorage.getItem('sxs-download-count') || '0', 10);
       setDownloadCount(dlCount);
-      
-      const plan = new URLSearchParams(window.location.search).get('plan');
-      if (plan) {
-        setIsPricingModalOpen(true);
+
+      if (window.location.search) {
+        window.history.replaceState({}, '', window.location.pathname);
       }
     }
   }, []);
@@ -337,20 +347,22 @@ export default function HomePage() {
   const isStudio = activePanel === 'studio';
 
   const inspectorProps = {
-    settings,
-    onSettingsChange: setSettings,
+    settings: settingsStore.teleprompter,
+    onSettingsChange: settingsStore.setTeleprompter,
     focusViewEnabled: focusView.isEnabled,
     onFocusViewToggle: focusView.toggle,
-    mirrorCamera: isMirrored,
-    onMirrorCameraToggle: () => setIsMirrored((prev) => !prev),
-    countdownEnabled,
-    onCountdownToggle: () => setCountdownEnabled((prev) => !prev),
+    mirrorCamera: settingsStore.isMirrored,
+    onMirrorCameraToggle: () => settingsStore.setIsMirrored((prev) => !prev),
+    countdownEnabled: settingsStore.countdownEnabled,
+    onCountdownToggle: () => settingsStore.setCountdownEnabled((prev) => !prev),
     videoDevices: camera.videoDevices,
     audioDevices: camera.audioDevices,
-    selectedVideoDevice,
-    selectedAudioDevice,
+    selectedVideoDevice: settingsStore.selectedVideoDevice,
+    selectedAudioDevice: settingsStore.selectedAudioDevice,
     onVideoDeviceChange: handleVideoDeviceChange,
     onAudioDeviceChange: handleAudioDeviceChange,
+    aspectRatio: settingsStore.aspectRatio,
+    onAspectRatioChange: settingsStore.setAspectRatio,
     script: scriptStorage.script,
     onScriptChange: scriptStorage.setScript,
     onClearScript: scriptStorage.clearScript,
@@ -403,8 +415,8 @@ export default function HomePage() {
               <DeviceSelectorBar
                 videoDevices={camera.videoDevices}
                 audioDevices={camera.audioDevices}
-                selectedVideoDevice={selectedVideoDevice}
-                selectedAudioDevice={selectedAudioDevice}
+                selectedVideoDevice={settingsStore.selectedVideoDevice}
+                selectedAudioDevice={settingsStore.selectedAudioDevice}
                 onVideoDeviceChange={handleVideoDeviceChange}
                 onAudioDeviceChange={handleAudioDeviceChange}
                 onRefresh={camera.refreshDevices}
@@ -413,20 +425,21 @@ export default function HomePage() {
               <Canvas
                 focusViewEnabled={focusView.isEnabled}
                 onFocusViewToggle={focusView.toggle}
+                aspectRatio={settingsStore.aspectRatio}
               >
                 <CameraPreview
                   stream={camera.stream}
-                  isMirrored={isMirrored}
+                  isMirrored={settingsStore.isMirrored}
                   focusViewEnabled={focusView.isEnabled}
                 />
 
                 <TeleprompterOverlay
                   ref={prompterContainerRef}
                   script={scriptStorage.script}
-                  settings={settings}
+                  settings={settingsStore.teleprompter}
                 />
 
-                <FocalGuideway position={settings.textStartPosition} />
+                <FocalGuideway position={settingsStore.teleprompter.textStartPosition} />
 
                 <RecordingBadge recordingState={recorder.recordingState} />
 
@@ -437,7 +450,7 @@ export default function HomePage() {
 
                 <CountdownOverlay
                   countdownText={recorder.countdownText}
-                  isVisible={recorder.recordingState === 'countdown' && countdownEnabled}
+                  isVisible={recorder.recordingState === 'countdown' && settingsStore.countdownEnabled}
                 />
 
                 {!camera.isInitialized && (
@@ -452,7 +465,16 @@ export default function HomePage() {
 
             {activePanel === 'library' && (
               <div className="flex-1 min-h-0 overflow-auto">
-                <LibraryPlaceholder />
+                <LibraryPanel
+                  scripts={library.scripts}
+                  isLoaded={library.isLoaded}
+                  onCreateScript={library.createScript}
+                  onUpdateScript={library.updateScript}
+                  onDeleteScript={library.deleteScript}
+                  onSearchScripts={library.searchScripts}
+                  onLoadScript={scriptStorage.setScript}
+                  currentContent={scriptStorage.script}
+                />
               </div>
             )}
 
@@ -476,8 +498,8 @@ export default function HomePage() {
                   () => {
                     if (!prompterContainerRef.current) return;
                     const container = prompterContainerRef.current;
-                    const speed = settings.scrollSpeed;
-                    const multiplier = settings.scrollSpeedMultiplier;
+                    const speed = settingsStore.teleprompter.scrollSpeed;
+                    const multiplier = settingsStore.teleprompter.scrollSpeedMultiplier;
                     container.scrollTop += (speed / 20) * multiplier;
                   },
                   () => {
@@ -536,6 +558,7 @@ export default function HomePage() {
         downloadCount={downloadCount}
         downloadLimit={FREE_VIDEO_DOWNLOAD_LIMIT}
         onDownloadLimitReached={() => setIsPricingModalOpen(true)}
+        aspectRatio={settingsStore.aspectRatio}
       />
 
       <PricingModal
@@ -548,6 +571,7 @@ export default function HomePage() {
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         onSuccess={handleAuthSuccess}
+        mode="download"
       />
 
       <Toast message={toast?.message ?? null} />

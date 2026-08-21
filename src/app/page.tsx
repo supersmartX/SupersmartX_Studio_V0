@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { AuthModal } from '@/components/auth/AuthModal';
 
 const NAV_LINKS = [
@@ -48,6 +49,7 @@ function HeroVideo() {
 }
 
 export default function LandingPage() {
+  const router = useRouter();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -169,6 +171,7 @@ export default function LandingPage() {
   gap: 8px;
   justify-self: center;
 }
+.lsx-nav-mobile-cta { display: none; }
 
 .lsx-nav-pill {
   height: var(--lsx-nav-h, 40px);
@@ -177,7 +180,7 @@ export default function LandingPage() {
   overflow: hidden;
   position: relative;
   border: 1px solid rgba(255,255,255,0.1);
-  background: #111113;
+  background: var(--color-surface);
   color: #fff;
   font-size: var(--lsx-nav, 14px);
   font-weight: 400;
@@ -194,7 +197,7 @@ export default function LandingPage() {
   background: rgba(255,255,255,0.05);
 }
 .lsx-nav-pill:focus-visible {
-  outline: 2px solid #8B5CF6;
+  outline: 2px solid var(--color-accent-hover);
   outline-offset: 2px;
 }
 
@@ -221,21 +224,21 @@ export default function LandingPage() {
 }
 
 .lsx-btn-solid {
-  background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-dark) 100%);
   color: #fff;
-  border: 1px solid #7C3AED;
+  border: 1px solid var(--color-accent);
 }
 .lsx-btn-solid:hover {
-  background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
-  border-color: #8B5CF6;
+  background: linear-gradient(135deg, var(--color-accent-hover) 0%, var(--color-accent) 100%);
+  border-color: var(--color-accent-hover);
 }
 .lsx-btn-solid:focus-visible {
-  outline: 2px solid #8B5CF6;
+  outline: 2px solid var(--color-accent-hover);
   outline-offset: 2px;
 }
 
 .lsx-btn-ghost {
-  background: #111113;
+  background: var(--color-surface);
   color: #fff;
   border: 1px solid rgba(255,255,255,0.1);
 }
@@ -243,7 +246,7 @@ export default function LandingPage() {
   background: rgba(255,255,255,0.05);
 }
 .lsx-btn-ghost:focus-visible {
-  outline: 2px solid #8B5CF6;
+  outline: 2px solid var(--color-accent-hover);
   outline-offset: 2px;
 }
 
@@ -252,7 +255,7 @@ export default function LandingPage() {
   padding: 0 18px;
 }
 .lsx-hero-ghost {
-  background: #111113;
+  background: var(--color-surface);
   border: 1px solid rgba(255,255,255,0.1);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -323,13 +326,13 @@ export default function LandingPage() {
   font-weight: 400;
   font-size: 1.08em;
   letter-spacing: -0.03em;
-  color: #9a9a9a;
+  color: var(--color-accent);
 }
 
 .lsx-lede {
   max-width: var(--lsx-lede-max, 470px);
   margin-top: 18px;
-  color: #9a9a9a;
+  color: var(--color-text-secondary);
   font-size: var(--lsx-lede, 15.5px);
   font-weight: 400;
   line-height: 1.55;
@@ -369,7 +372,7 @@ export default function LandingPage() {
   height: 42px;
   border-radius: 6px;
   border: 1px solid rgba(255,255,255,0.1);
-  background: #111113;
+  background: var(--color-surface);
   z-index: 60;
   cursor: pointer;
   flex-direction: column;
@@ -451,11 +454,12 @@ export default function LandingPage() {
 }
 
 @media (max-width: 900px) {
-  .lsx-header { grid-template-columns: 1fr auto auto; gap: 8px; padding: 16px 18px; }
+  .lsx-header { grid-template-columns: 1fr auto; gap: 8px; padding: 16px 18px; }
+  .lsx-header-cta-wrap { display: none; }
   .lsx-burger { display: flex; }
   .lsx-site-nav {
     position: fixed; inset: 0; z-index: 45;
-    flex-direction: column; background: transparent;
+    flex-direction: column; background: var(--color-canvas);
     align-items: center; justify-content: center; gap: 12px;
     padding: 96px 22px 32px;
     opacity: 0; visibility: hidden;
@@ -463,6 +467,8 @@ export default function LandingPage() {
   }
   .lsx-menu-open .lsx-site-nav { opacity: 1; visibility: visible; }
   .lsx-site-nav .lsx-nav-pill { width: 100%; height: 56px; font-size: 19px; border-radius: 10px; }
+  .lsx-nav-mobile-cta { display: flex; flex-direction: column; gap: 10px; width: 100%; padding-top: 20px; }
+  .lsx-nav-mobile-btn { width: 100%; height: 52px; font-size: 16px; }
   .lsx-hero { padding: 20px 20px 64px; align-items: flex-end; }
   .lsx-stats { flex-direction: column; align-items: center; gap: 16px; white-space: normal; padding: 20px 24px 48px; }
   .lsx-page { --lsx-logo: 16px; --lsx-btn: 15px; --lsx-btn-h: 46px; --lsx-hero-btn-h: 48px; --lsx-h1: 36px; --lsx-lede: 16.5px; --lsx-badge: 13.5px; --lsx-header-x: 18px; --lsx-hero-gap: 36px; --lsx-copy-max: 100%; --lsx-lede-max: 100%; }
@@ -472,58 +478,13 @@ export default function LandingPage() {
   .lsx-page { --lsx-h1: 34px; --lsx-lede: 16px; --lsx-header-x: 16px; }
   .lsx-hero-actions { flex-direction: column; width: 100%; }
   .lsx-hero-actions .lsx-btn { width: 100%; }
-  .lsx-footer-columns { grid-template-columns: 1fr; gap: 32px; }
 }
 
 .lsx-footer {
   border-top: 1px solid rgba(255,255,255,0.06);
-  padding: 48px var(--lsx-header-x, 40px) 24px;
-}
-.lsx-footer-inner {
-  display: flex;
-  justify-content: space-between;
-  gap: 48px;
-  max-width: 1100px;
-  margin: 0 auto;
-}
-.lsx-footer-brand {
-  max-width: 260px;
-}
-.lsx-footer-tagline {
-  margin-top: 12px;
-  color: rgba(255,255,255,0.4);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.lsx-footer-columns {
-  display: grid;
-  grid-template-columns: repeat(3, auto);
-  gap: 56px;
-}
-.lsx-footer-col {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.lsx-footer-heading {
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
-  margin-bottom: 4px;
-}
-.lsx-footer-link {
-  font-size: 13px;
-  color: rgba(255,255,255,0.4);
-  text-decoration: none;
-  transition: color 0.2s ease;
-}
-.lsx-footer-link:hover {
-  color: #fff;
+  padding: 24px var(--lsx-header-x, 40px);
 }
 .lsx-footer-bottom {
-  margin-top: 40px;
-  padding-top: 20px;
-  border-top: 1px solid rgba(255,255,255,0.06);
   text-align: center;
   font-size: 12px;
   color: rgba(255,255,255,0.3);
@@ -543,7 +504,7 @@ export default function LandingPage() {
 
         <header className="lsx-header">
           <Link href="/" className="lsx-logo lsx-appear" style={{ '--lsx-d': '0.08s' } as React.CSSProperties} aria-label="SupersmartX Studio">
-            SUPERSMARTX<span className="text-white/40 font-normal">Studio</span>
+            SUPERSMARTX<span className="text-accent font-normal">Studio</span>
           </Link>
 
           <nav className="lsx-site-nav" id="lsx-site-nav" aria-label="Primary">
@@ -558,6 +519,20 @@ export default function LandingPage() {
                 {link.label}
               </a>
             ))}
+            <div className="lsx-nav-mobile-cta">
+              <button
+                onClick={() => { setIsAuthModalOpen(true); closeMenu(); }}
+                className="lsx-btn lsx-btn-ghost lsx-nav-mobile-btn"
+              >
+                Log In
+              </button>
+              <button
+                onClick={() => { router.push('/studio'); closeMenu(); }}
+                className="lsx-btn lsx-btn-solid lsx-nav-mobile-btn"
+              >
+                Start Free
+              </button>
+            </div>
           </nav>
 
           <div className="lsx-header-cta-wrap">
@@ -567,13 +542,13 @@ export default function LandingPage() {
                 className="lsx-btn lsx-btn-ghost"
                 style={{ marginRight: '8px' }}
               >
-                Sign In
+                Log In
               </button>
               <button
-                onClick={() => { setIsAuthModalOpen(true); closeMenu(); }}
+                onClick={() => { router.push('/studio'); closeMenu(); }}
                 className="lsx-btn lsx-btn-solid"
               >
-                Open Studio
+                Start Free
               </button>
             </div>
           </div>
@@ -615,44 +590,24 @@ export default function LandingPage() {
 
             <div className="lsx-hero-actions">
               <button
-                onClick={() => setIsAuthModalOpen(true)}
+                onClick={() => router.push('/studio')}
                 className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-appear lsx-appear--btn lsx-hero-solid"
                 style={{ '--lsx-d': '0.96s' } as React.CSSProperties}
               >
-                Open Studio
+                Start Free
+              </button>
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="lsx-btn lsx-btn-ghost lsx-hero-btn lsx-hero-ghost lsx-appear lsx-appear--btn"
+                style={{ '--lsx-d': '1.06s' } as React.CSSProperties}
+              >
+                Log In
               </button>
             </div>
           </div>
         </main>
 
         <footer className="lsx-footer">
-          <div className="lsx-footer-inner">
-            <div className="lsx-footer-brand">
-              <Link href="/" className="lsx-logo" aria-label="SupersmartX Studio">
-                SUPERSMARTX<span className="text-white/40 font-normal">Studio</span>
-              </Link>
-              <p className="lsx-footer-tagline">Browser-based teleprompter and recording studio.</p>
-            </div>
-
-            <div className="lsx-footer-columns">
-              <div className="lsx-footer-col">
-                <h4 className="lsx-footer-heading">Product</h4>
-                <button onClick={() => setIsAuthModalOpen(true)} className="lsx-footer-link text-left">Studio</button>
-                <a href="#pricing" className="lsx-footer-link">Pricing</a>
-              </div>
-              <div className="lsx-footer-col">
-                <h4 className="lsx-footer-heading">Company</h4>
-                <span className="lsx-footer-link text-white/20 cursor-default">About</span>
-                <span className="lsx-footer-link text-white/20 cursor-default">Contact</span>
-              </div>
-              <div className="lsx-footer-col">
-                <h4 className="lsx-footer-heading">Legal</h4>
-                <span className="lsx-footer-link text-white/20 cursor-default">Privacy</span>
-                <span className="lsx-footer-link text-white/20 cursor-default">Terms</span>
-              </div>
-            </div>
-          </div>
-
           <div className="lsx-footer-bottom">
             <span>&copy; {new Date().getFullYear()} SupersmartX. All rights reserved.</span>
           </div>

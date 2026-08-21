@@ -6,6 +6,9 @@ import { DownloadIcon, CloseIcon, PlayIcon, PauseIcon, ShareIcon } from '@/compo
 import { DiscordFeedback } from './DiscordFeedback';
 import { generateFilename } from '@/services/download.service';
 import { setPendingDownload } from '@/lib/auth-guard';
+import type { AspectRatio } from '@/types';
+import { ASPECT_RATIO_PRESETS } from '@/constants';
+import { useModalAnimation } from '@/hooks/useModalAnimation';
 
 interface RecordingResult {
   blob: Blob;
@@ -30,6 +33,7 @@ interface ExportModalProps {
   downloadCount: number;
   downloadLimit: number;
   onDownloadLimitReached: () => void;
+  aspectRatio: AspectRatio;
 }
 
 function formatTime(seconds: number): string {
@@ -38,7 +42,7 @@ function formatTime(seconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-function VideoPlayer({ videoUrl, recordedDuration, onError }: { videoUrl: string; recordedDuration: number; onError: (msg: string) => void }) {
+function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }: { videoUrl: string; recordedDuration: number; onError: (msg: string) => void; aspectRatio: AspectRatio }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
@@ -176,7 +180,7 @@ function VideoPlayer({ videoUrl, recordedDuration, onError }: { videoUrl: string
 
   if (validationError) {
     return (
-      <div className="aspect-video bg-canvas rounded-lg flex items-center justify-center">
+      <div className={`${ASPECT_RATIO_PRESETS[aspectRatio].cssClass} bg-canvas rounded-lg flex items-center justify-center`}>
         <p className="text-sm text-recording">{validationError}</p>
       </div>
     );
@@ -187,7 +191,7 @@ function VideoPlayer({ videoUrl, recordedDuration, onError }: { videoUrl: string
       <video
         ref={videoRef}
         src={videoUrl}
-        className="w-full aspect-video object-contain"
+        className={`w-full ${ASPECT_RATIO_PRESETS[aspectRatio].cssClass} object-contain`}
         onClick={togglePlay}
         playsInline
       />
@@ -311,13 +315,15 @@ export function ExportModal({
   downloadCount,
   downloadLimit,
   onDownloadLimitReached,
+  aspectRatio,
 }: ExportModalProps) {
+  const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isVisible, onClose);
   const [isValidating, setIsValidating] = useState(true);
   const [validationPassed, setValidationPassed] = useState(false);
   const [validationError, setValidationError] = useState('');
 
   useEffect(() => {
-    if (!isVisible || !videoUrl) {
+    if (!shouldRender || !videoUrl) {
       setIsValidating(true);
       setValidationPassed(false);
       setValidationError('');
@@ -336,8 +342,8 @@ export function ExportModal({
         return;
       }
 
-      if (recordedDuration < 30) {
-        setValidationError('Invalid video duration (minimum 30 seconds)');
+      if (recordedDuration < 5) {
+        setValidationError('Video too short — minimum 5 seconds to download');
         setIsValidating(false);
         return;
       }
@@ -353,13 +359,13 @@ export function ExportModal({
     };
 
     validate();
-  }, [isVisible, videoUrl, recordingResult]);
+  }, [shouldRender, videoUrl, recordingResult]);
 
   const handleDownload = useCallback(() => {
     if (!recordingResult) return;
 
-    if (recordingResult.duration < 30) {
-      showToast('Invalid video duration (minimum 30 seconds)');
+    if (recordingResult.duration < 5) {
+      showToast('Video too short — minimum 5 seconds to download');
       return;
     }
 
@@ -390,22 +396,22 @@ export function ExportModal({
     doDownload();
   }, [videoUrl, recordingResult, showToast, isAuthenticated, onAuthRequired, onDownloadComplete, downloadCount, downloadLimit, onDownloadLimitReached]);
 
-  if (!isVisible) return null;
+  if (!shouldRender) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Export recording">
+    <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Export recording" {...swipeHandlers}>
       <div
-        className="absolute inset-0 bg-canvas/80 backdrop-blur-md animate-fade-in"
-        onClick={onClose}
+        className={`absolute inset-0 bg-canvas/80 backdrop-blur-md ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
+        onClick={closeModal}
       />
 
-      <div className="relative w-full max-w-lg bg-surface border border-border-default rounded-xl shadow-2xl animate-scale-in overflow-hidden max-h-[90vh] overflow-y-auto">
+      <div className={`relative w-full max-w-lg bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] overflow-y-auto`}>
         <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 border-b border-border-subtle">
           <h2 className="text-sm font-semibold text-text-primary">
             {isValidating ? 'Processing...' : validationPassed ? 'Recording Ready' : 'Export Failed'}
           </h2>
           <button
-            onClick={onClose}
+            onClick={closeModal}
             className="p-2.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label="Close"
           >
@@ -414,7 +420,7 @@ export function ExportModal({
         </div>
 
         <div className="p-4 sm:p-5 flex flex-col gap-4">
-          <VideoPlayer videoUrl={videoUrl} recordedDuration={recordingResult?.duration || 0} onError={setValidationError} />
+          <VideoPlayer videoUrl={videoUrl} recordedDuration={recordingResult?.duration || 0} onError={setValidationError} aspectRatio={aspectRatio} />
 
           {recordingResult && (
             <div className="grid grid-cols-2 gap-3">
@@ -449,7 +455,7 @@ export function ExportModal({
                   className="w-full gap-2"
                 >
                   <DownloadIcon className="w-4 h-4" />
-                  {isAuthenticated ? 'Download Video' : 'Sign in to Download'}
+                  {isAuthenticated ? 'Download Video' : 'Create Free Account to Download'}
                 </Button>
                 <Button
                   variant="secondary"

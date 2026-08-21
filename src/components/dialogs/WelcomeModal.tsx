@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
+import { useModalAnimation } from '@/hooks/useModalAnimation';
 
 interface WelcomeModalProps {
   isVisible: boolean;
@@ -18,15 +19,17 @@ export function WelcomeModal({
   onGetStarted,
   onExploreStudio,
 }: WelcomeModalProps) {
-  if (!isVisible) return null;
+  const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isVisible, onExploreStudio);
+
+  if (!shouldRender) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Welcome">
-      <div className="absolute inset-0 bg-canvas/80 backdrop-blur-md animate-fade-in" />
+    <div className={`fixed inset-0 z-[200] flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Welcome" {...swipeHandlers}>
+      <div className={`absolute inset-0 bg-canvas/80 backdrop-blur-md ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`} />
 
-      <div className="relative w-full max-w-xl bg-surface border border-border-default rounded-xl shadow-2xl animate-scale-in overflow-hidden max-h-[90vh] overflow-y-auto">
+      <div className={`relative w-full max-w-xl bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] overflow-y-auto`}>
         <button
-          onClick={onExploreStudio}
+          onClick={closeModal}
           className="absolute top-3 right-3 p-2.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
           aria-label="Close"
         >
@@ -111,13 +114,13 @@ export function WelcomeModal({
           <Button
             variant="primary"
             size="lg"
-            onClick={onGetStarted}
+            onClick={() => { closeModal(); setTimeout(onGetStarted, 150); }}
             className="w-full"
           >
             Get Started
           </Button>
           <button
-            onClick={onExploreStudio}
+            onClick={closeModal}
             className="w-full py-2.5 min-h-[44px] text-[13px] text-text-muted hover:text-text-secondary font-medium transition-colors"
           >
             Explore Studio

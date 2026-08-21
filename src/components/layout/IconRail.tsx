@@ -73,7 +73,6 @@ export function IconRail({
             <BookOpenIcon className="w-4 h-4" />
             Library
           </span>
-          <span className="text-[9px] font-semibold bg-accent/15 text-accent px-1.5 py-0.5 rounded">Soon</span>
         </button>
 
         <button

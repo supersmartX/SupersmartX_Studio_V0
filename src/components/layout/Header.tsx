@@ -116,7 +116,7 @@ export function Header({
             onClick={onSignIn}
             className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] justify-center"
           >
-            Sign in
+            Log in
           </button>
         )}
       </div>
