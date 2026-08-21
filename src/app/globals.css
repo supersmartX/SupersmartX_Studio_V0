@@ -135,15 +135,15 @@
   --ease-spring:  cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* ── Z-Index Layers ────────────────────────────────────────────────────── */
-  --layer-base:    0;
-  --layer-overlay: 10;
-  --layer-nav:     20;
-  --layer-header:  30;
-  --layer-float:   50;
-  --layer-modal:   100;
-  --layer-drawer:  150;
-  --layer-onboard: 200;
-  --layer-toast:   300;
+  --z-base:    0;
+  --z-overlay: 10;
+  --z-nav:     20;
+  --z-header:  30;
+  --z-float:   50;
+  --z-modal:   100;
+  --z-drawer:  150;
+  --z-onboard: 200;
+  --z-toast:   300;
 
   /* ── Icon Sizes ────────────────────────────────────────────────────────── */
   --icon-xs:  12px;

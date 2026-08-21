@@ -485,9 +485,21 @@ export default function LandingPage() {
   padding: 24px var(--lsx-header-x, 40px);
 }
 .lsx-footer-bottom {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
   font-size: 12px;
   color: rgba(255,255,255,0.3);
+}
+.lsx-footer-link {
+  color: rgba(255,255,255,0.3);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.lsx-footer-link:hover {
+  color: rgba(255,255,255,0.6);
 }
 `,
         }}
@@ -610,6 +622,8 @@ export default function LandingPage() {
         <footer className="lsx-footer">
           <div className="lsx-footer-bottom">
             <span>&copy; {new Date().getFullYear()} SupersmartX. All rights reserved.</span>
+            <a href="/legal/terms" className="lsx-footer-link">Terms</a>
+            <a href="/legal/privacy" className="lsx-footer-link">Privacy</a>
           </div>
         </footer>
       </div>

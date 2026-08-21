@@ -29,7 +29,7 @@ export function Toast({ message }: ToastProps) {
 
   return (
     <div
-      className={`fixed bottom-20 sm:bottom-16 left-1/2 -translate-x-1/2 z-[300] bg-surface border border-border-default px-3 py-2 rounded-lg shadow-xl flex items-center gap-2 text-xs font-medium text-text-primary transition-all duration-200 max-w-[calc(100vw-2rem)] ${
+      className={`fixed bottom-20 sm:bottom-16 left-1/2 -translate-x-1/2 z-toast bg-surface border border-border-default px-3 py-2 rounded-lg shadow-xl flex items-center gap-2 text-xs font-medium text-text-primary transition-all duration-200 max-w-[calc(100vw-2rem)] ${
         visible
           ? 'animate-slide-up opacity-100'
           : 'opacity-0 translate-y-2 pointer-events-none'

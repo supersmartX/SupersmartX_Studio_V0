@@ -5,7 +5,7 @@ interface FocalGuidewayProps {
 export function FocalGuideway({ position }: FocalGuidewayProps) {
   return (
     <div
-      className="absolute left-0 right-0 h-px flex items-center justify-center pointer-events-none z-[60]"
+      className="absolute left-0 right-0 h-px flex items-center justify-center pointer-events-none z-float"
       style={{ top: `${position}%` }}
     >
       <div className="absolute inset-0 h-px bg-gradient-to-r from-transparent via-accent/30 to-transparent" />

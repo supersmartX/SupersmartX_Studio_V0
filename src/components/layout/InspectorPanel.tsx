@@ -102,10 +102,10 @@ export function InspectorPanel({
     return (
       <>
         {isOpen && (
-          <div className="fixed inset-0 z-[150] drawer-backdrop animate-fade-in" onClick={onClose} />
+          <div className="fixed inset-0 z-drawer drawer-backdrop animate-fade-in" onClick={onClose} />
         )}
         <div
-          className={`fixed top-0 right-0 h-full w-[85vw] max-w-[360px] bg-surface border-l border-border-default shadow-2xl z-[160] flex flex-col overflow-hidden transition-transform duration-250 ease-out ${
+          className={`fixed top-0 right-0 h-full w-[85vw] max-w-[360px] bg-surface border-l border-border-default shadow-2xl z-drawer flex flex-col overflow-hidden transition-transform duration-250 ease-out ${
             isOpen ? 'translate-x-0 animate-slide-in-right' : 'translate-x-full'
           }`}
           role="dialog"

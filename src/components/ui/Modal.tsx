@@ -87,7 +87,7 @@ export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg' 
   if (!shouldRender) return null;
 
   return (
-    <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true">
+    <div className={`fixed inset-0 z-modal flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true">
       <div
         className={`absolute inset-0 bg-canvas/80 backdrop-blur-sm ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
         onClick={handleClose}

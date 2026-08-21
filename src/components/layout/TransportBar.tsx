@@ -2,6 +2,7 @@
 
 import { useRef, useCallback } from 'react';
 import type { RecordingState } from '@/types';
+import { formatTime } from '@/utils/format';
 import {
   MicrophoneIcon,
   MicrophoneOffIcon,
@@ -187,10 +188,4 @@ export function TransportBar({
       <div className="hidden sm:block min-w-[160px]" />
     </footer>
   );
-}
-
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
