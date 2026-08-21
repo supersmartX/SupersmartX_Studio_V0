@@ -28,6 +28,23 @@ export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }
   const fullscreenRef = useRef(false);
   const [isValidated, setIsValidated] = useState(false);
   const [validationError, setValidationError] = useState('');
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const hideControlsTimer = useRef<ReturnType<typeof setTimeout>>(null);
+
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
+    hideControlsTimer.current = setTimeout(() => setControlsVisible(false), 3000);
+  }, []);
+
+  const toggleControls = useCallback(() => {
+    if (controlsVisible) {
+      setControlsVisible(false);
+      if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
+    } else {
+      showControls();
+    }
+  }, [controlsVisible, showControls]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -156,12 +173,12 @@ export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }
   }
 
   return (
-    <div ref={containerRef} className="relative bg-black rounded-lg overflow-hidden group">
+    <div ref={containerRef} className="relative bg-black rounded-lg overflow-hidden group" onMouseMove={showControls}>
       <video
         ref={videoRef}
         src={videoUrl}
         className={`w-full ${ASPECT_RATIO_PRESETS[aspectRatio].cssClass} object-contain`}
-        onClick={togglePlay}
+        onClick={toggleControls}
         playsInline
       />
 
@@ -175,7 +192,7 @@ export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }
       )}
 
       {isValidated && (
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 transition-opacity ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>
           <div
             ref={progressRef}
             className="w-full h-1.5 bg-white/20 rounded-full cursor-pointer mb-2 group/progress"
@@ -191,19 +208,19 @@ export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }
 
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <button onClick={togglePlay} className="text-white hover:text-accent transition-colors">
+              <button onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'} className="text-white hover:text-accent transition-colors">
                 {isPlaying ? <PauseIcon className="w-5 h-5" /> : <PlayIcon className="w-5 h-5" />}
               </button>
 
-              <button onClick={() => skip(-10)} className="text-white/70 hover:text-white text-xs font-mono">
+              <button onClick={() => skip(-10)} aria-label="Skip back 10 seconds" className="text-white/70 hover:text-white text-xs font-mono">
                 -10s
               </button>
-              <button onClick={() => skip(10)} className="text-white/70 hover:text-white text-xs font-mono">
+              <button onClick={() => skip(10)} aria-label="Skip forward 10 seconds" className="text-white/70 hover:text-white text-xs font-mono">
                 +10s
               </button>
 
               <div className="flex items-center gap-1">
-                <button onClick={toggleMute} className="text-white/70 hover:text-white">
+                <button onClick={toggleMute} aria-label={isMuted ? 'Unmute' : 'Mute'} className="text-white/70 hover:text-white">
                   {isMuted || volume === 0 ? (
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />

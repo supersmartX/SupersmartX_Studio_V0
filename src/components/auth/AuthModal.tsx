@@ -93,16 +93,26 @@ export function AuthModal({
     onClose();
   }, [onClose]);
 
-  if (!isOpen) return null;
+  const { isClosing, shouldRender, handleClose: handleModalClose, swipeHandlers } = useModalAnimation(isOpen, handleClose);
+
+  if (!shouldRender) return null;
 
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center p-2 transition-all duration-[var(--duration-slowest)]" role="dialog" aria-modal="true" aria-label="Sign in">
+    <div className={`fixed inset-0 z-modal flex items-center justify-center p-4 transition-all duration-[var(--duration-slowest)] ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={step === 'chooser' ? 'Sign in or create account' : 'Enter your email'} {...swipeHandlers}>
       <div
-        className="absolute inset-0 bg-black/80 backdrop-blur-md animate-fade-in"
-        onClick={handleClose}
+        className={`absolute inset-0 bg-black/80 backdrop-blur-md ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
+        onClick={handleModalClose}
       />
 
-      <div className="relative flex w-full max-w-[960px] min-h-[600px] max-h-[90vh] bg-canvas rounded-3xl shadow-2xl animate-scale-in overflow-hidden border border-white/[0.06]">
+      <div className={`relative flex w-full max-w-[960px] min-h-[600px] max-h-[90vh] bg-canvas rounded-3xl shadow-2xl overflow-hidden border border-white/[0.06] ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}>
+        {/* Close button */}
+        <button
+          onClick={handleModalClose}
+          className="absolute top-4 right-4 z-10 p-2.5 rounded-md text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+          aria-label="Close"
+        >
+          <CloseIcon className="w-4 h-4" />
+        </button>
         {/* Left Column - Hero (hidden on mobile) */}
         <div className="relative hidden lg:flex flex-col items-center justify-end w-[52%] pb-16 px-12 rounded-l-3xl overflow-hidden">
           <video
@@ -149,13 +159,18 @@ export function AuthModal({
               <div className="flex items-center gap-2 lg:hidden">
                 <BrandLogo size="sm" />
               </div>
-              <div>
+                <div>
                 <h2 className="text-3xl font-medium tracking-tight text-white">
                   {step === 'chooser' ? 'Create New Profile' : 'Enter your email'}
                 </h2>
                 {step === 'chooser' && (
                   <p className="text-white/40 text-sm mt-1">
                     {title}
+                  </p>
+                )}
+                {step === 'email' && (
+                  <p className="text-white/40 text-sm mt-1">
+                    We&apos;ll sign you in with your email.
                   </p>
                 )}
               </div>
@@ -224,8 +239,8 @@ export function AuthModal({
                       />
                       <button
                         type="button"
-                        tabIndex={-1}
                         onClick={() => setShowPassword(!showPassword)}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
                       >
                         <EyeIcon visible={showPassword} />
@@ -243,7 +258,7 @@ export function AuthModal({
                 <button
                   onClick={handleEmailSubmit}
                   disabled={isLoading}
-                  className="w-full h-14 bg-white text-black font-semibold rounded-xl hover:bg-white/90 active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full h-12 bg-white text-black font-semibold rounded-xl hover:bg-white/90 active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {isLoading ? 'Creating Account...' : 'Create Account'}
                 </button>
@@ -283,7 +298,7 @@ export function AuthModal({
                 <button
                   onClick={handleEmailSubmit}
                   disabled={isLoading || !email}
-                  className="w-full h-14 bg-white text-black font-semibold rounded-xl hover:bg-white/90 active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full h-12 bg-white text-black font-semibold rounded-xl hover:bg-white/90 active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {isLoading ? 'Signing in...' : 'Continue'}
                 </button>

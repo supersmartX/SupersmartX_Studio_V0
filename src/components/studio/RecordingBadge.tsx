@@ -11,7 +11,7 @@ export function RecordingBadge({ recordingState }: RecordingBadgeProps) {
   if (!isRecording && !isPaused) return null;
 
   return (
-    <div className="absolute top-3 left-3 z-20 animate-fade-in">
+    <div className="absolute top-3 left-3 z-20 animate-fade-in" role="status" aria-live="polite">
       <div
         className={`
           flex items-center gap-2 px-2.5 py-1 rounded-full

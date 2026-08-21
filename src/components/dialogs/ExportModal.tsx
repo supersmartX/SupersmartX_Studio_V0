@@ -180,7 +180,15 @@ export function ExportModal({
             </div>
           )}
 
-          <DiscordFeedback onSuccess={showToast} />
+          <details className="group">
+            <summary className="text-[11px] text-text-muted cursor-pointer hover:text-text-secondary transition-colors list-none flex items-center gap-1">
+              <span className="group-open:rotate-90 transition-transform text-[8px]">&#9654;</span>
+              Have feedback?
+            </summary>
+            <div className="mt-2">
+              <DiscordFeedback onSuccess={showToast} />
+            </div>
+          </details>
 
           <div className="flex flex-col gap-2">
             {validationPassed ? (

@@ -57,6 +57,7 @@ export function Header({
       <div className="flex items-center gap-1">
         <button
           onClick={onShare}
+          aria-label="Share recording"
           className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] justify-center"
         >
           <ShareIcon className="w-3.5 h-3.5" />
@@ -66,6 +67,7 @@ export function Header({
         <button
           onClick={onExport}
           disabled={!hasRecording}
+          aria-label="Export recording"
           className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] justify-center"
         >
           <DownloadIcon className="w-3.5 h-3.5" />
@@ -76,7 +78,7 @@ export function Header({
           <button
             onClick={onToggleInspector}
             className="p-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-            aria-label="Settings"
+            aria-label="Toggle inspector panel"
           >
             <SettingsIcon className="w-4 h-4" />
           </button>
@@ -87,6 +89,9 @@ export function Header({
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
+              aria-expanded={showUserMenu}
+              aria-haspopup="true"
+              aria-label="User menu"
               className="w-8 h-8 rounded-full bg-accent/20 text-accent flex items-center justify-center text-[12px] font-bold hover:bg-accent/30 transition-colors overflow-hidden min-w-[44px] min-h-[44px]"
             >
               {user.image && !imgError ? (
@@ -97,12 +102,13 @@ export function Header({
             </button>
 
             {showUserMenu && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-border-default rounded-lg shadow-lg py-1 z-50">
+              <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-border-default rounded-lg shadow-lg py-1 z-50" role="menu" aria-label="User menu">
                 <div className="px-3 py-2 border-b border-border-subtle">
                   <p className="text-[12px] font-medium text-text-primary truncate">{user.name || 'User'}</p>
                   <p className="text-[11px] text-text-muted truncate">{user.email}</p>
                 </div>
                 <button
+                  role="menuitem"
                   onClick={() => { signOut({ callbackUrl: '/' }); setShowUserMenu(false); }}
                   className="w-full text-left px-3 py-2 text-[12px] text-text-secondary hover:bg-elevated transition-colors"
                 >

@@ -16,7 +16,7 @@ export const TeleprompterOverlay = forwardRef<HTMLDivElement, TeleprompterOverla
       : settings.areaWidth;
 
     return (
-      <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden" aria-label="Teleprompter script" aria-live="off">
         <div
           ref={ref}
           className="absolute top-0 left-0 right-0 bottom-0 overflow-y-auto overflow-x-hidden focus-mask"

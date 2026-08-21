@@ -1,11 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import type { TeleprompterSettings, TextAlignment, AspectRatio, PlatformId } from '@/types';
 import { Slider } from '@/components/ui/Slider';
 import { Toggle } from '@/components/ui/Toggle';
 import { Select } from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
-import { CloseIcon } from '@/components/icons';
+import { CloseIcon, ChevronDownIcon } from '@/components/icons';
 import { FONT_FAMILIES } from '@/constants';
 import { InspirationLoader } from '@/components/editor/InspirationLoader';
 import { PlatformSelector } from '@/components/studio/PlatformSelector';
@@ -232,19 +233,40 @@ function InspectorContent({
   progress: number;
   onLoadInspiration: (key: string) => void;
 }) {
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+
+  const toggleSection = (section: string) => {
+    setCollapsedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
   return (
     <div className="p-4 flex flex-col gap-5">
       {/* SCRIPT Section */}
       <Card>
         <div className="flex flex-col gap-3">
-          <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Script</h3>
+          <button
+            onClick={() => toggleSection('script')}
+            className="flex items-center justify-between w-full text-left"
+            aria-expanded={!collapsedSections.script}
+          >
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Script</h3>
+            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-muted transition-transform ${collapsedSections.script ? '-rotate-90' : ''}`} />
+          </button>
 
+          {!collapsedSections.script && (<>
           <div className="flex items-center justify-between">
             <span className="text-xs text-text-secondary">{wordCount} words</span>
             <span className="text-[10px] text-text-muted">{Math.round(progress)}% of target</span>
           </div>
 
-          <div className="w-full h-1.5 bg-border-default rounded-full overflow-hidden">
+          <div
+            className="w-full h-1.5 bg-border-default rounded-full overflow-hidden"
+            role="progressbar"
+            aria-valuenow={Math.round(progress)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`Script progress: ${Math.round(progress)}%`}
+          >
             <div
               className="h-full bg-accent rounded-full transition-all"
               style={{ width: `${progress}%` }}
@@ -274,6 +296,7 @@ function InspectorContent({
           </div>
 
           <InspirationLoader onLoad={onLoadInspiration} />
+          </>)}
         </div>
       </Card>
 
@@ -282,7 +305,16 @@ function InspectorContent({
       {/* TELEPROMPTER Section */}
       <Card>
         <div className="flex flex-col gap-3">
-          <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Teleprompter</h3>
+          <button
+            onClick={() => toggleSection('teleprompter')}
+            className="flex items-center justify-between w-full text-left"
+            aria-expanded={!collapsedSections.teleprompter}
+          >
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Teleprompter</h3>
+            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-muted transition-transform ${collapsedSections.teleprompter ? '-rotate-90' : ''}`} />
+          </button>
+
+          {!collapsedSections.teleprompter && (<>
 
           <Select
             label="Font Family"
@@ -327,12 +359,14 @@ function InspectorContent({
 
           {/* Position */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[13px] text-text-secondary">Position</label>
-            <div className="flex gap-1">
+            <span className="text-[13px] text-text-secondary">Position</span>
+            <div className="flex gap-1" role="group" aria-label="Text alignment">
               {(['left', 'center', 'right'] as TextAlignment[]).map((align) => (
                 <button
                   key={align}
                   onClick={() => updateSettings({ textAlignment: align })}
+                  aria-label={`Align ${align}`}
+                  aria-pressed={settings.textAlignment === align}
                   className={`flex-1 flex items-center justify-center py-2 rounded-lg border text-xs font-medium transition-all ${
                     settings.textAlignment === align
                       ? 'bg-accent/15 text-accent border-accent/30'
@@ -370,6 +404,7 @@ function InspectorContent({
               aria-label="Text color"
             />
           </div>
+          </>)}
         </div>
       </Card>
 
@@ -378,8 +413,16 @@ function InspectorContent({
       {/* RECORDING Section */}
       <Card>
         <div className="flex flex-col gap-3">
-          <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Recording</h3>
+          <button
+            onClick={() => toggleSection('recording')}
+            className="flex items-center justify-between w-full text-left"
+            aria-expanded={!collapsedSections.recording}
+          >
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Recording</h3>
+            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-muted transition-transform ${collapsedSections.recording ? '-rotate-90' : ''}`} />
+          </button>
 
+          {!collapsedSections.recording && (<>
           <PlatformSelector
             selectedPlatformId={platformId}
             onSelect={onPlatformChange}
@@ -436,6 +479,7 @@ function InspectorContent({
             label="Countdown"
             description="Show 3-2-1 countdown before recording."
           />
+          </>)}
         </div>
       </Card>
     </div>

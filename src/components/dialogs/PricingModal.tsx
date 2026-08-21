@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
 import { detectCountry, getPricingForCountry, formatPrice, type RegionalPricing } from '@/lib/pricing';
 import { loadCashfreeSDK } from '@/lib/cashfree';
@@ -168,7 +169,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
           </div>
           <button
             onClick={handleClose}
-            className="p-2 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors"
+            className="p-2.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label="Close"
           >
             <CloseIcon className="w-4 h-4" />
@@ -262,14 +263,16 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                   </div>
 
                   {/* CTA */}
-                  <button
+                  <Button
+                    variant="primary"
+                    size="lg"
                     onClick={() => selectedPlan === 'free' ? handleSubscribe() : setStep('form')}
-                    className="w-full py-3 bg-accent hover:bg-accent-hover text-white rounded-lg font-semibold text-sm transition-all min-h-[44px]"
+                    className="w-full"
                   >
                     {selectedPlan === 'free'
                       ? 'Get Started Free'
                       : `Subscribe for ${format(selectedPlan === 'pro_monthly' ? monthlyPrice : yearlyPrice)}/${selectedPlan === 'pro_monthly' ? 'mo' : 'yr'}`}
-                  </button>
+                  </Button>
 
                   <p className="text-[10px] text-text-muted text-center">
                     Prices in {currentPricing.currency}. Secure checkout powered by Cashfree.
@@ -328,19 +331,20 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                   )}
 
                   <div className="flex gap-2">
-                    <button
+                    <Button
+                      variant="secondary"
                       onClick={() => setStep('select')}
-                      className="px-4 py-2.5 bg-elevated text-text-secondary rounded-lg text-sm hover:bg-subtle transition-colors"
                     >
                       Back
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="primary"
                       onClick={handleSubscribe}
                       disabled={!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)}
-                      className="flex-1 py-2.5 bg-accent hover:bg-accent-hover text-white rounded-lg font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed min-h-[44px]"
+                      className="flex-1"
                     >
                       Continue to Payment
-                    </button>
+                    </Button>
                   </div>
 
                   <p className="text-[10px] text-text-muted text-center">
@@ -359,12 +363,12 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
               {step === 'error' && (
                 <div className="flex flex-col items-center gap-3 py-8">
                   <p className="text-sm text-recording">{errorMessage}</p>
-                  <button
+                  <Button
+                    variant="secondary"
                     onClick={() => setStep('form')}
-                    className="px-4 py-2 bg-elevated text-text-secondary rounded-lg text-sm hover:bg-subtle transition-colors"
                   >
                     Try Again
-                  </button>
+                  </Button>
                 </div>
               )}
             </>

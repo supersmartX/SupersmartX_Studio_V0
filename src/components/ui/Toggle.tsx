@@ -1,5 +1,7 @@
 'use client';
 
+import { useId } from 'react';
+
 interface ToggleProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
@@ -9,12 +11,14 @@ interface ToggleProps {
 }
 
 export function Toggle({ checked, onChange, label, description, disabled = false }: ToggleProps) {
+  const labelId = useId();
+
   return (
-    <label className="flex items-center justify-between cursor-pointer group min-h-[44px] py-1">
+    <div className="flex items-center justify-between min-h-[44px] py-1">
       {(label || description) && (
         <div className="flex flex-col gap-0.5">
           {label && (
-            <span className="text-[13px] text-text-primary">{label}</span>
+            <span id={labelId} className="text-[13px] text-text-primary">{label}</span>
           )}
           {description && (
             <span className="text-xs text-text-muted">{description}</span>
@@ -24,6 +28,7 @@ export function Toggle({ checked, onChange, label, description, disabled = false
       <button
         role="switch"
         aria-checked={checked}
+        aria-labelledby={label ? labelId : undefined}
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={`
@@ -45,6 +50,6 @@ export function Toggle({ checked, onChange, label, description, disabled = false
           `}
         />
       </button>
-    </label>
+    </div>
   );
 }

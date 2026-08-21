@@ -32,6 +32,8 @@ export function CameraPreview({
       autoPlay
       playsInline
       muted
+      aria-label="Camera preview"
+      aria-hidden="true"
       className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
         isMirrored ? 'mirrored' : ''
       } ${focusViewEnabled ? 'blur-xl opacity-40' : ''}`}

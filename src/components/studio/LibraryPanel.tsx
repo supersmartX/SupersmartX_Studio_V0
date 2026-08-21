@@ -122,8 +122,11 @@ export function LibraryPanel({
             {displayedScripts.map((script) => (
               <div
                 key={script.id}
+                role="button"
+                tabIndex={0}
                 className="group relative p-3 rounded-lg hover:bg-elevated transition-colors cursor-pointer"
                 onClick={() => handleLoadToEditor(script)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleLoadToEditor(script); } }}
               >
                 {confirmDeleteId === script.id ? (
                   <div className="flex items-center gap-2">

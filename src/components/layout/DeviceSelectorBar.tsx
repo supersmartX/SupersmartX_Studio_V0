@@ -27,6 +27,7 @@ export function DeviceSelectorBar({
         <select
           value={selectedVideoDevice}
           onChange={(e) => onVideoDeviceChange(e.target.value)}
+          aria-label="Camera"
           className="w-full sm:w-auto h-9 sm:h-7 bg-elevated border border-border-subtle rounded-md pl-7 pr-6 text-[11px] text-text-secondary appearance-none cursor-pointer outline-none focus:border-accent transition-colors truncate"
           suppressHydrationWarning
         >
@@ -54,6 +55,7 @@ export function DeviceSelectorBar({
         <select
           value={selectedAudioDevice}
           onChange={(e) => onAudioDeviceChange(e.target.value)}
+          aria-label="Microphone"
           className="w-full sm:w-auto h-9 sm:h-7 bg-elevated border border-border-subtle rounded-md pl-7 pr-6 text-[11px] text-text-secondary appearance-none cursor-pointer outline-none focus:border-accent transition-colors truncate"
           suppressHydrationWarning
         >

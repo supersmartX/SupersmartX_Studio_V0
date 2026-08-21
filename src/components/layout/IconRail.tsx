@@ -51,6 +51,7 @@ export function IconRail({
 
         <button
           onClick={() => onPanelChange('studio')}
+          aria-current={activePanel === 'studio' ? 'page' : undefined}
           className={`flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
             activePanel === 'studio'
               ? 'bg-accent/15 text-accent'
@@ -63,6 +64,7 @@ export function IconRail({
 
         <button
           onClick={() => onPanelChange('library')}
+          aria-current={activePanel === 'library' ? 'page' : undefined}
           className={`flex items-center justify-between px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
             activePanel === 'library'
               ? 'bg-accent/15 text-accent'
@@ -77,6 +79,8 @@ export function IconRail({
 
         <button
           onClick={() => onPanelChange('insights')}
+          aria-current={activePanel === 'insights' ? 'page' : undefined}
+          aria-disabled="true"
           className={`flex items-center justify-between px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
             activePanel === 'insights'
               ? 'bg-accent/15 text-accent'
@@ -107,6 +111,7 @@ export function IconRail({
 
         <button
           onClick={onCameraInitialize}
+          aria-pressed={isCameraInitialized}
           className={`flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
             isCameraInitialized
               ? 'text-success'
@@ -119,6 +124,8 @@ export function IconRail({
 
         <button
           onClick={onMicToggle}
+          aria-pressed={isMicMuted}
+          aria-label={isMicMuted ? 'Unmute microphone' : 'Mute microphone'}
           className={`flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
             isMicMuted
               ? 'text-recording'
@@ -135,6 +142,7 @@ export function IconRail({
 
         <button
           onClick={onFocusViewToggle}
+          aria-pressed={focusViewEnabled}
           className={`flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
             focusViewEnabled
               ? 'text-accent bg-accent/10'

@@ -12,7 +12,12 @@ export function Timer({ isRunning, elapsedSeconds }: TimerProps) {
 
   return (
     <div className="absolute top-3 right-3 z-20">
-      <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-canvas/60 backdrop-blur-md border border-border-subtle">
+      <div
+        className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-canvas/60 backdrop-blur-md border border-border-subtle"
+        role="timer"
+        aria-label={`Elapsed recording time: ${display}`}
+        aria-live="off"
+      >
         <span
           className={`text-xs font-mono tabular-nums ${
             isRunning ? 'text-text-primary' : 'text-text-muted'

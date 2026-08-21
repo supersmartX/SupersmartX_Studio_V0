@@ -115,6 +115,8 @@ export function TransportBar({
       <div className="flex-1 flex items-center justify-center gap-2 sm:gap-3">
         <button
           onClick={onMicToggle}
+          aria-pressed={isMicMuted}
+          aria-label={isMicMuted ? 'Unmute microphone' : 'Mute microphone'}
           className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[44px] min-h-[44px] justify-center ${
             isMicMuted ? 'text-recording' : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
           }`}
@@ -139,7 +141,7 @@ export function TransportBar({
             onTouchEnd={handleRecordMouseUp}
             disabled={!canRecord}
             className="flex items-center justify-center w-12 h-12 rounded-full bg-recording hover:bg-red-600 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-recording/30 select-none"
-            title="Start Recording (hold to record-and-stop)"
+            aria-label="Start Recording"
           >
             <RecordIcon className="w-5 h-5" />
           </button>
@@ -150,7 +152,7 @@ export function TransportBar({
             <button
               onClick={onPause}
               className="flex items-center justify-center w-12 h-12 rounded-full bg-recording hover:bg-red-600 text-white transition-all shadow-lg shadow-recording/30"
-              title="Pause Recording"
+              aria-label="Pause Recording"
             >
               <PauseIcon className="w-5 h-5" />
             </button>
@@ -169,7 +171,7 @@ export function TransportBar({
             <button
               onClick={onResume}
               className="flex items-center justify-center w-12 h-12 rounded-full bg-accent hover:bg-accent-hover text-white transition-all shadow-lg shadow-accent/30"
-              title="Resume Recording"
+              aria-label="Resume Recording"
             >
               <PlayIcon className="w-5 h-5" />
             </button>

@@ -44,6 +44,7 @@ export function BottomNav({
               : 'text-text-muted hover:text-text-secondary'
           }`}
           aria-label="Studio"
+          aria-current={activePanel === 'studio' ? 'page' : undefined}
         >
           <FileTextIcon className="w-5 h-5" />
           <span className="text-[9px] font-medium">Studio</span>
@@ -59,6 +60,7 @@ export function BottomNav({
               : 'text-text-muted hover:text-text-secondary'
           }`}
           aria-label="Library"
+          aria-current={activePanel === 'library' ? 'page' : undefined}
         >
           <BookOpenIcon className="w-5 h-5" />
           <span className="text-[9px] font-medium">Library</span>

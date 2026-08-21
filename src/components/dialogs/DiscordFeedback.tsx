@@ -72,6 +72,7 @@ export function DiscordFeedback({ onSuccess }: DiscordFeedbackProps) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Your Discord handle or feedback..."
+          aria-label="Your feedback"
           className="flex-1 bg-canvas border border-border-subtle rounded-lg px-3 py-2 text-xs text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors"
         />
         <Button

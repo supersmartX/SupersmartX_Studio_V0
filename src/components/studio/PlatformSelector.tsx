@@ -11,13 +11,15 @@ interface PlatformSelectorProps {
 export function PlatformSelector({ selectedPlatformId, onSelect }: PlatformSelectorProps) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-[13px] text-text-secondary">Platform</label>
-      <div className="grid grid-cols-2 gap-2">
+      <span className="text-[13px] text-text-secondary">Platform</span>
+      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Video platform">
         {PLATFORM_PRESETS.map((preset) => {
           const isActive = preset.id === selectedPlatformId;
           return (
             <button
               key={preset.id}
+              role="radio"
+              aria-checked={isActive}
               onClick={() => onSelect(preset.id)}
               className={`flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all ${
                 isActive
