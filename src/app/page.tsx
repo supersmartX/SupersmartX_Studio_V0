@@ -347,25 +347,6 @@ export default function LandingPage() {
   margin-top: 26px;
 }
 
-.lsx-menu-backdrop {
-  display: block;
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  background: rgba(0,0,0,0.80);
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.28s ease, visibility 0.28s ease;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-.lsx-menu-open .lsx-menu-backdrop {
-  opacity: 1;
-  visibility: visible;
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-}
-
 .lsx-burger {
   display: none;
   width: 42px;
@@ -389,9 +370,9 @@ export default function LandingPage() {
   border-radius: 1px;
   transition: transform 0.25s ease, opacity 0.2s ease;
 }
-.lsx-menu-open .lsx-burger-bar:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
-.lsx-menu-open .lsx-burger-bar:nth-child(2) { opacity: 0; }
-.lsx-menu-open .lsx-burger-bar:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
+.lsx-burger.is-open .lsx-burger-bar:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
+.lsx-burger.is-open .lsx-burger-bar:nth-child(2) { opacity: 0; }
+.lsx-burger.is-open .lsx-burger-bar:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
 .lsx-burger:hover {
   border-color: rgba(255,255,255,0.32);
   background: rgba(255,255,255,0.05);
@@ -457,18 +438,7 @@ export default function LandingPage() {
   .lsx-header { grid-template-columns: 1fr auto; gap: 8px; padding: 16px 18px; }
   .lsx-header-cta-wrap { display: none; }
   .lsx-burger { display: flex; }
-  .lsx-site-nav {
-    position: fixed; inset: 0; z-index: 45;
-    flex-direction: column; background: var(--color-canvas);
-    align-items: center; justify-content: center; gap: 12px;
-    padding: 96px 22px 32px;
-    opacity: 0; visibility: hidden;
-    transition: opacity 0.28s ease, visibility 0.28s ease;
-  }
-  .lsx-menu-open .lsx-site-nav { opacity: 1; visibility: visible; }
-  .lsx-site-nav .lsx-nav-pill { width: 100%; height: 56px; font-size: 19px; border-radius: 10px; }
-  .lsx-nav-mobile-cta { display: flex; flex-direction: column; gap: 10px; width: 100%; padding-top: 20px; }
-  .lsx-nav-mobile-btn { width: 100%; height: 52px; font-size: 16px; }
+  .lsx-site-nav { display: none; }
   .lsx-hero { padding: 20px 20px 64px; align-items: flex-end; }
   .lsx-stats { flex-direction: column; align-items: center; gap: 16px; white-space: normal; padding: 20px 24px 48px; }
   .lsx-page { --lsx-logo: 16px; --lsx-btn: 15px; --lsx-btn-h: 46px; --lsx-hero-btn-h: 48px; --lsx-h1: 36px; --lsx-lede: 16.5px; --lsx-badge: 13.5px; --lsx-header-x: 18px; --lsx-hero-gap: 36px; --lsx-copy-max: 100%; --lsx-lede-max: 100%; }
@@ -478,6 +448,100 @@ export default function LandingPage() {
   .lsx-page { --lsx-h1: 34px; --lsx-lede: 16px; --lsx-header-x: 16px; }
   .lsx-hero-actions { flex-direction: column; width: 100%; }
   .lsx-hero-actions .lsx-btn { width: 100%; }
+}
+
+.lsx-mobile-nav-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lsx-mobile-nav-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.92);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  animation: lsx-fade-in 0.25s ease-out;
+}
+.lsx-mobile-nav-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding: 48px 32px;
+  width: 100%;
+  max-width: 360px;
+  animation: lsx-slide-up-nav 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lsx-mobile-nav-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--color-surface);
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.lsx-mobile-nav-close:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+}
+.lsx-mobile-nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.lsx-mobile-nav-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--color-surface);
+  color: #fff;
+  font-size: 19px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  font-family: inherit;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.lsx-mobile-nav-link:hover {
+  background: rgba(255,255,255,0.05);
+}
+.lsx-mobile-nav-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding-top: 12px;
+}
+.lsx-mobile-nav-btn {
+  width: 100%;
+  height: 52px;
+  font-size: 16px;
+}
+@keyframes lsx-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes lsx-slide-up-nav {
+  from { opacity: 0; transform: translateY(24px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .lsx-footer {
@@ -509,11 +573,9 @@ export default function LandingPage() {
       <HeroVideo />
 
       <div
-        className={`lsx-page${menuOpen ? ' lsx-menu-open' : ''}`}
+        className="lsx-page"
         ref={pageRef}
       >
-        <div className="lsx-menu-backdrop" onClick={closeMenu} />
-
         <header className="lsx-header">
           <Link href="/" className="lsx-logo lsx-appear" style={{ '--lsx-d': '0.08s' } as React.CSSProperties} aria-label="SupersmartX Studio">
             SUPERSMARTX<span className="text-accent font-normal">Studio</span>
@@ -526,38 +588,23 @@ export default function LandingPage() {
                 href={link.href}
                 className={`lsx-nav-pill lsx-appear ${i % 2 === 0 ? 'lsx-appear--scale' : 'lsx-appear--soft'}`}
                 style={{ '--lsx-d': `${0.16 + i * 0.12}s` } as React.CSSProperties}
-                onClick={closeMenu}
               >
                 {link.label}
               </a>
             ))}
-            <div className="lsx-nav-mobile-cta">
-              <button
-                onClick={() => { setIsAuthModalOpen(true); closeMenu(); }}
-                className="lsx-btn lsx-btn-ghost lsx-nav-mobile-btn"
-              >
-                Log In
-              </button>
-              <button
-                onClick={() => { router.push('/studio'); closeMenu(); }}
-                className="lsx-btn lsx-btn-solid lsx-nav-mobile-btn"
-              >
-                Start Free
-              </button>
-            </div>
           </nav>
 
           <div className="lsx-header-cta-wrap">
             <div className="lsx-appear lsx-appear--scale" style={{ '--lsx-d': '0.34s' } as React.CSSProperties}>
               <button
-                onClick={() => { setIsAuthModalOpen(true); closeMenu(); }}
+                onClick={() => setIsAuthModalOpen(true)}
                 className="lsx-btn lsx-btn-ghost"
                 style={{ marginRight: '8px' }}
               >
                 Log In
               </button>
               <button
-                onClick={() => { router.push('/studio'); closeMenu(); }}
+                onClick={() => router.push('/studio')}
                 className="lsx-btn lsx-btn-solid"
               >
                 Start Free
@@ -566,8 +613,8 @@ export default function LandingPage() {
           </div>
 
           <button
-            className="lsx-burger"
-            aria-controls="lsx-site-nav"
+            className={`lsx-burger${menuOpen ? ' is-open' : ''}`}
+            aria-controls="lsx-mobile-nav"
             aria-expanded={menuOpen}
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
             onClick={() => setMenuOpen((v) => !v)}
@@ -633,6 +680,56 @@ export default function LandingPage() {
         onClose={() => setIsAuthModalOpen(false)}
         callbackUrl="/studio"
       />
+
+      {menuOpen && (
+        <div
+          id="lsx-mobile-nav"
+          className="lsx-mobile-nav-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation menu"
+        >
+          <div className="lsx-mobile-nav-backdrop" onClick={closeMenu} />
+          <div className="lsx-mobile-nav-content">
+            <button
+              className="lsx-mobile-nav-close"
+              onClick={closeMenu}
+              aria-label="Close menu"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+            <nav className="lsx-mobile-nav-links" aria-label="Mobile navigation">
+              {NAV_LINKS.map((link) => (
+                <a
+                  key={link.label}
+                  href={link.href}
+                  className="lsx-mobile-nav-link"
+                  onClick={closeMenu}
+                >
+                  {link.label}
+                </a>
+              ))}
+            </nav>
+            <div className="lsx-mobile-nav-actions">
+              <button
+                onClick={() => { setIsAuthModalOpen(true); closeMenu(); }}
+                className="lsx-btn lsx-btn-ghost lsx-mobile-nav-btn"
+              >
+                Log In
+              </button>
+              <button
+                onClick={() => { router.push('/studio'); closeMenu(); }}
+                className="lsx-btn lsx-btn-solid lsx-mobile-nav-btn"
+              >
+                Start Free
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
