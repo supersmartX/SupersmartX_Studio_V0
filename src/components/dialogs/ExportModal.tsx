@@ -8,7 +8,6 @@ import { VideoPlayer } from '@/components/studio/VideoPlayer';
 import { generateFilename } from '@/services/download.service';
 import { setPendingDownload } from '@/lib/auth-guard';
 import type { AspectRatio } from '@/types';
-import { ASPECT_RATIO_PRESETS } from '@/constants';
 import { formatTime } from '@/utils/format';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 

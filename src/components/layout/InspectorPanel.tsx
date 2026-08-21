@@ -1,13 +1,15 @@
 'use client';
 
-import type { TeleprompterSettings, TextAlignment, AspectRatio } from '@/types';
+import type { TeleprompterSettings, TextAlignment, AspectRatio, PlatformId } from '@/types';
 import { Slider } from '@/components/ui/Slider';
 import { Toggle } from '@/components/ui/Toggle';
 import { Select } from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
 import { CloseIcon } from '@/components/icons';
-import { FONT_FAMILIES, ASPECT_RATIO_PRESETS } from '@/constants';
+import { FONT_FAMILIES } from '@/constants';
 import { InspirationLoader } from '@/components/editor/InspirationLoader';
+import { PlatformSelector } from '@/components/studio/PlatformSelector';
+import { CustomFormat } from '@/components/studio/CustomFormat';
 
 interface InspectorPanelProps {
   settings: TeleprompterSettings;
@@ -24,8 +26,15 @@ interface InspectorPanelProps {
   selectedAudioDevice: string;
   onVideoDeviceChange: (deviceId: string) => void;
   onAudioDeviceChange: (deviceId: string) => void;
+  platformId: PlatformId;
+  onPlatformChange: (id: PlatformId) => void;
+  customAspectRatio: AspectRatio;
+  onCustomAspectRatioChange: (ratio: AspectRatio) => void;
+  customWidth: number;
+  onCustomWidthChange: (w: number) => void;
+  customHeight: number;
+  onCustomHeightChange: (h: number) => void;
   aspectRatio: AspectRatio;
-  onAspectRatioChange: (ratio: AspectRatio) => void;
   script: string;
   onScriptChange: (value: string) => void;
   onClearScript: () => void;
@@ -52,8 +61,15 @@ export function InspectorPanel({
   selectedAudioDevice,
   onVideoDeviceChange,
   onAudioDeviceChange,
+  platformId,
+  onPlatformChange,
+  customAspectRatio,
+  onCustomAspectRatioChange,
+  customWidth,
+  onCustomWidthChange,
+  customHeight,
+  onCustomHeightChange,
   aspectRatio,
-  onAspectRatioChange,
   script,
   onScriptChange,
   onClearScript,
@@ -84,8 +100,15 @@ export function InspectorPanel({
       selectedAudioDevice={selectedAudioDevice}
       onVideoDeviceChange={onVideoDeviceChange}
       onAudioDeviceChange={onAudioDeviceChange}
+      platformId={platformId}
+      onPlatformChange={onPlatformChange}
+      customAspectRatio={customAspectRatio}
+      onCustomAspectRatioChange={onCustomAspectRatioChange}
+      customWidth={customWidth}
+      onCustomWidthChange={onCustomWidthChange}
+      customHeight={customHeight}
+      onCustomHeightChange={onCustomHeightChange}
       aspectRatio={aspectRatio}
-      onAspectRatioChange={onAspectRatioChange}
       script={script}
       onScriptChange={onScriptChange}
       onClearScript={onClearScript}
@@ -163,8 +186,15 @@ function InspectorContent({
   selectedAudioDevice,
   onVideoDeviceChange,
   onAudioDeviceChange,
+  platformId,
+  onPlatformChange,
+  customAspectRatio,
+  onCustomAspectRatioChange,
+  customWidth,
+  onCustomWidthChange,
+  customHeight,
+  onCustomHeightChange,
   aspectRatio,
-  onAspectRatioChange,
   script,
   onScriptChange,
   onClearScript,
@@ -186,8 +216,15 @@ function InspectorContent({
   selectedAudioDevice: string;
   onVideoDeviceChange: (deviceId: string) => void;
   onAudioDeviceChange: (deviceId: string) => void;
+  platformId: PlatformId;
+  onPlatformChange: (id: PlatformId) => void;
+  customAspectRatio: AspectRatio;
+  onCustomAspectRatioChange: (ratio: AspectRatio) => void;
+  customWidth: number;
+  onCustomWidthChange: (w: number) => void;
+  customHeight: number;
+  onCustomHeightChange: (h: number) => void;
   aspectRatio: AspectRatio;
-  onAspectRatioChange: (ratio: AspectRatio) => void;
   script: string;
   onScriptChange: (value: string) => void;
   onClearScript: () => void;
@@ -343,28 +380,21 @@ function InspectorContent({
         <div className="flex flex-col gap-3">
           <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Recording</h3>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[13px] text-text-secondary">Aspect Ratio</label>
-            <div className="grid grid-cols-4 gap-1.5">
-              {(Object.keys(ASPECT_RATIO_PRESETS) as AspectRatio[]).map((ratio) => {
-                const preset = ASPECT_RATIO_PRESETS[ratio];
-                return (
-                  <button
-                    key={ratio}
-                    onClick={() => onAspectRatioChange(ratio)}
-                    className={`flex flex-col items-center gap-1 py-2 rounded-lg border text-[10px] font-medium transition-all ${
-                      aspectRatio === ratio
-                        ? 'bg-accent/15 text-accent border-accent/30'
-                        : 'bg-elevated text-text-muted border-border-subtle hover:text-text-secondary hover:border-border-default'
-                    }`}
-                  >
-                    <span className="text-sm">{preset.icon}</span>
-                    <span>{ratio}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <PlatformSelector
+            selectedPlatformId={platformId}
+            onSelect={onPlatformChange}
+          />
+
+          {platformId === 'custom' && (
+            <CustomFormat
+              aspectRatio={customAspectRatio}
+              width={customWidth}
+              height={customHeight}
+              onAspectRatioChange={onCustomAspectRatioChange}
+              onWidthChange={onCustomWidthChange}
+              onHeightChange={onCustomHeightChange}
+            />
+          )}
 
           <Select
             label="Camera"

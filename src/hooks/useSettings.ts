@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import type { TeleprompterSettings, AspectRatio } from '@/types';
-import { DEFAULT_SETTINGS } from '@/constants';
+import type { TeleprompterSettings, AspectRatio, PlatformId } from '@/types';
+import { DEFAULT_SETTINGS, PLATFORM_PRESETS, DEFAULT_PLATFORM_ID } from '@/constants';
 
 const SETTINGS_KEY = 'sxs-studio-settings';
 
@@ -12,7 +12,10 @@ interface PersistedSettings {
   countdownEnabled: boolean;
   selectedVideoDevice: string;
   selectedAudioDevice: string;
-  aspectRatio: AspectRatio;
+  platformId: PlatformId;
+  customAspectRatio: AspectRatio;
+  customWidth: number;
+  customHeight: number;
 }
 
 function loadSettings(): PersistedSettings | null {
@@ -32,13 +35,39 @@ function saveSettings(settings: PersistedSettings) {
   }
 }
 
+function getPlatformPreset(platformId: PlatformId) {
+  return PLATFORM_PRESETS.find((p) => p.id === platformId) ?? PLATFORM_PRESETS[0];
+}
+
+function deriveAspectRatio(
+  platformId: PlatformId,
+  customAspectRatio: AspectRatio,
+): AspectRatio {
+  if (platformId === 'custom') return customAspectRatio;
+  return getPlatformPreset(platformId).aspectRatio;
+}
+
+function deriveResolution(
+  platformId: PlatformId,
+  customAspectRatio: AspectRatio,
+  customWidth: number,
+  customHeight: number,
+): { width: number; height: number } {
+  if (platformId === 'custom') return { width: customWidth, height: customHeight };
+  const preset = getPlatformPreset(platformId);
+  return { width: preset.width, height: preset.height };
+}
+
 export function useSettings() {
   const [teleprompter, setTeleprompterState] = useState<TeleprompterSettings>(DEFAULT_SETTINGS);
   const [isMirrored, setIsMirrored] = useState(true);
   const [countdownEnabled, setCountdownEnabled] = useState(true);
   const [selectedVideoDevice, setSelectedVideoDevice] = useState('');
   const [selectedAudioDevice, setSelectedAudioDevice] = useState('');
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
+  const [platformId, setPlatformId] = useState<PlatformId>(DEFAULT_PLATFORM_ID);
+  const [customAspectRatio, setCustomAspectRatio] = useState<AspectRatio>('16:9');
+  const [customWidth, setCustomWidth] = useState(1920);
+  const [customHeight, setCustomHeight] = useState(1080);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
@@ -49,10 +78,15 @@ export function useSettings() {
       setCountdownEnabled(saved.countdownEnabled);
       setSelectedVideoDevice(saved.selectedVideoDevice);
       setSelectedAudioDevice(saved.selectedAudioDevice);
-      if (saved.aspectRatio) setAspectRatio(saved.aspectRatio);
+      if (saved.platformId) setPlatformId(saved.platformId);
+      if (saved.customAspectRatio) setCustomAspectRatio(saved.customAspectRatio);
+      if (saved.customWidth) setCustomWidth(saved.customWidth);
+      if (saved.customHeight) setCustomHeight(saved.customHeight);
     }
     setIsLoaded(true);
   }, []);
+
+  const aspectRatio = deriveAspectRatio(platformId, customAspectRatio);
 
   const persist = useCallback(() => {
     saveSettings({
@@ -61,13 +95,16 @@ export function useSettings() {
       countdownEnabled,
       selectedVideoDevice,
       selectedAudioDevice,
-      aspectRatio,
+      platformId,
+      customAspectRatio,
+      customWidth,
+      customHeight,
     });
-  }, [teleprompter, isMirrored, countdownEnabled, selectedVideoDevice, selectedAudioDevice, aspectRatio]);
+  }, [teleprompter, isMirrored, countdownEnabled, selectedVideoDevice, selectedAudioDevice, platformId, customAspectRatio, customWidth, customHeight]);
 
   useEffect(() => {
     if (isLoaded) persist();
-  }, [teleprompter, isMirrored, countdownEnabled, selectedVideoDevice, selectedAudioDevice, aspectRatio, isLoaded, persist]);
+  }, [teleprompter, isMirrored, countdownEnabled, selectedVideoDevice, selectedAudioDevice, platformId, customAspectRatio, customWidth, customHeight, isLoaded, persist]);
 
   const setTeleprompter = useCallback((settings: TeleprompterSettings) => {
     setTeleprompterState(settings);
@@ -89,8 +126,15 @@ export function useSettings() {
     setSelectedVideoDevice,
     selectedAudioDevice,
     setSelectedAudioDevice,
+    platformId,
+    setPlatformId,
+    customAspectRatio,
+    setCustomAspectRatio,
+    customWidth,
+    setCustomWidth,
+    customHeight,
+    setCustomHeight,
     aspectRatio,
-    setAspectRatio,
     isLoaded,
   };
 }

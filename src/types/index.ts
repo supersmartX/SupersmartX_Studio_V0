@@ -6,7 +6,27 @@ export type HeaderTab = 'studio' | 'script' | 'camera' | 'audio';
 
 export type TextAlignment = 'left' | 'center' | 'right';
 
-export type AspectRatio = '16:9' | '9:16' | '4:3' | '1:1';
+export type AspectRatio = '16:9' | '9:16' | '4:3' | '1:1' | '4:5';
+
+export type PlatformId =
+  | 'youtube-landscape'
+  | 'youtube-shorts'
+  | 'instagram-reels'
+  | 'tiktok'
+  | 'instagram-post'
+  | 'instagram-portrait'
+  | 'linkedin'
+  | 'custom';
+
+export interface PlatformPreset {
+  id: PlatformId;
+  label: string;
+  sublabel: string;
+  icon: string;
+  aspectRatio: AspectRatio;
+  width: number;
+  height: number;
+}
 
 export interface TeleprompterSettings {
   fontFamily: string;

@@ -1,11 +1,25 @@
-import type { TeleprompterSettings, AspectRatio } from '@/types';
+import type { TeleprompterSettings, AspectRatio, PlatformId, PlatformPreset } from '@/types';
 
 export const ASPECT_RATIO_PRESETS: Record<AspectRatio, { label: string; icon: string; width: number; height: number; cssClass: string }> = {
   '16:9': { label: 'Landscape', icon: '🖥️', width: 1920, height: 1080, cssClass: 'aspect-video' },
   '9:16': { label: 'Portrait', icon: '📱', width: 1080, height: 1920, cssClass: 'aspect-[9/16]' },
   '4:3':  { label: 'Standard', icon: '📺', width: 1440, height: 1080, cssClass: 'aspect-[4/3]' },
   '1:1':  { label: 'Square', icon: '⬜', width: 1080, height: 1080, cssClass: 'aspect-square' },
+  '4:5':  { label: 'Portrait', icon: '📱', width: 1080, height: 1350, cssClass: 'aspect-[4/5]' },
 };
+
+export const PLATFORM_PRESETS: PlatformPreset[] = [
+  { id: 'youtube-landscape', label: 'YouTube Landscape', sublabel: '16:9 — 1920×1080', icon: '📺', aspectRatio: '16:9', width: 1920, height: 1080 },
+  { id: 'youtube-shorts',    label: 'YouTube Shorts',    sublabel: '9:16 — 1080×1920', icon: '📱', aspectRatio: '9:16', width: 1080, height: 1920 },
+  { id: 'instagram-reels',   label: 'Instagram Reels',   sublabel: '9:16 — 1080×1920', icon: '📱', aspectRatio: '9:16', width: 1080, height: 1920 },
+  { id: 'tiktok',            label: 'TikTok',            sublabel: '9:16 — 1080×1920', icon: '📱', aspectRatio: '9:16', width: 1080, height: 1920 },
+  { id: 'instagram-post',    label: 'Instagram Post',    sublabel: '1:1 — 1080×1080', icon: '⬜', aspectRatio: '1:1', width: 1080, height: 1080 },
+  { id: 'instagram-portrait',label: 'Instagram Portrait', sublabel: '4:5 — 1080×1350', icon: '📱', aspectRatio: '4:5', width: 1080, height: 1350 },
+  { id: 'linkedin',          label: 'LinkedIn Video',    sublabel: '16:9 — 1920×1080', icon: '🖥️', aspectRatio: '16:9', width: 1920, height: 1080 },
+  { id: 'custom',            label: 'Custom',            sublabel: 'Define your own',   icon: '⚙️', aspectRatio: '16:9', width: 1920, height: 1080 },
+];
+
+export const DEFAULT_PLATFORM_ID: PlatformId = 'youtube-landscape';
 
 export const DEFAULT_SETTINGS: TeleprompterSettings = {
   fontFamily: "'Inter', sans-serif",

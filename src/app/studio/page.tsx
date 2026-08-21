@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { NUDGE_AMOUNT_KEYBOARD, ASPECT_RATIO_PRESETS } from '@/constants';
+import { NUDGE_AMOUNT_KEYBOARD, PLATFORM_PRESETS } from '@/constants';
 
 import { useWelcomeModal } from '@/hooks/useWelcomeModal';
 import { useCamera } from '@/hooks/useCamera';
@@ -242,11 +242,11 @@ export default function HomePage() {
   }, [handleRecordStop]);
 
   const handleCameraInitialize = useCallback(async () => {
-    const preset = ASPECT_RATIO_PRESETS[settingsStore.aspectRatio];
+    const platformPreset = PLATFORM_PRESETS.find((p) => p.id === settingsStore.platformId) ?? PLATFORM_PRESETS[0];
     const constraints: MediaStreamConstraints = {
       video: settingsStore.selectedVideoDevice
-        ? { deviceId: { exact: settingsStore.selectedVideoDevice }, width: { ideal: preset.width }, height: { ideal: preset.height } }
-        : { width: { ideal: preset.width }, height: { ideal: preset.height }, facingMode: 'user' },
+        ? { deviceId: { exact: settingsStore.selectedVideoDevice }, width: { ideal: platformPreset.width }, height: { ideal: platformPreset.height } }
+        : { width: { ideal: platformPreset.width }, height: { ideal: platformPreset.height }, facingMode: 'user' },
       audio: settingsStore.selectedAudioDevice
         ? { deviceId: { exact: settingsStore.selectedAudioDevice } }
         : true,
@@ -257,7 +257,7 @@ export default function HomePage() {
     } catch {
       await camera.initialize();
     }
-  }, [camera, settingsStore.selectedAudioDevice, settingsStore.selectedVideoDevice, settingsStore.aspectRatio]);
+  }, [camera, settingsStore.selectedAudioDevice, settingsStore.selectedVideoDevice, settingsStore.platformId]);
 
   const handleVideoDeviceChange = useCallback(async (deviceId: string) => {
     settingsStore.setSelectedVideoDevice(deviceId);
@@ -289,7 +289,7 @@ export default function HomePage() {
     if (camera.isInitialized && recorder.recordingState === 'idle') {
       handleCameraInitialize();
     }
-  }, [settingsStore.aspectRatio]);
+  }, [settingsStore.platformId]);
 
   const handleToggleInspector = useCallback(() => {
     setIsInspectorOpen((prev) => !prev);
@@ -361,8 +361,15 @@ export default function HomePage() {
     selectedAudioDevice: settingsStore.selectedAudioDevice,
     onVideoDeviceChange: handleVideoDeviceChange,
     onAudioDeviceChange: handleAudioDeviceChange,
+    platformId: settingsStore.platformId,
+    onPlatformChange: settingsStore.setPlatformId,
+    customAspectRatio: settingsStore.customAspectRatio,
+    onCustomAspectRatioChange: settingsStore.setCustomAspectRatio,
+    customWidth: settingsStore.customWidth,
+    onCustomWidthChange: settingsStore.setCustomWidth,
+    customHeight: settingsStore.customHeight,
+    onCustomHeightChange: settingsStore.setCustomHeight,
     aspectRatio: settingsStore.aspectRatio,
-    onAspectRatioChange: settingsStore.setAspectRatio,
     script: scriptStorage.script,
     onScriptChange: scriptStorage.setScript,
     onClearScript: scriptStorage.clearScript,
