@@ -54,14 +54,14 @@ export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg',
 
   return (
     <div
-      className={`fixed inset-0 z-modal flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`}
+      className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`}
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel || title}
       {...swipeHandlers}
     >
       <div
-        className={`absolute inset-0 bg-canvas/80 backdrop-blur-sm ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
+        className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
         onClick={handleClose}
         aria-hidden="true"
       />

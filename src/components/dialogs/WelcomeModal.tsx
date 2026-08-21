@@ -24,8 +24,8 @@ export function WelcomeModal({
   if (!shouldRender) return null;
 
   return (
-    <div className={`fixed inset-0 z-onboard flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Welcome" {...swipeHandlers}>
-      <div className={`absolute inset-0 bg-canvas/80 backdrop-blur-md ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`} />
+    <div className={`fixed inset-0 z-onboard isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Welcome" {...swipeHandlers}>
+      <div className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`} />
 
       <div className={`relative w-full max-w-xl bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] overflow-y-auto`}>
         <button

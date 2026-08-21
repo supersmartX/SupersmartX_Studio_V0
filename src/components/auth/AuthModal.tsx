@@ -97,9 +97,9 @@ export function AuthModal({
   if (!shouldRender) return null;
 
   return (
-    <div className={`fixed inset-0 z-modal flex items-center justify-center p-4 transition-all duration-[var(--duration-slowest)] ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={step === 'chooser' ? 'Sign in or create account' : 'Enter your email'} {...swipeHandlers}>
+    <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 transition-all duration-[var(--duration-slowest)] ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={step === 'chooser' ? 'Sign in or create account' : 'Enter your email'} {...swipeHandlers}>
       <div
-        className={`absolute inset-0 bg-black/80 backdrop-blur-md ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
+        className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
         onClick={handleModalClose}
       />
 
