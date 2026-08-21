@@ -90,8 +90,7 @@ export function AuthModal({
     setFirstName('');
     setLastName('');
     setError('');
-    onClose();
-  }, [onClose]);
+  }, []);
 
   const { isClosing, shouldRender, handleClose: handleModalClose, swipeHandlers } = useModalAnimation(isOpen, handleClose);
 

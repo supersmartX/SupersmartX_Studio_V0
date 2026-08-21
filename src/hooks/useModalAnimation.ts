@@ -1,28 +1,38 @@
 'use client';
 
-import { useState, useEffect, useRef, TouchEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, TouchEvent } from 'react';
 
 export function useModalAnimation(isOpen: boolean, onClose: () => void) {
   const [isClosing, setIsClosing] = useState(false);
   const [shouldRender, setShouldRender] = useState(isOpen);
   const touchStartY = useRef(0);
   const touchDeltaY = useRef(0);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (isOpen) {
       setShouldRender(true);
       setIsClosing(false);
+    } else if (shouldRender) {
+      setIsClosing(true);
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+        setIsClosing(false);
+        onCloseRef.current();
+      }, 150);
+      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setIsClosing(true);
     setTimeout(() => {
       setShouldRender(false);
       setIsClosing(false);
-      onClose();
+      onCloseRef.current();
     }, 150);
-  };
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
