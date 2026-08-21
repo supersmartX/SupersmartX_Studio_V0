@@ -413,3 +413,10 @@ input[type="range"]::-moz-range-thumb {
   background-color: var(--color-accent-muted);
   color: var(--color-text-primary);
 }
+
+/* ── Custom Z-Index Utilities (Tailwind v4 @theme doesn't auto-generate z-* from --z-*) ── */
+@utility z-float { z-index: 50; }
+@utility z-modal { z-index: 100; }
+@utility z-drawer { z-index: 150; }
+@utility z-onboard { z-index: 200; }
+@utility z-toast { z-index: 300; }
