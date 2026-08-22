@@ -497,6 +497,220 @@ export default function LandingPage() {
   color: #fff;
   background: rgba(255,255,255,0.08);
 }
+
+.lsx-section {
+  position: relative;
+  padding: 96px 24px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.lsx-section-inner {
+  max-width: 960px;
+  margin: 0 auto;
+}
+.lsx-section-header {
+  text-align: center;
+  margin-bottom: 64px;
+}
+.lsx-section-label {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 5px;
+  border: 1px solid rgba(124,58,237,0.25);
+  background: rgba(124,58,237,0.08);
+  color: var(--color-accent-hover);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+.lsx-section-title {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 36px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: #fff;
+  margin-bottom: 14px;
+}
+.lsx-section-subtitle {
+  color: rgba(255,255,255,0.45);
+  font-size: 16px;
+  line-height: 1.6;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.lsx-steps {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+.lsx-step {
+  flex: 1;
+  text-align: center;
+  padding: 0 24px;
+  position: relative;
+}
+.lsx-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(124,58,237,0.12);
+  border: 1px solid rgba(124,58,237,0.25);
+  color: var(--color-accent-hover);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+.lsx-step-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--color-accent-hover);
+  margin-bottom: 20px;
+}
+.lsx-step-title {
+  font-size: 17px;
+  font-weight: 500;
+  color: #fff;
+  letter-spacing: -0.02em;
+  margin-bottom: 10px;
+}
+.lsx-step-desc {
+  font-size: 14px;
+  line-height: 1.65;
+  color: rgba(255,255,255,0.4);
+  max-width: 260px;
+  margin: 0 auto;
+}
+.lsx-step-connector {
+  width: 60px;
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin-top: 60px;
+  flex-shrink: 0;
+}
+
+.lsx-pricing-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+.lsx-pricing-card {
+  position: relative;
+  padding: 36px 32px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.02);
+  transition: border-color 0.25s ease, background 0.25s ease;
+}
+.lsx-pricing-card:hover {
+  border-color: rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.03);
+}
+.lsx-pricing-card--pro {
+  border-color: rgba(124,58,237,0.3);
+  background: rgba(124,58,237,0.04);
+}
+.lsx-pricing-card--pro:hover {
+  border-color: rgba(124,58,237,0.45);
+  background: rgba(124,58,237,0.06);
+}
+.lsx-pricing-badge {
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 14px;
+  border-radius: 20px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.lsx-pricing-card-header {
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.lsx-pricing-plan {
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.6);
+  margin-bottom: 8px;
+}
+.lsx-pricing-price {
+  font-size: 40px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: #fff;
+  line-height: 1;
+}
+.lsx-pricing-period {
+  font-size: 16px;
+  font-weight: 400;
+  color: rgba(255,255,255,0.35);
+}
+.lsx-pricing-note {
+  font-size: 12px;
+  color: rgba(255,255,255,0.3);
+  margin-top: 6px;
+}
+.lsx-pricing-features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lsx-pricing-feature {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: rgba(255,255,255,0.5);
+  line-height: 1.4;
+}
+.lsx-pricing-feature svg {
+  flex-shrink: 0;
+}
+.lsx-pricing-feature--highlight {
+  color: rgba(255,255,255,0.8);
+}
+.lsx-pricing-btn {
+  width: 100%;
+  height: 48px;
+  font-size: 14px;
+}
+
+@media (max-width: 700px) {
+  .lsx-section { padding: 64px 20px; }
+  .lsx-section-title { font-size: 28px; }
+  .lsx-section-subtitle { font-size: 15px; }
+  .lsx-steps { flex-direction: column; align-items: center; gap: 0; }
+  .lsx-step { padding: 0; max-width: 320px; }
+  .lsx-step-connector { width: 1px; height: 40px; margin: 0; }
+  .lsx-pricing-grid { grid-template-columns: 1fr; max-width: 400px; }
+}
+
+.lsx-mobile-nav-close:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+}
 .lsx-mobile-nav-links {
   display: flex;
   flex-direction: column;
@@ -665,6 +879,140 @@ export default function LandingPage() {
             </div>
           </div>
         </main>
+
+        <section className="lsx-section lsx-how" id="how-it-works">
+          <div className="lsx-section-inner">
+            <div className="lsx-section-header">
+              <span className="lsx-section-label">How It Works</span>
+              <h2 className="lsx-section-title">Three steps to better videos</h2>
+              <p className="lsx-section-subtitle">No downloads. No complicated software. Just open your browser and start recording.</p>
+            </div>
+            <div className="lsx-steps">
+              <div className="lsx-step">
+                <div className="lsx-step-number">1</div>
+                <div className="lsx-step-icon">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                    <path d="m15 5 4 4"/>
+                  </svg>
+                </div>
+                <h3 className="lsx-step-title">Write your script</h3>
+                <p className="lsx-step-desc">Type, paste, or generate a script with AI. Our built-in teleprompter scrolls at your pace so you never lose your place.</p>
+              </div>
+              <div className="lsx-step-connector" />
+              <div className="lsx-step">
+                <div className="lsx-step-number">2</div>
+                <div className="lsx-step-icon">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
+                    <circle cx="12" cy="13" r="3"/>
+                  </svg>
+                </div>
+                <h3 className="lsx-step-title">Record yourself</h3>
+                <p className="lsx-step-desc">Use your webcam with a real-time teleprompter overlay. Pause, resume, and re-record until it feels right.</p>
+              </div>
+              <div className="lsx-step-connector" />
+              <div className="lsx-step">
+                <div className="lsx-step-number">3</div>
+                <div className="lsx-step-icon">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </div>
+                <h3 className="lsx-step-title">Export &amp; share</h3>
+                <p className="lsx-step-desc">Download your video in high quality. Share directly to YouTube, LinkedIn, or any platform.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="lsx-section lsx-pricing" id="pricing">
+          <div className="lsx-section-inner">
+            <div className="lsx-section-header">
+              <span className="lsx-section-label">Pricing</span>
+              <h2 className="lsx-section-title">Start free. Upgrade when ready.</h2>
+              <p className="lsx-section-subtitle">PPP-adjusted pricing available in 60+ countries.</p>
+            </div>
+            <div className="lsx-pricing-grid">
+              <div className="lsx-pricing-card">
+                <div className="lsx-pricing-card-header">
+                  <h3 className="lsx-pricing-plan">Free</h3>
+                  <div className="lsx-pricing-price">$0<span className="lsx-pricing-period">/forever</span></div>
+                </div>
+                <ul className="lsx-pricing-features">
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Teleprompter with auto-scroll
+                  </li>
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Audio recording &amp; download
+                  </li>
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    3 video downloads
+                  </li>
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Videos up to 5 min
+                  </li>
+                </ul>
+                <button
+                  onClick={() => router.push('/studio')}
+                  className="lsx-btn lsx-btn-ghost lsx-pricing-btn"
+                >
+                  Get Started
+                </button>
+              </div>
+              <div className="lsx-pricing-card lsx-pricing-card--pro">
+                <div className="lsx-pricing-badge">Most Popular</div>
+                <div className="lsx-pricing-card-header">
+                  <h3 className="lsx-pricing-plan">Pro</h3>
+                  <div className="lsx-pricing-price">$4.99<span className="lsx-pricing-period">/month</span></div>
+                  <p className="lsx-pricing-note">PPP-adjusted by region</p>
+                </div>
+                <ul className="lsx-pricing-features">
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Everything in Free
+                  </li>
+                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Unlimited video downloads
+                  </li>
+                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Unlimited recording length
+                  </li>
+                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    4K export quality
+                  </li>
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Priority support
+                  </li>
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Custom branding
+                  </li>
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Cloud sync
+                  </li>
+                </ul>
+                <button
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="lsx-btn lsx-btn-solid lsx-pricing-btn"
+                >
+                  Start Free Trial
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <footer className="lsx-footer">
           <div className="lsx-footer-bottom">

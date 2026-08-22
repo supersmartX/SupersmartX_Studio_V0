@@ -31,7 +31,10 @@ export function AuthModal({
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [step, setStep] = useState<'chooser' | 'email'>('chooser');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -54,16 +57,34 @@ export function AuthModal({
       return;
     }
 
+    const isRegister = step === 'chooser';
+    const name = isRegister ? [firstName, lastName].filter(Boolean).join(' ') : undefined;
+    const passwordValue = isRegister ? password : loginPassword;
+
+    if (isRegister) {
+      if (!passwordValue || passwordValue.length < 8) {
+        setError('Password must be at least 8 characters');
+        return;
+      }
+    } else if (!passwordValue) {
+      setError('Please enter your password');
+      return;
+    }
+
     setIsLoading(true);
     setError('');
     try {
-      const result = await signIn('credentials', {
-        email,
-        redirect: false,
-      });
+      const payload: Record<string, string | boolean> = { email, redirect: false };
+      if (passwordValue) payload.password = passwordValue;
+      if (isRegister) {
+        payload.mode = 'register';
+        if (name) payload.name = name;
+      }
 
-      if (result?.error) {
-        setError('Sign-in failed. Please try again.');
+      const result = await signIn('credentials', payload) as unknown as { error?: string | null } | void;
+
+      if (result && 'error' in result && result.error) {
+        setError(isRegister ? 'Registration failed. Email may already be in use.' : 'Invalid email or password.');
         setIsLoading(false);
       } else {
         await update();
@@ -71,10 +92,10 @@ export function AuthModal({
         onClose();
       }
     } catch {
-      setError('Sign-in failed. Please try again.');
+      setError('Something went wrong. Please try again.');
       setIsLoading(false);
     }
-  }, [email, onSuccess, onClose, update]);
+  }, [email, step, firstName, lastName, password, loginPassword, onSuccess, onClose, update]);
 
   const handleBack = useCallback(() => {
     setStep('chooser');
@@ -82,6 +103,8 @@ export function AuthModal({
     setEmail('');
     setFirstName('');
     setLastName('');
+    setPassword('');
+    setLoginPassword('');
   }, []);
 
   const handleClose = useCallback(() => {
@@ -89,6 +112,8 @@ export function AuthModal({
     setEmail('');
     setFirstName('');
     setLastName('');
+    setPassword('');
+    setLoginPassword('');
     setError('');
   }, []);
 
@@ -241,6 +266,8 @@ export function AuthModal({
                       <input
                         type={showPassword ? 'text' : 'password'}
                         placeholder="Enter password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
                         className="w-full bg-input border-none rounded-xl h-11 px-4 pr-10 text-white text-sm placeholder:text-white/20 focus:ring-2 focus:ring-white/20 outline-none transition-all"
                       />
                       <button
@@ -257,7 +284,7 @@ export function AuthModal({
                 </div>
 
                 {error && (
-                  <p className="text-xs text-red-400 text-center">{error}</p>
+                    <p className="text-xs text-recording text-center">{error}</p>
                 )}
 
                 {/* Submit */}
@@ -297,16 +324,38 @@ export function AuthModal({
                   />
                 </div>
 
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-white">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showLoginPassword ? 'text' : 'password'}
+                      placeholder="Enter password"
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleEmailSubmit()}
+                      className="w-full bg-input border-none rounded-xl h-11 px-4 pr-10 text-white text-sm placeholder:text-white/20 focus:ring-2 focus:ring-white/20 outline-none transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowLoginPassword(!showLoginPassword)}
+                      aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+                    >
+                      <EyeIcon visible={showLoginPassword} />
+                    </button>
+                  </div>
+                </div>
+
                 {error && (
-                  <p className="text-xs text-red-400 text-center">{error}</p>
+                  <p className="text-xs text-recording text-center">{error}</p>
                 )}
 
                 <button
                   onClick={handleEmailSubmit}
-                  disabled={isLoading || !email}
+                  disabled={isLoading || !email || !loginPassword}
                   className="w-full h-12 bg-white text-black font-semibold rounded-xl hover:bg-white/90 active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {isLoading ? 'Signing in...' : 'Continue'}
+                  {isLoading ? 'Signing in...' : 'Sign In'}
                 </button>
 
                 <p className="text-sm text-white/40 text-center">
