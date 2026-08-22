@@ -7,6 +7,7 @@ export function useModalAnimation(isOpen: boolean, onClose: () => void) {
   const [shouldRender, setShouldRender] = useState(isOpen);
   const touchStartY = useRef(0);
   const touchDeltaY = useRef(0);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -27,11 +28,17 @@ export function useModalAnimation(isOpen: boolean, onClose: () => void) {
 
   const handleClose = useCallback(() => {
     setIsClosing(true);
-    setTimeout(() => {
+    closeTimerRef.current = setTimeout(() => {
       setShouldRender(false);
       setIsClosing(false);
       onCloseRef.current();
     }, 150);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {

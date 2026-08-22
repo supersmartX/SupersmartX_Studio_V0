@@ -39,11 +39,6 @@ export function useLibrary() {
     setIsLoaded(true);
   }, []);
 
-  const persist = useCallback((updated: Script[]) => {
-    setScripts(updated);
-    saveScripts(updated);
-  }, []);
-
   const createScript = useCallback((title: string, content: string = ''): Script => {
     const now = new Date().toISOString();
     const script: Script = {
@@ -54,41 +49,51 @@ export function useLibrary() {
       createdAt: now,
       updatedAt: now,
     };
-    persist([script, ...loadScripts()]);
+    setScripts((prev) => {
+      const updated = [script, ...prev];
+      saveScripts(updated);
+      return updated;
+    });
     return script;
-  }, [persist]);
+  }, []);
 
   const updateScript = useCallback((id: string, updates: Partial<Pick<Script, 'title' | 'content'>>) => {
-    const all = loadScripts();
-    const updated = all.map((s) => {
-      if (s.id !== id) return s;
-      const content = updates.content ?? s.content;
-      return {
-        ...s,
-        ...updates,
-        content,
-        wordCount: countWords(content),
-        updatedAt: new Date().toISOString(),
-      };
+    setScripts((prev) => {
+      const updated = prev.map((s) => {
+        if (s.id !== id) return s;
+        const content = updates.content ?? s.content;
+        return {
+          ...s,
+          ...updates,
+          content,
+          wordCount: countWords(content),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      saveScripts(updated);
+      return updated;
     });
-    persist(updated);
-  }, [persist]);
+  }, []);
 
   const deleteScript = useCallback((id: string) => {
-    persist(loadScripts().filter((s) => s.id !== id));
-  }, [persist]);
+    setScripts((prev) => {
+      const updated = prev.filter((s) => s.id !== id);
+      saveScripts(updated);
+      return updated;
+    });
+  }, []);
 
   const getScript = useCallback((id: string): Script | undefined => {
-    return loadScripts().find((s) => s.id === id);
-  }, []);
+    return scripts.find((s) => s.id === id);
+  }, [scripts]);
 
   const searchScripts = useCallback((query: string): Script[] => {
-    if (!query.trim()) return loadScripts();
+    if (!query.trim()) return scripts;
     const q = query.toLowerCase();
-    return loadScripts().filter(
+    return scripts.filter(
       (s) => s.title.toLowerCase().includes(q) || s.content.toLowerCase().includes(q)
     );
-  }, []);
+  }, [scripts]);
 
   return {
     scripts,

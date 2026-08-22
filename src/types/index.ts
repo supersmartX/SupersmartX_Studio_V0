@@ -28,6 +28,17 @@ export interface PlatformPreset {
   height: number;
 }
 
+export interface RecordingConfiguration {
+  platformId: PlatformId;
+  aspectRatio: AspectRatio;
+  width: number;
+  height: number;
+  fps: number;
+  videoDeviceId: string;
+  audioDeviceId: string;
+  isMirrored: boolean;
+}
+
 export interface TeleprompterSettings {
   fontFamily: string;
   fontSize: number;

@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AuthModal } from '@/components/auth/AuthModal';
@@ -30,12 +30,13 @@ function GrainOverlay() {
 
 function HeroVideo() {
   return (
-    <div className="lsx-hero-photo" style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
+      <div className="lsx-hero-photo" style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
       <video
         autoPlay
         muted
         loop
         playsInline
+        preload="auto"
         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
       >
         <source
@@ -52,7 +53,6 @@ export default function LandingPage() {
   const router = useRouter();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const pageRef = useRef<HTMLDivElement>(null);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
@@ -89,40 +89,38 @@ export default function LandingPage() {
   }, [menuOpen, closeMenu]);
 
   useEffect(() => {
-    const raf1 = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const appears = document.querySelectorAll<HTMLElement>('.lsx-appear');
-        const heroPhoto = document.querySelector('.lsx-hero-photo');
+    const raf = requestAnimationFrame(() => {
+      const appears = document.querySelectorAll<HTMLElement>('.lsx-appear');
+      const heroPhoto = document.querySelector('.lsx-hero-photo');
 
-        appears.forEach((el) => {
-          const anims = el.getAnimations();
-          if (anims.length === 0) {
-            el.classList.add('lsx-is-in');
-          } else {
-            el.addEventListener('animationend', () => el.classList.add('lsx-is-in'), { once: true });
-          }
-        });
-
-        if (heroPhoto) {
-          const anims = heroPhoto.getAnimations();
-          if (anims.length === 0) {
-            heroPhoto.classList.add('lsx-is-in');
-          } else {
-            heroPhoto.addEventListener('animationend', () => heroPhoto.classList.add('lsx-is-in'), { once: true });
-          }
+      appears.forEach((el) => {
+        const anims = el.getAnimations();
+        if (anims.length === 0) {
+          el.classList.add('lsx-is-in');
+        } else {
+          el.addEventListener('animationend', () => el.classList.add('lsx-is-in'), { once: true });
         }
-
-        setTimeout(() => {
-          appears.forEach((el) => {
-            if (!el.classList.contains('lsx-is-in')) el.classList.add('lsx-is-in');
-          });
-          if (heroPhoto && !heroPhoto.classList.contains('lsx-is-in')) {
-            heroPhoto.classList.add('lsx-is-in');
-          }
-        }, 2500);
       });
+
+      if (heroPhoto) {
+        const anims = heroPhoto.getAnimations();
+        if (anims.length === 0) {
+          heroPhoto.classList.add('lsx-is-in');
+        } else {
+          heroPhoto.addEventListener('animationend', () => heroPhoto.classList.add('lsx-is-in'), { once: true });
+        }
+      }
+
+      setTimeout(() => {
+        appears.forEach((el) => {
+          if (!el.classList.contains('lsx-is-in')) el.classList.add('lsx-is-in');
+        });
+        if (heroPhoto && !heroPhoto.classList.contains('lsx-is-in')) {
+          heroPhoto.classList.add('lsx-is-in');
+        }
+      }, 2500);
     });
-    return () => cancelAnimationFrame(raf1);
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   return (
@@ -268,7 +266,7 @@ export default function LandingPage() {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 8px 24px var(--lsx-hero-gap, 85px);
+  padding: 8px 24px var(--lsx-hero-gap, 64px);
   min-height: 0;
 }
 
@@ -596,7 +594,7 @@ export default function LandingPage() {
   width: 60px;
   height: 1px;
   background: rgba(255,255,255,0.08);
-  margin-top: 60px;
+  margin-top: 48px;
   flex-shrink: 0;
 }
 
@@ -707,10 +705,6 @@ export default function LandingPage() {
   .lsx-pricing-grid { grid-template-columns: 1fr; max-width: 400px; }
 }
 
-.lsx-mobile-nav-close:hover {
-  color: #fff;
-  background: rgba(255,255,255,0.08);
-}
 .lsx-mobile-nav-links {
   display: flex;
   flex-direction: column;
@@ -760,7 +754,7 @@ export default function LandingPage() {
 
 .lsx-footer {
   border-top: 1px solid rgba(255,255,255,0.06);
-  padding: 24px var(--lsx-header-x, 40px);
+  padding: 48px var(--lsx-header-x, 40px);
 }
 .lsx-footer-bottom {
   display: flex;
@@ -788,7 +782,6 @@ export default function LandingPage() {
 
       <div
         className="lsx-page"
-        ref={pageRef}
       >
         <header className="lsx-header">
           <Link href="/" className="lsx-logo lsx-appear" style={{ '--lsx-d': '0.08s' } as React.CSSProperties} aria-label="SupersmartX Studio">
@@ -811,6 +804,7 @@ export default function LandingPage() {
           <div className="lsx-header-cta-wrap">
             <div className="lsx-appear lsx-appear--scale" style={{ '--lsx-d': '0.34s' } as React.CSSProperties}>
               <button
+                type="button"
                 onClick={() => setIsAuthModalOpen(true)}
                 className="lsx-btn lsx-btn-ghost"
                 style={{ marginRight: '8px' }}
@@ -818,6 +812,7 @@ export default function LandingPage() {
                 Log In
               </button>
               <button
+                type="button"
                 onClick={() => router.push('/studio')}
                 className="lsx-btn lsx-btn-solid"
               >
@@ -827,6 +822,7 @@ export default function LandingPage() {
           </div>
 
           <button
+            type="button"
             className={`lsx-burger${menuOpen ? ' is-open' : ''}`}
             aria-controls="lsx-mobile-nav"
             aria-expanded={menuOpen}
@@ -842,7 +838,7 @@ export default function LandingPage() {
         <main className="lsx-hero" id="top">
           <div className="lsx-hero-copy">
             <div className="lsx-badge lsx-appear lsx-appear--pop" style={{ '--lsx-d': '0.22s' } as React.CSSProperties}>
-              <svg className="lsx-badge-star" width="18" height="20" viewBox="0 0 24 24" fill="white">
+              <svg className="lsx-badge-star" width="18" height="20" viewBox="0 0 24 24" fill="white" aria-hidden="true">
                 <path d="M12 2.6C12.55 2.6 12.88 3.15 13.08 4.7c.62 4.7 1.52 5.6 6.22 6.22 1.55.2 2.1.53 2.1 1.08s-.55.88-2.1 1.08c-4.7.62-5.6 1.52-6.22 6.22-.2 1.55-.53 2.1-1.08 2.1s-.88-.55-1.08-2.1c-.62-4.7-1.52-5.6-6.22-6.22C3.15 12.88 2.6 12.55 2.6 12s.55-.88 2.1-1.08c4.7-.62 5.6-1.52 6.22-6.22C11.12 3.15 11.45 2.6 12 2.6Z" />
               </svg>
               <span>Browser-based Teleprompter Studio</span>
@@ -863,6 +859,7 @@ export default function LandingPage() {
 
             <div className="lsx-hero-actions">
               <button
+                type="button"
                 onClick={() => router.push('/studio')}
                 className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-appear lsx-appear--btn lsx-hero-solid"
                 style={{ '--lsx-d': '0.96s' } as React.CSSProperties}
@@ -870,6 +867,7 @@ export default function LandingPage() {
                 Start Free
               </button>
               <button
+                type="button"
                 onClick={() => setIsAuthModalOpen(true)}
                 className="lsx-btn lsx-btn-ghost lsx-hero-btn lsx-hero-ghost lsx-appear lsx-appear--btn"
                 style={{ '--lsx-d': '1.06s' } as React.CSSProperties}
@@ -891,7 +889,7 @@ export default function LandingPage() {
               <div className="lsx-step">
                 <div className="lsx-step-number">1</div>
                 <div className="lsx-step-icon">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
                     <path d="m15 5 4 4"/>
                   </svg>
@@ -903,7 +901,7 @@ export default function LandingPage() {
               <div className="lsx-step">
                 <div className="lsx-step-number">2</div>
                 <div className="lsx-step-icon">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
                     <circle cx="12" cy="13" r="3"/>
                   </svg>
@@ -915,7 +913,7 @@ export default function LandingPage() {
               <div className="lsx-step">
                 <div className="lsx-step-number">3</div>
                 <div className="lsx-step-icon">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/>
                     <line x1="12" y1="15" x2="12" y2="3"/>
@@ -943,23 +941,24 @@ export default function LandingPage() {
                 </div>
                 <ul className="lsx-pricing-features">
                   <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     Teleprompter with auto-scroll
                   </li>
                   <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     Audio recording &amp; download
                   </li>
                   <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     3 video downloads
                   </li>
                   <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     Videos up to 5 min
                   </li>
                 </ul>
                 <button
+                  type="button"
                   onClick={() => router.push('/studio')}
                   className="lsx-btn lsx-btn-ghost lsx-pricing-btn"
                 >
@@ -975,35 +974,36 @@ export default function LandingPage() {
                 </div>
                 <ul className="lsx-pricing-features">
                   <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     Everything in Free
                   </li>
                   <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     Unlimited video downloads
                   </li>
                   <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     Unlimited recording length
                   </li>
                   <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     4K export quality
                   </li>
                   <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     Priority support
                   </li>
                   <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     Custom branding
                   </li>
                   <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     Cloud sync
                   </li>
                 </ul>
                 <button
+                  type="button"
                   onClick={() => setIsAuthModalOpen(true)}
                   className="lsx-btn lsx-btn-solid lsx-pricing-btn"
                 >
@@ -1017,8 +1017,8 @@ export default function LandingPage() {
         <footer className="lsx-footer">
           <div className="lsx-footer-bottom">
             <span>&copy; {new Date().getFullYear()} SupersmartX. All rights reserved.</span>
-            <a href="/legal/terms" className="lsx-footer-link">Terms</a>
-            <a href="/legal/privacy" className="lsx-footer-link">Privacy</a>
+            <Link href="/legal/terms" className="lsx-footer-link">Terms</Link>
+            <Link href="/legal/privacy" className="lsx-footer-link">Privacy</Link>
           </div>
         </footer>
       </div>
@@ -1037,13 +1037,21 @@ export default function LandingPage() {
           aria-modal="true"
           aria-label="Navigation menu"
         >
-          <div className="lsx-mobile-nav-backdrop" onClick={closeMenu} />
+          <div
+            className="lsx-mobile-nav-backdrop"
+            onClick={closeMenu}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') closeMenu(); }}
+            role="button"
+            tabIndex={0}
+            aria-label="Close menu"
+          />
           <div className="lsx-mobile-nav-content">
-            <button
-              className="lsx-mobile-nav-close"
-              onClick={closeMenu}
-              aria-label="Close menu"
-            >
+              <button
+                type="button"
+                className="lsx-mobile-nav-close"
+                onClick={closeMenu}
+                aria-label="Close menu"
+              >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
@@ -1063,12 +1071,14 @@ export default function LandingPage() {
             </nav>
             <div className="lsx-mobile-nav-actions">
               <button
+                type="button"
                 onClick={() => { setIsAuthModalOpen(true); closeMenu(); }}
                 className="lsx-btn lsx-btn-ghost lsx-mobile-nav-btn"
               >
                 Log In
               </button>
               <button
+                type="button"
                 onClick={() => { router.push('/studio'); closeMenu(); }}
                 className="lsx-btn lsx-btn-solid lsx-mobile-nav-btn"
               >

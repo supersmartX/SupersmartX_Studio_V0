@@ -15,8 +15,12 @@ export function useShare(showToast: (message: string) => void) {
         // User cancelled or share failed
       }
     } else {
-      await navigator.clipboard.writeText(window.location.href);
-      showToast('Link copied to clipboard');
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        showToast('Link copied to clipboard');
+      } catch {
+        showToast('Failed to copy link');
+      }
     }
   }, [showToast]);
 

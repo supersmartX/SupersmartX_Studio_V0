@@ -2,6 +2,13 @@ import type { NextConfig } from 'next';
 
 const isDev = process.env.NODE_ENV === 'development';
 
+const requiredEnvVars = ['NEXTAUTH_SECRET', 'CASHFREE_SECRET_KEY'];
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    console.warn(`Missing required environment variable: ${envVar}`);
+  }
+}
+
 const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },

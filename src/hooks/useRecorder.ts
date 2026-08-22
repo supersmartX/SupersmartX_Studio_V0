@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { RecordingState } from '@/types';
+import type { RecordingState, RecordingConfiguration } from '@/types';
 
 interface RecordingResult {
   blob: Blob;
@@ -31,13 +31,14 @@ function getSupportedMimeType(): { mimeType: string; extension: string } {
   return { mimeType: 'video/webm', extension: 'webm' };
 }
 
-export function useRecorder(stream: MediaStream | null) {
+export function useRecorder(stream: MediaStream | null, _config?: RecordingConfiguration) {
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [videoUrl, setVideoUrl] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
   const [countdownText, setCountdownText] = useState('');
   const [recordingResult, setRecordingResult] = useState<RecordingResult | null>(null);
 
+  const streamRef = useRef<MediaStream | null>(stream);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -49,15 +50,53 @@ export function useRecorder(stream: MediaStream | null) {
   const selectedMimeRef = useRef<{ mimeType: string; extension: string }>({ mimeType: 'video/webm', extension: 'webm' });
   const videoUrlRef = useRef('');
   const audioUrlRef = useRef('');
+  const recordingStateRef = useRef<RecordingState>('idle');
+
+  recordingStateRef.current = recordingState;
+
+  // Keep stream ref in sync
+  useEffect(() => {
+    streamRef.current = stream;
+  }, [stream]);
+
+  // Stop recording when stream changes (format switch)
+  useEffect(() => {
+    if (stream && recordingStateRef.current !== 'idle') {
+      try {
+        if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {
+          mediaRecorderRef.current.stop();
+        }
+      } catch { /* ignore */ }
+      try {
+        if (audioRecorderRef.current?.state === 'recording') {
+          audioRecorderRef.current.stop();
+        }
+      } catch { /* ignore */ }
+      if (scrollIntervalRef.current) clearInterval(scrollIntervalRef.current);
+      if (countIntervalRef.current) clearInterval(countIntervalRef.current);
+      if (endCheckIntervalRef.current) clearInterval(endCheckIntervalRef.current);
+      scrollIntervalRef.current = null;
+      countIntervalRef.current = null;
+      endCheckIntervalRef.current = null;
+      mediaRecorderRef.current = null;
+      audioRecorderRef.current = null;
+      setRecordingState('idle');
+      setCountdownText('');
+    }
+  }, [stream]);
 
   useEffect(() => {
     return () => {
-      if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {
-        mediaRecorderRef.current.stop();
-      }
-      if (audioRecorderRef.current?.state === 'recording') {
-        audioRecorderRef.current.stop();
-      }
+      try {
+        if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {
+          mediaRecorderRef.current.stop();
+        }
+      } catch { /* ignore */ }
+      try {
+        if (audioRecorderRef.current?.state === 'recording') {
+          audioRecorderRef.current.stop();
+        }
+      } catch { /* ignore */ }
       if (scrollIntervalRef.current) clearInterval(scrollIntervalRef.current);
       if (countIntervalRef.current) clearInterval(countIntervalRef.current);
       if (endCheckIntervalRef.current) clearInterval(endCheckIntervalRef.current);
@@ -102,8 +141,9 @@ export function useRecorder(stream: MediaStream | null) {
 
   const startRecording = useCallback(
     (scrollCallback: () => void, checkEndCallback: () => boolean) => {
-      if (!stream) return;
-      if (recordingState !== 'idle') return;
+      const currentStream = streamRef.current;
+      if (!currentStream) return;
+      if (recordingStateRef.current !== 'idle') return;
 
       clearCountdownInterval();
       clearRecordingIntervals();
@@ -122,10 +162,15 @@ export function useRecorder(stream: MediaStream | null) {
           setCountdownText('');
 
           try {
+            if (!streamRef.current || streamRef.current.getTracks().length === 0) {
+              setRecordingState('idle');
+              return;
+            }
+            const activeStream = streamRef.current;
             const supported = getSupportedMimeType();
             selectedMimeRef.current = supported;
 
-            const recorder = new MediaRecorder(stream, {
+            const recorder = new MediaRecorder(activeStream, {
               mimeType: supported.mimeType,
             });
 
@@ -139,10 +184,9 @@ export function useRecorder(stream: MediaStream | null) {
             recorder.onerror = () => {
               clearRecordingIntervals();
               clearCountdownInterval();
-              // Save partial recording if chunks exist
               if (chunksRef.current.length > 0) {
                 const duration = (Date.now() - startTimeRef.current) / 1000;
-                const hasAudio = stream.getAudioTracks().length > 0;
+                const hasAudio = activeStream.getAudioTracks().length > 0;
                 const blob = new Blob(chunksRef.current, { type: supported.mimeType });
                 const result: RecordingResult = { blob, mimeType: supported.mimeType, extension: supported.extension, duration, hasAudio };
                 setRecordingResult(result);
@@ -158,7 +202,7 @@ export function useRecorder(stream: MediaStream | null) {
 
             recorder.onstop = () => {
               const duration = (Date.now() - startTimeRef.current) / 1000;
-              const hasAudio = stream.getAudioTracks().length > 0;
+              const hasAudio = activeStream.getAudioTracks().length > 0;
               const blob = new Blob(chunksRef.current, { type: supported.mimeType });
 
               const result: RecordingResult = {
@@ -176,7 +220,7 @@ export function useRecorder(stream: MediaStream | null) {
 
               if (hasAudio) {
                 const audioOnlyChunks: Blob[] = [];
-                const audioTracks = stream.getAudioTracks().map(track => track.clone());
+                const audioTracks = activeStream.getAudioTracks().map(track => track.clone());
                 const audioStream = new MediaStream(audioTracks);
                 const audioMimeType = 'audio/webm;codecs=opus';
                 const audioRecorder = new MediaRecorder(audioStream, {
@@ -190,7 +234,6 @@ export function useRecorder(stream: MediaStream | null) {
                 };
 
                 audioRecorder.onerror = () => {
-                  // Audio extraction failed — video recording is already saved, just clean up
                   audioRecorderRef.current = null;
                 };
 
@@ -221,8 +264,11 @@ export function useRecorder(stream: MediaStream | null) {
 
             endCheckIntervalRef.current = setInterval(() => {
               if (checkEndRef.current?.()) {
-                recorder.stop();
                 clearRecordingIntervals();
+                if (mediaRecorderRef.current?.state === 'recording' ||
+                    mediaRecorderRef.current?.state === 'paused') {
+                  mediaRecorderRef.current.stop();
+                }
               }
             }, 200);
           } catch (err) {
@@ -236,7 +282,7 @@ export function useRecorder(stream: MediaStream | null) {
         }
       }, 800);
     },
-    [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder, stream, revokeUrls, recordingState]
+    [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder, revokeUrls]
   );
 
   const pauseRecording = useCallback(() => {
@@ -267,13 +313,14 @@ export function useRecorder(stream: MediaStream | null) {
   );
 
   const stopRecording = useCallback(() => {
+    revokeUrls();
     if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {
       mediaRecorderRef.current.stop();
     }
     clearRecordingIntervals();
     clearCountdownInterval();
     stopAudioRecorder();
-  }, [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder]);
+  }, [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder, revokeUrls]);
 
   const resetRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {

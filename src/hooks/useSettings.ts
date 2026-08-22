@@ -47,17 +47,6 @@ function deriveAspectRatio(
   return getPlatformPreset(platformId).aspectRatio;
 }
 
-function deriveResolution(
-  platformId: PlatformId,
-  customAspectRatio: AspectRatio,
-  customWidth: number,
-  customHeight: number,
-): { width: number; height: number } {
-  if (platformId === 'custom') return { width: customWidth, height: customHeight };
-  const preset = getPlatformPreset(platformId);
-  return { width: preset.width, height: preset.height };
-}
-
 export function useSettings() {
   const [teleprompter, setTeleprompterState] = useState<TeleprompterSettings>(DEFAULT_SETTINGS);
   const [isMirrored, setIsMirrored] = useState(true);
@@ -80,31 +69,31 @@ export function useSettings() {
       setSelectedAudioDevice(saved.selectedAudioDevice);
       if (saved.platformId) setPlatformId(saved.platformId);
       if (saved.customAspectRatio) setCustomAspectRatio(saved.customAspectRatio);
-      if (saved.customWidth) setCustomWidth(saved.customWidth);
-      if (saved.customHeight) setCustomHeight(saved.customHeight);
+      if (saved.customWidth !== undefined) setCustomWidth(saved.customWidth);
+      if (saved.customHeight !== undefined) setCustomHeight(saved.customHeight);
     }
     setIsLoaded(true);
   }, []);
 
   const aspectRatio = deriveAspectRatio(platformId, customAspectRatio);
 
-  const persist = useCallback(() => {
-    saveSettings({
-      teleprompter,
-      isMirrored,
-      countdownEnabled,
-      selectedVideoDevice,
-      selectedAudioDevice,
-      platformId,
-      customAspectRatio,
-      customWidth,
-      customHeight,
-    });
-  }, [teleprompter, isMirrored, countdownEnabled, selectedVideoDevice, selectedAudioDevice, platformId, customAspectRatio, customWidth, customHeight]);
-
   useEffect(() => {
-    if (isLoaded) persist();
-  }, [teleprompter, isMirrored, countdownEnabled, selectedVideoDevice, selectedAudioDevice, platformId, customAspectRatio, customWidth, customHeight, isLoaded, persist]);
+    if (!isLoaded) return;
+    const timer = setTimeout(() => {
+      saveSettings({
+        teleprompter,
+        isMirrored,
+        countdownEnabled,
+        selectedVideoDevice,
+        selectedAudioDevice,
+        platformId,
+        customAspectRatio,
+        customWidth,
+        customHeight,
+      });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [teleprompter, isMirrored, countdownEnabled, selectedVideoDevice, selectedAudioDevice, platformId, customAspectRatio, customWidth, customHeight, isLoaded]);
 
   const setTeleprompter = useCallback((settings: TeleprompterSettings) => {
     setTeleprompterState(settings);

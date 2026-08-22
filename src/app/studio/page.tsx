@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/useToast';
 import { useShare } from '@/hooks/useShare';
 import { useLibrary } from '@/hooks/useLibrary';
 import { useSettings } from '@/hooks/useSettings';
+import { useRecordingConfig } from '@/hooks/useRecordingConfig';
 
 import { Header } from '@/components/layout/Header';
 import { IconRail } from '@/components/layout/IconRail';
@@ -64,6 +65,7 @@ export default function HomePage() {
   const { data: session } = useSession();
   const library = useLibrary();
   const settingsStore = useSettings();
+  const recordingConfigStore = useRecordingConfig();
 
   // Only used for drawer/modal state logic, NOT for layout visibility
   const isMobile = useMediaQuery('(max-width: 640px)');
@@ -77,6 +79,7 @@ export default function HomePage() {
   const [downloadCount, setDownloadCount] = useState(0);
   const prompterContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(null);
+  const recordingCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const FREE_VIDEO_DOWNLOAD_LIMIT = 3;
   const FREE_MAX_RECORDING_SECONDS = 300; // 5 minutes
@@ -92,7 +95,7 @@ export default function HomePage() {
     executePendingDownload();
   }, []);
 
-  const recorder = useRecorder(camera.stream);
+  const recorder = useRecorder(camera.stream, recordingConfigStore.config);
 
   useEffect(() => {
     if (camera.videoDevices.length > 0) {
@@ -112,6 +115,31 @@ export default function HomePage() {
       settingsStore.setSelectedAudioDevice('');
     }
   }, [camera.videoDevices, camera.audioDevices, settingsStore]);
+
+  // Sync settings store changes to recording config store
+  useEffect(() => {
+    recordingConfigStore.setPlatformId(settingsStore.platformId);
+    recordingConfigStore.setCustomAspectRatio(settingsStore.customAspectRatio);
+    recordingConfigStore.setCustomDimensions(settingsStore.customWidth, settingsStore.customHeight);
+    recordingConfigStore.setMirrored(settingsStore.isMirrored);
+  }, [
+    settingsStore.platformId,
+    settingsStore.customAspectRatio,
+    settingsStore.customWidth,
+    settingsStore.customHeight,
+    settingsStore.isMirrored,
+    recordingConfigStore,
+  ]);
+
+  // Sync device IDs from settings to recording config
+  useEffect(() => {
+    recordingConfigStore.setVideoDevice(settingsStore.selectedVideoDevice);
+    recordingConfigStore.setAudioDevice(settingsStore.selectedAudioDevice);
+  }, [
+    settingsStore.selectedVideoDevice,
+    settingsStore.selectedAudioDevice,
+    recordingConfigStore,
+  ]);
 
   useEffect(() => {
     if (recorder.recordingState === 'recording') {
@@ -433,6 +461,8 @@ export default function HomePage() {
                 focusViewEnabled={focusView.isEnabled}
                 onFocusViewToggle={focusView.toggle}
                 aspectRatio={settingsStore.aspectRatio}
+                recordingConfig={recordingConfigStore.config}
+                onCanvasReady={(canvas) => { recordingCanvasRef.current = canvas; }}
               >
                 <CameraPreview
                   stream={camera.stream}
