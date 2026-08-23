@@ -143,7 +143,12 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
     (scrollCallback: () => void, checkEndCallback: () => boolean) => {
       const currentStream = streamRef.current;
       if (!currentStream) return;
-      if (recordingStateRef.current !== 'idle') return;
+      if (recordingStateRef.current !== 'idle' && recordingStateRef.current !== 'completed') return;
+
+      if (recordingStateRef.current === 'completed') {
+        revokeUrls();
+        setRecordingResult(null);
+      }
 
       clearCountdownInterval();
       clearRecordingIntervals();
@@ -201,6 +206,11 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
             };
 
             recorder.onstop = () => {
+              if (chunksRef.current.length === 0) {
+                setRecordingState('idle');
+                return;
+              }
+
               const duration = (Date.now() - startTimeRef.current) / 1000;
               const hasAudio = activeStream.getAudioTracks().length > 0;
               const blob = new Blob(chunksRef.current, { type: supported.mimeType });
@@ -313,9 +323,10 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
   );
 
   const stopRecording = useCallback(() => {
-    revokeUrls();
     if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {
       mediaRecorderRef.current.stop();
+    } else {
+      revokeUrls();
     }
     clearRecordingIntervals();
     clearCountdownInterval();

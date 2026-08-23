@@ -212,7 +212,11 @@ export default function HomePage() {
 
   const handleCloseDrawer = useCallback(() => {
     setIsDrawerVisible(false);
-  }, []);
+    if (recorder.recordingState === 'completed') {
+      recorder.resetRecording();
+      setElapsedSeconds(0);
+    }
+  }, [recorder]);
 
   const handleDownloadComplete = useCallback(() => {
     setIsDrawerVisible(false);
