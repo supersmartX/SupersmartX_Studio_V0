@@ -32,6 +32,7 @@ interface ExportModalProps {
   onUpdateCrop: (updates: { x?: number; y?: number; zoom?: number }) => void;
   onResetCrop: () => void;
   onStartExport: (master: MasterRecording) => Promise<ExportJob>;
+  onStartBatchExport?: (master: MasterRecording, configs: ExportConfig[]) => Promise<ExportJob[]>;
   onCancelExport?: () => void;
 }
 
@@ -54,13 +55,16 @@ export function ExportModal({
   onUpdateCrop,
   onResetCrop: _onResetCrop,
   onStartExport,
+  onStartBatchExport,
   onCancelExport,
 }: ExportModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isVisible, onClose);
   const [step, setStep] = useState<ExportStep>('platform');
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformId | null>(null);
+  const [batchPlatforms, setBatchPlatforms] = useState<PlatformId[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<ExportJob | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
 
   const isGuest = !isAuthenticated;
   const isPreview = isGuest && (masterRecording?.duration || 0) > GUEST_PREVIEW_MAX_SECONDS;
@@ -71,6 +75,47 @@ export function ExportModal({
     onSelectPlatform(platformId);
     setStep('crop');
   }, [onSelectPlatform]);
+
+  const handleToggleBatchPlatform = useCallback((platformId: PlatformId) => {
+    setBatchPlatforms((prev) =>
+      prev.includes(platformId)
+        ? prev.filter((id) => id !== platformId)
+        : [...prev, platformId]
+    );
+  }, []);
+
+  const handleBatchExport = useCallback(async () => {
+    if (!masterRecording || batchPlatforms.length === 0 || !onStartBatchExport) return;
+
+    setIsExporting(true);
+    setStep('encoding');
+
+    const configs = batchPlatforms.map((pid) => {
+      return onSelectPlatform(pid);
+    });
+
+    setBatchProgress({ current: 0, total: configs.length });
+
+    try {
+      const results = await onStartBatchExport(masterRecording, configs);
+      const lastResult = results[results.length - 1];
+      setExportResult(lastResult);
+      setBatchProgress(null);
+
+      if (lastResult.status === 'done') {
+        setStep('done');
+      } else {
+        setStep('platform');
+        showToast('Some exports failed. Check the results.');
+      }
+    } catch {
+      setStep('platform');
+      showToast('Batch export failed.');
+    } finally {
+      setIsExporting(false);
+      setBatchProgress(null);
+    }
+  }, [masterRecording, batchPlatforms, onStartBatchExport, onSelectPlatform, showToast]);
 
   const handleExport = useCallback(async () => {
     if (!masterRecording || !exportConfig) return;
@@ -180,16 +225,31 @@ export function ExportModal({
               />
 
               <div className="grid grid-cols-2 gap-2">
-                {PLATFORM_PRESETS.filter((p) => p.id !== 'custom').map((preset) => (
-                  <button
-                    key={preset.id}
-                    onClick={() => handleSelectPlatform(preset.id)}
-                    className="flex flex-col items-start p-3 rounded-lg bg-elevated hover:bg-accent/10 border border-border-subtle hover:border-accent/30 transition-all text-left"
-                  >
-                    <span className="text-xs font-semibold text-text-primary">{preset.label}</span>
-                    <span className="text-[10px] text-text-muted mt-0.5">{preset.aspectRatio} · {preset.width}×{preset.height}</span>
-                  </button>
-                ))}
+                {PLATFORM_PRESETS.filter((p) => p.id !== 'custom').map((preset) => {
+                  const isSelected = batchPlatforms.includes(preset.id);
+                  return (
+                    <button
+                      key={preset.id}
+                      onClick={() => handleToggleBatchPlatform(preset.id)}
+                      onDoubleClick={() => handleSelectPlatform(preset.id)}
+                      className={`flex flex-col items-start p-3 rounded-lg border transition-all text-left relative ${
+                        isSelected
+                          ? 'bg-accent/15 border-accent/40 ring-1 ring-accent/20'
+                          : 'bg-elevated hover:bg-accent/10 border-border-subtle hover:border-accent/30'
+                      }`}
+                    >
+                      {isSelected && (
+                        <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-accent flex items-center justify-center">
+                          <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                      )}
+                      <span className="text-xs font-semibold text-text-primary">{preset.label}</span>
+                      <span className="text-[10px] text-text-muted mt-0.5">{preset.aspectRatio} · {preset.width}×{preset.height}</span>
+                    </button>
+                  );
+                })}
                 <button
                   onClick={() => handleSelectPlatform('custom')}
                   className="flex flex-col items-start p-3 rounded-lg bg-elevated hover:bg-accent/10 border border-border-subtle hover:border-accent/30 transition-all text-left"
@@ -198,6 +258,24 @@ export function ExportModal({
                   <span className="text-[10px] text-text-muted mt-0.5">Define your own format</span>
                 </button>
               </div>
+
+              {batchPlatforms.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-[11px] text-text-muted">
+                    {batchPlatforms.length} platform{batchPlatforms.length > 1 ? 's' : ''} selected
+                  </p>
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={handleBatchExport}
+                    className="w-full gap-2"
+                    disabled={isExporting}
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    Export for All ({batchPlatforms.length})
+                  </Button>
+                </div>
+              )}
 
               <div className="flex items-center gap-2 text-[11px] text-text-muted">
                 <span>{formatTime(masterRecording.duration)}</span>
@@ -325,6 +403,11 @@ export function ExportModal({
             <div className="flex flex-col items-center gap-4 py-8">
               <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
               <p className="text-sm text-text-secondary">Creating your export...</p>
+              {batchProgress && (
+                <p className="text-xs text-text-muted">
+                  {batchProgress.current} of {batchProgress.total} exports complete
+                </p>
+              )}
               <p className="text-xs text-text-muted">This may take a moment depending on video length</p>
               {onCancelExport && (
                 <Button
@@ -334,6 +417,7 @@ export function ExportModal({
                     onCancelExport();
                     setStep('platform');
                     setIsExporting(false);
+                    setBatchProgress(null);
                   }}
                 >
                   Cancel

@@ -12,8 +12,10 @@ interface UseExportPipelineReturn {
   updateCrop: (updates: Partial<CropConfig>) => void;
   resetCrop: () => void;
   startExport: (master: MasterRecording) => Promise<ExportJob>;
+  startBatchExport: (master: MasterRecording, configs: ExportConfig[]) => Promise<ExportJob[]>;
   cancelExport: (jobId: string) => void;
   clearJobs: () => void;
+  generateThumbnail: (master: MasterRecording, timeSeconds?: number) => Promise<string>;
 }
 
 function getDefaultCrop(
@@ -159,6 +161,23 @@ export function useExportPipeline(): UseExportPipelineReturn {
     setExportJobs((prev) => prev.filter((j) => j.id !== jobId));
   }, []);
 
+  const startBatchExport = useCallback(
+    async (master: MasterRecording, configs: ExportConfig[]): Promise<ExportJob[]> => {
+      const results: ExportJob[] = [];
+
+      for (const config of configs) {
+        setExportConfig(config);
+        await new Promise((r) => setTimeout(r, 100));
+
+        const job = await startExport(master);
+        results.push(job);
+      }
+
+      return results;
+    },
+    [startExport, setExportConfig]
+  );
+
   const clearJobs = useCallback(() => {
     abortControllerRef.current.forEach((controller) => controller.abort());
     abortControllerRef.current.clear();
@@ -170,6 +189,50 @@ export function useExportPipeline(): UseExportPipelineReturn {
     });
   }, []);
 
+  const generateThumbnail = useCallback(
+    async (master: MasterRecording, timeSeconds = 1): Promise<string> => {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.crossOrigin = 'anonymous';
+      document.body.appendChild(video);
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('Thumbnail load timeout')), 10000);
+          video.onloadeddata = () => { clearTimeout(timeout); resolve(); };
+          video.onerror = () => { clearTimeout(timeout); reject(new Error('Failed to load video for thumbnail')); };
+          video.src = master.url;
+        });
+
+        video.currentTime = Math.min(timeSeconds, video.duration || 1);
+        await new Promise<void>((resolve) => {
+          video.onseeked = () => resolve();
+        });
+
+        const canvas = document.createElement('canvas');
+        const thumbWidth = 320;
+        const thumbHeight = Math.round((video.videoHeight / video.videoWidth) * thumbWidth) || 180;
+        canvas.width = thumbWidth;
+        canvas.height = thumbHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas context not available');
+
+        ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight);
+
+        return canvas.toDataURL('image/jpeg', 0.7);
+      } finally {
+        video.src = '';
+        video.load();
+        if (video.parentNode) {
+          video.parentNode.removeChild(video);
+        }
+      }
+    },
+    []
+  );
+
   return {
     exportConfig,
     exportJobs,
@@ -178,8 +241,10 @@ export function useExportPipeline(): UseExportPipelineReturn {
     updateCrop,
     resetCrop,
     startExport,
+    startBatchExport,
     cancelExport,
     clearJobs,
+    generateThumbnail,
   };
 }
 
@@ -196,6 +261,10 @@ async function encodeExport(
   video.preload = 'auto';
   video.crossOrigin = 'anonymous';
   document.body.appendChild(video);
+
+  let audioContext: AudioContext | null = null;
+  let audioSource: MediaElementAudioSourceNode | null = null;
+  let audioDestination: MediaStreamAudioDestinationNode | null = null;
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -216,7 +285,28 @@ async function encodeExport(
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas context not available');
 
-    const stream = canvas.captureStream(30);
+    const videoStream = canvas.captureStream(30);
+
+    let combinedStream: MediaStream;
+
+    if (master.hasAudio) {
+      try {
+        audioContext = new AudioContext();
+        audioSource = audioContext.createMediaElementSource(video);
+        audioDestination = audioContext.createMediaStreamDestination();
+        audioSource.connect(audioDestination);
+        audioSource.connect(audioContext.destination);
+
+        combinedStream = new MediaStream([
+          ...videoStream.getVideoTracks(),
+          ...audioDestination.stream.getAudioTracks(),
+        ]);
+      } catch {
+        combinedStream = videoStream;
+      }
+    } else {
+      combinedStream = videoStream;
+    }
 
     let mimeType = 'video/webm;codecs=vp9,opus';
     if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -226,9 +316,10 @@ async function encodeExport(
       mimeType = 'video/webm';
     }
 
-    const recorder = new MediaRecorder(stream, {
+    const recorder = new MediaRecorder(combinedStream, {
       mimeType,
       videoBitsPerSecond: 8_000_000,
+      audioBitsPerSecond: master.hasAudio ? 128_000 : undefined,
     });
 
     const chunks: Blob[] = [];
@@ -252,6 +343,10 @@ async function encodeExport(
     signal?.addEventListener('abort', abortHandler, { once: true });
 
     recorder.start(100);
+
+    if (audioContext?.state === 'suspended') {
+      await audioContext.resume();
+    }
     video.play();
 
     await new Promise<void>((resolve) => {
@@ -287,6 +382,12 @@ async function encodeExport(
     const resultBlob = await recordingDone;
     return resultBlob;
   } finally {
+    if (audioSource) {
+      try { audioSource.disconnect(); } catch {}
+    }
+    if (audioContext) {
+      try { await audioContext.close(); } catch {}
+    }
     video.src = '';
     video.load();
     if (video.parentNode) {

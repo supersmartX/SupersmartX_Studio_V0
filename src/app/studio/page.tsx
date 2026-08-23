@@ -607,6 +607,7 @@ export default function HomePage() {
         onUpdateCrop={exportPipeline.updateCrop}
         onResetCrop={exportPipeline.resetCrop}
         onStartExport={exportPipeline.startExport}
+        onStartBatchExport={exportPipeline.startBatchExport}
         onCancelExport={() => exportPipeline.cancelExport(exportPipeline.exportJobs[exportPipeline.exportJobs.length - 1]?.id || '')}
       />
 
