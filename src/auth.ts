@@ -19,6 +19,8 @@ interface StoredUser {
   name: string;
   passwordHash: string;
   createdAt: string;
+  plan: 'free' | 'pro_monthly' | 'pro_yearly';
+  planExpiresAt?: string;
 }
 
 const DATA_DIR = join(process.cwd(), 'data');
@@ -52,10 +54,26 @@ export async function createUser(email: string, name: string, password: string):
     name,
     passwordHash,
     createdAt: new Date().toISOString(),
+    plan: 'free',
   };
   users.push(user);
   saveUsers(users);
   return user;
+}
+
+export function updateUserPlan(
+  email: string,
+  plan: 'free' | 'pro_monthly' | 'pro_yearly',
+  expiresAt?: string
+): boolean {
+  const users = getUsers();
+  const userIndex = users.findIndex((u) => u.email === email.toLowerCase());
+  if (userIndex === -1) return false;
+
+  users[userIndex].plan = plan;
+  users[userIndex].planExpiresAt = expiresAt;
+  saveUsers(users);
+  return true;
 }
 
 export async function verifyPassword(email: string, password: string): Promise<boolean> {
@@ -150,6 +168,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (user) {
         token.id = user.id;
         token.image = user.image;
+        const fullUser = findUserByEmail(user.email!);
+        token.plan = fullUser?.plan || 'free';
       }
       return token;
     },
@@ -157,6 +177,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (session.user) {
         session.user.id = token.id as string;
         session.user.image = token.image as string | null;
+        session.user.plan = token.plan as string;
       }
       return session;
     },

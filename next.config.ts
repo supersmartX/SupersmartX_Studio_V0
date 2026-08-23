@@ -1,6 +1,8 @@
 import type { NextConfig } from 'next';
 
 const isDev = process.env.NODE_ENV === 'development';
+const r2PublicUrl = process.env.R2_PUBLIC_URL || '';
+const r2Domain = r2PublicUrl ? new URL(r2PublicUrl).hostname : '';
 
 const requiredEnvVars = ['NEXTAUTH_SECRET', 'CASHFREE_SECRET_KEY'];
 for (const envVar of requiredEnvVars) {
@@ -26,10 +28,10 @@ const securityHeaders = [
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''} https://sdk.cashfree.com`,
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "img-src 'self' data: blob: https://sdk.cashfree.com",
+      `img-src 'self' data: blob: https://sdk.cashfree.com${r2Domain ? ` https://${r2Domain}` : ''}`,
       "font-src 'self' data: https://fonts.googleapis.com https://fonts.gstatic.com",
-      "connect-src 'self' https://api.cashfree.com https://sandbox.cashfree.com",
-      "media-src 'self' blob: mediastream: https://d8j0ntlcm91z4.cloudfront.net",
+      `connect-src 'self' https://api.cashfree.com https://sandbox.cashfree.com${r2Domain ? ` https://${r2Domain}` : ''}`,
+      `media-src 'self' blob: mediastream: https://d8j0ntlcm91z4.cloudfront.net${r2Domain ? ` https://${r2Domain}` : ''}`,
       "worker-src 'self' blob:",
       "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
     ].join('; '),

@@ -595,6 +595,7 @@ export default function HomePage() {
         onDownloadComplete={handleDownloadComplete}
         showToast={showToast}
         isAuthenticated={!!session?.user}
+        userPlan={session?.user?.plan || 'free'}
         onAuthRequired={handleAuthRequired}
         downloadCount={downloadCount}
         downloadLimit={FREE_VIDEO_DOWNLOAD_LIMIT}

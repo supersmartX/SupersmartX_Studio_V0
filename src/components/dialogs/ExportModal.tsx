@@ -7,6 +7,7 @@ import { DiscordFeedback } from './DiscordFeedback';
 import { VideoPlayer } from '@/components/studio/VideoPlayer';
 import { generateFilename } from '@/services/download.service';
 import { setPendingDownload } from '@/lib/auth-guard';
+import { GUEST_PREVIEW_MAX_SECONDS } from '@/lib/preview';
 import type { AspectRatio } from '@/types';
 import { formatTime } from '@/utils/format';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
@@ -30,6 +31,7 @@ interface ExportModalProps {
   onDownloadComplete?: () => void;
   showToast: (message: string) => void;
   isAuthenticated: boolean;
+  userPlan: string;
   onAuthRequired: () => void;
   downloadCount: number;
   downloadLimit: number;
@@ -48,6 +50,7 @@ export function ExportModal({
   onDownloadComplete,
   showToast,
   isAuthenticated,
+  userPlan,
   onAuthRequired,
   downloadCount,
   downloadLimit,
@@ -58,6 +61,10 @@ export function ExportModal({
   const [isValidating, setIsValidating] = useState(true);
   const [validationPassed, setValidationPassed] = useState(false);
   const [validationError, setValidationError] = useState('');
+
+  const isGuest = !isAuthenticated;
+  const isPreview = isGuest && (recordingResult?.duration || 0) > GUEST_PREVIEW_MAX_SECONDS;
+  const canDownloadFile = isAuthenticated && userPlan !== 'free';
 
   useEffect(() => {
     if (!shouldRender || !videoUrl) {
@@ -157,7 +164,13 @@ export function ExportModal({
         </div>
 
         <div className="p-4 sm:p-5 flex flex-col gap-4">
-          <VideoPlayer videoUrl={videoUrl} recordedDuration={recordingResult?.duration || 0} onError={setValidationError} aspectRatio={aspectRatio} />
+          <VideoPlayer
+            videoUrl={videoUrl}
+            recordedDuration={recordingResult?.duration || 0}
+            onError={setValidationError}
+            aspectRatio={aspectRatio}
+            isPreview={isPreview}
+          />
 
           {recordingResult && (
             <div className="grid grid-cols-2 gap-3">
@@ -193,15 +206,39 @@ export function ExportModal({
           <div className="flex flex-col gap-2">
             {validationPassed ? (
               <>
-                <Button
-                  variant="primary"
-                  size="lg"
-                  onClick={handleDownload}
-                  className="w-full gap-2"
-                >
-                  <DownloadIcon className="w-4 h-4" />
-                  {isAuthenticated ? 'Download Video' : 'Create Free Account to Download'}
-                </Button>
+                {isGuest ? (
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={() => {
+                      onAuthRequired();
+                    }}
+                    className="w-full gap-2"
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    Sign In to Download Full Video
+                  </Button>
+                ) : canDownloadFile ? (
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={handleDownload}
+                    className="w-full gap-2"
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    Download Video
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={onDownloadLimitReached}
+                    className="w-full gap-2"
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    Upgrade to Download Unlimited
+                  </Button>
+                )}
                 <Button
                   variant="secondary"
                   size="lg"

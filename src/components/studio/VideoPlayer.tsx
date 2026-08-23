@@ -5,15 +5,25 @@ import { PauseIcon, PlayIcon } from '@/components/icons';
 import { formatTime } from '@/utils/format';
 import type { AspectRatio } from '@/types';
 import { ASPECT_RATIO_PRESETS } from '@/constants';
+import { GUEST_PREVIEW_MAX_SECONDS } from '@/lib/preview';
 
 interface VideoPlayerProps {
   videoUrl: string;
   recordedDuration: number;
   onError: (msg: string) => void;
   aspectRatio: AspectRatio;
+  isPreview?: boolean;
+  maxPreviewSeconds?: number;
 }
 
-export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }: VideoPlayerProps) {
+export function VideoPlayer({
+  videoUrl,
+  recordedDuration,
+  onError,
+  aspectRatio,
+  isPreview = false,
+  maxPreviewSeconds = GUEST_PREVIEW_MAX_SECONDS,
+}: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
@@ -66,7 +76,15 @@ export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }
       setIsValidated(true);
     };
 
-    const handleTimeUpdate = () => setCurrentTime(video.currentTime);
+    const handleTimeUpdate = () => {
+      const video = videoRef.current;
+      if (!video) return;
+      setCurrentTime(video.currentTime);
+      if (isPreview && video.currentTime >= maxPreviewSeconds) {
+        video.pause();
+        video.currentTime = maxPreviewSeconds;
+      }
+    };
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
     const handleEnded = () => setIsPlaying(false);
@@ -116,8 +134,9 @@ export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }
     if (!video || !bar || !Number.isFinite(duration)) return;
     const rect = bar.getBoundingClientRect();
     const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    video.currentTime = percent * duration;
-  }, [duration]);
+    const limit = isPreview ? maxPreviewSeconds : duration;
+    video.currentTime = percent * limit;
+  }, [duration, isPreview, maxPreviewSeconds]);
 
   const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const video = videoRef.current;
@@ -149,8 +168,9 @@ export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }
   const skip = useCallback((seconds: number) => {
     const video = videoRef.current;
     if (!video || !Number.isFinite(duration)) return;
-    video.currentTime = Math.max(0, Math.min(duration, video.currentTime + seconds));
-  }, [duration]);
+    const limit = isPreview ? maxPreviewSeconds : duration;
+    video.currentTime = Math.max(0, Math.min(limit, video.currentTime + seconds));
+  }, [duration, isPreview, maxPreviewSeconds]);
 
   const toggleFullscreen = useCallback(() => {
     const container = containerRef.current;
@@ -162,7 +182,8 @@ export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }
     }
   }, []);
 
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const displayDuration = isPreview ? Math.min(duration, maxPreviewSeconds) : duration;
+  const progress = displayDuration > 0 ? (currentTime / displayDuration) * 100 : 0;
 
   if (validationError) {
     return (
@@ -180,7 +201,16 @@ export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }
         className={`w-full ${ASPECT_RATIO_PRESETS[aspectRatio].cssClass} object-contain`}
         onClick={toggleControls}
         playsInline
+        onContextMenu={(e) => isPreview && e.preventDefault()}
+        disablePictureInPicture={isPreview}
+        controlsList={isPreview ? 'nodownload noremoteplayback' : undefined}
       />
+
+      {isPreview && (
+        <div className="absolute top-2 right-2 z-10 px-2 py-1 rounded bg-black/60 backdrop-blur-sm text-[10px] font-semibold text-white/80 uppercase tracking-wider select-none pointer-events-none">
+          Preview
+        </div>
+      )}
 
       {!isValidated && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
@@ -212,12 +242,16 @@ export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }
                 {isPlaying ? <PauseIcon className="w-5 h-5" /> : <PlayIcon className="w-5 h-5" />}
               </button>
 
-              <button onClick={() => skip(-10)} aria-label="Skip back 10 seconds" className="text-white/70 hover:text-white text-xs font-mono">
-                -10s
-              </button>
-              <button onClick={() => skip(10)} aria-label="Skip forward 10 seconds" className="text-white/70 hover:text-white text-xs font-mono">
-                +10s
-              </button>
+              {!isPreview && (
+                <>
+                  <button onClick={() => skip(-10)} aria-label="Skip back 10 seconds" className="text-white/70 hover:text-white text-xs font-mono">
+                    -10s
+                  </button>
+                  <button onClick={() => skip(10)} aria-label="Skip forward 10 seconds" className="text-white/70 hover:text-white text-xs font-mono">
+                    +10s
+                  </button>
+                </>
+              )}
 
               <div className="flex items-center gap-1">
                 <button onClick={toggleMute} aria-label={isMuted ? 'Unmute' : 'Mute'} className="text-white/70 hover:text-white">
@@ -244,34 +278,37 @@ export function VideoPlayer({ videoUrl, recordedDuration, onError, aspectRatio }
               </div>
 
               <span className="text-micro text-white/60 font-mono">
-                {formatTime(currentTime)} / {formatTime(duration)}
+                {formatTime(currentTime)} / {formatTime(displayDuration)}
+                {isPreview && <span className="text-white/40 ml-1">(preview)</span>}
               </span>
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="relative">
-                <button
-                  onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                  className="text-micro text-white/70 hover:text-white font-mono px-1.5 py-0.5 rounded bg-white/10"
-                >
-                  {playbackRate}x
-                </button>
-                {showSpeedMenu && (
-                  <div className="absolute bottom-full right-0 mb-1 bg-surface border border-border-default rounded-lg shadow-xl py-1 z-10">
-                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
-                      <button
-                        key={rate}
-                        onClick={() => changeSpeed(rate)}
-                        className={`block w-full px-3 py-1.5 text-xs text-left hover:bg-elevated transition-colors ${
-                          playbackRate === rate ? 'text-accent' : 'text-text-secondary'
-                        }`}
-                      >
-                        {rate}x
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {!isPreview && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                    className="text-micro text-white/70 hover:text-white font-mono px-1.5 py-0.5 rounded bg-white/10"
+                  >
+                    {playbackRate}x
+                  </button>
+                  {showSpeedMenu && (
+                    <div className="absolute bottom-full right-0 mb-1 bg-surface border border-border-default rounded-lg shadow-xl py-1 z-10">
+                      {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                        <button
+                          key={rate}
+                          onClick={() => changeSpeed(rate)}
+                          className={`block w-full px-3 py-1.5 text-xs text-left hover:bg-elevated transition-colors ${
+                            playbackRate === rate ? 'text-accent' : 'text-text-secondary'
+                          }`}
+                        >
+                          {rate}x
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <button onClick={toggleFullscreen} className="text-white/70 hover:text-white">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">

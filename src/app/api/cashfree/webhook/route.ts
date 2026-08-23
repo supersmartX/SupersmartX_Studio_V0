@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { sendPaymentConfirmationEmail, sendAdminNotification } from '@/lib/email';
+import { updateUserPlan } from '@/auth';
 
 const CASHFREE_BASE_URL =
   process.env.CASHFREE_ENV === 'production'
@@ -67,9 +68,8 @@ function cleanupProcessedOrders() {
   }
 }
 
-function extractPlanFromOrderId(orderId: string): string {
+function extractPlanFromOrderId(orderId: string): 'pro_monthly' | 'pro_yearly' {
   if (orderId.includes('pro_yearly')) return 'pro_yearly';
-  if (orderId.includes('pro_monthly')) return 'pro_monthly';
   return 'pro_monthly';
 }
 
@@ -128,6 +128,15 @@ export async function POST(request: NextRequest) {
           sendPaymentConfirmationEmail(emailData),
           sendAdminNotification(emailData),
         ]);
+
+        // Activate plan for the user
+        const expiresAt = new Date();
+        if (billingPeriod === 'yearly') {
+          expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+        } else {
+          expiresAt.setMonth(expiresAt.getMonth() + 1);
+        }
+        updateUserPlan(emailData.customerEmail, plan, expiresAt.toISOString());
       }
     }
 
