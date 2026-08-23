@@ -1,34 +1,24 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/Button';
-import { DownloadIcon, CloseIcon, ShareIcon } from '@/components/icons';
+import { DownloadIcon, CloseIcon, ShareIcon, ArrowLeftIcon } from '@/components/icons';
 import { DiscordFeedback } from './DiscordFeedback';
 import { VideoPlayer } from '@/components/studio/VideoPlayer';
 import { generateFilename } from '@/services/download.service';
 import { setPendingDownload } from '@/lib/auth-guard';
 import { GUEST_PREVIEW_MAX_SECONDS } from '@/lib/preview';
-import type { AspectRatio } from '@/types';
+import type { ExportStep, PlatformId, ExportConfig, MasterRecording, ExportJob } from '@/types';
+import { PLATFORM_PRESETS } from '@/constants';
 import { formatTime } from '@/utils/format';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 
-interface RecordingResult {
-  blob: Blob;
-  mimeType: string;
-  extension: string;
-  duration: number;
-  hasAudio: boolean;
-}
-
 interface ExportModalProps {
   isVisible: boolean;
-  videoUrl: string;
-  audioUrl: string;
-  recordingResult: RecordingResult | null;
+  masterRecording: MasterRecording | null;
   onClose: () => void;
   onPracticeAgain: () => void;
   onShare: () => void;
-  onDownloadComplete?: () => void;
   showToast: (message: string) => void;
   isAuthenticated: boolean;
   userPlan: string;
@@ -36,111 +26,112 @@ interface ExportModalProps {
   downloadCount: number;
   downloadLimit: number;
   onDownloadLimitReached: () => void;
-  aspectRatio: AspectRatio;
+  exportConfig: ExportConfig | null;
+  exportJobs: ExportJob[];
+  onSelectPlatform: (platformId: PlatformId) => ExportConfig;
+  onUpdateCrop: (updates: { x?: number; y?: number; zoom?: number }) => void;
+  onResetCrop: () => void;
+  onStartExport: (master: MasterRecording) => Promise<ExportJob>;
+  onCancelExport?: () => void;
 }
 
 export function ExportModal({
   isVisible,
-  videoUrl,
-  audioUrl: _audioUrl,
-  recordingResult,
+  masterRecording,
   onClose,
   onPracticeAgain,
   onShare,
-  onDownloadComplete,
   showToast,
   isAuthenticated,
   userPlan,
   onAuthRequired,
-  downloadCount,
-  downloadLimit,
+  downloadCount: _downloadCount,
+  downloadLimit: _downloadLimit,
   onDownloadLimitReached,
-  aspectRatio,
+  exportConfig,
+  exportJobs: _exportJobs,
+  onSelectPlatform,
+  onUpdateCrop,
+  onResetCrop: _onResetCrop,
+  onStartExport,
+  onCancelExport,
 }: ExportModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isVisible, onClose);
-  const [isValidating, setIsValidating] = useState(true);
-  const [validationPassed, setValidationPassed] = useState(false);
-  const [validationError, setValidationError] = useState('');
+  const [step, setStep] = useState<ExportStep>('platform');
+  const [selectedPlatform, setSelectedPlatform] = useState<PlatformId | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<ExportJob | null>(null);
 
   const isGuest = !isAuthenticated;
-  const isPreview = isGuest && (recordingResult?.duration || 0) > GUEST_PREVIEW_MAX_SECONDS;
+  const isPreview = isGuest && (masterRecording?.duration || 0) > GUEST_PREVIEW_MAX_SECONDS;
   const canDownloadFile = isAuthenticated && userPlan !== 'free';
 
-  useEffect(() => {
-    if (!shouldRender || !videoUrl) {
-      setIsValidating(true);
-      setValidationPassed(false);
-      setValidationError('');
-      return;
+  const handleSelectPlatform = useCallback((platformId: PlatformId) => {
+    setSelectedPlatform(platformId);
+    onSelectPlatform(platformId);
+    setStep('crop');
+  }, [onSelectPlatform]);
+
+  const handleExport = useCallback(async () => {
+    if (!masterRecording || !exportConfig) return;
+
+    setIsExporting(true);
+    setStep('encoding');
+
+    try {
+      const result = await onStartExport(masterRecording);
+      setExportResult(result);
+
+      if (result.status === 'done') {
+        setStep('done');
+      } else {
+        setStep('platform');
+        showToast('Export failed. Please try again.');
+      }
+    } catch {
+      setStep('platform');
+      showToast('Export failed. Please try again.');
+    } finally {
+      setIsExporting(false);
     }
-
-    const validate = () => {
-      setIsValidating(true);
-      setValidationError('');
-
-      const recordedDuration = recordingResult?.duration || 0;
-
-      if (recordedDuration <= 0) {
-        setValidationError('Invalid video duration - recording may be too short');
-        setIsValidating(false);
-        return;
-      }
-
-      if (recordedDuration < 5) {
-        setValidationError('Video too short — minimum 5 seconds to download');
-        setIsValidating(false);
-        return;
-      }
-
-      if (!videoUrl) {
-        setValidationError('No video URL');
-        setIsValidating(false);
-        return;
-      }
-
-      setValidationPassed(true);
-      setIsValidating(false);
-    };
-
-    validate();
-  }, [shouldRender, videoUrl, recordingResult]);
+  }, [masterRecording, exportConfig, onStartExport, showToast]);
 
   const handleDownload = useCallback(() => {
-    if (!recordingResult) return;
+    if (!exportResult?.resultUrl) return;
 
-    if (recordingResult.duration < 5) {
-      showToast('Video too short — minimum 5 seconds to download');
+    if (!isAuthenticated) {
+      setPendingDownload(() => doDownload());
+      onAuthRequired();
       return;
     }
 
-    if (downloadCount >= downloadLimit) {
-      showToast(`Free plan limit: ${downloadLimit} video downloads. Upgrade for unlimited.`);
+    if (!canDownloadFile) {
       onDownloadLimitReached();
       return;
     }
 
-    const doDownload = () => {
-      const filename = generateFilename('video', recordingResult.extension);
+    doDownload();
+
+    function doDownload() {
+      if (!exportResult?.resultUrl) return;
+      const preset = PLATFORM_PRESETS.find((p) => p.id === selectedPlatform);
+      const filename = generateFilename('video', preset?.id === 'custom' ? 'webm' : 'webm');
       const a = document.createElement('a');
-      a.href = videoUrl;
+      a.href = exportResult.resultUrl;
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       showToast(`Downloaded: ${filename}`);
-      onDownloadComplete?.();
-    };
-
-    if (!isAuthenticated) {
-      setPendingDownload(doDownload);
-      onAuthRequired();
-      return;
     }
+  }, [exportResult, isAuthenticated, canDownloadFile, selectedPlatform, onAuthRequired, onDownloadLimitReached, showToast]);
 
-    doDownload();
-  }, [videoUrl, recordingResult, showToast, isAuthenticated, onAuthRequired, onDownloadComplete, downloadCount, downloadLimit, onDownloadLimitReached]);
+  const handleBack = useCallback(() => {
+    if (step === 'crop') setStep('platform');
+    if (step === 'done') setStep('platform');
+  }, [step]);
 
-  if (!shouldRender) return null;
+  if (!shouldRender || !masterRecording) return null;
 
   return (
     <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Export recording" {...swipeHandlers}>
@@ -151,9 +142,23 @@ export function ExportModal({
 
       <div className={`relative w-full max-w-lg bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] overflow-y-auto`}>
         <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 border-b border-border-subtle">
-          <h2 className="text-sm font-semibold text-text-primary">
-            {isValidating ? 'Processing...' : validationPassed ? 'Recording Ready' : 'Export Failed'}
-          </h2>
+          <div className="flex items-center gap-2">
+            {step !== 'platform' && (
+              <button
+                onClick={handleBack}
+                className="p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors"
+                aria-label="Back"
+              >
+                <ArrowLeftIcon className="w-4 h-4" />
+              </button>
+            )}
+            <h2 className="text-sm font-semibold text-text-primary">
+              {step === 'platform' && 'Where are you publishing?'}
+              {step === 'crop' && 'Adjust your crop'}
+              {step === 'encoding' && 'Exporting...'}
+              {step === 'done' && 'Export complete'}
+            </h2>
+          </div>
           <button
             onClick={closeModal}
             className="p-2.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
@@ -164,33 +169,233 @@ export function ExportModal({
         </div>
 
         <div className="p-4 sm:p-5 flex flex-col gap-4">
-          <VideoPlayer
-            videoUrl={videoUrl}
-            recordedDuration={recordingResult?.duration || 0}
-            onError={setValidationError}
-            aspectRatio={aspectRatio}
-            isPreview={isPreview}
-          />
+          {step === 'platform' && (
+            <>
+              <VideoPlayer
+                videoUrl={masterRecording.url}
+                recordedDuration={masterRecording.duration}
+                onError={() => {}}
+                aspectRatio="16:9"
+                isPreview={isPreview}
+              />
 
-          {recordingResult && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-elevated rounded-lg p-3">
-                <span className="text-[10px] text-text-muted uppercase tracking-wider">Duration</span>
-                <p className="text-sm font-mono text-text-primary mt-0.5">{formatTime(recordingResult.duration)}</p>
+              <div className="grid grid-cols-2 gap-2">
+                {PLATFORM_PRESETS.filter((p) => p.id !== 'custom').map((preset) => (
+                  <button
+                    key={preset.id}
+                    onClick={() => handleSelectPlatform(preset.id)}
+                    className="flex flex-col items-start p-3 rounded-lg bg-elevated hover:bg-accent/10 border border-border-subtle hover:border-accent/30 transition-all text-left"
+                  >
+                    <span className="text-xs font-semibold text-text-primary">{preset.label}</span>
+                    <span className="text-[10px] text-text-muted mt-0.5">{preset.aspectRatio} · {preset.width}×{preset.height}</span>
+                  </button>
+                ))}
+                <button
+                  onClick={() => handleSelectPlatform('custom')}
+                  className="flex flex-col items-start p-3 rounded-lg bg-elevated hover:bg-accent/10 border border-border-subtle hover:border-accent/30 transition-all text-left"
+                >
+                  <span className="text-xs font-semibold text-text-primary">Custom</span>
+                  <span className="text-[10px] text-text-muted mt-0.5">Define your own format</span>
+                </button>
               </div>
-              <div className="bg-elevated rounded-lg p-3">
-                <span className="text-[10px] text-text-muted uppercase tracking-wider">Format</span>
-                <p className="text-sm font-mono text-text-primary mt-0.5">.{recordingResult.extension}</p>
+
+              <div className="flex items-center gap-2 text-[11px] text-text-muted">
+                <span>{formatTime(masterRecording.duration)}</span>
+                <span>·</span>
+                <span>{masterRecording.extension.toUpperCase()}</span>
+                <span>·</span>
+                <span>{(masterRecording.blob.size / (1024 * 1024)).toFixed(1)} MB</span>
               </div>
-              <div className="bg-elevated rounded-lg p-3">
-                <span className="text-[10px] text-text-muted uppercase tracking-wider">Audio</span>
-                <p className="text-sm font-mono text-text-primary mt-0.5">{recordingResult.hasAudio ? 'Microphone' : 'None'}</p>
+            </>
+          )}
+
+          {step === 'crop' && exportConfig && (
+            <>
+              <div className="relative bg-black rounded-lg overflow-hidden">
+                <div
+                  className="relative mx-auto overflow-hidden"
+                  style={{
+                    aspectRatio: `${exportConfig.outputWidth} / ${exportConfig.outputHeight}`,
+                    maxHeight: '300px',
+                  }}
+                >
+                  <video
+                    src={masterRecording.url}
+                    className="w-full h-full object-cover"
+                    style={{
+                      objectPosition: `${-exportConfig.crop.x}px ${-exportConfig.crop.y}px`,
+                      transform: `scale(${exportConfig.crop.zoom})`,
+                    }}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                  />
+                </div>
               </div>
-              <div className="bg-elevated rounded-lg p-3">
-                <span className="text-[10px] text-text-muted uppercase tracking-wider">Size</span>
-                <p className="text-sm font-mono text-text-primary mt-0.5">{(recordingResult.blob.size / (1024 * 1024)).toFixed(1)} MB</p>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onUpdateCrop({ x: exportConfig.crop.x - 50 })}
+                >
+                  ←
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onUpdateCrop({ x: 0, y: 0 })}
+                >
+                  Center
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onUpdateCrop({ x: exportConfig.crop.x + 50 })}
+                >
+                  →
+                </Button>
+                <div className="flex-1 mx-2">
+                  <input
+                    type="range"
+                    min="1"
+                    max="2"
+                    step="0.1"
+                    value={exportConfig.crop.zoom}
+                    onChange={(e) => onUpdateCrop({ zoom: parseFloat(e.target.value) })}
+                    className="w-full h-1 accent-accent"
+                  />
+                  <span className="text-[10px] text-text-muted">Zoom</span>
+                </div>
               </div>
+
+              <div className="text-center text-xs text-text-muted">
+                {exportConfig.aspectRatio} · {exportConfig.outputWidth}×{exportConfig.outputHeight}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {isGuest ? (
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={onAuthRequired}
+                    className="w-full gap-2"
+                    disabled={isExporting}
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    Sign In to Download
+                  </Button>
+                ) : canDownloadFile ? (
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={handleExport}
+                    className="w-full gap-2"
+                    disabled={isExporting}
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    Export & Download
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={onDownloadLimitReached}
+                    className="w-full gap-2"
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    Upgrade to Download
+                  </Button>
+                )}
+
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={onPracticeAgain}
+                  className="w-full"
+                >
+                  Record Again
+                </Button>
+              </div>
+            </>
+          )}
+
+          {step === 'encoding' && (
+            <div className="flex flex-col items-center gap-4 py-8">
+              <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-text-secondary">Creating your export...</p>
+              <p className="text-xs text-text-muted">This may take a moment depending on video length</p>
+              {onCancelExport && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={() => {
+                    onCancelExport();
+                    setStep('platform');
+                    setIsExporting(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+              )}
             </div>
+          )}
+
+          {step === 'done' && exportResult && (
+            <>
+              {exportResult.resultUrl && (
+                <VideoPlayer
+                  videoUrl={exportResult.resultUrl}
+                  recordedDuration={masterRecording.duration}
+                  onError={() => {}}
+                  aspectRatio={exportConfig?.aspectRatio || '16:9'}
+                />
+              )}
+
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={handleDownload}
+                  className="w-full gap-2"
+                >
+                  <DownloadIcon className="w-4 h-4" />
+                  Download Video
+                </Button>
+
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  onClick={onShare}
+                  className="w-full gap-2"
+                >
+                  <ShareIcon className="w-4 h-4" />
+                  Share Studio Link
+                </Button>
+
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={() => {
+                    setStep('platform');
+                    setExportResult(null);
+                  }}
+                  className="w-full"
+                >
+                  Export for Another Platform
+                </Button>
+
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={onPracticeAgain}
+                  className="w-full"
+                >
+                  Record Again
+                </Button>
+              </div>
+            </>
           )}
 
           <details className="group">
@@ -202,73 +407,6 @@ export function ExportModal({
               <DiscordFeedback onSuccess={showToast} />
             </div>
           </details>
-
-          <div className="flex flex-col gap-2">
-            {validationPassed ? (
-              <>
-                {isGuest ? (
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={() => {
-                      onAuthRequired();
-                    }}
-                    className="w-full gap-2"
-                  >
-                    <DownloadIcon className="w-4 h-4" />
-                    Sign In to Download Full Video
-                  </Button>
-                ) : canDownloadFile ? (
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={handleDownload}
-                    className="w-full gap-2"
-                  >
-                    <DownloadIcon className="w-4 h-4" />
-                    Download Video
-                  </Button>
-                ) : (
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={onDownloadLimitReached}
-                    className="w-full gap-2"
-                  >
-                    <DownloadIcon className="w-4 h-4" />
-                    Upgrade to Download Unlimited
-                  </Button>
-                )}
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  onClick={onShare}
-                  className="w-full gap-2"
-                >
-                  <ShareIcon className="w-4 h-4" />
-                  Share Studio Link
-                </Button>
-              </>
-            ) : isValidating ? (
-              <div className="flex items-center justify-center gap-2 py-3">
-                <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm text-text-secondary">Validating recording...</span>
-              </div>
-            ) : (
-              <div className="text-center py-3">
-                <p className="text-sm text-recording">{validationError || 'Recording could not be validated'}</p>
-              </div>
-            )}
-
-            <Button
-              variant="secondary"
-              size="md"
-              onClick={onPracticeAgain}
-              className="w-full"
-            >
-              Record Again
-            </Button>
-          </div>
         </div>
       </div>
     </div>

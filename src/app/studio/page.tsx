@@ -15,6 +15,8 @@ import { useShare } from '@/hooks/useShare';
 import { useLibrary } from '@/hooks/useLibrary';
 import { useSettings } from '@/hooks/useSettings';
 import { useRecordingConfig } from '@/hooks/useRecordingConfig';
+import { useMasterRecording } from '@/hooks/useMasterRecording';
+import { useExportPipeline } from '@/hooks/useExportPipeline';
 
 import { Header } from '@/components/layout/Header';
 import { IconRail } from '@/components/layout/IconRail';
@@ -66,6 +68,8 @@ export default function HomePage() {
   const library = useLibrary();
   const settingsStore = useSettings();
   const recordingConfigStore = useRecordingConfig();
+  const masterRecording = useMasterRecording();
+  const exportPipeline = useExportPipeline();
 
   // Only used for drawer/modal state logic, NOT for layout visibility
   const isMobile = useMediaQuery('(max-width: 640px)');
@@ -75,7 +79,6 @@ export default function HomePage() {
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
-  const [recordingCount, setRecordingCount] = useState(0);
   const [downloadCount, setDownloadCount] = useState(0);
   const prompterContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(null);
@@ -214,26 +217,21 @@ export default function HomePage() {
     setIsDrawerVisible(false);
     if (recorder.recordingState === 'completed') {
       recorder.resetRecording();
+      masterRecording.clearMasterRecording();
+      exportPipeline.clearJobs();
+      exportPipeline.setExportConfig(null);
       setElapsedSeconds(0);
     }
-  }, [recorder]);
-
-  const handleDownloadComplete = useCallback(() => {
-    setIsDrawerVisible(false);
-    recorder.resetRecording();
-    setElapsedSeconds(0);
-    if (typeof window !== 'undefined') {
-      const count = parseInt(localStorage.getItem('sxs-download-count') || '0', 10) + 1;
-      localStorage.setItem('sxs-download-count', count.toString());
-      setDownloadCount(count);
-    }
-  }, [recorder]);
+  }, [recorder, masterRecording, exportPipeline]);
 
   const handlePracticeAgain = useCallback(() => {
     setIsDrawerVisible(false);
     recorder.resetRecording();
+    masterRecording.clearMasterRecording();
+    exportPipeline.clearJobs();
+    exportPipeline.setExportConfig(null);
     setElapsedSeconds(0);
-  }, [recorder]);
+  }, [recorder, masterRecording, exportPipeline]);
 
   const handleNudgeUp = useCallback(() => {
     if (prompterContainerRef.current) {
@@ -338,8 +336,6 @@ export default function HomePage() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const count = parseInt(localStorage.getItem('sxs-recording-count') || '0', 10);
-      setRecordingCount(count);
       const dlCount = parseInt(localStorage.getItem('sxs-download-count') || '0', 10);
       setDownloadCount(dlCount);
 
@@ -368,13 +364,21 @@ export default function HomePage() {
     if (recorder.recordingState === 'completed') {
       setIsDrawerVisible(true);
       
+      if (recorder.recordingResult?.blob) {
+        masterRecording.createMasterRecording(
+          recorder.recordingResult.blob,
+          elapsedSeconds,
+          recorder.recordingResult.hasAudio
+        );
+      }
+      
       if (typeof window !== 'undefined') {
-        const count = parseInt(localStorage.getItem('sxs-recording-count') || '0', 10) + 1;
-        localStorage.setItem('sxs-recording-count', count.toString());
-        setRecordingCount(count);
+        localStorage.setItem('sxs-recording-count',
+          (parseInt(localStorage.getItem('sxs-recording-count') || '0', 10) + 1).toString()
+        );
       }
     }
-  }, [recorder.recordingState]);
+  }, [recorder.recordingState, recorder.recordingResult, elapsedSeconds, masterRecording]);
 
   const isStudio = activePanel === 'studio';
 
@@ -586,13 +590,10 @@ export default function HomePage() {
 
       <ExportModal
         isVisible={isDrawerVisible}
-        videoUrl={recorder.videoUrl}
-        audioUrl={recorder.audioUrl}
-        recordingResult={recorder.recordingResult}
+        masterRecording={masterRecording.masterRecording}
         onClose={handleCloseDrawer}
         onPracticeAgain={handlePracticeAgain}
         onShare={share}
-        onDownloadComplete={handleDownloadComplete}
         showToast={showToast}
         isAuthenticated={!!session?.user}
         userPlan={session?.user?.plan || 'free'}
@@ -600,7 +601,13 @@ export default function HomePage() {
         downloadCount={downloadCount}
         downloadLimit={FREE_VIDEO_DOWNLOAD_LIMIT}
         onDownloadLimitReached={() => setIsPricingModalOpen(true)}
-        aspectRatio={settingsStore.aspectRatio}
+        exportConfig={exportPipeline.exportConfig}
+        exportJobs={exportPipeline.exportJobs}
+        onSelectPlatform={exportPipeline.selectPlatform}
+        onUpdateCrop={exportPipeline.updateCrop}
+        onResetCrop={exportPipeline.resetCrop}
+        onStartExport={exportPipeline.startExport}
+        onCancelExport={() => exportPipeline.cancelExport(exportPipeline.exportJobs[exportPipeline.exportJobs.length - 1]?.id || '')}
       />
 
       <PricingModal

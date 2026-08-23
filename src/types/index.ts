@@ -1,5 +1,7 @@
 export type RecordingState = 'idle' | 'countdown' | 'recording' | 'paused' | 'completed';
 
+export type ExportStep = 'platform' | 'crop' | 'preview' | 'encoding' | 'done';
+
 export type TabType = 'studio' | 'library' | 'insights';
 
 export type HeaderTab = 'studio' | 'script' | 'camera' | 'audio';
@@ -37,6 +39,53 @@ export interface RecordingConfiguration {
   videoDeviceId: string;
   audioDeviceId: string;
   isMirrored: boolean;
+}
+
+export interface MasterRecording {
+  id: string;
+  blob: Blob;
+  url: string;
+  mimeType: string;
+  extension: string;
+  duration: number;
+  hasAudio: boolean;
+  sourceWidth: number;
+  sourceHeight: number;
+  createdAt: string;
+}
+
+export interface CropConfig {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  zoom: number;
+}
+
+export interface ExportConfig {
+  platformId: PlatformId;
+  aspectRatio: AspectRatio;
+  outputWidth: number;
+  outputHeight: number;
+  crop: CropConfig;
+}
+
+export interface ExportJob {
+  id: string;
+  masterId: string;
+  config: ExportConfig;
+  status: 'pending' | 'encoding' | 'done' | 'error';
+  resultUrl?: string;
+  resultBlob?: Blob;
+  error?: string;
+}
+
+export interface PlanEntitlements {
+  canExport: boolean;
+  maxExports: number;
+  maxResolution: number;
+  allowedFormats: string[];
+  watermarkRequired: boolean;
 }
 
 export interface TeleprompterSettings {
