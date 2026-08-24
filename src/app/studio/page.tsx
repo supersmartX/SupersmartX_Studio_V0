@@ -76,8 +76,23 @@ export default function HomePage() {
     setVideoDevice: setRecordingVideoDevice,
     setAudioDevice: setRecordingAudioDevice,
   } = useRecordingConfig();
-  const masterRecording = useMasterRecording();
-  const exportPipeline = useExportPipeline();
+  const {
+    masterRecording: masterRecordingData,
+    createMasterRecording,
+    clearMasterRecording,
+  } = useMasterRecording();
+  const {
+    exportConfig,
+    exportJobs,
+    setExportConfig,
+    selectPlatform,
+    updateCrop,
+    resetCrop,
+    startExport,
+    startBatchExport,
+    cancelExport,
+    clearJobs,
+  } = useExportPipeline();
 
   // Only used for drawer/modal state logic, NOT for layout visibility
   const isMobile = useMediaQuery('(max-width: 640px)');
@@ -229,21 +244,21 @@ export default function HomePage() {
     setIsDrawerVisible(false);
     if (recorder.recordingState === 'completed') {
       recorder.resetRecording();
-      masterRecording.clearMasterRecording();
-      exportPipeline.clearJobs();
-      exportPipeline.setExportConfig(null);
+      clearMasterRecording();
+      clearJobs();
+      setExportConfig(null);
       setElapsedSeconds(0);
     }
-  }, [recorder, masterRecording, exportPipeline]);
+  }, [recorder, clearMasterRecording, clearJobs, setExportConfig]);
 
   const handlePracticeAgain = useCallback(() => {
     setIsDrawerVisible(false);
     recorder.resetRecording();
-    masterRecording.clearMasterRecording();
-    exportPipeline.clearJobs();
-    exportPipeline.setExportConfig(null);
+    clearMasterRecording();
+    clearJobs();
+    setExportConfig(null);
     setElapsedSeconds(0);
-  }, [recorder, masterRecording, exportPipeline]);
+  }, [recorder, clearMasterRecording, clearJobs, setExportConfig]);
 
   const handleNudgeUp = useCallback(() => {
     if (prompterContainerRef.current) {
@@ -377,7 +392,7 @@ export default function HomePage() {
       setIsDrawerVisible(true);
       
       if (recorder.recordingResult?.blob) {
-        masterRecording.createMasterRecording(
+        createMasterRecording(
           recorder.recordingResult.blob,
           elapsedSeconds,
           recorder.recordingResult.hasAudio
@@ -390,7 +405,7 @@ export default function HomePage() {
         );
       }
     }
-  }, [recorder.recordingState, recorder.recordingResult, elapsedSeconds, masterRecording]);
+  }, [recorder.recordingState, recorder.recordingResult, elapsedSeconds, createMasterRecording]);
 
   const isStudio = activePanel === 'studio';
 
@@ -602,7 +617,7 @@ export default function HomePage() {
 
       <ExportModal
         isVisible={isDrawerVisible}
-        masterRecording={masterRecording.masterRecording}
+        masterRecording={masterRecordingData}
         onClose={handleCloseDrawer}
         onPracticeAgain={handlePracticeAgain}
         onShare={share}
@@ -613,14 +628,14 @@ export default function HomePage() {
         downloadCount={downloadCount}
         downloadLimit={FREE_VIDEO_DOWNLOAD_LIMIT}
         onDownloadLimitReached={() => setIsPricingModalOpen(true)}
-        exportConfig={exportPipeline.exportConfig}
-        exportJobs={exportPipeline.exportJobs}
-        onSelectPlatform={exportPipeline.selectPlatform}
-        onUpdateCrop={exportPipeline.updateCrop}
-        onResetCrop={exportPipeline.resetCrop}
-        onStartExport={exportPipeline.startExport}
-        onStartBatchExport={exportPipeline.startBatchExport}
-        onCancelExport={() => exportPipeline.cancelExport(exportPipeline.exportJobs[exportPipeline.exportJobs.length - 1]?.id || '')}
+        exportConfig={exportConfig}
+        exportJobs={exportJobs}
+        onSelectPlatform={selectPlatform}
+        onUpdateCrop={updateCrop}
+        onResetCrop={resetCrop}
+        onStartExport={startExport}
+        onStartBatchExport={startBatchExport}
+        onCancelExport={() => cancelExport(exportJobs[exportJobs.length - 1]?.id || '')}
       />
 
       <PricingModal
