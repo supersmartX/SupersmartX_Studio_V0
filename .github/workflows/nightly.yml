@@ -5,24 +5,28 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
-jobs:
-  lint-and-build:
-    runs-on: ubuntu-latest
+env:
+  NODE_VERSION: '20'
 
+jobs:
+  ci:
+    name: Full Check
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Use Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint
-
-      - name: Build application
-        run: npm run build
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm run test:coverage
+      - run: npm run build
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-coverage
+          path: coverage/
+          retention-days: 30
