@@ -290,6 +290,7 @@ async function encodeExport(
 
     const fps = 30;
     const frameDuration = 1_000_000 / fps;
+    const frameIntervalMs = 1000 / fps;
 
     const muxer = new Muxer({
       target: new ArrayBufferTarget(),
@@ -304,7 +305,7 @@ async function encodeExport(
         numberOfChannels: 1,
         sampleRate: 48000,
       } : undefined,
-      fastStart: 'in-memory',
+      fastStart: 'fragmented',
       firstTimestampBehavior: 'offset',
     });
 
@@ -319,7 +320,8 @@ async function encodeExport(
         codec: 'avc1.42001f',
         width: outputWidth,
         height: outputHeight,
-        bitrate: 8_000_000,
+        bitrate: 5_000_000,
+        bitrateMode: 'constant',
       });
       resolve(encoder);
     });
@@ -379,11 +381,17 @@ async function encodeExport(
     await videoEl.play();
 
     let frameCount = 0;
+    const maxQueueSize = 5;
 
     await new Promise<void>((resolve) => {
-      const captureFrame = () => {
+      const intervalId = setInterval(() => {
         if (signal?.aborted || videoEl.ended || videoEl.paused) {
+          clearInterval(intervalId);
           resolve();
+          return;
+        }
+
+        if (videoEncoder.encodeQueueSize > maxQueueSize) {
           return;
         }
 
@@ -400,16 +408,12 @@ async function encodeExport(
         }
         frame.close();
         frameCount++;
+      }, frameIntervalMs);
 
-        if (!videoEl.ended && !signal?.aborted) {
-          requestAnimationFrame(captureFrame);
-        } else {
-          resolve();
-        }
+      videoEl.onended = () => {
+        clearInterval(intervalId);
+        resolve();
       };
-
-      requestAnimationFrame(captureFrame);
-      videoEl.onended = () => resolve();
     });
 
     if (videoEncoder.state === 'configured') {
