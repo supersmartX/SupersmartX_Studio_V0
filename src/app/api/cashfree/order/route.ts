@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
+import { auth } from '@/auth';
+import { getServerPrice } from '@/lib/pricing';
 
 const CASHFREE_BASE_URL =
   process.env.CASHFREE_ENV === 'production'
@@ -14,7 +15,6 @@ interface CashfreeOrderRequest {
   plan: string;
   currency?: string;
   country?: string;
-  amount?: number;
   name: string;
   email: string;
   phone?: string;
@@ -75,7 +75,10 @@ async function createCashfreeOrder(data: { amount: number; currency: string; pla
   return response.json();
 }
 
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+// Use globalThis to persist across invocations within the same serverless isolate
+const g = globalThis as unknown as { __rateLimitMap?: Map<string, { count: number; resetAt: number }> };
+if (!g.__rateLimitMap) g.__rateLimitMap = new Map();
+const rateLimitMap = g.__rateLimitMap;
 const RATE_LIMIT_WINDOW = 60_000;
 const RATE_LIMIT_MAX = 5;
 
@@ -104,6 +107,11 @@ function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: number } {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     if (!process.env.CASHFREE_APP_ID || !process.env.CASHFREE_SECRET_KEY) {
       return NextResponse.json(
         { error: 'Payment gateway not configured' },
@@ -123,7 +131,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { plan, currency, amount, name, email, phone } = body as CashfreeOrderRequest;
+    const { plan, currency, name, email, phone } = body as CashfreeOrderRequest;
 
     if (!plan || typeof plan !== 'string' || !VALID_PLANS.includes(plan)) {
       return NextResponse.json({ error: 'Invalid plan' }, { status: 400 });
@@ -133,11 +141,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Free plan does not require payment' }, { status: 400 });
     }
 
-    if (!amount || typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 || amount > 100000) {
-      return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
-    }
-
     const finalCurrency = currency && VALID_CURRENCIES.includes(currency) ? currency : 'INR';
+    const serverAmount = getServerPrice(plan, finalCurrency);
+    if (serverAmount === null) {
+      return NextResponse.json({ error: 'Invalid plan or currency' }, { status: 400 });
+    }
 
     if (name && (typeof name !== 'string' || name.length > 200)) {
       return NextResponse.json({ error: 'Invalid name' }, { status: 400 });
@@ -148,7 +156,7 @@ export async function POST(request: NextRequest) {
     }
 
     const order = await createCashfreeOrder({
-      amount,
+      amount: serverAmount,
       currency: finalCurrency,
       plan,
       name: name || 'User',

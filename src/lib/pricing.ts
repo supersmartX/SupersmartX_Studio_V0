@@ -172,3 +172,29 @@ export const ALL_COUNTRIES = Object.values(REGION_PRICING).map(r => ({
   symbol: r.symbol,
   pppIndex: r.pppIndex,
 }));
+
+const PLAN_AMOUNT_KEY: Record<string, 'monthly' | 'yearly'> = {
+  pro_monthly: 'monthly',
+  pro_yearly: 'yearly',
+};
+
+export function getServerPrice(plan: string, currency: string): number | null {
+  const field = PLAN_AMOUNT_KEY[plan];
+  if (!field) return null;
+
+  for (const pricing of Object.values(REGION_PRICING)) {
+    if (pricing.currency === currency) {
+      return pricing[field];
+    }
+  }
+
+  const fallback = REGION_PRICING['IN'];
+  return fallback[field];
+}
+
+export function validateOrderAmount(plan: string, currency: string, clientAmount: number): boolean {
+  const expected = getServerPrice(plan, currency);
+  if (expected === null) return false;
+  const TOLERANCE = 0.01;
+  return Math.abs(clientAmount - expected) <= TOLERANCE;
+}

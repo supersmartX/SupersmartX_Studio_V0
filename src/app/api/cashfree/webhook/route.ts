@@ -32,7 +32,10 @@ function verifyWebhookSignature(
   }
 }
 
-const processedOrders = new Map<string, number>();
+// Use globalThis to persist across invocations within the same serverless isolate
+const g = globalThis as unknown as { __processedOrders?: Map<string, number> };
+if (!g.__processedOrders) g.__processedOrders = new Map();
+const processedOrders = g.__processedOrders;
 const PROCESSED_TTL = 24 * 60 * 60 * 1000;
 const MAX_PROCESSED = 10000;
 

@@ -27,15 +27,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing key parameter' }, { status: 400 });
     }
 
-    if (!key.startsWith(`recordings/${session.user.id}/`)) {
+    const normalizedKey = key.replace(/\\/g, '/').replace(/\/+/g, '/');
+    if (normalizedKey.includes('..') || normalizedKey.includes('%2e%2e')) {
+      return NextResponse.json({ error: 'Invalid key' }, { status: 400 });
+    }
+
+    if (!normalizedKey.startsWith(`recordings/${session.user.id}/`)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const url = await getSignedDownloadUrl(key, 3600);
+    const url = await getSignedDownloadUrl(normalizedKey, 3600);
 
     return NextResponse.json({ url, expiresIn: 3600 });
-  } catch (error) {
-    console.error('Download error:', error);
+  } catch {
     return NextResponse.json({ error: 'Download failed' }, { status: 500 });
   }
 }
