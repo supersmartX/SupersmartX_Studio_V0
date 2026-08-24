@@ -12,8 +12,8 @@ interface UseExportPipelineReturn {
   selectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number) => ExportConfig;
   updateCrop: (updates: Partial<CropConfig>) => void;
   resetCrop: () => void;
-  startExport: (master: MasterRecording) => Promise<ExportJob>;
-  startBatchExport: (master: MasterRecording, configs: ExportConfig[]) => Promise<ExportJob[]>;
+  startExport: (master: MasterRecording, onProgress?: (progress: number) => void) => Promise<ExportJob>;
+  startBatchExport: (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void) => Promise<ExportJob[]>;
   cancelExport: (jobId: string) => void;
   clearJobs: () => void;
   generateThumbnail: (master: MasterRecording, timeSeconds?: number) => Promise<string>;
@@ -109,7 +109,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
   }, []);
 
   const startExport = useCallback(
-    async (master: MasterRecording): Promise<ExportJob> => {
+    async (master: MasterRecording, onProgress?: (progress: number) => void): Promise<ExportJob> => {
       if (!exportConfig) {
         throw new Error('No export config');
       }
@@ -128,7 +128,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
       setExportJobs((prev) => [...prev, job]);
 
       try {
-        const resultBlob = await encodeExport(master, exportConfig, abortController.signal);
+        const resultBlob = await encodeExport(master, exportConfig, abortController.signal, onProgress);
         const resultUrl = URL.createObjectURL(resultBlob);
 
         const completedJob: ExportJob = {
@@ -160,12 +160,12 @@ export function useExportPipeline(): UseExportPipelineReturn {
   );
 
   const startBatchExport = useCallback(
-    async (master: MasterRecording, configs: ExportConfig[]): Promise<ExportJob[]> => {
+    async (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void): Promise<ExportJob[]> => {
       const results: ExportJob[] = [];
-      for (const config of configs) {
-        setExportConfig(config);
+      for (let i = 0; i < configs.length; i++) {
+        setExportConfig(configs[i]);
         await new Promise((r) => setTimeout(r, 100));
-        const job = await startExport(master);
+        const job = await startExport(master, (progress) => onProgress?.(i, progress));
         results.push(job);
       }
       return results;
@@ -255,7 +255,8 @@ export function useExportPipeline(): UseExportPipelineReturn {
 async function encodeExport(
   master: MasterRecording,
   config: ExportConfig,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onProgress?: (progress: number) => void
 ): Promise<Blob> {
   const { crop, outputWidth, outputHeight } = config;
 
@@ -382,6 +383,7 @@ async function encodeExport(
 
     let frameCount = 0;
     const maxQueueSize = 5;
+    const totalFrames = Math.ceil((videoEl.duration || 30) * fps);
 
     await new Promise<void>((resolve) => {
       const intervalId = setInterval(() => {
@@ -408,6 +410,10 @@ async function encodeExport(
         }
         frame.close();
         frameCount++;
+
+        if (frameCount % 10 === 0) {
+          onProgress?.(Math.min(frameCount / totalFrames, 0.99));
+        }
       }, frameIntervalMs);
 
       videoEl.onended = () => {
@@ -415,6 +421,8 @@ async function encodeExport(
         resolve();
       };
     });
+
+    onProgress?.(1);
 
     if (videoEncoder.state === 'configured') {
       await videoEncoder.flush();

@@ -31,8 +31,8 @@ interface ExportModalProps {
   onSelectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number) => ExportConfig;
   onUpdateCrop: (updates: { x?: number; y?: number; zoom?: number }) => void;
   onResetCrop: () => void;
-  onStartExport: (master: MasterRecording) => Promise<ExportJob>;
-  onStartBatchExport?: (master: MasterRecording, configs: ExportConfig[]) => Promise<ExportJob[]>;
+  onStartExport: (master: MasterRecording, onProgress?: (progress: number) => void) => Promise<ExportJob>;
+  onStartBatchExport?: (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void) => Promise<ExportJob[]>;
   onCancelExport?: () => void;
 }
 
@@ -65,6 +65,7 @@ export function ExportModal({
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<ExportJob | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
+  const [exportProgress, setExportProgress] = useState(0);
 
   const isGuest = !isAuthenticated;
   const isPreview = isGuest && (masterRecording?.duration || 0) > GUEST_PREVIEW_MAX_SECONDS;
@@ -91,6 +92,7 @@ export function ExportModal({
 
     setIsExporting(true);
     setStep('encoding');
+    setExportProgress(0);
 
     const srcW = masterRecording.sourceWidth || 1920;
     const srcH = masterRecording.sourceHeight || 1080;
@@ -101,7 +103,10 @@ export function ExportModal({
     setBatchProgress({ current: 0, total: configs.length });
 
     try {
-      const results = await onStartBatchExport(masterRecording, configs);
+      const results = await onStartBatchExport(masterRecording, configs, (batchIndex, progress) => {
+        setBatchProgress({ current: batchIndex + 1, total: configs.length });
+        setExportProgress(progress);
+      });
       const lastResult = results[results.length - 1];
       setExportResult(lastResult);
       setBatchProgress(null);
@@ -118,6 +123,7 @@ export function ExportModal({
     } finally {
       setIsExporting(false);
       setBatchProgress(null);
+      setExportProgress(0);
     }
   }, [masterRecording, batchPlatforms, onStartBatchExport, onSelectPlatform, showToast]);
 
@@ -126,9 +132,12 @@ export function ExportModal({
 
     setIsExporting(true);
     setStep('encoding');
+    setExportProgress(0);
 
     try {
-      const result = await onStartExport(masterRecording);
+      const result = await onStartExport(masterRecording, (progress) => {
+        setExportProgress(progress);
+      });
       setExportResult(result);
 
       if (result.status === 'done') {
@@ -142,6 +151,7 @@ export function ExportModal({
       showToast('Export failed. Please try again.');
     } finally {
       setIsExporting(false);
+      setExportProgress(0);
     }
   }, [masterRecording, exportConfig, onStartExport, showToast]);
 
@@ -176,7 +186,11 @@ export function ExportModal({
 
   const handleBack = useCallback(() => {
     if (step === 'crop') setStep('platform');
-    if (step === 'done') setStep('platform');
+    if (step === 'done') {
+      setStep('platform');
+      setExportResult(null);
+    }
+    setExportProgress(0);
   }, [step]);
 
   if (!shouldRender || !masterRecording) return null;
@@ -406,14 +420,25 @@ export function ExportModal({
 
           {step === 'encoding' && (
             <div className="flex flex-col items-center gap-4 py-8">
-              <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-              <p className="text-sm text-text-secondary">Creating your export...</p>
+              <div className="w-full bg-surface-secondary rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-accent h-full rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${Math.round(exportProgress * 100)}%` }}
+                />
+              </div>
+              <p className="text-sm text-text-secondary">
+                {exportProgress < 0.1 ? 'Preparing...' :
+                 exportProgress < 0.9 ? 'Encoding video...' :
+                 'Finalizing...'}
+              </p>
+              <p className="text-xs text-text-muted">
+                {Math.round(exportProgress * 100)}% complete
+              </p>
               {batchProgress && (
                 <p className="text-xs text-text-muted">
                   {batchProgress.current} of {batchProgress.total} exports complete
                 </p>
               )}
-              <p className="text-xs text-text-muted">This may take a moment depending on video length</p>
               {onCancelExport && (
                 <Button
                   variant="secondary"
@@ -423,6 +448,7 @@ export function ExportModal({
                     setStep('platform');
                     setIsExporting(false);
                     setBatchProgress(null);
+                    setExportProgress(0);
                   }}
                 >
                   Cancel
