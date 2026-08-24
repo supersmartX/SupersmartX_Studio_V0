@@ -1,6 +1,6 @@
 export type RecordingState = 'idle' | 'countdown' | 'recording' | 'paused' | 'completed';
 
-export type ExportStep = 'platform' | 'crop' | 'preview' | 'encoding' | 'done';
+export type ExportStep = 'platform' | 'crop' | 'encoding' | 'done';
 
 export type TabType = 'studio' | 'library' | 'insights';
 

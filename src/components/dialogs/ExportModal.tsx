@@ -60,7 +60,6 @@ export function ExportModal({
 }: ExportModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isVisible, onClose);
   const [step, setStep] = useState<ExportStep>('platform');
-  const [selectedPlatform, setSelectedPlatform] = useState<PlatformId | null>(null);
   const [batchPlatforms, setBatchPlatforms] = useState<PlatformId[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<ExportJob | null>(null);
@@ -72,7 +71,6 @@ export function ExportModal({
   const canDownloadFile = isAuthenticated && userPlan !== 'free';
 
   const handleSelectPlatform = useCallback((platformId: PlatformId) => {
-    setSelectedPlatform(platformId);
     const srcW = masterRecording?.sourceWidth || 1920;
     const srcH = masterRecording?.sourceHeight || 1080;
     onSelectPlatform(platformId, srcW, srcH);
@@ -182,10 +180,12 @@ export function ExportModal({
       document.body.removeChild(a);
       showToast(`Downloaded: ${filename}`);
     }
-  }, [exportResult, isAuthenticated, canDownloadFile, selectedPlatform, onAuthRequired, onDownloadLimitReached, showToast]);
+  }, [exportResult, isAuthenticated, canDownloadFile, onAuthRequired, onDownloadLimitReached, showToast]);
 
   const handleBack = useCallback(() => {
-    if (step === 'crop') setStep('platform');
+    if (step === 'crop') {
+      setStep('platform');
+    }
     if (step === 'done') {
       setStep('platform');
       setExportResult(null);
@@ -319,7 +319,7 @@ export function ExportModal({
                     className="w-full h-full"
                     style={{
                       objectFit: 'cover',
-                      objectPosition: `${-(exportConfig.crop.x / 1920) * 100}% ${-(exportConfig.crop.y / 1080) * 100}%`,
+                      objectPosition: `${-(exportConfig.crop.x / (masterRecording.sourceWidth || 1920)) * 100}% ${-(exportConfig.crop.y / (masterRecording.sourceHeight || 1080)) * 100}%`,
                       transform: `scale(${exportConfig.crop.zoom})`,
                       transformOrigin: 'center center',
                     }}
@@ -335,21 +335,35 @@ export function ExportModal({
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => onUpdateCrop({ x: exportConfig.crop.x - 50 })}
+                  onClick={() => {
+                    const newX = exportConfig.crop.x - 50;
+                    const maxX = (masterRecording.sourceWidth || 1920) - exportConfig.crop.width;
+                    onUpdateCrop({ x: Math.max(0, Math.min(newX, maxX)) });
+                  }}
                 >
                   ←
                 </Button>
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => onUpdateCrop({ x: 0, y: 0 })}
+                  onClick={() => {
+                    const srcW = masterRecording.sourceWidth || 1920;
+                    const srcH = masterRecording.sourceHeight || 1080;
+                    const centerX = (srcW - exportConfig.crop.width) / 2;
+                    const centerY = (srcH - exportConfig.crop.height) / 2;
+                    onUpdateCrop({ x: Math.round(centerX), y: Math.round(centerY) });
+                  }}
                 >
                   Center
                 </Button>
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => onUpdateCrop({ x: exportConfig.crop.x + 50 })}
+                  onClick={() => {
+                    const newX = exportConfig.crop.x + 50;
+                    const maxX = (masterRecording.sourceWidth || 1920) - exportConfig.crop.width;
+                    onUpdateCrop({ x: Math.max(0, Math.min(newX, maxX)) });
+                  }}
                 >
                   →
                 </Button>
@@ -495,6 +509,7 @@ export function ExportModal({
                   onClick={() => {
                     setStep('platform');
                     setExportResult(null);
+                    setExportProgress(0);
                   }}
                   className="w-full"
                 >

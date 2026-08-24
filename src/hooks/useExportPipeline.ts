@@ -264,6 +264,7 @@ async function encodeExport(
   videoEl.playsInline = true;
   videoEl.preload = 'auto';
   videoEl.crossOrigin = 'anonymous';
+  videoEl.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none';
   document.body.appendChild(videoEl);
 
   let audioCtx: AudioContext | null = null;
@@ -350,7 +351,6 @@ async function encodeExport(
 
         scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
         audioSrc.connect(scriptNode);
-        scriptNode.connect(audioCtx.destination);
 
         let audioTimestamp = 0;
         scriptNode.onaudioprocess = (e) => {
@@ -397,10 +397,10 @@ async function encodeExport(
           return;
         }
 
-        const sx = (crop.x / 1920) * sourceW;
-        const sy = (crop.y / 1080) * sourceH;
-        const sw = (crop.width / 1920) * sourceW;
-        const sh = (crop.height / 1080) * sourceH;
+        const sx = (crop.x / (master.sourceWidth || 1920)) * sourceW;
+        const sy = (crop.y / (master.sourceHeight || 1080)) * sourceH;
+        const sw = (crop.width / (master.sourceWidth || 1920)) * sourceW;
+        const sh = (crop.height / (master.sourceHeight || 1080)) * sourceH;
 
         ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
 
