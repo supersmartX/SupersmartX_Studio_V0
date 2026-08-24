@@ -17,14 +17,14 @@ export function InitOverlay({ onInitialize, status, errorMessage }: InitOverlayP
 
   return (
     <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-canvas/90 backdrop-blur-md">
-      <div className="bg-surface border border-border-default rounded-xl p-8 shadow-2xl flex flex-col items-center text-center max-w-sm mx-4 animate-scale-in">
-        <div className="w-14 h-14 bg-elevated rounded-full flex items-center justify-center mb-5 border border-border-subtle">
-          <CameraIcon className="w-7 h-7 text-text-secondary" />
+      <div className="bg-surface border border-border-default rounded-xl p-5 sm:p-8 shadow-2xl flex flex-col items-center text-center w-[calc(100vw-2rem)] max-w-sm animate-scale-in">
+        <div className="w-12 h-12 sm:w-14 sm:h-14 bg-elevated rounded-full flex items-center justify-center mb-4 sm:mb-5 border border-border-subtle">
+          <CameraIcon className="w-6 h-6 sm:w-7 sm:h-7 text-text-secondary" />
         </div>
-        <h3 className="text-base font-semibold text-text-primary mb-1.5">
+        <h3 className="text-sm sm:text-base font-semibold text-text-primary mb-1.5">
           {hasError ? 'Camera Access Required' : isLoading ? 'Starting Camera...' : 'Studio Ready'}
         </h3>
-        <p className="text-[13px] text-text-secondary mb-4 leading-relaxed">
+        <p className="text-xs sm:text-[13px] text-text-secondary mb-4 leading-relaxed">
           {hasError
             ? errorMessage ?? 'Unable to access camera. Please retry.'
             : isLoading
@@ -40,7 +40,7 @@ export function InitOverlay({ onInitialize, status, errorMessage }: InitOverlayP
         >
           {isLoading ? 'Loading...' : hasError ? 'Retry' : 'Enable Camera & Microphone'}
         </Button>
-        <p className="text-[11px] text-text-muted mt-4 max-w-xs leading-relaxed">
+        <p className="text-[10px] sm:text-[11px] text-text-muted mt-3 sm:mt-4 max-w-xs leading-relaxed">
           Your script is saved locally so you can return later and continue where you left off.
         </p>
       </div>
