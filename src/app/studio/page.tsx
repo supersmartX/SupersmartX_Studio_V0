@@ -67,7 +67,15 @@ export default function HomePage() {
   const { data: session } = useSession();
   const library = useLibrary();
   const settingsStore = useSettings();
-  const recordingConfigStore = useRecordingConfig();
+  const {
+    config: recordingConfig,
+    setPlatformId: setRecordingPlatformId,
+    setCustomAspectRatio: setRecordingCustomAspectRatio,
+    setCustomDimensions: setRecordingCustomDimensions,
+    setMirrored: setRecordingMirrored,
+    setVideoDevice: setRecordingVideoDevice,
+    setAudioDevice: setRecordingAudioDevice,
+  } = useRecordingConfig();
   const masterRecording = useMasterRecording();
   const exportPipeline = useExportPipeline();
 
@@ -98,7 +106,7 @@ export default function HomePage() {
     executePendingDownload();
   }, []);
 
-  const recorder = useRecorder(camera.stream, recordingConfigStore.config);
+  const recorder = useRecorder(camera.stream, recordingConfig);
 
   useEffect(() => {
     if (camera.videoDevices.length > 0) {
@@ -121,27 +129,31 @@ export default function HomePage() {
 
   // Sync settings store changes to recording config store
   useEffect(() => {
-    recordingConfigStore.setPlatformId(settingsStore.platformId);
-    recordingConfigStore.setCustomAspectRatio(settingsStore.customAspectRatio);
-    recordingConfigStore.setCustomDimensions(settingsStore.customWidth, settingsStore.customHeight);
-    recordingConfigStore.setMirrored(settingsStore.isMirrored);
+    setRecordingPlatformId(settingsStore.platformId);
+    setRecordingCustomAspectRatio(settingsStore.customAspectRatio);
+    setRecordingCustomDimensions(settingsStore.customWidth, settingsStore.customHeight);
+    setRecordingMirrored(settingsStore.isMirrored);
   }, [
     settingsStore.platformId,
     settingsStore.customAspectRatio,
     settingsStore.customWidth,
     settingsStore.customHeight,
     settingsStore.isMirrored,
-    recordingConfigStore,
+    setRecordingPlatformId,
+    setRecordingCustomAspectRatio,
+    setRecordingCustomDimensions,
+    setRecordingMirrored,
   ]);
 
   // Sync device IDs from settings to recording config
   useEffect(() => {
-    recordingConfigStore.setVideoDevice(settingsStore.selectedVideoDevice);
-    recordingConfigStore.setAudioDevice(settingsStore.selectedAudioDevice);
+    setRecordingVideoDevice(settingsStore.selectedVideoDevice);
+    setRecordingAudioDevice(settingsStore.selectedAudioDevice);
   }, [
     settingsStore.selectedVideoDevice,
     settingsStore.selectedAudioDevice,
-    recordingConfigStore,
+    setRecordingVideoDevice,
+    setRecordingAudioDevice,
   ]);
 
   useEffect(() => {
@@ -469,7 +481,7 @@ export default function HomePage() {
                 focusViewEnabled={focusView.isEnabled}
                 onFocusViewToggle={focusView.toggle}
                 aspectRatio={settingsStore.aspectRatio}
-                recordingConfig={recordingConfigStore.config}
+                recordingConfig={recordingConfig}
                 onCanvasReady={(canvas) => { recordingCanvasRef.current = canvas; }}
               >
                 <CameraPreview
