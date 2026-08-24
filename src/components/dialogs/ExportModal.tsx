@@ -28,7 +28,7 @@ interface ExportModalProps {
   onDownloadLimitReached: () => void;
   exportConfig: ExportConfig | null;
   exportJobs: ExportJob[];
-  onSelectPlatform: (platformId: PlatformId) => ExportConfig;
+  onSelectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number) => ExportConfig;
   onUpdateCrop: (updates: { x?: number; y?: number; zoom?: number }) => void;
   onResetCrop: () => void;
   onStartExport: (master: MasterRecording) => Promise<ExportJob>;
@@ -72,9 +72,11 @@ export function ExportModal({
 
   const handleSelectPlatform = useCallback((platformId: PlatformId) => {
     setSelectedPlatform(platformId);
-    onSelectPlatform(platformId);
+    const srcW = masterRecording?.sourceWidth || 1920;
+    const srcH = masterRecording?.sourceHeight || 1080;
+    onSelectPlatform(platformId, srcW, srcH);
     setStep('crop');
-  }, [onSelectPlatform]);
+  }, [onSelectPlatform, masterRecording]);
 
   const handleToggleBatchPlatform = useCallback((platformId: PlatformId) => {
     setBatchPlatforms((prev) =>
@@ -90,8 +92,10 @@ export function ExportModal({
     setIsExporting(true);
     setStep('encoding');
 
+    const srcW = masterRecording.sourceWidth || 1920;
+    const srcH = masterRecording.sourceHeight || 1080;
     const configs = batchPlatforms.map((pid) => {
-      return onSelectPlatform(pid);
+      return onSelectPlatform(pid, srcW, srcH);
     });
 
     setBatchProgress({ current: 0, total: configs.length });
@@ -299,10 +303,12 @@ export function ExportModal({
                 >
                   <video
                     src={masterRecording.url}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full"
                     style={{
-                      objectPosition: `${-exportConfig.crop.x}px ${-exportConfig.crop.y}px`,
+                      objectFit: 'cover',
+                      objectPosition: `${-(exportConfig.crop.x / 1920) * 100}% ${-(exportConfig.crop.y / 1080) * 100}%`,
                       transform: `scale(${exportConfig.crop.zoom})`,
+                      transformOrigin: 'center center',
                     }}
                     autoPlay
                     loop

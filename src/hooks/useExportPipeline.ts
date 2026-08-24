@@ -8,7 +8,7 @@ interface UseExportPipelineReturn {
   exportConfig: ExportConfig | null;
   exportJobs: ExportJob[];
   setExportConfig: (config: ExportConfig | null) => void;
-  selectPlatform: (platformId: PlatformId, sourceWidth?: number, sourceHeight?: number) => ExportConfig;
+  selectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number) => ExportConfig;
   updateCrop: (updates: Partial<CropConfig>) => void;
   resetCrop: () => void;
   startExport: (master: MasterRecording) => Promise<ExportJob>;
@@ -51,17 +51,22 @@ export function useExportPipeline(): UseExportPipelineReturn {
   const [exportConfig, setExportConfig] = useState<ExportConfig | null>(null);
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([]);
   const abortControllerRef = useRef<Map<string, AbortController>>(new Map());
+  const sourceDimensionsRef = useRef<{ width: number; height: number }>({ width: 1920, height: 1080 });
 
   const selectPlatform = useCallback(
-    (platformId: PlatformId, sourceWidth = 1920, sourceHeight = 1080): ExportConfig => {
+    (platformId: PlatformId, sourceWidth: number, sourceHeight: number): ExportConfig => {
+      sourceDimensionsRef.current = { width: sourceWidth, height: sourceHeight };
+
       const preset = PLATFORM_PRESETS.find((p) => p.id === platformId);
       if (!preset) {
+        const outW = sourceWidth;
+        const outH = Math.round(sourceWidth / (16 / 9));
         const config: ExportConfig = {
           platformId: 'custom',
           aspectRatio: '16:9',
-          outputWidth: sourceWidth,
-          outputHeight: Math.round(sourceWidth / (16 / 9)),
-          crop: getDefaultCrop(sourceWidth, sourceHeight, sourceWidth, Math.round(sourceWidth / (16 / 9))),
+          outputWidth: outW,
+          outputHeight: outH,
+          crop: getDefaultCrop(sourceWidth, sourceHeight, outW, outH),
         };
         setExportConfig(config);
         return config;
@@ -94,9 +99,10 @@ export function useExportPipeline(): UseExportPipelineReturn {
   const resetCrop = useCallback(() => {
     setExportConfig((prev) => {
       if (!prev) return prev;
+      const sd = sourceDimensionsRef.current;
       return {
         ...prev,
-        crop: getDefaultCrop(1920, 1080, prev.outputWidth, prev.outputHeight),
+        crop: getDefaultCrop(sd.width, sd.height, prev.outputWidth, prev.outputHeight),
       };
     });
   }, []);
@@ -152,6 +158,20 @@ export function useExportPipeline(): UseExportPipelineReturn {
     [exportConfig]
   );
 
+  const startBatchExport = useCallback(
+    async (master: MasterRecording, configs: ExportConfig[]): Promise<ExportJob[]> => {
+      const results: ExportJob[] = [];
+      for (const config of configs) {
+        setExportConfig(config);
+        await new Promise((r) => setTimeout(r, 100));
+        const job = await startExport(master);
+        results.push(job);
+      }
+      return results;
+    },
+    [startExport, setExportConfig]
+  );
+
   const cancelExport = useCallback((jobId: string) => {
     const controller = abortControllerRef.current.get(jobId);
     if (controller) {
@@ -160,23 +180,6 @@ export function useExportPipeline(): UseExportPipelineReturn {
     }
     setExportJobs((prev) => prev.filter((j) => j.id !== jobId));
   }, []);
-
-  const startBatchExport = useCallback(
-    async (master: MasterRecording, configs: ExportConfig[]): Promise<ExportJob[]> => {
-      const results: ExportJob[] = [];
-
-      for (const config of configs) {
-        setExportConfig(config);
-        await new Promise((r) => setTimeout(r, 100));
-
-        const job = await startExport(master);
-        results.push(job);
-      }
-
-      return results;
-    },
-    [startExport, setExportConfig]
-  );
 
   const clearJobs = useCallback(() => {
     abortControllerRef.current.forEach((controller) => controller.abort());
@@ -256,7 +259,6 @@ async function encodeExport(
   const { crop, outputWidth, outputHeight } = config;
 
   const video = document.createElement('video');
-  video.muted = true;
   video.playsInline = true;
   video.preload = 'auto';
   video.crossOrigin = 'anonymous';
@@ -295,7 +297,6 @@ async function encodeExport(
         audioSource = audioContext.createMediaElementSource(video);
         audioDestination = audioContext.createMediaStreamDestination();
         audioSource.connect(audioDestination);
-        audioSource.connect(audioContext.destination);
 
         combinedStream = new MediaStream([
           ...videoStream.getVideoTracks(),
@@ -347,7 +348,7 @@ async function encodeExport(
     if (audioContext?.state === 'suspended') {
       await audioContext.resume();
     }
-    video.play();
+    await video.play();
 
     await new Promise<void>((resolve) => {
       const frameInterval = setInterval(() => {

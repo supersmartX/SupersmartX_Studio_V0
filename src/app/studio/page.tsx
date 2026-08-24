@@ -392,10 +392,14 @@ export default function HomePage() {
       setIsDrawerVisible(true);
       
       if (recorder.recordingResult?.blob) {
+        const videoTrack = camera.stream?.getVideoTracks()[0];
+        const settings = videoTrack?.getSettings();
         createMasterRecording(
           recorder.recordingResult.blob,
           elapsedSeconds,
-          recorder.recordingResult.hasAudio
+          recorder.recordingResult.hasAudio,
+          settings?.width || recordingConfig.width,
+          settings?.height || recordingConfig.height
         );
       }
       

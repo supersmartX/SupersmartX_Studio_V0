@@ -7,7 +7,7 @@ import { getRecording, saveRecording, cleanupExpired } from '@/lib/recording-sto
 interface UseMasterRecordingReturn {
   masterRecording: MasterRecording | null;
   setMasterRecording: (recording: MasterRecording | null) => void;
-  createMasterRecording: (blob: Blob, duration: number, hasAudio: boolean) => MasterRecording;
+  createMasterRecording: (blob: Blob, duration: number, hasAudio: boolean, sourceWidth?: number, sourceHeight?: number) => MasterRecording;
   clearMasterRecording: () => void;
   restoreMasterRecording: () => Promise<boolean>;
 }
@@ -17,7 +17,7 @@ export function useMasterRecording(): UseMasterRecordingReturn {
   const blobUrlRef = useRef<string>('');
 
   const createMasterRecording = useCallback(
-    (blob: Blob, duration: number, hasAudio: boolean): MasterRecording => {
+    (blob: Blob, duration: number, hasAudio: boolean, sourceWidth = 0, sourceHeight = 0): MasterRecording => {
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
       }
@@ -33,8 +33,8 @@ export function useMasterRecording(): UseMasterRecordingReturn {
         extension: blob.type?.includes('mp4') ? 'mp4' : 'webm',
         duration,
         hasAudio,
-        sourceWidth: 0,
-        sourceHeight: 0,
+        sourceWidth,
+        sourceHeight,
         createdAt: new Date().toISOString(),
       };
 
