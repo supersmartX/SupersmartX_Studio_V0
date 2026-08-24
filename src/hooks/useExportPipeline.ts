@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
+import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import type { ExportConfig, ExportJob, CropConfig, PlatformId, MasterRecording } from '@/types';
 import { PLATFORM_PRESETS } from '@/constants';
 
@@ -258,28 +259,28 @@ async function encodeExport(
 ): Promise<Blob> {
   const { crop, outputWidth, outputHeight } = config;
 
-  const video = document.createElement('video');
-  video.playsInline = true;
-  video.preload = 'auto';
-  video.crossOrigin = 'anonymous';
-  document.body.appendChild(video);
+  const videoEl = document.createElement('video');
+  videoEl.playsInline = true;
+  videoEl.preload = 'auto';
+  videoEl.crossOrigin = 'anonymous';
+  document.body.appendChild(videoEl);
 
-  let audioContext: AudioContext | null = null;
-  let audioSource: MediaElementAudioSourceNode | null = null;
-  let audioDestination: MediaStreamAudioDestinationNode | null = null;
+  let audioCtx: AudioContext | null = null;
+  let audioSrc: MediaElementAudioSourceNode | null = null;
+  let scriptNode: ScriptProcessorNode | null = null;
 
   try {
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Video load timeout')), 30000);
-      video.onloadeddata = () => { clearTimeout(timeout); resolve(); };
-      video.onerror = () => { clearTimeout(timeout); reject(new Error('Failed to load video for export')); };
-      video.src = master.url;
+      videoEl.onloadeddata = () => { clearTimeout(timeout); resolve(); };
+      videoEl.onerror = () => { clearTimeout(timeout); reject(new Error('Failed to load video for export')); };
+      videoEl.src = master.url;
     });
 
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    const sourceW = video.videoWidth || 1920;
-    const sourceH = video.videoHeight || 1080;
+    const sourceW = videoEl.videoWidth || 1920;
+    const sourceH = videoEl.videoHeight || 1080;
 
     const canvas = document.createElement('canvas');
     canvas.width = outputWidth;
@@ -287,76 +288,101 @@ async function encodeExport(
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas context not available');
 
-    const videoStream = canvas.captureStream(30);
+    const fps = 30;
+    const frameDuration = 1_000_000 / fps;
 
-    let combinedStream: MediaStream;
+    const muxer = new Muxer({
+      target: new ArrayBufferTarget(),
+      video: {
+        codec: 'avc',
+        width: outputWidth,
+        height: outputHeight,
+        frameRate: fps,
+      },
+      audio: master.hasAudio ? {
+        codec: 'aac',
+        numberOfChannels: 1,
+        sampleRate: 48000,
+      } : undefined,
+      fastStart: 'in-memory',
+      firstTimestampBehavior: 'offset',
+    });
 
+    const videoEncoderPromise = new Promise<VideoEncoder>((resolve, reject) => {
+      const encoder = new VideoEncoder({
+        output: (chunk, metadata) => {
+          muxer.addVideoChunk(chunk, metadata);
+        },
+        error: (e) => reject(e),
+      });
+      encoder.configure({
+        codec: 'avc1.42001f',
+        width: outputWidth,
+        height: outputHeight,
+        bitrate: 8_000_000,
+      });
+      resolve(encoder);
+    });
+
+    const videoEncoder = await videoEncoderPromise;
+
+    let audioEncoder: AudioEncoder | null = null;
     if (master.hasAudio) {
       try {
-        audioContext = new AudioContext();
-        audioSource = audioContext.createMediaElementSource(video);
-        audioDestination = audioContext.createMediaStreamDestination();
-        audioSource.connect(audioDestination);
+        audioCtx = new AudioContext({ sampleRate: 48000 });
+        audioSrc = audioCtx.createMediaElementSource(videoEl);
 
-        combinedStream = new MediaStream([
-          ...videoStream.getVideoTracks(),
-          ...audioDestination.stream.getAudioTracks(),
-        ]);
+        audioEncoder = new AudioEncoder({
+          output: (chunk, metadata) => {
+            muxer.addAudioChunk(chunk, metadata);
+          },
+          error: () => {},
+        });
+        audioEncoder.configure({
+          codec: 'mp4a.40.2',
+          numberOfChannels: 1,
+          sampleRate: 48000,
+          bitrate: 128_000,
+        });
+
+        scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
+        audioSrc.connect(scriptNode);
+        scriptNode.connect(audioCtx.destination);
+
+        let audioTimestamp = 0;
+        scriptNode.onaudioprocess = (e) => {
+          if (!audioEncoder || audioEncoder.state !== 'configured') return;
+          const inputData = e.inputBuffer.getChannelData(0);
+          const samples = new Float32Array(inputData.length);
+          samples.set(inputData);
+
+          const audioData = new AudioData({
+            format: 'f32-planar',
+            numberOfChannels: 1,
+            numberOfFrames: samples.length,
+            sampleRate: 48000,
+            timestamp: audioTimestamp,
+            data: samples,
+          });
+          audioTimestamp += Math.round((samples.length / 48000) * 1_000_000);
+          audioEncoder.encode(audioData);
+          audioData.close();
+        };
       } catch {
-        combinedStream = videoStream;
+        audioEncoder = null;
       }
-    } else {
-      combinedStream = videoStream;
     }
 
-    let mimeType = 'video/webm;codecs=vp9,opus';
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      mimeType = 'video/webm;codecs=vp8,opus';
+    if (audioCtx?.state === 'suspended') {
+      await audioCtx.resume();
     }
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      mimeType = 'video/webm';
-    }
+    await videoEl.play();
 
-    const recorder = new MediaRecorder(combinedStream, {
-      mimeType,
-      videoBitsPerSecond: 8_000_000,
-      audioBitsPerSecond: master.hasAudio ? 128_000 : undefined,
-    });
-
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-
-    const recordingDone = new Promise<Blob>((resolve, reject) => {
-      recorder.onstop = () => {
-        resolve(new Blob(chunks, { type: mimeType }));
-      };
-      recorder.onerror = () => reject(new Error('MediaRecorder error'));
-    });
-
-    const abortHandler = () => {
-      if (recorder.state === 'recording' || recorder.state === 'paused') {
-        recorder.stop();
-      }
-      video.pause();
-    };
-    signal?.addEventListener('abort', abortHandler, { once: true });
-
-    recorder.start(100);
-
-    if (audioContext?.state === 'suspended') {
-      await audioContext.resume();
-    }
-    await video.play();
+    let frameCount = 0;
 
     await new Promise<void>((resolve) => {
-      const frameInterval = setInterval(() => {
-        if (signal?.aborted || video.ended || video.paused) {
-          clearInterval(frameInterval);
-          if (recorder.state === 'recording' || recorder.state === 'paused') {
-            recorder.stop();
-          }
+      const captureFrame = () => {
+        if (signal?.aborted || videoEl.ended || videoEl.paused) {
           resolve();
           return;
         }
@@ -366,33 +392,51 @@ async function encodeExport(
         const sw = (crop.width / 1920) * sourceW;
         const sh = (crop.height / 1080) * sourceH;
 
-        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
-      }, 1000 / 30);
+        ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
 
-      video.onended = () => {
-        clearInterval(frameInterval);
-        if (recorder.state === 'recording' || recorder.state === 'paused') {
-          recorder.stop();
+        const frame = new VideoFrame(canvas, { timestamp: frameCount * frameDuration });
+        if (videoEncoder.state === 'configured') {
+          videoEncoder.encode(frame, { keyFrame: frameCount % (fps * 2) === 0 });
         }
-        resolve();
+        frame.close();
+        frameCount++;
+
+        if (!videoEl.ended && !signal?.aborted) {
+          requestAnimationFrame(captureFrame);
+        } else {
+          resolve();
+        }
       };
+
+      requestAnimationFrame(captureFrame);
+      videoEl.onended = () => resolve();
     });
 
-    signal?.removeEventListener('abort', abortHandler);
+    if (videoEncoder.state === 'configured') {
+      await videoEncoder.flush();
+    }
+    if (audioEncoder && audioEncoder.state === 'configured') {
+      await audioEncoder.flush();
+    }
 
-    const resultBlob = await recordingDone;
-    return resultBlob;
+    muxer.finalize();
+
+    const buffer = muxer.target.buffer;
+    return new Blob([buffer], { type: 'video/mp4' });
   } finally {
-    if (audioSource) {
-      try { audioSource.disconnect(); } catch {}
+    if (scriptNode) {
+      try { scriptNode.disconnect(); } catch {}
     }
-    if (audioContext) {
-      try { await audioContext.close(); } catch {}
+    if (audioSrc) {
+      try { audioSrc.disconnect(); } catch {}
     }
-    video.src = '';
-    video.load();
-    if (video.parentNode) {
-      video.parentNode.removeChild(video);
+    if (audioCtx) {
+      try { await audioCtx.close(); } catch {}
+    }
+    videoEl.src = '';
+    videoEl.load();
+    if (videoEl.parentNode) {
+      videoEl.parentNode.removeChild(videoEl);
     }
   }
 }

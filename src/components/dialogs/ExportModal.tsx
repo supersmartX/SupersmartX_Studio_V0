@@ -163,8 +163,7 @@ export function ExportModal({
 
     function doDownload() {
       if (!exportResult?.resultUrl) return;
-      const preset = PLATFORM_PRESETS.find((p) => p.id === selectedPlatform);
-      const filename = generateFilename('video', preset?.id === 'custom' ? 'webm' : 'webm');
+      const filename = generateFilename('video', 'mp4');
       const a = document.createElement('a');
       a.href = exportResult.resultUrl;
       a.download = filename;
