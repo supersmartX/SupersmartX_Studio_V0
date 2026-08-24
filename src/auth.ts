@@ -145,15 +145,8 @@ providers.push(
         return { id: user.id, email: user.email, name: user.name, image: getGravatarUrl(user.email) };
       }
 
-      // Magic-link style: allow any valid email
-      const existing = findUserByEmail(email);
-      if (existing) {
-        return { id: existing.id, email: existing.email, name: existing.name, image: getGravatarUrl(existing.email) };
-      }
-      // Auto-create account for magic-link sign-in
-      const user = await createUser(email, name || email.split('@')[0], Math.random().toString(36).slice(2));
-      if (!user) return null;
-      return { id: user.id, email: user.email, name: user.name, image: getGravatarUrl(user.email) };
+      // No password provided — reject (magic-link auto-create disabled for security)
+      return null;
     },
   })
 );
@@ -168,7 +161,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (user) {
         token.id = user.id;
         token.image = user.image;
-        const fullUser = findUserByEmail(user.email!);
+      }
+      if (token.email) {
+        const fullUser = findUserByEmail(token.email as string);
         token.plan = fullUser?.plan || 'free';
       }
       return token;

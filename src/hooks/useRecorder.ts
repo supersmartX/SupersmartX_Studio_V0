@@ -316,10 +316,19 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
         mediaRecorderRef.current.resume();
         scrollIntervalRef.current = setInterval(scrollCallback, 50);
         checkEndRef.current = checkEndCallback;
+        endCheckIntervalRef.current = setInterval(() => {
+          if (checkEndRef.current?.()) {
+            clearRecordingIntervals();
+            if (mediaRecorderRef.current?.state === 'recording' ||
+                mediaRecorderRef.current?.state === 'paused') {
+              mediaRecorderRef.current.stop();
+            }
+          }
+        }, 200);
         setRecordingState('recording');
       }
     },
-    []
+    [clearRecordingIntervals]
   );
 
   const stopRecording = useCallback(() => {

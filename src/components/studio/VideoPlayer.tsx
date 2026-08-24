@@ -108,7 +108,7 @@ export function VideoPlayer({
       video.removeEventListener('ended', handleEnded);
       video.removeEventListener('error', handleError);
     };
-  }, [videoUrl, recordedDuration, onError]);
+  }, [videoUrl, recordedDuration, onError, isPreview, maxPreviewSeconds]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {

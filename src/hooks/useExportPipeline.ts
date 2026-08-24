@@ -163,14 +163,33 @@ export function useExportPipeline(): UseExportPipelineReturn {
     async (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void): Promise<ExportJob[]> => {
       const results: ExportJob[] = [];
       for (let i = 0; i < configs.length; i++) {
-        setExportConfig(configs[i]);
-        await new Promise((r) => setTimeout(r, 100));
-        const job = await startExport(master, (progress) => onProgress?.(i, progress));
-        results.push(job);
+        const config = configs[i];
+        sourceDimensionsRef.current = { width: master.sourceWidth || 1920, height: master.sourceHeight || 1080 };
+        setExportConfig(config);
+
+        const jobId = `export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const abortController = new AbortController();
+        abortControllerRef.current.set(jobId, abortController);
+
+        const job: ExportJob = { id: jobId, masterId: master.id, config, status: 'encoding' };
+        setExportJobs((prev) => [...prev, job]);
+
+        try {
+          const resultBlob = await encodeExport(master, config, abortController.signal, (p) => onProgress?.(i, p));
+          const resultUrl = URL.createObjectURL(resultBlob);
+          const completedJob: ExportJob = { ...job, status: 'done', resultUrl, resultBlob };
+          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? completedJob : j)));
+          results.push(completedJob);
+        } catch (error) {
+          const failedJob: ExportJob = { ...job, status: 'error', error: error instanceof Error ? error.message : 'Failed' };
+          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
+          results.push(failedJob);
+        }
+        abortControllerRef.current.delete(jobId);
       }
       return results;
     },
-    [startExport, setExportConfig]
+    []
   );
 
   const cancelExport = useCallback((jobId: string) => {

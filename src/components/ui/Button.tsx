@@ -23,10 +23,11 @@ const sizeStyles: Record<ButtonSize, string> = {
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'primary', size = 'md', className = '', children, disabled, ...props }, ref) => {
+  ({ variant = 'primary', size = 'md', className = '', type = 'button', children, disabled, ...props }, ref) => {
     return (
       <button
         ref={ref}
+        type={type}
         disabled={disabled}
         className={`
           inline-flex items-center justify-center font-medium

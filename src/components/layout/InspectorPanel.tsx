@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { TeleprompterSettings, TextAlignment, AspectRatio, PlatformId } from '@/types';
 import { Slider } from '@/components/ui/Slider';
 import { Toggle } from '@/components/ui/Toggle';
@@ -81,6 +81,31 @@ export function InspectorPanel({
   isOpen = true,
   onClose,
 }: InspectorPanelProps) {
+  const drawerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isMobile || !isOpen) return;
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+
+    const focusableEls = drawer.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    const firstEl = focusableEls[0];
+    const lastEl = focusableEls[focusableEls.length - 1];
+
+    firstEl?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose?.(); return; }
+      if (e.key !== 'Tab') return;
+      if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl?.focus(); }
+      else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl?.focus(); }
+    };
+    drawer.addEventListener('keydown', handleKeyDown);
+    return () => drawer.removeEventListener('keydown', handleKeyDown);
+  }, [isMobile, isOpen, onClose]);
+
   const updateSettings = (partial: Partial<TeleprompterSettings>) => {
     onSettingsChange({ ...settings, ...partial });
   };
@@ -129,6 +154,7 @@ export function InspectorPanel({
           <div className="fixed inset-0 z-drawer drawer-backdrop animate-fade-in" onClick={onClose} />
         )}
         <div
+          ref={drawerRef}
           className={`fixed top-0 right-0 h-full w-[85vw] max-w-[360px] bg-surface border-l border-border-default shadow-2xl z-drawer flex flex-col overflow-hidden transition-transform duration-250 ease-out ${
             isOpen ? 'translate-x-0 animate-slide-in-right' : 'translate-x-full'
           }`}

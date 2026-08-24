@@ -140,7 +140,7 @@ export default function HomePage() {
     } else {
       settingsStore.setSelectedAudioDevice('');
     }
-  }, [camera.videoDevices, camera.audioDevices, settingsStore]);
+  }, [camera.videoDevices, camera.audioDevices, settingsStore.selectedVideoDevice, settingsStore.selectedAudioDevice]);
 
   // Sync settings store changes to recording config store
   useEffect(() => {
@@ -197,7 +197,7 @@ export default function HomePage() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [recorder.recordingState, recorder, showToast]);
+  }, [recorder.recordingState, recorder.stopRecording, showToast]);
 
   const handleRecordStart = useCallback(() => {
     if (!camera.stream) return;
@@ -346,7 +346,7 @@ export default function HomePage() {
     if (camera.isInitialized && recorder.recordingState === 'idle') {
       handleCameraInitialize();
     }
-  }, [settingsStore.platformId]);
+  }, [settingsStore.platformId, camera.isInitialized, recorder.recordingState, handleCameraInitialize]);
 
   const handleToggleInspector = useCallback(() => {
     setIsInspectorOpen((prev) => !prev);

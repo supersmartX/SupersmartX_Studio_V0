@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { MasterRecording } from '@/types';
 import { getRecording, saveRecording, cleanupExpired } from '@/lib/recording-store';
 
@@ -74,6 +74,10 @@ export function useMasterRecording(): UseMasterRecordingReturn {
       const stored = await getRecording('latest');
       if (!stored) return false;
 
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+      }
+
       const url = URL.createObjectURL(stored.blob);
       blobUrlRef.current = url;
 
@@ -95,6 +99,14 @@ export function useMasterRecording(): UseMasterRecordingReturn {
     } catch {
       return false;
     }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+      }
+    };
   }, []);
 
   return {

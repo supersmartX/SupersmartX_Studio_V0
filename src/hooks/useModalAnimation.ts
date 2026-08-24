@@ -15,16 +15,16 @@ export function useModalAnimation(isOpen: boolean, onClose: () => void) {
     if (isOpen) {
       setShouldRender(true);
       setIsClosing(false);
-    } else if (shouldRender) {
+    } else if (shouldRender && !closeTimerRef.current) {
       setIsClosing(true);
-      const timer = setTimeout(() => {
+      closeTimerRef.current = setTimeout(() => {
         setShouldRender(false);
         setIsClosing(false);
+        closeTimerRef.current = null;
         onCloseRef.current();
       }, 150);
-      return () => clearTimeout(timer);
     }
-  }, [isOpen]);
+  }, [isOpen, shouldRender]);
 
   const handleClose = useCallback(() => {
     setIsClosing(true);

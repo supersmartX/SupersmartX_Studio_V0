@@ -13,7 +13,7 @@ function verifyWebhookSignature(
   signature: string,
   timestamp: string
 ): boolean {
-  const secretKey = process.env.CASHFREE_SECRET_KEY || '';
+  const secretKey = process.env.CASHFREE_WEBHOOK_SECRET || process.env.CASHFREE_SECRET_KEY || '';
   if (!secretKey) return false;
 
   const signatureData = timestamp + payload;

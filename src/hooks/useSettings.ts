@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import type { TeleprompterSettings, AspectRatio, PlatformId } from '@/types';
 import { DEFAULT_SETTINGS, PLATFORM_PRESETS, DEFAULT_PLATFORM_ID } from '@/constants';
 
@@ -103,7 +103,7 @@ export function useSettings() {
     setTeleprompterState((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  return {
+  return useMemo(() => ({
     teleprompter,
     setTeleprompter,
     updateTeleprompter,
@@ -125,5 +125,11 @@ export function useSettings() {
     setCustomHeight,
     aspectRatio,
     isLoaded,
-  };
+  }), [
+    teleprompter, setTeleprompter, updateTeleprompter,
+    isMirrored, countdownEnabled,
+    selectedVideoDevice, selectedAudioDevice,
+    platformId, customAspectRatio, customWidth, customHeight,
+    aspectRatio, isLoaded,
+  ]);
 }
