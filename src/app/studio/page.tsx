@@ -342,11 +342,16 @@ export default function HomePage() {
     }
   }, [camera, settingsStore.selectedVideoDevice, settingsStore.setSelectedAudioDevice]);
 
+  const prevPlatformRef = useRef(settingsStore.platformId);
   useEffect(() => {
-    if (camera.isInitialized && recorder.recordingState === 'idle') {
-      handleCameraInitialize();
+    if (prevPlatformRef.current !== settingsStore.platformId) {
+      prevPlatformRef.current = settingsStore.platformId;
+      if (camera.isInitialized && recorder.recordingState === 'idle') {
+        handleCameraInitialize();
+      }
     }
-  }, [settingsStore.platformId, camera.isInitialized, recorder.recordingState, handleCameraInitialize]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsStore.platformId]);
 
   const handleToggleInspector = useCallback(() => {
     setIsInspectorOpen((prev) => !prev);
