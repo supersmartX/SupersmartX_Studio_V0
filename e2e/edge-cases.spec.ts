@@ -8,7 +8,7 @@ test.describe('Edge Cases - Form Inputs', () => {
     await dismissWelcomeModal(page);
     const textarea = page.getByLabel('Script Editor');
     await textarea.fill('');
-    const recordButton = page.getByRole('button', { name: 'Start Recording' });
+    const recordButton = page.getByLabel('Recording controls').getByRole('button', { name: 'Start Recording' });
     await expect(recordButton).toBeDisabled();
   });
 
@@ -45,7 +45,7 @@ test.describe('Edge Cases - Form Inputs', () => {
 
 test.describe('Edge Cases - Auth Forms', () => {
   test('handles email with plus addressing', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Log In' }).first().click();
     const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
@@ -62,7 +62,7 @@ test.describe('Edge Cases - Auth Forms', () => {
   });
 
   test('handles email with subdomain', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Log In' }).first().click();
     const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
@@ -79,7 +79,7 @@ test.describe('Edge Cases - Auth Forms', () => {
   });
 
   test('prevents SQL injection in email field', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Log In' }).first().click();
     const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
@@ -98,17 +98,17 @@ test.describe('Edge Cases - Auth Forms', () => {
 
 test.describe('Edge Cases - Browser Behavior', () => {
   test('handles back button navigation', async ({ page }) => {
-    await page.goto('/');
-    await page.goto('/studio');
-    await page.goBack();
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.goto('/studio', { waitUntil: 'domcontentloaded' });
+    await page.goBack({ waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL('/');
   });
 
   test('handles forward button navigation', async ({ page }) => {
-    await page.goto('/');
-    await page.goto('/studio');
-    await page.goBack();
-    await page.goForward();
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.goto('/studio', { waitUntil: 'domcontentloaded' });
+    await page.goBack({ waitUntil: 'domcontentloaded' });
+    await page.goForward({ waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL(/\/studio/);
   });
 
@@ -124,7 +124,7 @@ test.describe('Edge Cases - Browser Behavior', () => {
 
 test.describe('Edge Cases - Concurrent Actions', () => {
   test('prevents double-click on submit buttons', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Log In' }).first().click();
     const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();

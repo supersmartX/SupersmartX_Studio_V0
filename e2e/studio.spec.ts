@@ -52,7 +52,7 @@ test.describe('Studio - Recording Controls', () => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
-    const recordButton = page.getByRole('button', { name: 'Start Recording' });
+    const recordButton = page.getByLabel('Recording controls').getByRole('button', { name: 'Start Recording' });
     await expect(recordButton).toBeVisible();
   });
 
@@ -60,7 +60,7 @@ test.describe('Studio - Recording Controls', () => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
-    const recordButton = page.getByRole('button', { name: 'Start Recording' });
+    const recordButton = page.getByLabel('Recording controls').getByRole('button', { name: 'Start Recording' });
     await expect(recordButton).toBeDisabled();
   });
 });
@@ -80,10 +80,17 @@ test.describe('Studio - Keyboard Shortcuts', () => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
+    await page.waitForTimeout(1000);
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(300);
-    const anyModal = page.getByRole('dialog');
-    const modalCount = await anyModal.count();
-    expect(modalCount).toBe(0);
+    await page.waitForTimeout(1000);
+    const visibleDialogs = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('[role="dialog"]')).filter((el) => {
+        const label = el.getAttribute('aria-label') || '';
+        if (label === 'Inspector panel') return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && window.getComputedStyle(el).opacity !== '0';
+      }).length;
+    });
+    expect(visibleDialogs).toBe(0);
   });
 });

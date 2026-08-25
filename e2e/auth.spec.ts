@@ -2,14 +2,14 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Auth Flow - Registration', () => {
   test('opens auth modal', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Log In' }).first().click();
     const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
   });
 
   test('shows registration form fields', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Log In' }).first().click();
     const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
@@ -19,7 +19,7 @@ test.describe('Auth Flow - Registration', () => {
   });
 
   test('can switch between registration and login', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Log In' }).first().click();
     const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
@@ -34,7 +34,7 @@ test.describe('Auth Flow - Registration', () => {
 
 test.describe('Auth Flow - Social Login', () => {
   test('Google sign-in button is visible', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Log In' }).first().click();
     const googleButton = page.getByRole('button', { name: /google/i });
     await expect(googleButton).toBeVisible();

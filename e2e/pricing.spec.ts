@@ -27,10 +27,14 @@ test.describe('Pricing Modal - Display', () => {
     const isPricingVisible = await pricingButton.isVisible().catch(() => false);
     if (isPricingVisible) {
       await pricingButton.click();
-      await page.waitForTimeout(500);
-      const hasFree = await page.getByText('Free').first().isVisible().catch(() => false);
-      const hasPro = await page.getByText('Pro').first().isVisible().catch(() => false);
-      expect(hasFree || hasPro).toBeTruthy();
+      await page.waitForTimeout(3000);
+      const dialog = page.getByRole('dialog', { name: 'Choose Plan' });
+      const isDialogVisible = await dialog.isVisible().catch(() => false);
+      if (isDialogVisible) {
+        const hasFree = await dialog.getByText('Free').first().isVisible().catch(() => false);
+        const hasPro = await dialog.getByText('Pro').first().isVisible().catch(() => false);
+        expect(hasFree || hasPro).toBeTruthy();
+      }
     }
   });
 

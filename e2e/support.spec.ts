@@ -55,7 +55,7 @@ test.describe('Legal Pages', () => {
   });
 
   test('legal pages are accessible from landing page', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     const termsLink = page.getByRole('link', { name: /terms/i }).first();
     const privacyLink = page.getByRole('link', { name: /privacy/i }).first();
