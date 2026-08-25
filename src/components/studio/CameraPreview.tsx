@@ -18,6 +18,7 @@ export function CameraPreview({
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(() => {});
     }
     return () => {
       if (videoRef.current) {
