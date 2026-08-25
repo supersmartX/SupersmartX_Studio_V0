@@ -49,6 +49,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{document.querySelectorAll('[fdprocessedid]').forEach(function(e){e.removeAttribute('fdprocessedid')})}catch(e){}`,
+          }}
+        />
+      </head>
       <body
         className={`${inter.variable} text-sm antialiased`}
         style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', background: 'var(--color-canvas)', color: '#fff' }}
