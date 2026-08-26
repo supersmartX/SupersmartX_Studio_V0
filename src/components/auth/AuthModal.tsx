@@ -129,22 +129,15 @@ export function AuthModal({
   return (
     <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={step === 'chooser' ? 'Sign in or create account' : 'Enter your email'} {...swipeHandlers}>
       <div
-        className={`${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.95)',
-          backdropFilter: 'blur(24px)',
-          WebkitBackdropFilter: 'blur(24px)',
-        }}
+        className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
         onClick={handleModalClose}
       />
 
-      <div className={`relative flex w-full max-w-[960px] min-h-[600px] max-h-[90vh] bg-canvas rounded-3xl shadow-2xl overflow-hidden border border-white/[0.06] ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}>
+      <div className={`relative flex w-full max-w-[960px] min-h-[600px] max-h-[90vh] bg-canvas rounded-3xl shadow-2xl overflow-hidden border border-border-subtle ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}>
         {/* Close button */}
         <button
           onClick={handleModalClose}
-          className="absolute top-4 right-4 z-10 p-2.5 rounded-md text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+          className="absolute top-4 right-4 z-10 p-2.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
           aria-label="Close"
         >
           <CloseIcon className="w-4 h-4" />
@@ -171,10 +164,10 @@ export function AuthModal({
             <BrandLogo />
 
             <div className="space-y-3">
-              <h1 className="text-4xl font-medium tracking-tight text-white whitespace-nowrap">
+              <h1 className="text-4xl font-medium tracking-tight text-text-primary whitespace-nowrap">
                 Start Creating
               </h1>
-              <p className="text-white/60 text-sm leading-relaxed px-1">
+              <p className="text-text-secondary text-sm leading-relaxed px-1">
                 Follow these 3 quick steps to activate your studio and start recording.
               </p>
             </div>
@@ -196,16 +189,16 @@ export function AuthModal({
                 <BrandLogo size="sm" />
               </div>
                 <div>
-                <h2 className="text-3xl font-medium tracking-tight text-white">
+                <h2 className="text-3xl font-medium tracking-tight text-text-primary">
                   {step === 'chooser' ? 'Create New Profile' : 'Enter your email'}
                 </h2>
                 {step === 'chooser' && (
-                  <p className="text-white/40 text-sm mt-1">
+                  <p className="text-text-muted text-sm mt-1">
                     {title}
                   </p>
                 )}
                 {step === 'email' && (
-                  <p className="text-white/40 text-sm mt-1">
+                  <p className="text-text-muted text-sm mt-1">
                     We&apos;ll sign you in with your email.
                   </p>
                 )}
@@ -236,7 +229,7 @@ export function AuthModal({
                     <div className="w-full border-t border-white/10" />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="bg-canvas px-4 text-xs font-medium text-white/40 uppercase tracking-widest">
+                    <span className="bg-canvas px-4 text-xs font-medium text-text-muted uppercase tracking-widest">
                       Or
                     </span>
                   </div>
@@ -273,18 +266,18 @@ export function AuthModal({
                         placeholder="Enter password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="w-full bg-input border-none rounded-xl h-11 px-4 pr-10 text-white text-sm placeholder:text-white/20 focus:ring-2 focus:ring-white/20 outline-none transition-all"
+                        className="w-full bg-elevated border border-border-subtle rounded-lg h-11 px-4 pr-10 text-text-primary text-sm placeholder:text-text-muted focus:border-accent outline-none transition-all"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
                         aria-label={showPassword ? 'Hide password' : 'Show password'}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
                       >
                         <EyeIcon visible={showPassword} />
                       </button>
                     </div>
-                    <p className="text-[11px] text-white/30">Requires at least 8 symbols.</p>
+                    <p className="text-[11px] text-text-muted">Requires at least 8 symbols.</p>
                   </div>
                 </div>
 
@@ -296,7 +289,7 @@ export function AuthModal({
                 <button
                   onClick={handleEmailSubmit}
                   disabled={isLoading}
-                  className="w-full h-12 bg-white text-black font-semibold rounded-xl hover:bg-white/90 active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full h-12 bg-accent text-white font-semibold rounded-lg hover:bg-accent-hover active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {isLoading ? 'Creating Account...' : 'Create Account'}
                 </button>
@@ -317,7 +310,7 @@ export function AuthModal({
             {step === 'email' && (
               <>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-white">Email address</label>
+                  <label className="text-sm font-medium text-text-primary">Email address</label>
                   <input
                     type="email"
                     placeholder="you@example.com"
@@ -325,12 +318,12 @@ export function AuthModal({
                     onChange={(e) => setEmail(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleEmailSubmit()}
                     autoFocus
-                    className="w-full bg-input border-none rounded-xl h-11 px-4 text-white text-sm placeholder:text-white/20 focus:ring-2 focus:ring-white/20 outline-none transition-all"
+                    className="w-full bg-elevated border border-border-subtle rounded-lg h-11 px-4 text-text-primary text-sm placeholder:text-text-muted focus:border-accent outline-none transition-all"
                   />
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-white">Password</label>
+                  <label className="text-sm font-medium text-text-primary">Password</label>
                   <div className="relative">
                     <input
                       type={showLoginPassword ? 'text' : 'password'}
@@ -338,13 +331,13 @@ export function AuthModal({
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleEmailSubmit()}
-                      className="w-full bg-input border-none rounded-xl h-11 px-4 pr-10 text-white text-sm placeholder:text-white/20 focus:ring-2 focus:ring-white/20 outline-none transition-all"
+                      className="w-full bg-elevated border border-border-subtle rounded-lg h-11 px-4 pr-10 text-text-primary text-sm placeholder:text-text-muted focus:border-accent outline-none transition-all"
                     />
                     <button
                       type="button"
                       onClick={() => setShowLoginPassword(!showLoginPassword)}
                       aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
                     >
                       <EyeIcon visible={showLoginPassword} />
                     </button>
@@ -358,13 +351,13 @@ export function AuthModal({
                 <button
                   onClick={handleEmailSubmit}
                   disabled={isLoading || !email || !loginPassword}
-                  className="w-full h-12 bg-white text-black font-semibold rounded-xl hover:bg-white/90 active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full h-12 bg-accent text-white font-semibold rounded-lg hover:bg-accent-hover active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {isLoading ? 'Signing in...' : 'Sign In'}
                 </button>
 
-                <p className="text-sm text-white/40 text-center">
-                  <button onClick={handleBack} className="text-white font-medium hover:underline">
+                <p className="text-sm text-text-muted text-center">
+                  <button onClick={handleBack} className="text-text-primary font-medium hover:underline">
                     Back to all options
                   </button>
                 </p>
