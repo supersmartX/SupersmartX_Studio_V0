@@ -283,6 +283,18 @@ export function useExportPipeline(): UseExportPipelineReturn {
   };
 }
 
+function getAvcCodec(width: number, height: number): string {
+  const pixels = width * height;
+  // Level 4.0 (0x28): max 2,073,600 pixels — covers 1920x1080, 1080x1080, 1080x1920
+  // Level 4.1 (0x2a): same max, better tooling support
+  // Level 5.1 (0x34): max 8,294,400 pixels — covers 4K (3840x2160)
+  // High Profile (0x64) for best compression efficiency
+  if (pixels > 2_073_600) {
+    return 'avc1.640034'; // High Profile, Level 5.1 (4K)
+  }
+  return 'avc1.640028'; // High Profile, Level 4.0 (up to 1080p)
+}
+
 async function encodeExport(
   master: MasterRecording,
   config: ExportConfig,
@@ -350,7 +362,7 @@ async function encodeExport(
       error: (e) => { throw e; },
     });
     videoEncoder.configure({
-      codec: 'avc1.42001f',
+      codec: getAvcCodec(outputWidth, outputHeight),
       width: outputWidth,
       height: outputHeight,
       bitrate: 5_000_000,
