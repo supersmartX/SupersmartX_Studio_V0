@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AuthModal } from '@/components/auth/AuthModal';
+import { detectCountry, getPricingForCountry, formatPrice, type RegionalPricing } from '@/lib/pricing';
 
 const NAV_LINKS = [
   { label: 'Studio', href: '#top' },
@@ -53,6 +54,16 @@ export default function LandingPage() {
   const router = useRouter();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pricing, setPricing] = useState<RegionalPricing | null>(null);
+
+  const currentPricing = pricing || getPricingForCountry('US');
+  const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
+
+  useEffect(() => {
+    detectCountry().then(country => {
+      setPricing(getPricingForCountry(country));
+    });
+  }, []);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
@@ -931,7 +942,7 @@ export default function LandingPage() {
             <div className="lsx-section-header">
               <span className="lsx-section-label">Pricing</span>
               <h2 className="lsx-section-title">Start free. Upgrade when ready.</h2>
-              <p className="lsx-section-subtitle">PPP-adjusted pricing available in 60+ countries.</p>
+              <p className="lsx-section-subtitle">PPP-adjusted pricing in 60+ countries. Prices in {currentPricing.currency}.</p>
             </div>
             <div className="lsx-pricing-grid">
               <div className="lsx-pricing-card">
@@ -969,8 +980,8 @@ export default function LandingPage() {
                 <div className="lsx-pricing-badge">Save 17%</div>
                 <div className="lsx-pricing-card-header">
                   <h3 className="lsx-pricing-plan">Pro Yearly</h3>
-                  <div className="lsx-pricing-price">$49.99<span className="lsx-pricing-period">/year</span></div>
-                  <p className="lsx-pricing-note">That&apos;s $4.17/month</p>
+                  <div className="lsx-pricing-price">{format(currentPricing.yearly)}<span className="lsx-pricing-period">/year</span></div>
+                  <p className="lsx-pricing-note">That&apos;s {format(currentPricing.yearly / 12)}/month</p>
                 </div>
                 <ul className="lsx-pricing-features">
                   <li className="lsx-pricing-feature">
@@ -1014,7 +1025,7 @@ export default function LandingPage() {
                 <div className="lsx-pricing-badge">Popular</div>
                 <div className="lsx-pricing-card-header">
                   <h3 className="lsx-pricing-plan">Pro</h3>
-                  <div className="lsx-pricing-price">$4.99<span className="lsx-pricing-period">/month</span></div>
+                  <div className="lsx-pricing-price">{format(currentPricing.monthly)}<span className="lsx-pricing-period">/month</span></div>
                   <p className="lsx-pricing-note">PPP-adjusted by region</p>
                 </div>
                 <ul className="lsx-pricing-features">
