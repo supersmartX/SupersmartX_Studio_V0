@@ -186,13 +186,13 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
           ) : (
             <>
               {step === 'select' && (
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-5">
                   {/* Plan cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {/* Free */}
                     <button
                       onClick={() => setSelectedPlan('free')}
-                      className={`relative flex flex-col items-start p-4 rounded-xl border-2 transition-all text-left ${
+                      className={`relative flex flex-col items-start p-4 rounded-xl border-2 transition-all text-left min-h-[44px] ${
                         selectedPlan === 'free'
                           ? 'border-accent bg-accent/5'
                           : 'border-border-subtle hover:border-border-default bg-elevated'
@@ -206,7 +206,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                     {/* Monthly */}
                     <button
                       onClick={() => setSelectedPlan('pro_monthly')}
-                      className={`relative flex flex-col items-start p-4 rounded-xl border-2 transition-all text-left ${
+                      className={`relative flex flex-col items-start p-4 rounded-xl border-2 transition-all text-left min-h-[44px] ${
                         selectedPlan === 'pro_monthly'
                           ? 'border-accent bg-accent/5'
                           : 'border-border-subtle hover:border-border-default bg-elevated'
@@ -225,7 +225,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                     {/* Yearly */}
                     <button
                       onClick={() => setSelectedPlan('pro_yearly')}
-                      className={`relative flex flex-col items-start p-4 rounded-xl border-2 transition-all text-left ${
+                      className={`relative flex flex-col items-start p-4 rounded-xl border-2 transition-all text-left min-h-[44px] ${
                         selectedPlan === 'pro_yearly'
                           ? 'border-accent bg-accent/5'
                           : 'border-border-subtle hover:border-border-default bg-elevated'
@@ -247,7 +247,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
 
                   {/* Features */}
                   <div className="bg-elevated rounded-xl p-4">
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">
                       {selectedPlan === 'free' ? 'Free' : 'Pro'} Plan Includes
                     </h3>
                     <ul className="space-y-2">
