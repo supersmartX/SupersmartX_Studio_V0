@@ -220,26 +220,28 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                 <div className="flex flex-col gap-5">
                   {/* Billing period toggle */}
                   <div className="flex justify-center">
-                    <div className="flex bg-elevated rounded-lg p-1 border border-border-subtle">
+                    <div className="flex">
                       <button
                         onClick={() => setBillingPeriod('monthly')}
-                        className={`px-4 py-2 text-xs font-semibold rounded-md transition-all ${
+                        className={`px-5 py-2.5 text-xs font-semibold transition-all border border-border-subtle ${
                           billingPeriod === 'monthly'
-                            ? 'bg-accent text-white'
+                            ? 'bg-accent text-white border-accent'
                             : 'text-text-muted hover:text-text-secondary'
                         }`}
+                        style={{ borderRadius: '8px 0 0 8px', borderRight: 'none' }}
                       >
                         Monthly
                       </button>
                       <button
                         onClick={() => setBillingPeriod('yearly')}
-                        className={`px-4 py-2 text-xs font-semibold rounded-md transition-all ${
+                        className={`px-5 py-2.5 text-xs font-semibold transition-all border border-border-subtle ${
                           billingPeriod === 'yearly'
-                            ? 'bg-accent text-white'
+                            ? 'bg-accent text-white border-accent'
                             : 'text-text-muted hover:text-text-secondary'
                         }`}
+                        style={{ borderRadius: '0 8px 8px 0' }}
                       >
-                        Yearly <span className="text-emerald-400 ml-1">Save 17%</span>
+                        Yearly <span className="text-success ml-1">Save 17%</span>
                       </button>
                     </div>
                   </div>

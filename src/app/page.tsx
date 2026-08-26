@@ -620,9 +620,9 @@ export default function LandingPage() {
   font-size: 13px;
   font-weight: 600;
   border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid var(--color-border-subtle, rgba(255,255,255,0.08));
   background: transparent;
-  color: rgba(255,255,255,0.5);
+  color: var(--color-text-muted, rgba(255,255,255,0.5));
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -639,7 +639,7 @@ export default function LandingPage() {
   border-color: var(--color-accent);
 }
 .lsx-pricing-toggle-save {
-  color: #34d399;
+  color: var(--color-success);
   font-size: 11px;
   margin-left: 4px;
 }
