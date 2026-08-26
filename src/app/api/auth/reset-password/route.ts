@@ -3,7 +3,7 @@ import { findUserByEmail, createUser } from '@/auth';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 const DATA_DIR = join(process.cwd(), 'data');
 const TOKENS_FILE = join(DATA_DIR, 'reset-tokens.json');

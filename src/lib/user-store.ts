@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 export interface StoredUser {
   id: string;
