@@ -20,11 +20,15 @@ export type PlatformId =
   | 'linkedin'
   | 'custom';
 
+export type PlatformCategory = 'youtube' | 'instagram' | 'tiktok' | 'linkedin' | 'custom';
+
 export interface PlatformPreset {
   id: PlatformId;
   label: string;
   sublabel: string;
   icon: string;
+  color: string;
+  category: PlatformCategory;
   aspectRatio: AspectRatio;
   width: number;
   height: number;

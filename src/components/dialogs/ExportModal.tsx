@@ -241,7 +241,7 @@ export function ExportModal({
                 isPreview={isPreview}
               />
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {PLATFORM_PRESETS.filter((p) => p.id !== 'custom').map((preset) => {
                   const isSelected = batchPlatforms.includes(preset.id);
                   return (
@@ -249,30 +249,55 @@ export function ExportModal({
                       key={preset.id}
                       onClick={() => handleToggleBatchPlatform(preset.id)}
                       onDoubleClick={() => handleSelectPlatform(preset.id)}
-                      className={`flex flex-col items-start p-3 rounded-lg border transition-all text-left relative ${
+                      className={`group relative flex items-center gap-2.5 p-3 rounded-lg border transition-all duration-150 text-left min-h-[48px] ${
                         isSelected
-                          ? 'bg-accent/15 border-accent/40 ring-1 ring-accent/20'
-                          : 'bg-elevated hover:bg-accent/10 border-border-subtle hover:border-accent/30'
+                          ? 'border-[color:var(--platform-color)]/40 bg-[color:var(--platform-color)]/10 shadow-sm ring-1 ring-[color:var(--platform-color)]/20'
+                          : 'bg-elevated border-border-subtle hover:border-white/10 hover:bg-white/[0.03]'
                       }`}
+                      style={{ '--platform-color': preset.color } as React.CSSProperties}
                     >
                       {isSelected && (
-                        <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-accent flex items-center justify-center">
+                        <div
+                          className="absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center"
+                          style={{ backgroundColor: preset.color }}
+                        >
                           <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
                           </svg>
                         </div>
                       )}
-                      <span className="text-xs font-semibold text-text-primary">{preset.label}</span>
-                      <span className="text-[10px] text-text-muted mt-0.5">{preset.aspectRatio} · {preset.width}×{preset.height}</span>
+                      <div
+                        className={`flex-shrink-0 w-9 h-9 rounded-md flex items-center justify-center text-[10px] font-bold tracking-tight transition-all duration-150 ${
+                          isSelected ? 'text-white shadow-sm' : 'text-white/70'
+                        }`}
+                        style={{ backgroundColor: isSelected ? preset.color : `${preset.color}33` }}
+                      >
+                        {preset.icon}
+                      </div>
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className={`text-[13px] font-medium leading-tight truncate ${
+                          isSelected ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary'
+                        }`}>
+                          {preset.label}
+                        </span>
+                        <span className="text-[10px] text-text-muted leading-tight truncate">
+                          {preset.sublabel}
+                        </span>
+                      </div>
                     </button>
                   );
                 })}
                 <button
                   onClick={() => handleSelectPlatform('custom')}
-                  className="flex flex-col items-start p-3 rounded-lg bg-elevated hover:bg-accent/10 border border-border-subtle hover:border-accent/30 transition-all text-left"
+                  className="group flex items-center gap-2.5 p-3 rounded-lg bg-elevated hover:bg-white/[0.03] border border-border-subtle hover:border-white/10 transition-all duration-150 text-left min-h-[48px]"
                 >
-                  <span className="text-xs font-semibold text-text-primary">Custom</span>
-                  <span className="text-[10px] text-text-muted mt-0.5">Define your own format</span>
+                  <div className="flex-shrink-0 w-9 h-9 rounded-md bg-[#8B5CF6]/30 flex items-center justify-center text-[10px] font-bold tracking-tight text-white/70">
+                    ⚙
+                  </div>
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="text-[13px] font-medium leading-tight text-text-secondary group-hover:text-text-primary">Custom</span>
+                    <span className="text-[10px] text-text-muted leading-tight">Define your own</span>
+                  </div>
                 </button>
               </div>
 

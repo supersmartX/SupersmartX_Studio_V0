@@ -6,13 +6,20 @@ import type { PlatformId } from '@/types';
 interface PlatformSelectorProps {
   selectedPlatformId: PlatformId;
   onSelect: (id: PlatformId) => void;
+  layout?: 'inspector' | 'modal';
 }
 
-export function PlatformSelector({ selectedPlatformId, onSelect }: PlatformSelectorProps) {
+export function PlatformSelector({ selectedPlatformId, onSelect, layout = 'inspector' }: PlatformSelectorProps) {
+  const gridClass = layout === 'modal'
+    ? 'grid grid-cols-2 sm:grid-cols-3 gap-2'
+    : 'grid grid-cols-2 gap-1.5';
+
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[13px] text-text-secondary">Platform</span>
-      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Video platform">
+      {layout === 'inspector' && (
+        <span className="text-[11px] font-medium text-text-muted uppercase tracking-wider">Platform</span>
+      )}
+      <div className={gridClass} role="radiogroup" aria-label="Video platform">
         {PLATFORM_PRESETS.map((preset) => {
           const isActive = preset.id === selectedPlatformId;
           return (
@@ -21,20 +28,38 @@ export function PlatformSelector({ selectedPlatformId, onSelect }: PlatformSelec
               role="radio"
               aria-checked={isActive}
               onClick={() => onSelect(preset.id)}
-              className={`flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all ${
+              className={`group relative flex items-center gap-2.5 rounded-lg border transition-all duration-150 text-left min-h-[44px] ${
+                layout === 'modal' ? 'p-3' : 'px-2.5 py-2'
+              } ${
                 isActive
-                  ? 'bg-accent/15 border-accent/30 text-accent'
-                  : 'bg-elevated border-border-subtle text-text-secondary hover:bg-white/[0.04] hover:text-text-primary'
+                  ? 'border-[color:var(--platform-color)]/40 bg-[color:var(--platform-color)]/10 shadow-sm'
+                  : 'border-border-subtle bg-elevated hover:border-white/10 hover:bg-white/[0.03]'
               }`}
+              style={{ '--platform-color': preset.color } as React.CSSProperties}
             >
-              <PlatformPreview
+              <PlatformIcon
+                icon={preset.icon}
+                color={preset.color}
                 aspectRatio={preset.aspectRatio}
                 isActive={isActive}
+                layout={layout}
               />
-              <div className="flex flex-col min-w-0">
-                <span className="text-[13px] font-medium leading-tight truncate">{preset.label}</span>
-                <span className="text-[11px] text-text-muted leading-tight">{preset.sublabel}</span>
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className={`font-medium leading-tight truncate ${
+                  layout === 'modal' ? 'text-[13px]' : 'text-[12px]'
+                } ${isActive ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary'}`}>
+                  {preset.label}
+                </span>
+                <span className="text-[10px] text-text-muted leading-tight truncate">
+                  {preset.sublabel}
+                </span>
               </div>
+              {isActive && (
+                <div
+                  className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: preset.color }}
+                />
+              )}
             </button>
           );
         })}
@@ -43,29 +68,33 @@ export function PlatformSelector({ selectedPlatformId, onSelect }: PlatformSelec
   );
 }
 
-function PlatformPreview({ aspectRatio, isActive }: { aspectRatio: string; isActive: boolean }) {
-  const dimensions = getPreviewDimensions(aspectRatio);
+function PlatformIcon({
+  icon,
+  color,
+  aspectRatio,
+  isActive,
+  layout,
+}: {
+  icon: string;
+  color: string;
+  aspectRatio: string;
+  isActive: boolean;
+  layout: 'inspector' | 'modal';
+}) {
+  const size = layout === 'modal' ? 'w-9 h-9' : 'w-7 h-7';
 
   return (
-    <div className="flex-shrink-0 w-8 h-8 flex items-center justify-center">
+    <div className={`flex-shrink-0 ${size} flex items-center justify-center`}>
       <div
-        className={`border-[1.5px] rounded-sm transition-colors ${
-          isActive ? 'border-accent' : 'border-text-muted/40'
+        className={`w-full h-full rounded-md flex items-center justify-center text-[10px] font-bold tracking-tight transition-all duration-150 ${
+          isActive ? 'text-white shadow-sm' : 'text-white/70'
         }`}
-        style={{ width: dimensions.width, height: dimensions.height }}
-      />
+        style={{
+          backgroundColor: isActive ? color : `${color}33`,
+        }}
+      >
+        {icon}
+      </div>
     </div>
   );
-}
-
-function getPreviewDimensions(aspectRatio: string): { width: number; height: number } {
-  const max = 28;
-  switch (aspectRatio) {
-    case '16:9': return { width: max, height: Math.round(max * 9 / 16) };
-    case '9:16': return { width: Math.round(max * 9 / 16), height: max };
-    case '4:3':  return { width: max, height: Math.round(max * 3 / 4) };
-    case '1:1':  return { width: max, height: max };
-    case '4:5':  return { width: Math.round(max * 4 / 5), height: max };
-    default:     return { width: max, height: Math.round(max * 9 / 16) };
-  }
 }

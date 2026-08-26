@@ -9,14 +9,14 @@ export const ASPECT_RATIO_PRESETS: Record<AspectRatio, { label: string; icon: st
 };
 
 export const PLATFORM_PRESETS: PlatformPreset[] = [
-  { id: 'youtube-landscape', label: 'YouTube Landscape', sublabel: '16:9 — 1920×1080', icon: '📺', aspectRatio: '16:9', width: 1920, height: 1080 },
-  { id: 'youtube-shorts',    label: 'YouTube Shorts',    sublabel: '9:16 — 1080×1920', icon: '📱', aspectRatio: '9:16', width: 1080, height: 1920 },
-  { id: 'instagram-reels',   label: 'Instagram Reels',   sublabel: '9:16 — 1080×1920', icon: '📱', aspectRatio: '9:16', width: 1080, height: 1920 },
-  { id: 'tiktok',            label: 'TikTok',            sublabel: '9:16 — 1080×1920', icon: '📱', aspectRatio: '9:16', width: 1080, height: 1920 },
-  { id: 'instagram-post',    label: 'Instagram Post',    sublabel: '1:1 — 1080×1080', icon: '⬜', aspectRatio: '1:1', width: 1080, height: 1080 },
-  { id: 'instagram-portrait',label: 'Instagram Portrait', sublabel: '4:5 — 1080×1350', icon: '📱', aspectRatio: '4:5', width: 1080, height: 1350 },
-  { id: 'linkedin',          label: 'LinkedIn Video',    sublabel: '9:16 — 1080×1920', icon: '📱', aspectRatio: '9:16', width: 1080, height: 1920 },
-  { id: 'custom',            label: 'Custom',            sublabel: 'Define your own',   icon: '⚙️', aspectRatio: '16:9', width: 1920, height: 1080 },
+  { id: 'youtube-landscape', label: 'YouTube',       sublabel: 'Landscape · 16:9',  icon: 'YT', color: '#FF0000', category: 'youtube',   aspectRatio: '16:9', width: 1920, height: 1080 },
+  { id: 'youtube-shorts',    label: 'YouTube Shorts', sublabel: 'Vertical · 9:16',  icon: 'YT', color: '#FF0000', category: 'youtube',   aspectRatio: '9:16', width: 1080, height: 1920 },
+  { id: 'instagram-reels',   label: 'Reels',         sublabel: 'Vertical · 9:16',  icon: 'IG', color: '#E1306C', category: 'instagram', aspectRatio: '9:16', width: 1080, height: 1920 },
+  { id: 'instagram-post',    label: 'Instagram',     sublabel: 'Square · 1:1',     icon: 'IG', color: '#E1306C', category: 'instagram', aspectRatio: '1:1',  width: 1080, height: 1080 },
+  { id: 'instagram-portrait',label: 'Instagram',     sublabel: 'Portrait · 4:5',   icon: 'IG', color: '#E1306C', category: 'instagram', aspectRatio: '4:5',  width: 1080, height: 1350 },
+  { id: 'tiktok',            label: 'TikTok',        sublabel: 'Vertical · 9:16',  icon: 'TT', color: '#00F2EA', category: 'tiktok',    aspectRatio: '9:16', width: 1080, height: 1920 },
+  { id: 'linkedin',          label: 'LinkedIn',      sublabel: 'Vertical · 9:16',  icon: 'in', color: '#0A66C2', category: 'linkedin',  aspectRatio: '9:16', width: 1080, height: 1920 },
+  { id: 'custom',            label: 'Custom',        sublabel: 'Define your own',   icon: '⚙', color: '#8B5CF6', category: 'custom',    aspectRatio: '16:9', width: 1920, height: 1080 },
 ];
 
 export const DEFAULT_PLATFORM_ID: PlatformId = 'youtube-landscape';
