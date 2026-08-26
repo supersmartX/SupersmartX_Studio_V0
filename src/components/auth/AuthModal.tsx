@@ -107,7 +107,7 @@ export function AuthModal({
     setLoginPassword('');
   }, []);
 
-  const handleClose = useCallback(() => {
+  const resetForm = useCallback(() => {
     setStep('chooser');
     setEmail('');
     setFirstName('');
@@ -116,6 +116,11 @@ export function AuthModal({
     setLoginPassword('');
     setError('');
   }, []);
+
+  const handleClose = useCallback(() => {
+    resetForm();
+    onClose();
+  }, [resetForm, onClose]);
 
   const { isClosing, shouldRender, handleClose: handleModalClose, swipeHandlers } = useModalAnimation(isOpen, handleClose);
 
