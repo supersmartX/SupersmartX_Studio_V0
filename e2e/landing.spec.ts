@@ -36,7 +36,7 @@ test.describe('Landing Page', () => {
     const isPricingVisible = await pricingNav.isVisible().catch(() => false);
     if (isPricingVisible) {
       await pricingNav.click();
-      await expect(page.getByText('Most Popular')).toBeVisible();
+      await expect(page.getByText('Creator').first()).toBeVisible();
     }
   });
 
