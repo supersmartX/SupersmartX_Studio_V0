@@ -252,7 +252,7 @@ export function ExportModal({
                       className={`group relative flex items-center gap-2.5 p-3 rounded-lg border transition-all duration-150 text-left min-h-[48px] ${
                         isSelected
                           ? 'border-[color:var(--platform-color)]/40 bg-[color:var(--platform-color)]/10 shadow-sm ring-1 ring-[color:var(--platform-color)]/20'
-                          : 'bg-elevated border-border-subtle hover:border-white/10 hover:bg-white/[0.03]'
+                          : 'bg-elevated border-border-subtle hover:border-border-strong hover:bg-elevated'
                       }`}
                       style={{ '--platform-color': preset.color } as React.CSSProperties}
                     >
@@ -268,7 +268,7 @@ export function ExportModal({
                       )}
                       <div
                         className={`flex-shrink-0 w-9 h-9 rounded-md flex items-center justify-center text-[10px] font-bold tracking-tight transition-all duration-150 ${
-                          isSelected ? 'text-white shadow-sm' : 'text-white/70'
+                          isSelected ? 'text-white shadow-sm' : 'text-text-secondary'
                         }`}
                         style={{ backgroundColor: isSelected ? preset.color : `${preset.color}33` }}
                       >
@@ -289,9 +289,9 @@ export function ExportModal({
                 })}
                 <button
                   onClick={() => handleSelectPlatform('custom')}
-                  className="group flex items-center gap-2.5 p-3 rounded-lg bg-elevated hover:bg-white/[0.03] border border-border-subtle hover:border-white/10 transition-all duration-150 text-left min-h-[48px]"
+                  className="group flex items-center gap-2.5 p-3 rounded-lg bg-elevated hover:bg-elevated border border-border-subtle hover:border-border-strong transition-all duration-150 text-left min-h-[48px]"
                 >
-                  <div className="flex-shrink-0 w-9 h-9 rounded-md bg-[#8B5CF6]/30 flex items-center justify-center text-[10px] font-bold tracking-tight text-white/70">
+                  <div className="flex-shrink-0 w-9 h-9 rounded-md bg-[#8B5CF6]/30 flex items-center justify-center text-[10px] font-bold tracking-tight text-text-secondary">
                     ⚙
                   </div>
                   <div className="flex flex-col min-w-0 flex-1">

@@ -295,7 +295,7 @@ export function AuthModal({
                 </button>
 
                 {/* Footer */}
-                <p className="text-sm text-white/40 text-center">
+                <p className="text-sm text-text-muted text-center">
                   Already have an account?{' '}
                   <button
                     onClick={() => setStep('email')}

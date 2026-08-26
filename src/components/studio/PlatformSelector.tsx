@@ -33,7 +33,7 @@ export function PlatformSelector({ selectedPlatformId, onSelect, layout = 'inspe
               } ${
                 isActive
                   ? 'border-[color:var(--platform-color)]/40 bg-[color:var(--platform-color)]/10 shadow-sm'
-                  : 'border-border-subtle bg-elevated hover:border-white/10 hover:bg-white/[0.03]'
+                  : 'border-border-subtle bg-elevated hover:border-border-strong hover:bg-elevated'
               }`}
               style={{ '--platform-color': preset.color } as React.CSSProperties}
             >
@@ -87,7 +87,7 @@ function PlatformIcon({
     <div className={`flex-shrink-0 ${size} flex items-center justify-center`}>
       <div
         className={`w-full h-full rounded-md flex items-center justify-center text-[10px] font-bold tracking-tight transition-all duration-150 ${
-          isActive ? 'text-white shadow-sm' : 'text-white/70'
+          isActive ? 'text-white shadow-sm' : 'text-text-secondary'
         }`}
         style={{
           backgroundColor: isActive ? color : `${color}33`,

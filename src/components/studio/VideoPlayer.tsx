@@ -216,7 +216,7 @@ export function VideoPlayer({
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
           <div className="flex flex-col items-center gap-2">
             <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-            <span className="text-xs text-white/70">Loading...</span>
+            <span className="text-xs text-text-secondary">Loading...</span>
           </div>
         </div>
       )}
@@ -244,17 +244,17 @@ export function VideoPlayer({
 
               {!isPreview && (
                 <>
-                  <button onClick={() => skip(-10)} aria-label="Skip back 10 seconds" className="text-white/70 hover:text-white text-xs font-mono">
+                  <button onClick={() => skip(-10)} aria-label="Skip back 10 seconds" className="text-text-secondary hover:text-text-primary text-xs font-mono">
                     -10s
                   </button>
-                  <button onClick={() => skip(10)} aria-label="Skip forward 10 seconds" className="text-white/70 hover:text-white text-xs font-mono">
+                  <button onClick={() => skip(10)} aria-label="Skip forward 10 seconds" className="text-text-secondary hover:text-text-primary text-xs font-mono">
                     +10s
                   </button>
                 </>
               )}
 
               <div className="flex items-center gap-1">
-                <button onClick={toggleMute} aria-label={isMuted ? 'Unmute' : 'Mute'} className="text-white/70 hover:text-white">
+                <button onClick={toggleMute} aria-label={isMuted ? 'Unmute' : 'Mute'} className="text-text-secondary hover:text-text-primary">
                   {isMuted || volume === 0 ? (
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
@@ -277,9 +277,9 @@ export function VideoPlayer({
                 />
               </div>
 
-              <span className="text-micro text-white/60 font-mono">
+              <span className="text-micro text-text-secondary font-mono">
                 {formatTime(currentTime)} / {formatTime(displayDuration)}
-                {isPreview && <span className="text-white/40 ml-1">(preview)</span>}
+                {isPreview && <span className="text-text-muted ml-1">(preview)</span>}
               </span>
             </div>
 
@@ -288,7 +288,7 @@ export function VideoPlayer({
                 <div className="relative">
                   <button
                     onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                    className="text-micro text-white/70 hover:text-white font-mono px-1.5 py-0.5 rounded bg-white/10"
+                    className="text-micro text-text-secondary hover:text-text-primary font-mono px-1.5 py-0.5 rounded bg-elevated"
                   >
                     {playbackRate}x
                   </button>
@@ -310,7 +310,7 @@ export function VideoPlayer({
                 </div>
               )}
 
-              <button onClick={toggleFullscreen} className="text-white/70 hover:text-white">
+              <button onClick={toggleFullscreen} className="text-text-secondary hover:text-text-primary">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                 </svg>
