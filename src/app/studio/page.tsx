@@ -173,17 +173,20 @@ export default function HomePage() {
 
   useEffect(() => {
     if (recorder.recordingState === 'recording') {
+      const isPro = session?.user?.plan === 'pro_monthly' || session?.user?.plan === 'pro_yearly';
       timerRef.current = setInterval(() => {
         setElapsedSeconds((prev) => {
           const next = prev + 1;
-          if (next === FREE_MAX_RECORDING_SECONDS - 60) {
-            showToast('1 minute remaining on Free plan recording limit');
-          }
-          if (next >= FREE_MAX_RECORDING_SECONDS) {
-            if (timerRef.current) clearInterval(timerRef.current);
-            setTimeout(() => recorder.stopRecording(), 0);
-            showToast('Recording stopped — 5 minute limit reached on Free plan');
-            return FREE_MAX_RECORDING_SECONDS;
+          if (!isPro) {
+            if (next === FREE_MAX_RECORDING_SECONDS - 60) {
+              showToast('1 minute remaining on Free plan recording limit');
+            }
+            if (next >= FREE_MAX_RECORDING_SECONDS) {
+              if (timerRef.current) clearInterval(timerRef.current);
+              setTimeout(() => recorder.stopRecording(), 0);
+              showToast('Recording stopped — 5 minute limit reached on Free plan');
+              return FREE_MAX_RECORDING_SECONDS;
+            }
           }
           return next;
         });
@@ -197,7 +200,7 @@ export default function HomePage() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [recorder.recordingState, recorder.stopRecording, showToast]);
+  }, [recorder.recordingState, recorder.stopRecording, showToast, session?.user?.plan]);
 
   const handleRecordStart = useCallback(() => {
     if (!camera.stream) return;

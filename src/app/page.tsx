@@ -942,7 +942,7 @@ export default function LandingPage() {
                 <ul className="lsx-pricing-features">
                   <li className="lsx-pricing-feature">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Teleprompter with auto-scroll
+                    Teleprompter (always free)
                   </li>
                   <li className="lsx-pricing-feature">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
@@ -950,11 +950,11 @@ export default function LandingPage() {
                   </li>
                   <li className="lsx-pricing-feature">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    3 video downloads
+                    3 video downloads free
                   </li>
                   <li className="lsx-pricing-feature">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Videos up to 5 min
+                    Videos up to 5 min duration
                   </li>
                 </ul>
                 <button
@@ -966,7 +966,7 @@ export default function LandingPage() {
                 </button>
               </div>
               <div className="lsx-pricing-card lsx-pricing-card--pro">
-                <div className="lsx-pricing-badge">Most Popular</div>
+                <div className="lsx-pricing-badge">Popular</div>
                 <div className="lsx-pricing-card-header">
                   <h3 className="lsx-pricing-plan">Pro</h3>
                   <div className="lsx-pricing-price">$4.99<span className="lsx-pricing-period">/month</span></div>
@@ -1007,7 +1007,7 @@ export default function LandingPage() {
                   onClick={() => setIsAuthModalOpen(true)}
                   className="lsx-btn lsx-btn-solid lsx-pricing-btn"
                 >
-                  Start Free Trial
+                  Get Pro
                 </button>
               </div>
             </div>
