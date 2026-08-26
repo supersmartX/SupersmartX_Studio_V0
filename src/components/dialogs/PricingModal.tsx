@@ -13,22 +13,44 @@ interface PricingModalProps {
   showToast: (message: string) => void;
 }
 
-const PRO_FEATURES = [
-  'Everything in Free',
-  'Unlimited video downloads',
-  'Unlimited recording length',
-  '4K export quality',
-  'Priority support',
-  'Custom branding',
-  'Cloud sync',
-] as const;
-
-const FREE_FEATURES = [
-  'Teleprompter (always free)',
-  'Audio recording & download',
-  '3 video downloads free',
-  'Videos up to 5 min duration',
-] as const;
+const PLAN_DETAILS = {
+  free: {
+    name: 'Free',
+    badge: null,
+    features: [
+      { text: 'Teleprompter (always free)', highlight: false },
+      { text: 'Audio recording & download', highlight: false },
+      { text: '3 video downloads free', highlight: false },
+      { text: 'Videos up to 5 min duration', highlight: false },
+    ],
+  },
+  pro_monthly: {
+    name: 'Pro Monthly',
+    badge: { text: 'Popular', color: 'bg-accent' },
+    features: [
+      { text: 'Everything in Free', highlight: false },
+      { text: 'Unlimited video downloads', highlight: true },
+      { text: 'Unlimited recording length', highlight: true },
+      { text: '4K export quality', highlight: true },
+      { text: 'Priority support', highlight: false },
+      { text: 'Custom branding', highlight: false },
+      { text: 'Cloud sync', highlight: false },
+    ],
+  },
+  pro_yearly: {
+    name: 'Pro Yearly',
+    badge: { text: 'Save 17%', color: 'bg-emerald-500' },
+    features: [
+      { text: 'Everything in Free', highlight: false },
+      { text: 'Unlimited video downloads', highlight: true },
+      { text: 'Unlimited recording length', highlight: true },
+      { text: '4K export quality', highlight: true },
+      { text: 'Priority support', highlight: false },
+      { text: 'Custom branding', highlight: false },
+      { text: 'Cloud sync', highlight: false },
+    ],
+  },
+} as const;
 
 const COUNTRY_FLAGS: Record<string, string> = {
   US: '🇺🇸', GB: '🇬🇧', DE: '🇩🇪', FR: '🇫🇷', IN: '🇮🇳', JP: '🇯🇵', AU: '🇦🇺', CA: '🇨🇦',
@@ -147,6 +169,18 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
   const yearlyPrice = currentPricing.yearly;
   const yearlyOriginal = currentPricing.yearlyOriginal;
 
+  const getPlanPrice = (planId: string) => {
+    if (planId === 'free') return 'Free';
+    if (planId === 'pro_monthly') return format(monthlyPrice);
+    return format(yearlyPrice);
+  };
+
+  const getPlanPeriod = (planId: string) => {
+    if (planId === 'free') return '/forever';
+    if (planId === 'pro_monthly') return '/month';
+    return '/year';
+  };
+
   return (
     <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Choose Plan" {...swipeHandlers}>
       <div
@@ -154,7 +188,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
         onClick={handleClose}
       />
 
-      <div className={`relative w-full max-w-lg bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] flex flex-col`}>
+      <div className={`relative w-full max-w-2xl bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] flex flex-col`}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle shrink-0">
           <div className="flex items-center gap-2">
@@ -189,77 +223,68 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                 <div className="flex flex-col gap-5">
                   {/* Plan cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {/* Free */}
-                    <button
-                      onClick={() => setSelectedPlan('free')}
-                      className={`relative flex flex-col items-start p-4 rounded-xl border-2 transition-all text-left min-h-[44px] ${
-                        selectedPlan === 'free'
-                          ? 'border-accent bg-accent/5'
-                          : 'border-border-subtle hover:border-border-default bg-elevated'
-                      }`}
-                    >
-                      <span className="text-sm font-semibold text-text-primary">Free</span>
-                      <span className="text-lg font-bold text-text-primary mt-1">Free</span>
-                      <span className="text-xs text-text-muted mt-0.5">/forever</span>
-                    </button>
+                    {(Object.keys(PLAN_DETAILS) as Array<keyof typeof PLAN_DETAILS>).map((planId) => {
+                      const plan = PLAN_DETAILS[planId];
+                      const isSelected = selectedPlan === planId;
+                      const price = getPlanPrice(planId);
+                      const period = getPlanPeriod(planId);
 
-                    {/* Monthly */}
-                    <button
-                      onClick={() => setSelectedPlan('pro_monthly')}
-                      className={`relative flex flex-col items-start p-4 rounded-xl border-2 transition-all text-left min-h-[44px] ${
-                        selectedPlan === 'pro_monthly'
-                          ? 'border-accent bg-accent/5'
-                          : 'border-border-subtle hover:border-border-default bg-elevated'
-                      }`}
-                    >
-                      <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-accent text-white text-[9px] font-bold rounded-full uppercase">
-                        Popular
-                      </span>
-                      <span className="text-sm font-semibold text-text-primary">Pro</span>
-                      <span className="text-lg font-bold text-text-primary mt-1">
-                        {format(monthlyPrice)}
-                      </span>
-                      <span className="text-xs text-text-muted">/month</span>
-                    </button>
-
-                    {/* Yearly */}
-                    <button
-                      onClick={() => setSelectedPlan('pro_yearly')}
-                      className={`relative flex flex-col items-start p-4 rounded-xl border-2 transition-all text-left min-h-[44px] ${
-                        selectedPlan === 'pro_yearly'
-                          ? 'border-accent bg-accent/5'
-                          : 'border-border-subtle hover:border-border-default bg-elevated'
-                      }`}
-                    >
-                      <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-emerald-500 text-white text-[9px] font-bold rounded-full uppercase">
-                        Save 17%
-                      </span>
-                      <span className="text-sm font-semibold text-text-primary">Pro</span>
-                      <span className="text-lg font-bold text-text-primary mt-1">
-                        {format(yearlyPrice)}
-                      </span>
-                      <span className="text-xs text-text-muted">/year</span>
-                      <span className="text-xs text-text-muted line-through mt-0.5">
-                        {format(yearlyOriginal)}
-                      </span>
-                    </button>
+                      return (
+                        <button
+                          key={planId}
+                          onClick={() => setSelectedPlan(planId)}
+                          className={`relative flex flex-col items-start p-4 rounded-xl border-2 transition-all text-left min-h-[44px] ${
+                            isSelected
+                              ? 'border-accent bg-accent/5 ring-1 ring-accent/20'
+                              : 'border-border-subtle hover:border-border-default bg-elevated'
+                          }`}
+                        >
+                          {plan.badge && (
+                            <span className={`absolute -top-2.5 left-1/2 -translate-x-1/2 px-2 py-0.5 ${plan.badge.color} text-white text-[9px] font-bold rounded-full uppercase whitespace-nowrap`}>
+                              {plan.badge.text}
+                            </span>
+                          )}
+                          <span className="text-sm font-semibold text-text-primary">{plan.name}</span>
+                          <span className="text-lg font-bold text-text-primary mt-1">{price}</span>
+                          <span className="text-xs text-text-muted">{period}</span>
+                          {planId === 'pro_yearly' && (
+                            <span className="text-xs text-text-muted line-through mt-0.5">
+                              {format(yearlyOriginal)}/yr
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
 
-                  {/* Features */}
-                  <div className="bg-elevated rounded-xl p-4">
-                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">
-                      {selectedPlan === 'free' ? 'Free' : 'Pro'} Plan Includes
-                    </h3>
-                    <ul className="space-y-2">
-                      {(selectedPlan === 'free' ? FREE_FEATURES : PRO_FEATURES).map((feature) => (
-                        <li key={feature} className="flex items-start gap-2 text-sm text-text-secondary">
-                          <svg className="w-4 h-4 text-success shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          {feature}
-                        </li>
-                      ))}
-                    </ul>
+                  {/* Features comparison */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {(Object.keys(PLAN_DETAILS) as Array<keyof typeof PLAN_DETAILS>).map((planId) => {
+                      const plan = PLAN_DETAILS[planId];
+                      const isSelected = selectedPlan === planId;
+                      return (
+                        <div
+                          key={planId}
+                          className={`rounded-xl p-4 transition-all ${
+                            isSelected ? 'bg-accent/5 border border-accent/20' : 'bg-elevated border border-transparent'
+                          }`}
+                        >
+                          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">
+                            {plan.name}
+                          </h3>
+                          <ul className="space-y-2">
+                            {plan.features.map((feature) => (
+                              <li key={feature.text} className="flex items-start gap-2 text-xs text-text-secondary">
+                                <svg className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${feature.highlight ? 'text-accent' : 'text-success'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span className={feature.highlight ? 'font-medium text-text-primary' : ''}>{feature.text}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })}
                   </div>
 
                   {/* CTA */}

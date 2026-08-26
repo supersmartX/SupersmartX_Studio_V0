@@ -489,6 +489,7 @@ export default function HomePage() {
             onOpenTeleprompter={handleOpenTeleprompter}
             onShowShortcuts={handleShowShortcuts}
             onPricingClick={handlePricingClick}
+            userPlan={session?.user?.plan || 'free'}
           />
 
           <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden" role="main">
@@ -621,6 +622,7 @@ export default function HomePage() {
           onPricingClick={handlePricingClick}
           isCameraInitialized={camera.isInitialized}
           onCameraInitialize={handleCameraInitialize}
+          userPlan={session?.user?.plan || 'free'}
         />
 
         {/* Footer - hidden on mobile/tablet via CSS (hidden md:flex) */}

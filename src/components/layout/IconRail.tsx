@@ -26,6 +26,7 @@ interface IconRailProps {
   onOpenTeleprompter: () => void;
   onShowShortcuts: () => void;
   onPricingClick: () => void;
+  userPlan?: string;
 }
 
 export function IconRail({
@@ -41,7 +42,9 @@ export function IconRail({
   onOpenTeleprompter,
   onShowShortcuts,
   onPricingClick,
+  userPlan = 'free',
 }: IconRailProps) {
+  const isPro = userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
 
   return (
     <nav className="hidden lg:flex w-[200px] h-full border-r border-border-subtle bg-surface flex-col shrink-0 overflow-hidden" aria-label="Main navigation">
@@ -181,20 +184,32 @@ export function IconRail({
 
       {/* Upgrade Card */}
       <div className="px-3 pb-4">
-        <button
-          onClick={onPricingClick}
-          className="w-full bg-elevated border border-border-subtle rounded-xl p-3.5 flex flex-col gap-2 hover:bg-subtle hover:border-accent/30 transition-colors text-left group"
-        >
-          <p className="text-[11px] text-text-secondary leading-relaxed group-hover:text-text-primary transition-colors">
-            Upgrade to Pro
-          </p>
-          <p className="text-[10px] text-text-muted leading-relaxed">
-            Unlock unlimited recording and 4K export.
-          </p>
-          <span className="text-[10px] font-semibold text-accent opacity-0 group-hover:opacity-100 transition-opacity">
-            View plans &rarr;
-          </span>
-        </button>
+        {isPro ? (
+          <div className="w-full bg-accent/10 border border-accent/20 rounded-xl p-3.5 flex flex-col gap-1.5 text-left">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-accent bg-accent/20 px-1.5 py-0.5 rounded">PRO</span>
+              <span className="text-[11px] font-medium text-text-primary">Active</span>
+            </div>
+            <p className="text-[10px] text-text-muted">
+              Unlimited recording & 4K export
+            </p>
+          </div>
+        ) : (
+          <button
+            onClick={onPricingClick}
+            className="w-full bg-elevated border border-border-subtle rounded-xl p-3.5 flex flex-col gap-2 hover:bg-subtle hover:border-accent/30 transition-colors text-left group"
+          >
+            <p className="text-[11px] text-text-secondary leading-relaxed group-hover:text-text-primary transition-colors">
+              Upgrade to Pro
+            </p>
+            <p className="text-[10px] text-text-muted leading-relaxed">
+              Unlock unlimited recording and 4K export.
+            </p>
+            <span className="text-[10px] font-semibold text-accent opacity-0 group-hover:opacity-100 transition-opacity">
+              View plans &rarr;
+            </span>
+          </button>
+        )}
       </div>
     </nav>
   );
