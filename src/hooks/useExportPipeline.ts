@@ -348,7 +348,7 @@ async function encodeExport(
       },
       audio: master.hasAudio ? {
         codec: 'aac',
-        numberOfChannels: 1,
+        numberOfChannels: 2,
         sampleRate: 48000,
       } : undefined,
       fastStart: 'fragmented',
@@ -365,7 +365,7 @@ async function encodeExport(
       codec: getAvcCodec(outputWidth, outputHeight),
       width: outputWidth,
       height: outputHeight,
-      bitrate: 5_000_000,
+      bitrate: 10_000_000,
       bitrateMode: 'constant',
     });
 
@@ -383,9 +383,9 @@ async function encodeExport(
         });
         audioEncoder.configure({
           codec: 'mp4a.40.2',
-          numberOfChannels: 1,
+          numberOfChannels: 2,
           sampleRate: 48000,
-          bitrate: 128_000,
+          bitrate: 192_000,
         });
 
         scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -395,19 +395,23 @@ async function encodeExport(
         let audioTimestamp = 0;
         scriptNode.onaudioprocess = (e) => {
           if (!audioEncoder || audioEncoder.state !== 'configured') return;
-          const inputData = e.inputBuffer.getChannelData(0);
-          const samples = new Float32Array(inputData.length);
-          samples.set(inputData);
+          const inputDataL = e.inputBuffer.getChannelData(0);
+          const inputDataR = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : inputDataL;
+          const samples = new Float32Array(inputDataL.length * 2);
+          for (let i = 0; i < inputDataL.length; i++) {
+            samples[i * 2] = inputDataL[i];
+            samples[i * 2 + 1] = inputDataR[i];
+          }
 
           const audioData = new AudioData({
             format: 'f32-planar',
-            numberOfChannels: 1,
-            numberOfFrames: samples.length,
+            numberOfChannels: 2,
+            numberOfFrames: inputDataL.length,
             sampleRate: 48000,
             timestamp: audioTimestamp,
             data: samples,
           });
-          audioTimestamp += Math.round((samples.length / 48000) * 1_000_000);
+          audioTimestamp += Math.round((inputDataL.length / 48000) * 1_000_000);
           audioEncoder.encode(audioData);
           audioData.close();
         };
