@@ -600,9 +600,9 @@ export default function LandingPage() {
 
 .lsx-pricing-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 24px;
-  max-width: 720px;
+  max-width: 960px;
   margin: 0 auto;
 }
 .lsx-pricing-card {
@@ -963,6 +963,51 @@ export default function LandingPage() {
                   className="lsx-btn lsx-btn-ghost lsx-pricing-btn"
                 >
                   Get Started
+                </button>
+              </div>
+              <div className="lsx-pricing-card lsx-pricing-card--pro">
+                <div className="lsx-pricing-badge">Save 17%</div>
+                <div className="lsx-pricing-card-header">
+                  <h3 className="lsx-pricing-plan">Pro Yearly</h3>
+                  <div className="lsx-pricing-price">$49.99<span className="lsx-pricing-period">/year</span></div>
+                  <p className="lsx-pricing-note">That&apos;s $4.17/month</p>
+                </div>
+                <ul className="lsx-pricing-features">
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    Everything in Free
+                  </li>
+                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    Unlimited video downloads
+                  </li>
+                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    Unlimited recording length
+                  </li>
+                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    4K export quality
+                  </li>
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    Priority support
+                  </li>
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    Custom branding
+                  </li>
+                  <li className="lsx-pricing-feature">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    Cloud sync
+                  </li>
+                </ul>
+                <button
+                  type="button"
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="lsx-btn lsx-btn-solid lsx-pricing-btn"
+                >
+                  Get Pro Yearly
                 </button>
               </div>
               <div className="lsx-pricing-card lsx-pricing-card--pro">
