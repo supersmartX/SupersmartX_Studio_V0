@@ -133,7 +133,7 @@ export function AuthModal({
         onClick={handleModalClose}
       />
 
-      <div className={`relative flex w-full max-w-[960px] min-h-[600px] max-h-[90vh] bg-canvas rounded-3xl shadow-2xl overflow-hidden border border-border-subtle ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}>
+      <div className={`relative flex w-full max-w-[960px] min-h-[600px] max-h-[90vh] bg-canvas rounded-2xl shadow-2xl overflow-hidden border border-border-subtle ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}>
         {/* Close button */}
         <button
           onClick={handleModalClose}
