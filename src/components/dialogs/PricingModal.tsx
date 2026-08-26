@@ -272,6 +272,11 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                             {price === 0 ? 'Free' : format(price)}
                           </span>
                           <span className="text-xs text-text-muted">{periodLabel}</span>
+                          {tier !== 'free' && billingPeriod === 'yearly' && (
+                            <span className="text-[10px] text-text-muted mt-0.5">
+                              That&apos;s {format(getTierPrice(tier, 'yearly') / 12)}/mo
+                            </span>
+                          )}
                         </button>
                       );
                     })}
