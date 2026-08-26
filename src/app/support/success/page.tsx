@@ -9,7 +9,7 @@ function SuccessContent() {
   const orderId = searchParams.get('order_id');
   const plan = searchParams.get('plan');
 
-  const planName = plan === 'pro_yearly' ? 'Pro Yearly' : plan === 'pro_monthly' ? 'Pro Monthly' : 'Pro';
+  const planName = plan === 'pro_yearly' ? 'Pro Yearly' : plan === 'pro_monthly' ? 'Pro Monthly' : plan === 'creator_yearly' ? 'Creator Yearly' : plan === 'creator_monthly' ? 'Creator Monthly' : 'Pro';
 
   return (
     <div className="min-h-screen bg-canvas flex items-center justify-center p-4">

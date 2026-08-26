@@ -55,6 +55,7 @@ export default function LandingPage() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pricing, setPricing] = useState<RegionalPricing | null>(null);
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
 
   const currentPricing = pricing || getPricingForCountry('US');
   const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
@@ -609,6 +610,43 @@ export default function LandingPage() {
   flex-shrink: 0;
 }
 
+.lsx-pricing-toggle {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+.lsx-pricing-toggle-btn {
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.lsx-pricing-toggle-btn:first-child {
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+}
+.lsx-pricing-toggle-btn:last-child {
+  border-radius: 0 8px 8px 0;
+}
+.lsx-pricing-toggle-btn--active {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+.lsx-pricing-toggle-save {
+  color: #34d399;
+  font-size: 11px;
+  margin-left: 4px;
+}
+.lsx-pricing-toggle-btn--active .lsx-pricing-toggle-save {
+  color: rgba(255,255,255,0.9);
+}
+
 .lsx-pricing-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -714,6 +752,7 @@ export default function LandingPage() {
   .lsx-step { padding: 0; max-width: 320px; }
   .lsx-step-connector { width: 1px; height: 40px; margin: 0; }
   .lsx-pricing-grid { grid-template-columns: 1fr; max-width: 400px; }
+  .lsx-pricing-toggle-btn { padding: 8px 14px; font-size: 12px; }
 }
 
 .lsx-mobile-nav-links {
@@ -944,6 +983,25 @@ export default function LandingPage() {
               <h2 className="lsx-section-title">Start free. Upgrade when ready.</h2>
               <p className="lsx-section-subtitle">PPP-adjusted pricing in 60+ countries. Prices in {currentPricing.currency}.</p>
             </div>
+
+            {/* Billing period toggle */}
+            <div className="lsx-pricing-toggle">
+              <button
+                type="button"
+                onClick={() => setBillingPeriod('monthly')}
+                className={`lsx-pricing-toggle-btn ${billingPeriod === 'monthly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
+              >
+                Monthly
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingPeriod('yearly')}
+                className={`lsx-pricing-toggle-btn ${billingPeriod === 'yearly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
+              >
+                Yearly <span className="lsx-pricing-toggle-save">Save 17%</span>
+              </button>
+            </div>
+
             <div className="lsx-pricing-grid">
               <div className="lsx-pricing-card">
                 <div className="lsx-pricing-card-header">
@@ -977,11 +1035,16 @@ export default function LandingPage() {
                 </button>
               </div>
               <div className="lsx-pricing-card lsx-pricing-card--pro">
-                <div className="lsx-pricing-badge">Save 17%</div>
+                <div className="lsx-pricing-badge">Popular</div>
                 <div className="lsx-pricing-card-header">
-                  <h3 className="lsx-pricing-plan">Pro Yearly</h3>
-                  <div className="lsx-pricing-price">{format(currentPricing.yearly)}<span className="lsx-pricing-period">/year</span></div>
-                  <p className="lsx-pricing-note">That&apos;s {format(currentPricing.yearly / 12)}/month</p>
+                  <h3 className="lsx-pricing-plan">Creator</h3>
+                  <div className="lsx-pricing-price">{format(billingPeriod === 'monthly' ? currentPricing.creatorMonthly : currentPricing.creatorYearly)}<span className="lsx-pricing-period">/{billingPeriod === 'monthly' ? 'month' : 'year'}</span></div>
+                  {billingPeriod === 'yearly' && (
+                    <p className="lsx-pricing-note">That&apos;s {format(currentPricing.creatorYearly / 12)}/month</p>
+                  )}
+                  {billingPeriod === 'monthly' && (
+                    <p className="lsx-pricing-note">PPP-adjusted by region</p>
+                  )}
                 </div>
                 <ul className="lsx-pricing-features">
                   <li className="lsx-pricing-feature">
@@ -998,19 +1061,15 @@ export default function LandingPage() {
                   </li>
                   <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    4K export quality
+                    1080p export quality
                   </li>
                   <li className="lsx-pricing-feature">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Priority support
+                    All platform presets
                   </li>
                   <li className="lsx-pricing-feature">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Custom branding
-                  </li>
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Cloud sync
+                    Crop &amp; reframe for each platform
                   </li>
                 </ul>
                 <button
@@ -1018,44 +1077,36 @@ export default function LandingPage() {
                   onClick={() => setIsAuthModalOpen(true)}
                   className="lsx-btn lsx-btn-solid lsx-pricing-btn"
                 >
-                  Get Pro Yearly
+                  Get Creator
                 </button>
               </div>
               <div className="lsx-pricing-card lsx-pricing-card--pro">
-                <div className="lsx-pricing-badge">Popular</div>
                 <div className="lsx-pricing-card-header">
                   <h3 className="lsx-pricing-plan">Pro</h3>
-                  <div className="lsx-pricing-price">{format(currentPricing.monthly)}<span className="lsx-pricing-period">/month</span></div>
-                  <p className="lsx-pricing-note">PPP-adjusted by region</p>
+                  <div className="lsx-pricing-price">{format(billingPeriod === 'monthly' ? currentPricing.proMonthly : currentPricing.proYearly)}<span className="lsx-pricing-period">/{billingPeriod === 'monthly' ? 'month' : 'year'}</span></div>
+                  {billingPeriod === 'yearly' && (
+                    <p className="lsx-pricing-note">That&apos;s {format(currentPricing.proYearly / 12)}/month</p>
+                  )}
+                  {billingPeriod === 'monthly' && (
+                    <p className="lsx-pricing-note">PPP-adjusted by region</p>
+                  )}
                 </div>
                 <ul className="lsx-pricing-features">
                   <li className="lsx-pricing-feature">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Everything in Free
-                  </li>
-                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Unlimited video downloads
-                  </li>
-                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Unlimited recording length
+                    Everything in Creator
                   </li>
                   <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     4K export quality
                   </li>
+                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    Batch export (multiple platforms)
+                  </li>
                   <li className="lsx-pricing-feature">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     Priority support
-                  </li>
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Custom branding
-                  </li>
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Cloud sync
                   </li>
                 </ul>
                 <button

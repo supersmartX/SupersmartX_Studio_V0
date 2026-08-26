@@ -15,15 +15,18 @@ describe('getPricingForCountry', () => {
     const pricing = getPricingForCountry('US');
     expect(pricing.country).toBe('US');
     expect(pricing.currency).toBe('USD');
-    expect(pricing.monthly).toBe(4.99);
-    expect(pricing.yearly).toBe(49.99);
+    expect(pricing.creatorMonthly).toBe(7.99);
+    expect(pricing.creatorYearly).toBe(59.99);
+    expect(pricing.proMonthly).toBe(14.99);
+    expect(pricing.proYearly).toBe(119.99);
   });
 
   it('returns IN pricing for India', () => {
     const pricing = getPricingForCountry('IN');
     expect(pricing.country).toBe('IN');
     expect(pricing.currency).toBe('INR');
-    expect(pricing.monthly).toBe(199);
+    expect(pricing.creatorMonthly).toBe(349);
+    expect(pricing.proMonthly).toBe(649);
   });
 
   it('returns fallback (IN) for unknown country', () => {
@@ -61,16 +64,24 @@ describe('formatPrice', () => {
 });
 
 describe('getServerPrice', () => {
-  it('returns monthly price for pro_monthly + USD', () => {
-    expect(getServerPrice('pro_monthly', 'USD')).toBe(4.99);
+  it('returns creator_monthly price for creator_monthly + USD', () => {
+    expect(getServerPrice('creator_monthly', 'USD')).toBe(7.99);
   });
 
-  it('returns yearly price for pro_yearly + USD', () => {
-    expect(getServerPrice('pro_yearly', 'USD')).toBe(49.99);
+  it('returns creator_yearly price for creator_yearly + USD', () => {
+    expect(getServerPrice('creator_yearly', 'USD')).toBe(59.99);
   });
 
-  it('returns INR price for pro_monthly + INR', () => {
-    expect(getServerPrice('pro_monthly', 'INR')).toBe(199);
+  it('returns pro_monthly price for pro_monthly + USD', () => {
+    expect(getServerPrice('pro_monthly', 'USD')).toBe(14.99);
+  });
+
+  it('returns pro_yearly price for pro_yearly + USD', () => {
+    expect(getServerPrice('pro_yearly', 'USD')).toBe(119.99);
+  });
+
+  it('returns INR price for creator_monthly + INR', () => {
+    expect(getServerPrice('creator_monthly', 'INR')).toBe(349);
   });
 
   it('returns null for invalid plan', () => {
@@ -79,21 +90,21 @@ describe('getServerPrice', () => {
   });
 
   it('falls back to INR for unknown currency', () => {
-    expect(getServerPrice('pro_monthly', 'UNKNOWN')).toBe(199);
+    expect(getServerPrice('creator_monthly', 'UNKNOWN')).toBe(349);
   });
 });
 
 describe('validateOrderAmount', () => {
   it('returns true for correct amount', () => {
-    expect(validateOrderAmount('pro_monthly', 'USD', 4.99)).toBe(true);
+    expect(validateOrderAmount('creator_monthly', 'USD', 7.99)).toBe(true);
   });
 
   it('returns true for amount within tolerance', () => {
-    expect(validateOrderAmount('pro_monthly', 'USD', 4.995)).toBe(true);
+    expect(validateOrderAmount('creator_monthly', 'USD', 7.995)).toBe(true);
   });
 
   it('returns false for wrong amount', () => {
-    expect(validateOrderAmount('pro_monthly', 'USD', 1)).toBe(false);
+    expect(validateOrderAmount('creator_monthly', 'USD', 1)).toBe(false);
   });
 
   it('returns false for invalid plan', () => {
@@ -101,7 +112,7 @@ describe('validateOrderAmount', () => {
   });
 
   it('returns false for negative amount', () => {
-    expect(validateOrderAmount('pro_monthly', 'USD', -4.99)).toBe(false);
+    expect(validateOrderAmount('creator_monthly', 'USD', -7.99)).toBe(false);
   });
 });
 

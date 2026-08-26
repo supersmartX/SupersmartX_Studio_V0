@@ -9,7 +9,7 @@ const CASHFREE_BASE_URL =
 
 const VALID_CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'BRL', 'MXN', 'NGN', 'ZAR', 'SGD', 'AED', 'SAR', 'PKR', 'BDT', 'PHP', 'IDR', 'MYR', 'THB', 'KRW', 'VND'];
 
-const VALID_PLANS = ['free', 'pro_monthly', 'pro_yearly'];
+const VALID_PLANS = ['free', 'creator_monthly', 'creator_yearly', 'pro_monthly', 'pro_yearly'];
 
 interface CashfreeOrderRequest {
   plan: string;

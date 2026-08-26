@@ -37,6 +37,19 @@ function sanitizeAttr(str: string): string {
   return str.replace(/[<>"'&]/g, '').trim().slice(0, 200);
 }
 
+function getPlanFeatures(plan: string): string[] {
+  switch (plan) {
+    case 'pro_monthly':
+    case 'pro_yearly':
+      return ['Everything in Creator', '4K export quality', 'Batch export (multiple platforms)', 'Priority support'];
+    case 'creator_monthly':
+    case 'creator_yearly':
+      return ['Unlimited video downloads', 'Unlimited recording length', '1080p export quality', 'All platform presets', 'Crop & reframe for each platform'];
+    default:
+      return [];
+  }
+}
+
 function formatCurrency(amount: number, currency: string): string {
   try {
     return new Intl.NumberFormat('en-US', {
@@ -51,6 +64,8 @@ function formatCurrency(amount: number, currency: string): string {
 
 function getPlanDisplayName(plan: string): string {
   switch (plan) {
+    case 'creator_monthly': return 'Creator Monthly';
+    case 'creator_yearly': return 'Creator Yearly';
     case 'pro_monthly': return 'Pro Monthly';
     case 'pro_yearly': return 'Pro Yearly';
     case 'free': return 'Free';
@@ -124,11 +139,11 @@ function buildUserConfirmationHtml(data: PaymentEmailData): string {
           </table>
         </td></tr>
 
-        <!-- Pro Features -->
+        <!-- Plan Features -->
         <tr><td style="padding:0 32px 24px;">
-          <p style="margin:0 0 12px;font-size:13px;color:#a1a1aa;font-weight:600;">Your Pro plan includes:</p>
+          <p style="margin:0 0 12px;font-size:13px;color:#a1a1aa;font-weight:600;">Your ${sanitizeHtml(planName)} plan includes:</p>
           <table width="100%" cellpadding="0" cellspacing="0">
-            ${['Unlimited video downloads', 'Unlimited recording length', '4K export quality', 'Priority support', 'Custom branding', 'Cloud sync'].map(f =>
+            ${getPlanFeatures(data.plan).map(f =>
               `<tr><td style="padding:4px 0;font-size:13px;color:#a1a1aa;">&#10003; ${f}</td></tr>`
             ).join('')}
           </table>

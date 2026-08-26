@@ -71,7 +71,9 @@ function cleanupProcessedOrders() {
   }
 }
 
-function extractPlanFromOrderId(orderId: string): 'pro_monthly' | 'pro_yearly' {
+function extractPlanFromOrderId(orderId: string): 'pro_monthly' | 'pro_yearly' | 'creator_monthly' | 'creator_yearly' {
+  if (orderId.includes('creator_yearly')) return 'creator_yearly';
+  if (orderId.includes('creator_monthly')) return 'creator_monthly';
   if (orderId.includes('pro_yearly')) return 'pro_yearly';
   return 'pro_monthly';
 }
@@ -114,7 +116,7 @@ export async function POST(request: NextRequest) {
 
     if (order.order_status === 'PAID' || paymentStatus === 'SUCCESS') {
       const plan = extractPlanFromOrderId(orderId);
-      const billingPeriod = plan === 'pro_yearly' ? 'yearly' as const : 'monthly' as const;
+      const billingPeriod = plan.includes('yearly') ? 'yearly' as const : 'monthly' as const;
 
       const emailData = {
         orderId,

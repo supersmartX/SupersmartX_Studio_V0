@@ -9,7 +9,7 @@ export interface StoredUser {
   name: string;
   passwordHash: string;
   createdAt: string;
-  plan: 'free' | 'pro_monthly' | 'pro_yearly';
+  plan: 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly';
   planExpiresAt?: string;
 }
 
@@ -53,7 +53,7 @@ export async function createUser(email: string, name: string, password: string):
 
 export function updateUserPlan(
   email: string,
-  plan: 'free' | 'pro_monthly' | 'pro_yearly',
+  plan: 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly',
   expiresAt?: string
 ): boolean {
   const users = getUsers();

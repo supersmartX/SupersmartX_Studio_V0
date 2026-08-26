@@ -173,7 +173,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (recorder.recordingState === 'recording') {
-      const isPro = session?.user?.plan === 'pro_monthly' || session?.user?.plan === 'pro_yearly';
+      const isPro = session?.user?.plan === 'pro_monthly' || session?.user?.plan === 'pro_yearly' || session?.user?.plan === 'creator_monthly' || session?.user?.plan === 'creator_yearly';
       timerRef.current = setInterval(() => {
         setElapsedSeconds((prev) => {
           const next = prev + 1;

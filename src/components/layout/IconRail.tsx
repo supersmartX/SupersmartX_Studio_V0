@@ -44,6 +44,7 @@ export function IconRail({
   onPricingClick,
   userPlan = 'free',
 }: IconRailProps) {
+  const isPaid = userPlan === 'creator_monthly' || userPlan === 'creator_yearly' || userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
   const isPro = userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
 
   return (
@@ -184,14 +185,14 @@ export function IconRail({
 
       {/* Upgrade Card */}
       <div className="px-3 pb-4">
-        {isPro ? (
+        {isPaid ? (
           <div className="w-full bg-accent/10 border border-accent/20 rounded-xl p-3.5 flex flex-col gap-1.5 text-left">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold text-accent bg-accent/20 px-1.5 py-0.5 rounded">PRO</span>
+              <span className="text-[10px] font-bold text-accent bg-accent/20 px-1.5 py-0.5 rounded">{isPro ? 'PRO' : 'CREATOR'}</span>
               <span className="text-[11px] font-medium text-text-primary">Active</span>
             </div>
             <p className="text-[10px] text-text-muted">
-              Unlimited recording & 4K export
+              {isPro ? '4K export & batch processing' : 'Unlimited recording & 1080p export'}
             </p>
           </div>
         ) : (
@@ -200,10 +201,10 @@ export function IconRail({
             className="w-full bg-elevated border border-border-subtle rounded-xl p-3.5 flex flex-col gap-2 hover:bg-subtle hover:border-accent/30 transition-colors text-left group"
           >
             <p className="text-[11px] text-text-secondary leading-relaxed group-hover:text-text-primary transition-colors">
-              Upgrade to Pro
+              Upgrade to Creator
             </p>
             <p className="text-[10px] text-text-muted leading-relaxed">
-              Unlock unlimited recording and 4K export.
+              Unlimited recording, downloads & 1080p export.
             </p>
             <span className="text-[10px] font-semibold text-accent opacity-0 group-hover:opacity-100 transition-opacity">
               View plans &rarr;
