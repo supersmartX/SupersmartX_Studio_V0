@@ -129,6 +129,18 @@ export function useExportPipeline(): UseExportPipelineReturn {
 
       try {
         const resultBlob = await encodeExport(master, exportConfig, abortController.signal, onProgress);
+
+        if (resultBlob.size < 100) {
+          const failedJob: ExportJob = {
+            ...job,
+            status: 'error',
+            error: 'Export produced an empty file. The video may not have played correctly.',
+          };
+          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
+          abortControllerRef.current.delete(jobId);
+          return failedJob;
+        }
+
         const resultUrl = URL.createObjectURL(resultBlob);
 
         const completedJob: ExportJob = {
@@ -281,6 +293,7 @@ async function encodeExport(
 
   const videoEl = document.createElement('video');
   videoEl.playsInline = true;
+  videoEl.muted = true;
   videoEl.preload = 'auto';
   videoEl.crossOrigin = 'anonymous';
   videoEl.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none';
@@ -330,24 +343,19 @@ async function encodeExport(
       firstTimestampBehavior: 'offset',
     });
 
-    const videoEncoderPromise = new Promise<VideoEncoder>((resolve, reject) => {
-      const encoder = new VideoEncoder({
-        output: (chunk, metadata) => {
-          muxer.addVideoChunk(chunk, metadata);
-        },
-        error: (e) => reject(e),
-      });
-      encoder.configure({
-        codec: 'avc1.42001f',
-        width: outputWidth,
-        height: outputHeight,
-        bitrate: 5_000_000,
-        bitrateMode: 'constant',
-      });
-      resolve(encoder);
+    const videoEncoder = new VideoEncoder({
+      output: (chunk, metadata) => {
+        muxer.addVideoChunk(chunk, metadata);
+      },
+      error: (e) => { throw e; },
     });
-
-    const videoEncoder = await videoEncoderPromise;
+    videoEncoder.configure({
+      codec: 'avc1.42001f',
+      width: outputWidth,
+      height: outputHeight,
+      bitrate: 5_000_000,
+      bitrateMode: 'constant',
+    });
 
     let audioEncoder: AudioEncoder | null = null;
     if (master.hasAudio) {
@@ -370,6 +378,7 @@ async function encodeExport(
 
         scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
         audioSrc.connect(scriptNode);
+        scriptNode.connect(audioCtx.destination);
 
         let audioTimestamp = 0;
         scriptNode.onaudioprocess = (e) => {
@@ -398,16 +407,31 @@ async function encodeExport(
     if (audioCtx?.state === 'suspended') {
       await audioCtx.resume();
     }
-    await videoEl.play();
+
+    try {
+      await videoEl.play();
+    } catch {
+      throw new Error('Video playback blocked. Please try again.');
+    }
+
+    if (videoEl.paused) {
+      throw new Error('Video failed to start playing.');
+    }
 
     let frameCount = 0;
     const maxQueueSize = 5;
     const totalFrames = Math.ceil((videoEl.duration || 30) * fps);
 
+    const ENCODE_TIMEOUT_MS = Math.max((videoEl.duration || 30) * 1000 * 2, 60000);
+    const encodeTimeout = setTimeout(() => {
+      videoEl.pause();
+    }, ENCODE_TIMEOUT_MS);
+
     await new Promise<void>((resolve) => {
       const intervalId = setInterval(() => {
         if (signal?.aborted || videoEl.ended || videoEl.paused) {
           clearInterval(intervalId);
+          clearTimeout(encodeTimeout);
           resolve();
           return;
         }
@@ -437,6 +461,7 @@ async function encodeExport(
 
       videoEl.onended = () => {
         clearInterval(intervalId);
+        clearTimeout(encodeTimeout);
         resolve();
       };
     });

@@ -115,9 +115,9 @@ export function ExportModal({
         setStep('platform');
         showToast('Some exports failed. Check the results.');
       }
-    } catch {
+    } catch (err) {
       setStep('platform');
-      showToast('Batch export failed.');
+      showToast(err instanceof Error ? err.message : 'Batch export failed.');
     } finally {
       setIsExporting(false);
       setBatchProgress(null);
@@ -142,11 +142,11 @@ export function ExportModal({
         setStep('done');
       } else {
         setStep('platform');
-        showToast('Export failed. Please try again.');
+        showToast(result.error || 'Export failed. Please try again.');
       }
-    } catch {
+    } catch (err) {
       setStep('platform');
-      showToast('Export failed. Please try again.');
+      showToast(err instanceof Error ? err.message : 'Export failed. Please try again.');
     } finally {
       setIsExporting(false);
       setExportProgress(0);
