@@ -6,6 +6,7 @@ import { CloseIcon } from '@/components/icons';
 import { detectCountry, getPricingForCountry, formatPrice, type RegionalPricing } from '@/lib/pricing';
 import { loadCashfreeSDK } from '@/lib/cashfree';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
+import { PRICING_PLANS } from '@/constants';
 import '@/styles/pricing.css';
 
 interface PricingModalProps {
@@ -18,36 +19,19 @@ type BillingPeriod = 'monthly' | 'yearly';
 
 const PLAN_DETAILS = {
   free: {
-    name: 'Free',
+    name: PRICING_PLANS.free.name,
     badge: null,
-    features: [
-      { text: 'Teleprompter (always free)', highlight: false },
-      { text: 'Audio recording & download', highlight: false },
-      { text: '3 video downloads free', highlight: false },
-      { text: 'Videos up to 5 min duration', highlight: false },
-    ],
+    features: PRICING_PLANS.free.features,
   },
   creator: {
-    name: 'Creator',
-    badge: { text: 'Popular', color: 'lsx-pricing-badge' },
-    features: [
-      { text: 'Everything in Free', highlight: false },
-      { text: 'Unlimited video downloads', highlight: true },
-      { text: 'Unlimited recording length', highlight: true },
-      { text: '1080p export quality', highlight: true },
-      { text: 'All platform presets', highlight: false },
-      { text: 'Crop & reframe for each platform', highlight: false },
-    ],
+    name: PRICING_PLANS.creator.name,
+    badge: { text: 'Popular' },
+    features: PRICING_PLANS.creator.features,
   },
   pro: {
-    name: 'Pro',
+    name: PRICING_PLANS.pro.name,
     badge: null,
-    features: [
-      { text: 'Everything in Creator', highlight: false },
-      { text: '4K export quality', highlight: true },
-      { text: 'Batch export (multiple platforms)', highlight: true },
-      { text: 'Priority support', highlight: false },
-    ],
+    features: PRICING_PLANS.pro.features,
   },
 } as const;
 

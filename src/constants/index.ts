@@ -8,6 +8,41 @@ export const ASPECT_RATIO_PRESETS: Record<AspectRatio, { label: string; icon: st
   '4:5':  { label: 'Portrait', icon: '📱', width: 1080, height: 1350, cssClass: 'aspect-[4/5]' },
 };
 
+export const PRICING_PLANS = {
+  free: {
+    name: 'Free',
+    features: [
+      { text: 'Teleprompter (always free)', highlight: false },
+      { text: 'Audio recording & download', highlight: false },
+      { text: '3 video downloads free', highlight: false },
+      { text: 'Videos up to 5 min duration', highlight: false },
+    ],
+    cta: 'Get Started',
+  },
+  creator: {
+    name: 'Creator',
+    features: [
+      { text: 'Everything in Free', highlight: false },
+      { text: 'Unlimited video downloads', highlight: true },
+      { text: 'Unlimited recording length', highlight: true },
+      { text: '1080p export quality', highlight: true },
+      { text: 'All platform presets', highlight: false },
+      { text: 'Crop & reframe for each platform', highlight: false },
+    ],
+    cta: 'Get Creator',
+  },
+  pro: {
+    name: 'Pro',
+    features: [
+      { text: 'Everything in Creator', highlight: false },
+      { text: '4K export quality', highlight: true },
+      { text: 'Batch export (multiple platforms)', highlight: true },
+      { text: 'Priority support', highlight: false },
+    ],
+    cta: 'Get Pro',
+  },
+} as const;
+
 export const PLATFORM_PRESETS: PlatformPreset[] = [
   { id: 'youtube-landscape', label: 'YouTube',       sublabel: 'Landscape · 16:9',  icon: 'YT', color: '#FF0000', category: 'youtube',   aspectRatio: '16:9', width: 1920, height: 1080 },
   { id: 'youtube-shorts',    label: 'YouTube Shorts', sublabel: 'Vertical · 9:16',  icon: 'YT', color: '#FF0000', category: 'youtube',   aspectRatio: '9:16', width: 1080, height: 1920 },

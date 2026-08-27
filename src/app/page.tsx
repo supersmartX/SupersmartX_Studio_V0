@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { detectCountry, getPricingForCountry, formatPrice, type RegionalPricing } from '@/lib/pricing';
+import { PRICING_PLANS } from '@/constants';
 
 const NAV_LINKS = [
   { label: 'Studio', href: '#top' },
@@ -873,39 +874,29 @@ export default function LandingPage() {
             <div className="lsx-pricing-grid">
               <div className="lsx-pricing-card">
                 <div className="lsx-pricing-card-header">
-                  <h3 className="lsx-pricing-plan">Free</h3>
+                  <h3 className="lsx-pricing-plan">{PRICING_PLANS.free.name}</h3>
                   <div className="lsx-pricing-price">$0<span className="lsx-pricing-period">/forever</span></div>
                 </div>
                 <ul className="lsx-pricing-features">
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Teleprompter (always free)
-                  </li>
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Audio recording &amp; download
-                  </li>
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    3 video downloads free
-                  </li>
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Videos up to 5 min duration
-                  </li>
+                  {PRICING_PLANS.free.features.map((f) => (
+                    <li key={f.text} className={`lsx-pricing-feature ${f.highlight ? 'lsx-pricing-feature--highlight' : ''}`}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                      {f.text}
+                    </li>
+                  ))}
                 </ul>
                 <button
                   type="button"
                   onClick={() => router.push('/studio')}
                   className="lsx-btn lsx-btn-ghost lsx-pricing-btn"
                 >
-                  Get Started
+                  {PRICING_PLANS.free.cta}
                 </button>
               </div>
               <div className="lsx-pricing-card lsx-pricing-card--pro">
                 <div className="lsx-pricing-badge">Popular</div>
                 <div className="lsx-pricing-card-header">
-                  <h3 className="lsx-pricing-plan">Creator</h3>
+                  <h3 className="lsx-pricing-plan">{PRICING_PLANS.creator.name}</h3>
                   <div className="lsx-pricing-price">{format(billingPeriod === 'monthly' ? currentPricing.creatorMonthly : currentPricing.creatorYearly)}<span className="lsx-pricing-period">/{billingPeriod === 'monthly' ? 'month' : 'year'}</span></div>
                   {billingPeriod === 'yearly' && (
                     <p className="lsx-pricing-note">That&apos;s {format(currentPricing.creatorYearly / 12)}/month</p>
@@ -915,42 +906,24 @@ export default function LandingPage() {
                   )}
                 </div>
                 <ul className="lsx-pricing-features">
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Everything in Free
-                  </li>
-                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Unlimited video downloads
-                  </li>
-                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Unlimited recording length
-                  </li>
-                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    1080p export quality
-                  </li>
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    All platform presets
-                  </li>
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Crop &amp; reframe for each platform
-                  </li>
+                  {PRICING_PLANS.creator.features.map((f) => (
+                    <li key={f.text} className={`lsx-pricing-feature ${f.highlight ? 'lsx-pricing-feature--highlight' : ''}`}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                      {f.text}
+                    </li>
+                  ))}
                 </ul>
                 <button
                   type="button"
                   onClick={() => setIsAuthModalOpen(true)}
                   className="lsx-btn lsx-btn-solid lsx-pricing-btn"
                 >
-                  Get Creator
+                  {PRICING_PLANS.creator.cta}
                 </button>
               </div>
               <div className="lsx-pricing-card lsx-pricing-card--pro">
                 <div className="lsx-pricing-card-header">
-                  <h3 className="lsx-pricing-plan">Pro</h3>
+                  <h3 className="lsx-pricing-plan">{PRICING_PLANS.pro.name}</h3>
                   <div className="lsx-pricing-price">{format(billingPeriod === 'monthly' ? currentPricing.proMonthly : currentPricing.proYearly)}<span className="lsx-pricing-period">/{billingPeriod === 'monthly' ? 'month' : 'year'}</span></div>
                   {billingPeriod === 'yearly' && (
                     <p className="lsx-pricing-note">That&apos;s {format(currentPricing.proYearly / 12)}/month</p>
@@ -960,29 +933,19 @@ export default function LandingPage() {
                   )}
                 </div>
                 <ul className="lsx-pricing-features">
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Everything in Creator
-                  </li>
-                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    4K export quality
-                  </li>
-                  <li className="lsx-pricing-feature lsx-pricing-feature--highlight">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Batch export (multiple platforms)
-                  </li>
-                  <li className="lsx-pricing-feature">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                    Priority support
-                  </li>
+                  {PRICING_PLANS.pro.features.map((f) => (
+                    <li key={f.text} className={`lsx-pricing-feature ${f.highlight ? 'lsx-pricing-feature--highlight' : ''}`}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                      {f.text}
+                    </li>
+                  ))}
                 </ul>
                 <button
                   type="button"
                   onClick={() => setIsAuthModalOpen(true)}
                   className="lsx-btn lsx-btn-solid lsx-pricing-btn"
                 >
-                  Get Pro
+                  {PRICING_PLANS.pro.cta}
                 </button>
               </div>
             </div>
