@@ -194,3 +194,38 @@ export async function getLatestRecording(): Promise<StoredRecording | null> {
     return null;
   }
 }
+
+export async function getAllRecordings(): Promise<StoredRecording[]> {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const index = store.index('createdAt');
+    const request = index.openCursor(null, 'prev');
+    const recordings: StoredRecording[] = [];
+    const now = new Date();
+
+    return new Promise((resolve) => {
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor) {
+          const rec = cursor.value;
+          if (new Date(rec.expiresAt) >= now) {
+            recordings.push(rec);
+          }
+          cursor.continue();
+        }
+      };
+      tx.oncomplete = () => {
+        db.close();
+        resolve(recordings);
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve(recordings);
+      };
+    });
+  } catch {
+    return [];
+  }
+}

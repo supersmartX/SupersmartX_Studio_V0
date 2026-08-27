@@ -55,7 +55,7 @@ export function BottomNav({
         </button>
       </Tooltip>
 
-      <Tooltip content="Library" side="top">
+      <Tooltip content="Recordings" side="top">
         <button
           onClick={() => onPanelChange('library')}
           className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center ${
@@ -63,11 +63,11 @@ export function BottomNav({
               ? 'text-accent'
               : 'text-text-muted hover:text-text-secondary'
           }`}
-          aria-label="Library"
+          aria-label="Recordings"
           aria-current={activePanel === 'library' ? 'page' : undefined}
         >
           <BookOpenIcon className="w-5 h-5" />
-          <span className="text-[9px] font-medium">Library</span>
+          <span className="text-[9px] font-medium">Recordings</span>
         </button>
       </Tooltip>
 

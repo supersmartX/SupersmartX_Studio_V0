@@ -77,7 +77,7 @@ export function IconRail({
         >
           <span className="flex items-center gap-2.5">
             <BookOpenIcon className="w-4 h-4" />
-            Library
+            Recordings
           </span>
         </button>
 

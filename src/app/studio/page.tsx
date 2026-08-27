@@ -12,7 +12,6 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useFocusView } from '@/hooks/useFocusView';
 import { useToast } from '@/hooks/useToast';
 import { useShare } from '@/hooks/useShare';
-import { useLibrary } from '@/hooks/useLibrary';
 import { useSettings } from '@/hooks/useSettings';
 import { useRecordingConfig } from '@/hooks/useRecordingConfig';
 import { useMasterRecording } from '@/hooks/useMasterRecording';
@@ -38,7 +37,7 @@ import { ExportModal } from '@/components/dialogs/ExportModal';
 import { PricingModal } from '@/components/dialogs/PricingModal';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { executePendingDownload } from '@/lib/auth-guard';
-import { LibraryPanel } from '@/components/studio/LibraryPanel';
+import { RecordingsPanel } from '@/components/studio/LibraryPanel';
 import { InsightsPlaceholder } from '@/features/insights/InsightsPlaceholder';
 import { Toast } from '@/components/common/Toast';
 import type { TabType } from '@/types';
@@ -65,7 +64,6 @@ export default function HomePage() {
   const focusView = useFocusView();
   const scriptStorage = useScriptStorage();
   const { data: session } = useSession();
-  const library = useLibrary();
   const settingsStore = useSettings();
   const {
     config: recordingConfig,
@@ -550,16 +548,7 @@ export default function HomePage() {
 
             {activePanel === 'library' && (
               <div className="flex-1 min-h-0 overflow-auto">
-                <LibraryPanel
-                  scripts={library.scripts}
-                  isLoaded={library.isLoaded}
-                  onCreateScript={library.createScript}
-                  onUpdateScript={library.updateScript}
-                  onDeleteScript={library.deleteScript}
-                  onSearchScripts={library.searchScripts}
-                  onLoadScript={scriptStorage.setScript}
-                  currentContent={scriptStorage.script}
-                />
+                <RecordingsPanel isMobile={isMobile} />
               </div>
             )}
 
