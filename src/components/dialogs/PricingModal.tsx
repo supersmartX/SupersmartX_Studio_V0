@@ -187,14 +187,15 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
         onClick={handleClose}
       />
 
-      <div className={`relative w-full max-w-2xl bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] flex flex-col`}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle shrink-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-text-primary">
+      <div className={`relative w-full max-w-3xl bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] flex flex-col`}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border-subtle shrink-0">
+          <div className="flex items-center gap-3">
+            <h2 className="text-base font-semibold text-text-primary">
               {step === 'select' ? 'Choose Your Plan' : step === 'form' ? 'Complete Payment' : step === 'processing' ? 'Processing...' : 'Payment Error'}
             </h2>
             {!isLoadingPricing && (
-              <span className="text-[10px] text-text-muted bg-elevated px-2 py-0.5 rounded-full">
+              <span className="text-[11px] text-text-muted bg-elevated px-2.5 py-1 rounded-full">
                 {countryFlag} {currentPricing.currency}
               </span>
             )}
@@ -208,22 +209,22 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
           </button>
         </div>
 
-        <div className="p-5 overflow-y-auto flex-1 min-h-0">
+        <div className="p-6 overflow-y-auto flex-1 min-h-0">
           {isLoadingPricing ? (
-            <div className="flex flex-col items-center gap-3 py-12">
+            <div className="flex flex-col items-center gap-3 py-16">
               <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
               <p className="text-sm text-text-secondary">Detecting your region...</p>
             </div>
           ) : (
             <>
               {step === 'select' && (
-                <div className="flex flex-col gap-5">
+                <div className="flex flex-col gap-6">
                   {/* Billing period toggle */}
                   <div className="flex justify-center">
                     <div className="flex">
                       <button
                         onClick={() => setBillingPeriod('monthly')}
-                        className={`px-5 py-2.5 text-xs font-semibold transition-all border border-border-subtle ${
+                        className={`px-5 py-2.5 text-sm font-semibold transition-all border border-border-subtle ${
                           billingPeriod === 'monthly'
                             ? 'bg-accent text-white border-accent'
                             : 'text-text-muted hover:text-text-secondary'
@@ -234,20 +235,20 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                       </button>
                       <button
                         onClick={() => setBillingPeriod('yearly')}
-                        className={`px-5 py-2.5 text-xs font-semibold transition-all border border-border-subtle ${
+                        className={`px-5 py-2.5 text-sm font-semibold transition-all border border-border-subtle ${
                           billingPeriod === 'yearly'
                             ? 'bg-accent text-white border-accent'
                             : 'text-text-muted hover:text-text-secondary'
                         }`}
                         style={{ borderRadius: '0 8px 8px 0' }}
                       >
-                        Yearly <span className="text-success ml-1">Save 17%</span>
+                        Yearly <span className={`ml-1 ${billingPeriod === 'yearly' ? 'text-white/90' : 'text-success'}`}>Save 17%</span>
                       </button>
                     </div>
                   </div>
 
                   {/* Plan cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
                     {tiers.map((tier) => {
                       const plan = PLAN_DETAILS[tier];
                       const isSelected = selectedTier === tier;
@@ -258,25 +259,30 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                         <button
                           key={tier}
                           onClick={() => setSelectedTier(tier)}
-                          className={`relative flex flex-col items-start p-4 rounded-xl border-2 transition-all text-left min-h-[44px] ${
+                          className={`relative flex flex-col items-start p-6 rounded-2xl border transition-all text-left ${
                             isSelected
                               ? 'border-accent bg-accent/5 ring-1 ring-accent/20'
                               : 'border-border-subtle hover:border-border-default bg-elevated'
                           }`}
                         >
                           {plan.badge && (
-                            <span className={`absolute -top-2.5 left-1/2 -translate-x-1/2 px-2 py-0.5 ${plan.badge.color} text-white text-[9px] font-bold rounded-full uppercase whitespace-nowrap`}>
+                            <span className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 ${plan.badge.color} text-white text-[11px] font-semibold rounded-full whitespace-nowrap`}>
                               {plan.badge.text}
                             </span>
                           )}
-                          <span className="text-sm font-semibold text-text-primary">{plan.name}</span>
-                          <span className="text-lg font-bold text-text-primary mt-1">
-                            {price === 0 ? 'Free' : format(price)}
+                          <span className="text-base font-medium text-text-secondary">{plan.name}</span>
+                          <span className="text-[40px] font-medium leading-none tracking-tight text-text-primary mt-2">
+                            {price === 0 ? '$0' : format(price)}
                           </span>
-                          <span className="text-xs text-text-muted">{periodLabel}</span>
+                          <span className="text-base text-text-muted/40 mt-1">{periodLabel}</span>
                           {tier !== 'free' && billingPeriod === 'yearly' && (
-                            <span className="text-[10px] text-text-muted mt-0.5">
+                            <span className="text-xs text-text-muted/30 mt-1.5">
                               That&apos;s {format(getTierPrice(tier, 'yearly') / 12)}/mo
+                            </span>
+                          )}
+                          {tier !== 'free' && billingPeriod === 'monthly' && (
+                            <span className="text-xs text-text-muted/30 mt-1.5">
+                              PPP-adjusted by region
                             </span>
                           )}
                         </button>
@@ -285,24 +291,24 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                   </div>
 
                   {/* Features comparison */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
                     {tiers.map((tier) => {
                       const plan = PLAN_DETAILS[tier];
                       const isSelected = selectedTier === tier;
                       return (
                         <div
                           key={tier}
-                          className={`rounded-xl p-4 transition-all ${
-                            isSelected ? 'bg-accent/5 border border-accent/20' : 'bg-elevated border border-transparent'
+                          className={`rounded-2xl p-5 transition-all ${
+                            isSelected ? 'bg-accent/5 border border-accent/20' : 'bg-elevated/50 border border-transparent'
                           }`}
                         >
-                          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-3">
+                          <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-4">
                             {plan.name}
                           </h3>
-                          <ul className="space-y-2">
+                          <ul className="flex flex-col gap-3">
                             {plan.features.map((feature) => (
-                              <li key={feature.text} className="flex items-start gap-2 text-xs text-text-secondary">
-                                <svg className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${feature.highlight ? 'text-accent' : 'text-success'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <li key={feature.text} className="flex items-start gap-2.5 text-sm text-text-secondary">
+                                <svg className={`w-4 h-4 shrink-0 mt-0.5 ${feature.highlight ? 'text-accent' : 'text-success'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                                 <span className={feature.highlight ? 'font-medium text-text-primary' : ''}>{feature.text}</span>
@@ -319,36 +325,36 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                     variant="primary"
                     size="lg"
                     onClick={() => selectedPlan === 'free' ? handleSubscribe() : setStep('form')}
-                    className="w-full"
+                    className="w-full h-12 text-sm"
                   >
                     {selectedPlan === 'free'
                       ? 'Get Started Free'
                       : `Subscribe for ${format(getTierPrice(selectedTier, billingPeriod))}${billingPeriod === 'monthly' ? '/mo' : '/yr'}`}
                   </Button>
 
-                  <p className="text-[10px] text-text-muted text-center">
+                  <p className="text-xs text-text-muted text-center">
                     Prices in {currentPricing.currency}. Secure checkout powered by Cashfree.
                   </p>
                 </div>
               )}
 
               {step === 'form' && (
-                <div className="flex flex-col gap-4">
-                  <div className="bg-elevated rounded-xl p-4 flex items-center justify-between">
+                <div className="flex flex-col gap-5">
+                  <div className="bg-elevated rounded-xl p-5 flex items-center justify-between">
                     <div>
                       <span className="text-sm font-semibold text-text-primary">{PLAN_DETAILS[selectedTier].name} {billingPeriod === 'yearly' ? 'Yearly' : 'Monthly'}</span>
-                      <span className="text-xs text-text-muted block mt-0.5">
+                      <span className="text-xs text-text-muted block mt-1">
                         Billed {billingPeriod === 'yearly' ? 'annually' : 'monthly'} in {currentPricing.currency}
                       </span>
                     </div>
-                    <span className="text-lg font-bold text-text-primary">
+                    <span className="text-xl font-bold text-text-primary">
                       {format(getTierPrice(selectedTier, billingPeriod))}
                     </span>
                   </div>
 
-                  <div className="flex flex-col gap-3">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">
                         Full Name
                       </label>
                       <input
@@ -357,12 +363,12 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         maxLength={200}
-                        className="w-full px-3 py-2.5 bg-elevated border border-border-subtle rounded-lg text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors"
+                        className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-lg text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors"
                       />
                     </div>
 
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">
                         Email Address
                       </label>
                       <input
@@ -371,16 +377,16 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         maxLength={254}
-                        className="w-full px-3 py-2.5 bg-elevated border border-border-subtle rounded-lg text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors"
+                        className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-lg text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors"
                       />
                     </div>
                   </div>
 
                   {errorMessage && (
-                    <p className="text-xs text-recording text-center">{errorMessage}</p>
+                    <p className="text-sm text-recording text-center">{errorMessage}</p>
                   )}
 
-                  <div className="flex gap-2">
+                  <div className="flex gap-3">
                     <Button
                       variant="secondary"
                       onClick={() => setStep('select')}
@@ -397,21 +403,21 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                     </Button>
                   </div>
 
-                  <p className="text-[10px] text-text-muted text-center">
+                  <p className="text-xs text-text-muted text-center">
                     Secure checkout powered by Cashfree. Cancel anytime.
                   </p>
                 </div>
               )}
 
               {step === 'processing' && (
-                <div className="flex flex-col items-center gap-3 py-8">
+                <div className="flex flex-col items-center gap-3 py-12">
                   <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
                   <p className="text-sm text-text-secondary">Creating payment session...</p>
                 </div>
               )}
 
               {step === 'error' && (
-                <div className="flex flex-col items-center gap-3 py-8">
+                <div className="flex flex-col items-center gap-3 py-12">
                   <p className="text-sm text-recording">{errorMessage}</p>
                   <Button
                     variant="secondary"
