@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import type { RecordingState } from '@/types';
 import { ShareIcon, DownloadIcon, SettingsIcon } from '@/components/icons';
@@ -44,13 +45,10 @@ export function Header({
   return (
     <header className="h-12 border-b border-border-subtle bg-surface flex items-center px-3 sm:px-4 justify-between shrink-0 z-30 safe-area-top">
       {/* Left: Logo */}
-      <div className="flex items-center gap-2 min-w-0">
-        <div className="w-6 h-6 flex items-center justify-center shrink-0">
-          <img src="/SXS_ICON.png" alt="SupersmartX" className="w-full h-full object-contain" />
-        </div>
-        <span className="text-[13px] font-bold tracking-wide text-text-primary truncate">
-          Supersmart<span className="text-accent">X</span> Studio
-        </span>
+      <div className="flex items-center min-w-0">
+        <Link href="/" className="text-[14px] font-semibold tracking-tight text-text-primary truncate" aria-label="SupersmartX Studio">
+          SUPERSMARTX<span className="text-accent font-normal">Studio</span>
+        </Link>
       </div>
 
       {/* Right: Actions */}
