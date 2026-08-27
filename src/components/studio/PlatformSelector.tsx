@@ -32,10 +32,13 @@ export function PlatformSelector({ selectedPlatformId, onSelect, layout = 'inspe
                 layout === 'modal' ? 'p-3' : 'px-2.5 py-2'
               } ${
                 isActive
-                  ? 'border-[color:var(--platform-color)]/40 bg-[color:var(--platform-color)]/10 shadow-sm'
+                  ? 'shadow-sm'
                   : 'border-border-subtle bg-elevated hover:border-border-strong hover:bg-elevated'
               }`}
-              style={{ '--platform-color': preset.color } as React.CSSProperties}
+              style={isActive ? {
+                borderColor: `${preset.color}66`,
+                backgroundColor: `${preset.color}1a`,
+              } : undefined}
             >
               <PlatformIcon
                 icon={preset.icon}

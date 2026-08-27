@@ -251,10 +251,14 @@ export function ExportModal({
                       onDoubleClick={() => handleSelectPlatform(preset.id)}
                       className={`group relative flex items-center gap-2.5 p-3 rounded-lg border transition-all duration-150 text-left min-h-[48px] ${
                         isSelected
-                          ? 'border-[color:var(--platform-color)]/40 bg-[color:var(--platform-color)]/10 shadow-sm ring-1 ring-[color:var(--platform-color)]/20'
+                          ? 'shadow-sm ring-1'
                           : 'bg-elevated border-border-subtle hover:border-border-strong hover:bg-elevated'
                       }`}
-                      style={{ '--platform-color': preset.color } as React.CSSProperties}
+                      style={isSelected ? {
+                        borderColor: `${preset.color}66`,
+                        backgroundColor: `${preset.color}1a`,
+                        boxShadow: `0 0 0 1px ${preset.color}33`,
+                      } : undefined}
                     >
                       {isSelected && (
                         <div
