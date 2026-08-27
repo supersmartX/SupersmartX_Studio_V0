@@ -6,6 +6,7 @@ import { CloseIcon } from '@/components/icons';
 import { detectCountry, getPricingForCountry, formatPrice, type RegionalPricing } from '@/lib/pricing';
 import { loadCashfreeSDK } from '@/lib/cashfree';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
+import '@/styles/pricing.css';
 
 interface PricingModalProps {
   isOpen: boolean;
@@ -28,7 +29,7 @@ const PLAN_DETAILS = {
   },
   creator: {
     name: 'Creator',
-    badge: { text: 'Popular', color: 'bg-accent' },
+    badge: { text: 'Popular', color: 'lsx-pricing-badge' },
     features: [
       { text: 'Everything in Free', highlight: false },
       { text: 'Unlimited video downloads', highlight: true },
@@ -49,6 +50,8 @@ const PLAN_DETAILS = {
     ],
   },
 } as const;
+
+const CHECK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
 
 const COUNTRY_FLAGS: Record<string, string> = {
   US: '\u{1F1FA}\u{1F1F8}', GB: '\u{1F1EC}\u{1F1E7}', DE: '\u{1F1E9}\u{1F1EA}', FR: '\u{1F1EB}\u{1F1F7}', IN: '\u{1F1EE}\u{1F1F3}', JP: '\u{1F1EF}\u{1F1F5}', AU: '\u{1F1E6}\u{1F1FA}', CA: '\u{1F1E8}\u{1F1E6}',
@@ -187,7 +190,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
         onClick={handleClose}
       />
 
-      <div className={`relative w-full max-w-3xl bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] flex flex-col`}>
+      <div className={`relative w-full max-w-[960px] bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] flex flex-col`}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-border-subtle shrink-0">
           <div className="flex items-center gap-3">
@@ -218,104 +221,66 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
           ) : (
             <>
               {step === 'select' && (
-                <div className="flex flex-col gap-6">
-                  {/* Billing period toggle */}
-                  <div className="flex justify-center">
-                    <div className="flex">
-                      <button
-                        onClick={() => setBillingPeriod('monthly')}
-                        className={`px-5 py-2.5 text-sm font-semibold transition-all border border-border-subtle ${
-                          billingPeriod === 'monthly'
-                            ? 'bg-accent text-white border-accent'
-                            : 'text-text-muted hover:text-text-secondary'
-                        }`}
-                        style={{ borderRadius: '8px 0 0 8px', borderRight: 'none' }}
-                      >
-                        Monthly
-                      </button>
-                      <button
-                        onClick={() => setBillingPeriod('yearly')}
-                        className={`px-5 py-2.5 text-sm font-semibold transition-all border border-border-subtle ${
-                          billingPeriod === 'yearly'
-                            ? 'bg-accent text-white border-accent'
-                            : 'text-text-muted hover:text-text-secondary'
-                        }`}
-                        style={{ borderRadius: '0 8px 8px 0' }}
-                      >
-                        Yearly <span className={`ml-1 ${billingPeriod === 'yearly' ? 'text-white/90' : 'text-success'}`}>Save 17%</span>
-                      </button>
-                    </div>
+                <div className="flex flex-col gap-8">
+                  {/* Billing period toggle — same as landing page */}
+                  <div className="lsx-pricing-toggle" style={{ marginBottom: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => setBillingPeriod('monthly')}
+                      className={`lsx-pricing-toggle-btn ${billingPeriod === 'monthly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
+                    >
+                      Monthly
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBillingPeriod('yearly')}
+                      className={`lsx-pricing-toggle-btn ${billingPeriod === 'yearly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
+                    >
+                      Yearly <span className="lsx-pricing-toggle-save">Save 17%</span>
+                    </button>
                   </div>
 
-                  {/* Plan cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                  {/* Plan cards — same markup as landing page */}
+                  <div className="lsx-pricing-grid">
                     {tiers.map((tier) => {
                       const plan = PLAN_DETAILS[tier];
                       const isSelected = selectedTier === tier;
                       const price = getTierPrice(tier, billingPeriod);
-                      const periodLabel = tier === 'free' ? '/forever' : billingPeriod === 'monthly' ? '/mo' : '/yr';
+                      const periodLabel = tier === 'free' ? '/forever' : billingPeriod === 'monthly' ? '/month' : '/year';
 
                       return (
                         <button
                           key={tier}
+                          type="button"
                           onClick={() => setSelectedTier(tier)}
-                          className={`relative flex flex-col items-start p-6 rounded-2xl border transition-all text-left ${
-                            isSelected
-                              ? 'border-accent bg-accent/5 ring-1 ring-accent/20'
-                              : 'border-border-subtle hover:border-border-default bg-elevated'
-                          }`}
+                          className={`lsx-pricing-card ${isSelected ? 'lsx-pricing-card--selected' : ''}`}
+                          style={isSelected ? { borderColor: 'var(--color-accent)', background: 'rgba(124,58,237,0.08)' } : undefined}
                         >
                           {plan.badge && (
-                            <span className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 ${plan.badge.color} text-white text-[11px] font-semibold rounded-full whitespace-nowrap`}>
-                              {plan.badge.text}
-                            </span>
+                            <div className="lsx-pricing-badge">{plan.badge.text}</div>
                           )}
-                          <span className="text-base font-medium text-text-secondary">{plan.name}</span>
-                          <span className="text-[40px] font-medium leading-none tracking-tight text-text-primary mt-2">
-                            {price === 0 ? '$0' : format(price)}
-                          </span>
-                          <span className="text-base text-text-muted/40 mt-1">{periodLabel}</span>
-                          {tier !== 'free' && billingPeriod === 'yearly' && (
-                            <span className="text-xs text-text-muted/30 mt-1.5">
-                              That&apos;s {format(getTierPrice(tier, 'yearly') / 12)}/mo
-                            </span>
-                          )}
-                          {tier !== 'free' && billingPeriod === 'monthly' && (
-                            <span className="text-xs text-text-muted/30 mt-1.5">
-                              PPP-adjusted by region
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Features comparison */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-                    {tiers.map((tier) => {
-                      const plan = PLAN_DETAILS[tier];
-                      const isSelected = selectedTier === tier;
-                      return (
-                        <div
-                          key={tier}
-                          className={`rounded-2xl p-5 transition-all ${
-                            isSelected ? 'bg-accent/5 border border-accent/20' : 'bg-elevated/50 border border-transparent'
-                          }`}
-                        >
-                          <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-4">
-                            {plan.name}
-                          </h3>
-                          <ul className="flex flex-col gap-3">
+                          <div className="lsx-pricing-card-header">
+                            <h3 className="lsx-pricing-plan">{plan.name}</h3>
+                            <div className="lsx-pricing-price">
+                              {price === 0 ? '$0' : format(price)}
+                              <span className="lsx-pricing-period">{periodLabel}</span>
+                            </div>
+                            {tier !== 'free' && billingPeriod === 'yearly' && (
+                              <p className="lsx-pricing-note">That&apos;s {format(getTierPrice(tier, 'yearly') / 12)}/month</p>
+                            )}
+                            {tier !== 'free' && billingPeriod === 'monthly' && (
+                              <p className="lsx-pricing-note">PPP-adjusted by region</p>
+                            )}
+                          </div>
+                          <ul className="lsx-pricing-features">
                             {plan.features.map((feature) => (
-                              <li key={feature.text} className="flex items-start gap-2.5 text-sm text-text-secondary">
-                                <svg className={`w-4 h-4 shrink-0 mt-0.5 ${feature.highlight ? 'text-accent' : 'text-success'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                <span className={feature.highlight ? 'font-medium text-text-primary' : ''}>{feature.text}</span>
+                              <li key={feature.text} className={`lsx-pricing-feature ${feature.highlight ? 'lsx-pricing-feature--highlight' : ''}`}>
+                                <span dangerouslySetInnerHTML={{ __html: CHECK_ICON }} />
+                                {feature.text}
                               </li>
                             ))}
                           </ul>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -325,7 +290,8 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                     variant="primary"
                     size="lg"
                     onClick={() => selectedPlan === 'free' ? handleSubscribe() : setStep('form')}
-                    className="w-full h-12 text-sm"
+                    className="lsx-pricing-btn"
+                    style={{ maxWidth: 960, margin: '0 auto', width: '100%' }}
                   >
                     {selectedPlan === 'free'
                       ? 'Get Started Free'
@@ -354,9 +320,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
 
                   <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-2">
-                      <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-                        Full Name
-                      </label>
+                      <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">Full Name</label>
                       <input
                         type="text"
                         placeholder="Your name"
@@ -366,11 +330,8 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                         className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-lg text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors"
                       />
                     </div>
-
                     <div className="flex flex-col gap-2">
-                      <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-                        Email Address
-                      </label>
+                      <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">Email Address</label>
                       <input
                         type="email"
                         placeholder="you@example.com"
@@ -387,12 +348,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                   )}
 
                   <div className="flex gap-3">
-                    <Button
-                      variant="secondary"
-                      onClick={() => setStep('select')}
-                    >
-                      Back
-                    </Button>
+                    <Button variant="secondary" onClick={() => setStep('select')}>Back</Button>
                     <Button
                       variant="primary"
                       onClick={handleSubscribe}
@@ -419,12 +375,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
               {step === 'error' && (
                 <div className="flex flex-col items-center gap-3 py-12">
                   <p className="text-sm text-recording">{errorMessage}</p>
-                  <Button
-                    variant="secondary"
-                    onClick={() => setStep('form')}
-                  >
-                    Try Again
-                  </Button>
+                  <Button variant="secondary" onClick={() => setStep('form')}>Try Again</Button>
                 </div>
               )}
             </>
