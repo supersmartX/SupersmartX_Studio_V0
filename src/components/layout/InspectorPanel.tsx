@@ -374,6 +374,24 @@ function InspectorContent({
           />
 
           <Slider
+            label="Reading Area Height"
+            value={settings.areaHeight}
+            min={20}
+            max={100}
+            unit="%"
+            onChange={(e) => updateSettings({ areaHeight: parseInt(e.target.value, 10) })}
+          />
+
+          <Slider
+            label="Text Start Position"
+            value={settings.textStartPosition}
+            min={0}
+            max={80}
+            unit="%"
+            onChange={(e) => updateSettings({ textStartPosition: parseInt(e.target.value, 10) })}
+          />
+
+          <Slider
             label="Scroll Speed"
             value={settings.scrollSpeedMultiplier}
             min={0.5}
