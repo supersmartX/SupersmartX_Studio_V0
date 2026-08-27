@@ -548,7 +548,19 @@ export default function HomePage() {
 
             {activePanel === 'library' && (
               <div className="flex-1 min-h-0 overflow-auto">
-                <RecordingsPanel isMobile={isMobile} />
+                <RecordingsPanel
+                  isMobile={isMobile}
+                  onExportRecording={(recording) => {
+                    createMasterRecording(
+                      recording.blob,
+                      recording.duration,
+                      recording.hasAudio,
+                      recording.width,
+                      recording.height
+                    );
+                    setIsDrawerVisible(true);
+                  }}
+                />
               </div>
             )}
 

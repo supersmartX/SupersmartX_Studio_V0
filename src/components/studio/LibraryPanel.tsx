@@ -6,10 +6,11 @@ import { formatTime, formatRelativeTime } from '@/utils/format';
 
 interface RecordingsPanelProps {
   onLoadRecording?: (recording: StoredRecording) => void;
+  onExportRecording?: (recording: StoredRecording) => void;
   isMobile?: boolean;
 }
 
-export function RecordingsPanel({ onLoadRecording, isMobile }: RecordingsPanelProps) {
+export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }: RecordingsPanelProps) {
   const [recordings, setRecordings] = useState<StoredRecording[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -107,6 +108,17 @@ export function RecordingsPanel({ onLoadRecording, isMobile }: RecordingsPanelPr
                         </p>
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onExportRecording?.(recording); }}
+                          className="p-1 rounded hover:bg-accent/10 transition-colors"
+                          aria-label="Export recording"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-accent" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                        </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(recording.id); }}
                           className="p-1 rounded hover:bg-red-500/10 transition-colors"
