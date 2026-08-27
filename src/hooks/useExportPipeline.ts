@@ -313,7 +313,7 @@ async function encodeExport(
 
   let audioCtx: AudioContext | null = null;
   let audioSrc: MediaElementAudioSourceNode | null = null;
-  let scriptNode: ScriptProcessorNode | null = null;
+  let workletNode: AudioWorkletNode | null = null;
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -388,30 +388,29 @@ async function encodeExport(
           bitrate: 192_000,
         });
 
-        scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
-        audioSrc.connect(scriptNode);
-        scriptNode.connect(audioCtx.destination);
+        await audioCtx.audioWorklet.addModule('/audio-encoder-processor.js');
+        workletNode = new AudioWorkletNode(audioCtx, 'audio-encoder-processor');
+        audioSrc.connect(workletNode);
+        workletNode.connect(audioCtx.destination);
 
         let audioTimestamp = 0;
-        scriptNode.onaudioprocess = (e) => {
+        workletNode.port.onmessage = (e) => {
           if (!audioEncoder || audioEncoder.state !== 'configured') return;
-          const inputDataL = e.inputBuffer.getChannelData(0);
-          const inputDataR = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : inputDataL;
-          const samples = new Float32Array(inputDataL.length * 2);
-          for (let i = 0; i < inputDataL.length; i++) {
-            samples[i * 2] = inputDataL[i];
-            samples[i * 2 + 1] = inputDataR[i];
+          const { left, right } = e.data;
+          const samples = new Float32Array(left.length * 2);
+          for (let i = 0; i < left.length; i++) {
+            samples[i * 2] = left[i];
+            samples[i * 2 + 1] = right[i];
           }
-
           const audioData = new AudioData({
             format: 'f32-planar',
             numberOfChannels: 2,
-            numberOfFrames: inputDataL.length,
+            numberOfFrames: left.length,
             sampleRate: 48000,
             timestamp: audioTimestamp,
             data: samples,
           });
-          audioTimestamp += Math.round((inputDataL.length / 48000) * 1_000_000);
+          audioTimestamp += Math.round((left.length / 48000) * 1_000_000);
           audioEncoder.encode(audioData);
           audioData.close();
         };
@@ -496,8 +495,8 @@ async function encodeExport(
     const buffer = muxer.target.buffer;
     return new Blob([buffer], { type: 'video/mp4' });
   } finally {
-    if (scriptNode) {
-      try { scriptNode.disconnect(); } catch {}
+    if (workletNode) {
+      try { workletNode.disconnect(); } catch {}
     }
     if (audioSrc) {
       try { audioSrc.disconnect(); } catch {}
