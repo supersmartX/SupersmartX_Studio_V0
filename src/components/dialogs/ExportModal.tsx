@@ -507,7 +507,7 @@ export function ExportModal({
                   videoUrl={exportResult.resultUrl}
                   recordedDuration={masterRecording.duration}
                   onError={() => {}}
-                  aspectRatio={exportConfig?.aspectRatio || '16:9'}
+                  aspectRatio={exportResult.config?.aspectRatio || exportConfig?.aspectRatio || '16:9'}
                 />
               )}
 
