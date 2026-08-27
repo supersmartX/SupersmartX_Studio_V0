@@ -278,10 +278,9 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                     size="lg"
                     onClick={() => selectedPlan === 'free' ? handleSubscribe() : setStep('form')}
                     className="lsx-pricing-btn"
-                    style={{ maxWidth: 960, margin: '0 auto', width: '100%' }}
                   >
                     {selectedPlan === 'free'
-                      ? 'Get Started Free'
+                      ? PRICING_PLANS.free.cta
                       : `Subscribe for ${format(getTierPrice(selectedTier, billingPeriod))}${billingPeriod === 'monthly' ? '/mo' : '/yr'}`}
                   </Button>
 
