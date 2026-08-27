@@ -51,7 +51,11 @@ const PLAN_DETAILS = {
   },
 } as const;
 
-const CHECK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+const CHECK_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
 
 const COUNTRY_FLAGS: Record<string, string> = {
   US: '\u{1F1FA}\u{1F1F8}', GB: '\u{1F1EC}\u{1F1E7}', DE: '\u{1F1E9}\u{1F1EA}', FR: '\u{1F1EB}\u{1F1F7}', IN: '\u{1F1EE}\u{1F1F3}', JP: '\u{1F1EF}\u{1F1F5}', AU: '\u{1F1E6}\u{1F1FA}', CA: '\u{1F1E8}\u{1F1E6}',
@@ -223,7 +227,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
               {step === 'select' && (
                 <div className="flex flex-col gap-8">
                   {/* Billing period toggle — same as landing page */}
-                  <div className="lsx-pricing-toggle" style={{ marginBottom: 0 }}>
+                  <div className="lsx-pricing-toggle">
                     <button
                       type="button"
                       onClick={() => setBillingPeriod('monthly')}
@@ -254,7 +258,6 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                           type="button"
                           onClick={() => setSelectedTier(tier)}
                           className={`lsx-pricing-card ${isSelected ? 'lsx-pricing-card--selected' : ''}`}
-                          style={isSelected ? { borderColor: 'var(--color-accent)', background: 'rgba(124,58,237,0.08)' } : undefined}
                         >
                           {plan.badge && (
                             <div className="lsx-pricing-badge">{plan.badge.text}</div>
@@ -275,7 +278,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                           <ul className="lsx-pricing-features">
                             {plan.features.map((feature) => (
                               <li key={feature.text} className={`lsx-pricing-feature ${feature.highlight ? 'lsx-pricing-feature--highlight' : ''}`}>
-                                <span dangerouslySetInnerHTML={{ __html: CHECK_ICON }} />
+                                {CHECK_ICON}
                                 {feature.text}
                               </li>
                             ))}
