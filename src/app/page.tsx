@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { detectCountry, getPricingForCountry, formatPrice, type RegionalPricing } from '@/lib/pricing';
 import { PRICING_PLANS } from '@/constants';
+import '@/styles/pricing.css';
 
 const NAV_LINKS = [
   { label: 'Studio', href: '#top' },
@@ -610,8 +611,6 @@ export default function LandingPage() {
   margin-top: 48px;
   flex-shrink: 0;
 }
-
-@import '@/styles/pricing.css';
 
 @media (max-width: 700px) {
   .lsx-section { padding: 64px 20px; }
