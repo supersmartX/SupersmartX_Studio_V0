@@ -17,23 +17,7 @@ interface PricingModalProps {
 
 type BillingPeriod = 'monthly' | 'yearly';
 
-const PLAN_DETAILS = {
-  free: {
-    name: PRICING_PLANS.free.name,
-    badge: null,
-    features: PRICING_PLANS.free.features,
-  },
-  creator: {
-    name: PRICING_PLANS.creator.name,
-    badge: { text: 'Popular' },
-    features: PRICING_PLANS.creator.features,
-  },
-  pro: {
-    name: PRICING_PLANS.pro.name,
-    badge: null,
-    features: PRICING_PLANS.pro.features,
-  },
-} as const;
+type TierKey = keyof typeof PRICING_PLANS;
 
 const CHECK_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -52,7 +36,11 @@ const COUNTRY_FLAGS: Record<string, string> = {
   UA: '\u{1F1FA}\u{1F1E6}', TZ: '\u{1F1F9}\u{1F1FF}', UG: '\u{1F1FA}\u{1F1EC}', ET: '\u{1F1EA}\u{1F1F9}', OM: '\u{1F1F4}\u{1F1F2}', QA: '\u{1F1F6}\u{1F1E6}', KW: '\u{1F1F0}\u{1F1FC}', LU: '\u{1F1F1}\u{1F1FA}',
 };
 
-function getPlanId(tier: string, period: BillingPeriod): string {
+const TIERS: TierKey[] = ['free', 'creator', 'pro'];
+
+const BADGES: Partial<Record<TierKey, string>> = { creator: 'Popular' };
+
+function getPlanId(tier: TierKey, period: BillingPeriod): string {
   if (tier === 'free') return 'free';
   return `${tier}_${period}`;
 }
@@ -60,7 +48,7 @@ function getPlanId(tier: string, period: BillingPeriod): string {
 export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isOpen, onClose);
   const [step, setStep] = useState<'select' | 'form' | 'processing' | 'error'>('select');
-  const [selectedTier, setSelectedTier] = useState<'free' | 'creator' | 'pro'>('creator');
+  const [selectedTier, setSelectedTier] = useState<TierKey>('creator');
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -91,7 +79,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
 
   const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
 
-  const getTierPrice = (tier: 'free' | 'creator' | 'pro', period: BillingPeriod): number => {
+  const getTierPrice = (tier: TierKey, period: BillingPeriod): number => {
     if (tier === 'free') return 0;
     const key = `${tier}${period === 'monthly' ? 'Monthly' : 'Yearly'}` as keyof RegionalPricing;
     return (currentPricing[key] as number) || 0;
@@ -169,8 +157,6 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
 
   if (!shouldRender) return null;
 
-  const tiers = ['free', 'creator', 'pro'] as const;
-
   return (
     <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Choose Plan" {...swipeHandlers}>
       <div
@@ -210,7 +196,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
             <>
               {step === 'select' && (
                 <div className="flex flex-col gap-8">
-                  {/* Billing period toggle — same as landing page */}
+                  {/* Billing period toggle */}
                   <div className="lsx-pricing-toggle">
                     <button
                       type="button"
@@ -228,10 +214,11 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                     </button>
                   </div>
 
-                  {/* Plan cards — same markup as landing page */}
+                  {/* Plan cards */}
                   <div className="lsx-pricing-grid">
-                    {tiers.map((tier) => {
-                      const plan = PLAN_DETAILS[tier];
+                    {TIERS.map((tier) => {
+                      const plan = PRICING_PLANS[tier];
+                      const badge = BADGES[tier];
                       const isSelected = selectedTier === tier;
                       const price = getTierPrice(tier, billingPeriod);
                       const periodLabel = tier === 'free' ? '/forever' : billingPeriod === 'monthly' ? '/month' : '/year';
@@ -241,10 +228,10 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                           key={tier}
                           type="button"
                           onClick={() => setSelectedTier(tier)}
-                          className={`lsx-pricing-card ${isSelected ? 'lsx-pricing-card--selected' : ''}`}
+                          className={`lsx-pricing-card ${isSelected ? 'lsx-pricing-card--selected' : ''} ${tier !== 'free' ? 'lsx-pricing-card--pro' : ''}`}
                         >
-                          {plan.badge && (
-                            <div className="lsx-pricing-badge">{plan.badge.text}</div>
+                          {badge && (
+                            <div className="lsx-pricing-badge">{badge}</div>
                           )}
                           <div className="lsx-pricing-card-header">
                             <h3 className="lsx-pricing-plan">{plan.name}</h3>
@@ -260,10 +247,10 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                             )}
                           </div>
                           <ul className="lsx-pricing-features">
-                            {plan.features.map((feature) => (
-                              <li key={feature.text} className={`lsx-pricing-feature ${feature.highlight ? 'lsx-pricing-feature--highlight' : ''}`}>
+                            {plan.features.map((f) => (
+                              <li key={f.text} className={`lsx-pricing-feature ${f.highlight ? 'lsx-pricing-feature--highlight' : ''}`}>
                                 {CHECK_ICON}
-                                {feature.text}
+                                {f.text}
                               </li>
                             ))}
                           </ul>
@@ -294,7 +281,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                 <div className="flex flex-col gap-5">
                   <div className="bg-elevated rounded-xl p-5 flex items-center justify-between">
                     <div>
-                      <span className="text-sm font-semibold text-text-primary">{PLAN_DETAILS[selectedTier].name} {billingPeriod === 'yearly' ? 'Yearly' : 'Monthly'}</span>
+                      <span className="text-sm font-semibold text-text-primary">{PRICING_PLANS[selectedTier].name} {billingPeriod === 'yearly' ? 'Yearly' : 'Monthly'}</span>
                       <span className="text-xs text-text-muted block mt-1">
                         Billed {billingPeriod === 'yearly' ? 'annually' : 'monthly'} in {currentPricing.currency}
                       </span>
