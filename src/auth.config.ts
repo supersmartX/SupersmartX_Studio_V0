@@ -3,9 +3,7 @@ import type { NextAuthConfig } from 'next-auth';
 export const authConfig = {
   session: { strategy: 'jwt' as const },
   trustHost: true,
-  secret: process.env.NEXTAUTH_SECRET ?? (() => {
-    throw new Error('NEXTAUTH_SECRET must be set');
-  })(),
+  ...(process.env.NEXTAUTH_SECRET ? { secret: process.env.NEXTAUTH_SECRET } : {}),
   callbacks: {
     async jwt({ token, user }) {
       if (user) {

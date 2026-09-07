@@ -14,7 +14,7 @@ import { isAccountLocked, recordFailedLogin, resetFailedLogins } from './lib/db'
 import { validatePassword } from './lib/validation';
 
 if (!process.env.NEXTAUTH_SECRET && process.env.NODE_ENV === 'production') {
-  throw new Error('NEXTAUTH_SECRET must be set in production');
+  console.error('[AUTH] NEXTAUTH_SECRET is not set. Auth will not work until it is configured in your hosting provider.');
 }
 
 let migrationDone = false;
