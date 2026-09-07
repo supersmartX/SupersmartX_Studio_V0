@@ -14,8 +14,7 @@ test.describe('Studio - Page Load', () => {
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
     const initOverlay = page.getByText(/Initialize Camera|Grant Access|Set up your camera/i);
-    const hasInit = await initOverlay.isVisible().catch(() => false);
-    expect(hasInit || true).toBeTruthy();
+    await expect(initOverlay).toBeVisible({ timeout: 5000 });
   });
 
   test('displays export button', async ({ page }) => {

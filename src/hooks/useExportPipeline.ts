@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import type { ExportConfig, ExportJob, CropConfig, PlatformId, MasterRecording } from '@/types';
 import { PLATFORM_PRESETS } from '@/constants';
@@ -9,7 +9,7 @@ interface UseExportPipelineReturn {
   exportConfig: ExportConfig | null;
   exportJobs: ExportJob[];
   setExportConfig: (config: ExportConfig | null) => void;
-  selectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number) => ExportConfig;
+  selectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }) => ExportConfig;
   updateCrop: (updates: Partial<CropConfig>) => void;
   resetCrop: () => void;
   startExport: (master: MasterRecording, onProgress?: (progress: number) => void) => Promise<ExportJob>;
@@ -53,32 +53,51 @@ export function useExportPipeline(): UseExportPipelineReturn {
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([]);
   const abortControllerRef = useRef<Map<string, AbortController>>(new Map());
   const sourceDimensionsRef = useRef<{ width: number; height: number }>({ width: 1920, height: 1080 });
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      abortControllerRef.current.forEach((controller) => controller.abort());
+      abortControllerRef.current.clear();
+    };
+  }, []);
 
   const selectPlatform = useCallback(
-    (platformId: PlatformId, sourceWidth: number, sourceHeight: number): ExportConfig => {
+    (platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }): ExportConfig => {
       sourceDimensionsRef.current = { width: sourceWidth, height: sourceHeight };
+
+      const clamp = (w: number, h: number) => {
+        if (!maxResolution) return { width: w, height: h };
+        if (w <= maxResolution.width && h <= maxResolution.height) return { width: w, height: h };
+        const scale = Math.min(maxResolution.width / w, maxResolution.height / h);
+        return { width: Math.round(w * scale), height: Math.round(h * scale) };
+      };
 
       const preset = PLATFORM_PRESETS.find((p) => p.id === platformId);
       if (!preset) {
         const outW = sourceWidth;
         const outH = Math.round(sourceWidth / (16 / 9));
+        const clamped = clamp(outW, outH);
         const config: ExportConfig = {
           platformId: 'custom',
           aspectRatio: '16:9',
-          outputWidth: outW,
-          outputHeight: outH,
-          crop: getDefaultCrop(sourceWidth, sourceHeight, outW, outH),
+          outputWidth: clamped.width,
+          outputHeight: clamped.height,
+          crop: getDefaultCrop(sourceWidth, sourceHeight, clamped.width, clamped.height),
         };
         setExportConfig(config);
         return config;
       }
 
+      const clamped = clamp(preset.width, preset.height);
       const config: ExportConfig = {
         platformId,
         aspectRatio: preset.aspectRatio,
-        outputWidth: preset.width,
-        outputHeight: preset.height,
-        crop: getDefaultCrop(sourceWidth, sourceHeight, preset.width, preset.height),
+        outputWidth: clamped.width,
+        outputHeight: clamped.height,
+        crop: getDefaultCrop(sourceWidth, sourceHeight, clamped.width, clamped.height),
       };
 
       setExportConfig(config);
@@ -122,32 +141,126 @@ export function useExportPipeline(): UseExportPipelineReturn {
         id: jobId,
         masterId: master.id,
         config: exportConfig,
-        status: 'encoding',
+        status: 'pending',
+        progress: 0,
       };
 
       setExportJobs((prev) => [...prev, job]);
 
       try {
-        const resultBlob = await encodeExport(master, exportConfig, abortController.signal, onProgress);
+        // 1. Create server job
+        const createRes = await fetch('/api/export-jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config: exportConfig }),
+          signal: abortController.signal,
+        });
+
+        if (!createRes.ok) {
+          const err = await createRes.json().catch(() => ({ error: 'Failed' }));
+          throw new Error(err.error || 'Failed to create export job');
+        }
+
+        const { serverJobId } = await createRes.json();
+
+        // 2. Update status to encoding
+        await fetch(`/api/export-jobs/${serverJobId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'encoding' }),
+          signal: abortController.signal,
+        }).catch(() => {});
+
+        setExportJobs((prev) => prev.map((j) =>
+          j.id === jobId ? { ...j, status: 'encoding', serverJobId, progress: 0 } : j,
+        ));
+
+        // 3. Client-side WebCodecs encoding
+        const resultBlob = await encodeExport(master, exportConfig, abortController.signal, (p) => {
+          onProgress?.(p);
+          // Report progress to server every 10%
+          if (serverJobId && Math.round(p * 100) % 10 === 0) {
+            fetch(`/api/export-jobs/${serverJobId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'encoding', progress: Math.round(p * 100) }),
+            }).catch(() => {});
+          }
+        });
+
+        if (!mountedRef.current) return job;
 
         if (resultBlob.size < 100) {
-          const failedJob: ExportJob = {
-            ...job,
-            status: 'error',
-            error: 'Export produced an empty file. The video may not have played correctly.',
-          };
+          const failedJob: ExportJob = { ...job, status: 'error', error: 'Empty file produced', serverJobId };
           setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
+          fetch(`/api/export-jobs/${serverJobId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'failed', errorMessage: 'Empty file produced' }),
+          }).catch(() => {});
           abortControllerRef.current.delete(jobId);
           return failedJob;
         }
 
-        const resultUrl = URL.createObjectURL(resultBlob);
+        // 4. Upload with jobId
+        setExportJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, status: 'uploading' } : j)));
+
+        let exportId: string | undefined;
+        let r2Key: string | undefined;
+
+        try {
+          const formData = new FormData();
+          formData.append('file', resultBlob, 'export.mp4');
+          formData.append('platformId', exportConfig.platformId);
+          if (serverJobId) {
+            formData.append('jobId', serverJobId);
+          }
+
+          const response = await fetch('/api/export-upload', {
+            method: 'POST',
+            body: formData,
+            signal: abortController.signal,
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Upload failed' }));
+            throw new Error(errorData.error || 'Cloud upload failed');
+          }
+
+          const data = await response.json();
+          exportId = data.exportId;
+          r2Key = data.r2Key;
+        } catch (uploadError) {
+          if (!mountedRef.current) return job;
+          const failedJob: ExportJob = {
+            ...job,
+            status: 'error',
+            error: uploadError instanceof Error ? uploadError.message : 'Upload failed',
+            serverJobId,
+          };
+          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
+          fetch(`/api/export-jobs/${serverJobId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'failed', errorMessage: uploadError instanceof Error ? uploadError.message : 'Upload failed' }),
+          }).catch(() => {});
+          abortControllerRef.current.delete(jobId);
+          return failedJob;
+        }
+
+        if (!mountedRef.current) return job;
+
+        const previewUrl = URL.createObjectURL(resultBlob);
 
         const completedJob: ExportJob = {
           ...job,
           status: 'done',
-          resultUrl,
+          exportId,
+          r2Key,
+          previewUrl,
           resultBlob,
+          serverJobId,
+          progress: 100,
         };
 
         setExportJobs((prev) => prev.map((j) => (j.id === jobId ? completedJob : j)));
@@ -162,19 +275,23 @@ export function useExportPipeline(): UseExportPipelineReturn {
           error: isAbort ? undefined : error instanceof Error ? error.message : 'Export failed',
         };
 
-        setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
+        if (mountedRef.current) {
+          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
+        }
         abortControllerRef.current.delete(jobId);
 
         return failedJob;
       }
     },
-    [exportConfig]
+    [exportConfig],
   );
 
   const startBatchExport = useCallback(
     async (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void): Promise<ExportJob[]> => {
       const results: ExportJob[] = [];
       for (let i = 0; i < configs.length; i++) {
+        if (!mountedRef.current) break;
+
         const config = configs[i];
         sourceDimensionsRef.current = { width: master.sourceWidth || 1920, height: master.sourceHeight || 1080 };
         setExportConfig(config);
@@ -183,25 +300,106 @@ export function useExportPipeline(): UseExportPipelineReturn {
         const abortController = new AbortController();
         abortControllerRef.current.set(jobId, abortController);
 
-        const job: ExportJob = { id: jobId, masterId: master.id, config, status: 'encoding' };
+        const job: ExportJob = { id: jobId, masterId: master.id, config, status: 'pending', progress: 0 };
         setExportJobs((prev) => [...prev, job]);
 
         try {
-          const resultBlob = await encodeExport(master, config, abortController.signal, (p) => onProgress?.(i, p));
-          const resultUrl = URL.createObjectURL(resultBlob);
-          const completedJob: ExportJob = { ...job, status: 'done', resultUrl, resultBlob };
+          // 1. Create server job
+          const createRes = await fetch('/api/export-jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config }),
+            signal: abortController.signal,
+          });
+
+          let serverJobId: string | undefined;
+          if (createRes.ok) {
+            const data = await createRes.json();
+            serverJobId = data.serverJobId;
+          }
+
+          // 2. Update status to encoding
+          if (serverJobId) {
+            await fetch(`/api/export-jobs/${serverJobId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'encoding' }),
+              signal: abortController.signal,
+            }).catch(() => {});
+          }
+
+          setExportJobs((prev) => prev.map((j) =>
+            j.id === jobId ? { ...j, status: 'encoding', serverJobId, progress: 0 } : j,
+          ));
+
+          // 3. Client-side encoding
+          const resultBlob = await encodeExport(master, config, abortController.signal, (p) => {
+            onProgress?.(i, p);
+            if (serverJobId && Math.round(p * 100) % 10 === 0) {
+              fetch(`/api/export-jobs/${serverJobId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'encoding', progress: Math.round(p * 100) }),
+              }).catch(() => {});
+            }
+          });
+
+          if (!mountedRef.current) break;
+
+          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, status: 'uploading' } : j)));
+
+          let exportId: string | undefined;
+          let r2Key: string | undefined;
+
+          try {
+            const formData = new FormData();
+            formData.append('file', resultBlob, 'export.mp4');
+            formData.append('platformId', config.platformId);
+            if (serverJobId) {
+              formData.append('jobId', serverJobId);
+            }
+
+            const response = await fetch('/api/export-upload', {
+              method: 'POST',
+              body: formData,
+              signal: abortController.signal,
+            });
+
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({ error: 'Upload failed' }));
+              throw new Error(errorData.error || 'Cloud upload failed');
+            }
+
+            const data = await response.json();
+            exportId = data.exportId;
+            r2Key = data.r2Key;
+          } catch (uploadError) {
+            if (!mountedRef.current) break;
+            const failedJob: ExportJob = { ...job, status: 'error', error: uploadError instanceof Error ? uploadError.message : 'Cloud upload failed', serverJobId };
+            setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
+            results.push(failedJob);
+            abortControllerRef.current.delete(jobId);
+            continue;
+          }
+
+          if (!mountedRef.current) break;
+
+          const previewUrl = URL.createObjectURL(resultBlob);
+          const completedJob: ExportJob = { ...job, status: 'done', exportId, r2Key, previewUrl, resultBlob, serverJobId, progress: 100 };
           setExportJobs((prev) => prev.map((j) => (j.id === jobId ? completedJob : j)));
           results.push(completedJob);
         } catch (error) {
           const failedJob: ExportJob = { ...job, status: 'error', error: error instanceof Error ? error.message : 'Failed' };
-          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
+          if (mountedRef.current) {
+            setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
+          }
           results.push(failedJob);
         }
         abortControllerRef.current.delete(jobId);
       }
       return results;
     },
-    []
+    [],
   );
 
   const cancelExport = useCallback((jobId: string) => {
@@ -210,7 +408,13 @@ export function useExportPipeline(): UseExportPipelineReturn {
       controller.abort();
       abortControllerRef.current.delete(jobId);
     }
-    setExportJobs((prev) => prev.filter((j) => j.id !== jobId));
+    setExportJobs((prev) => {
+      const job = prev.find(j => j.id === jobId);
+      if (job) {
+        if (job.previewUrl) URL.revokeObjectURL(job.previewUrl);
+      }
+      return prev.filter((j) => j.id !== jobId);
+    });
   }, []);
 
   const clearJobs = useCallback(() => {
@@ -218,7 +422,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
     abortControllerRef.current.clear();
     setExportJobs((prev) => {
       prev.forEach((job) => {
-        if (job.resultUrl) URL.revokeObjectURL(job.resultUrl);
+        if (job.previewUrl) URL.revokeObjectURL(job.previewUrl);
       });
       return [];
     });
@@ -314,6 +518,9 @@ async function encodeExport(
   let audioCtx: AudioContext | null = null;
   let audioSrc: MediaElementAudioSourceNode | null = null;
   let workletNode: AudioWorkletNode | null = null;
+  let encoderError: Error | null = null;
+  let videoEncoder: VideoEncoder | null = null;
+  let audioEncoder: AudioEncoder | null = null;
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -355,11 +562,14 @@ async function encodeExport(
       firstTimestampBehavior: 'offset',
     });
 
-    const videoEncoder = new VideoEncoder({
+    videoEncoder = new VideoEncoder({
       output: (chunk, metadata) => {
         muxer.addVideoChunk(chunk, metadata);
       },
-      error: (e) => { throw e; },
+      error: (e) => {
+        console.error('VideoEncoder error:', e);
+        encoderError = e;
+      },
     });
     videoEncoder.configure({
       codec: getAvcCodec(outputWidth, outputHeight),
@@ -369,7 +579,6 @@ async function encodeExport(
       bitrateMode: 'constant',
     });
 
-    let audioEncoder: AudioEncoder | null = null;
     if (master.hasAudio) {
       try {
         audioCtx = new AudioContext({ sampleRate: 48000 });
@@ -451,7 +660,7 @@ async function encodeExport(
           return;
         }
 
-        if (videoEncoder.encodeQueueSize > maxQueueSize) {
+        if (!videoEncoder || videoEncoder.encodeQueueSize > maxQueueSize) {
           return;
         }
 
@@ -463,7 +672,7 @@ async function encodeExport(
         ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
 
         const frame = new VideoFrame(canvas, { timestamp: frameCount * frameDuration });
-        if (videoEncoder.state === 'configured') {
+        if (videoEncoder && videoEncoder.state === 'configured') {
           videoEncoder.encode(frame, { keyFrame: frameCount % (fps * 2) === 0 });
         }
         frame.close();
@@ -483,6 +692,10 @@ async function encodeExport(
 
     onProgress?.(1);
 
+    if (encoderError) {
+      throw encoderError;
+    }
+
     if (videoEncoder.state === 'configured') {
       await videoEncoder.flush();
     }
@@ -495,6 +708,10 @@ async function encodeExport(
     const buffer = muxer.target.buffer;
     return new Blob([buffer], { type: 'video/mp4' });
   } finally {
+    // Close encoders to release resources
+    try { if (videoEncoder && videoEncoder.state !== 'closed') videoEncoder.close(); } catch {}
+    try { if (audioEncoder && audioEncoder.state !== 'closed') audioEncoder.close(); } catch {}
+
     if (workletNode) {
       try { workletNode.disconnect(); } catch {}
     }

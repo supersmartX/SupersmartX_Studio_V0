@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { sendPaymentConfirmationEmail, sendAdminNotification } from '@/lib/email';
 import { updateUserPlan } from '@/auth';
+import { isWebhookProcessed, markWebhookProcessed } from '@/lib/db';
 
 const CASHFREE_BASE_URL =
   process.env.CASHFREE_ENV === 'production'
@@ -32,13 +33,6 @@ function verifyWebhookSignature(
   }
 }
 
-// Use globalThis to persist across invocations within the same serverless isolate
-const g = globalThis as unknown as { __processedOrders?: Map<string, number> };
-if (!g.__processedOrders) g.__processedOrders = new Map();
-const processedOrders = g.__processedOrders;
-const PROCESSED_TTL = 24 * 60 * 60 * 1000;
-const MAX_PROCESSED = 10000;
-
 async function getOrderStatus(orderId: string) {
   const response = await fetch(`${CASHFREE_BASE_URL}/orders/${orderId}`, {
     method: 'GET',
@@ -54,21 +48,6 @@ async function getOrderStatus(orderId: string) {
   }
 
   return response.json();
-}
-
-function cleanupProcessedOrders() {
-  const now = Date.now();
-  for (const [orderId, timestamp] of processedOrders.entries()) {
-    if (now - timestamp > PROCESSED_TTL) {
-      processedOrders.delete(orderId);
-    }
-  }
-  if (processedOrders.size > MAX_PROCESSED) {
-    const entries = Array.from(processedOrders.entries())
-      .sort((a, b) => a[1] - b[1]);
-    const toRemove = entries.slice(0, processedOrders.size - MAX_PROCESSED + 1000);
-    toRemove.forEach(([id]) => processedOrders.delete(id));
-  }
 }
 
 function extractPlanFromOrderId(orderId: string): 'pro_monthly' | 'pro_yearly' | 'creator_monthly' | 'creator_yearly' {
@@ -104,12 +83,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing order_id' }, { status: 400 });
     }
 
-    if (processedOrders.has(orderId)) {
+    // Database-backed deduplication — survives cold starts
+    const alreadyProcessed = await isWebhookProcessed(orderId);
+    if (alreadyProcessed) {
       return NextResponse.json({ status: 'ok' });
     }
 
-    processedOrders.set(orderId, Date.now());
-    cleanupProcessedOrders();
+    await markWebhookProcessed(orderId);
 
     const order = await getOrderStatus(orderId);
     const paymentStatus = body.data?.payment?.payment_status;
@@ -141,7 +121,7 @@ export async function POST(request: NextRequest) {
         } else {
           expiresAt.setMonth(expiresAt.getMonth() + 1);
         }
-        updateUserPlan(emailData.customerEmail, plan, expiresAt.toISOString());
+        await updateUserPlan(emailData.customerEmail, plan, expiresAt.toISOString());
       }
     }
 

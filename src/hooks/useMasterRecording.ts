@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { MasterRecording } from '@/types';
-import { getRecording, saveRecording, cleanupExpired } from '@/lib/recording-store';
+import { getRecording, getLatestRecording, saveRecording, cleanupExpired } from '@/lib/recording-store';
 
 interface UseMasterRecordingReturn {
   masterRecording: MasterRecording | null;
@@ -71,7 +71,7 @@ export function useMasterRecording(): UseMasterRecordingReturn {
 
   const restoreMasterRecording = useCallback(async (): Promise<boolean> => {
     try {
-      const stored = await getRecording('latest');
+      const stored = await getLatestRecording();
       if (!stored) return false;
 
       if (blobUrlRef.current) {

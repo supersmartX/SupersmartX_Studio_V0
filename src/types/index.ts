@@ -78,18 +78,14 @@ export interface ExportJob {
   id: string;
   masterId: string;
   config: ExportConfig;
-  status: 'pending' | 'encoding' | 'done' | 'error';
-  resultUrl?: string;
+  status: 'pending' | 'encoding' | 'uploading' | 'done' | 'error';
+  exportId?: string;
+  r2Key?: string;
+  previewUrl?: string;
   resultBlob?: Blob;
   error?: string;
-}
-
-export interface PlanEntitlements {
-  canExport: boolean;
-  maxExports: number;
-  maxResolution: number;
-  allowedFormats: string[];
-  watermarkRequired: boolean;
+  serverJobId?: string;
+  progress?: number;
 }
 
 export interface TeleprompterSettings {

@@ -130,3 +130,115 @@ describe('useMasterRecording blob URL lifecycle', () => {
     expect(recording.sourceHeight).toBe(0);
   });
 });
+
+describe('duration regression — recorder timestamp is authoritative', () => {
+  it('TEST A: completed recording has positive duration', () => {
+    const { result } = renderHook(() => useMasterRecording());
+
+    let recording: any;
+    act(() => {
+      recording = result.current.createMasterRecording(mockBlob, 30, true, 1920, 1080);
+    });
+
+    expect(recording.duration).toBeGreaterThan(0);
+    expect(recording.duration).toBe(30);
+  });
+
+  it('TEST B: recorder duration is used instead of UI timer', () => {
+    const { result } = renderHook(() => useMasterRecording());
+
+    const recorderDuration = 7.43;
+    const elapsedSeconds = 6;
+
+    let recording: any;
+    act(() => {
+      recording = result.current.createMasterRecording(mockBlob, recorderDuration, true, 1920, 1080);
+    });
+
+    expect(recording.duration).toBe(recorderDuration);
+    expect(recording.duration).not.toBe(elapsedSeconds);
+  });
+
+  it('TEST C: timer reset cannot corrupt duration', () => {
+    const { result } = renderHook(() => useMasterRecording());
+
+    const recorderDuration = 5.82;
+
+    let recording: any;
+    act(() => {
+      recording = result.current.createMasterRecording(mockBlob, recorderDuration, true, 1920, 1080);
+    });
+
+    expect(recording.duration).toBe(recorderDuration);
+
+    act(() => {
+      result.current.clearMasterRecording();
+    });
+
+    let recording2: any;
+    act(() => {
+      recording2 = result.current.createMasterRecording(mockBlob, 10.5, false, 1280, 720);
+    });
+
+    expect(recording2.duration).toBe(10.5);
+  });
+
+  it('TEST D: sub-second precision is preserved', () => {
+    const { result } = renderHook(() => useMasterRecording());
+
+    let recording: any;
+    act(() => {
+      recording = result.current.createMasterRecording(mockBlob, 0.73, true, 1920, 1080);
+    });
+
+    expect(recording.duration).toBe(0.73);
+    expect(recording.duration).not.toBe(0);
+    expect(recording.duration).not.toBe(1);
+  });
+
+  it('TEST E: completion between timer intervals uses recorder duration', () => {
+    const { result } = renderHook(() => useMasterRecording());
+
+    const recorderDuration = 4.87;
+
+    let recording: any;
+    act(() => {
+      recording = result.current.createMasterRecording(mockBlob, recorderDuration, true, 1920, 1080);
+    });
+
+    expect(recording.duration).toBe(recorderDuration);
+  });
+
+  it('TEST: zero duration is preserved when recorder reports it', () => {
+    const { result } = renderHook(() => useMasterRecording());
+
+    let recording: any;
+    act(() => {
+      recording = result.current.createMasterRecording(mockBlob, 0, true, 1920, 1080);
+    });
+
+    expect(recording.duration).toBe(0);
+  });
+
+  it('TEST: large duration is preserved', () => {
+    const { result } = renderHook(() => useMasterRecording());
+
+    let recording: any;
+    act(() => {
+      recording = result.current.createMasterRecording(mockBlob, 300, true, 1920, 1080);
+    });
+
+    expect(recording.duration).toBe(300);
+  });
+
+  it('TEST: fractional duration is stored exactly', () => {
+    const { result } = renderHook(() => useMasterRecording());
+
+    let recording: any;
+    act(() => {
+      recording = result.current.createMasterRecording(mockBlob, 12.345678, true, 1920, 1080);
+    });
+
+    expect(recording.duration).toBe(12.345678);
+  });
+});

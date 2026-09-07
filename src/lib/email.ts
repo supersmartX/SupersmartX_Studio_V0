@@ -12,7 +12,7 @@ function getResend(): Resend | null {
 
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'SupersmartX Studio <noreply@supersmartx.com>';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'support@supersmartx.com';
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://studio.supersmartx.com';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.supersmartx.com';
 
 interface PaymentEmailData {
   orderId: string;

@@ -13,8 +13,9 @@ test.describe('Pricing Modal - Display', () => {
       await pricingButton.click();
       await page.waitForTimeout(500);
       const dialog = page.getByRole('dialog');
-      const hasDialog = await dialog.isVisible().catch(() => false);
-      expect(hasDialog || true).toBeTruthy();
+      await expect(dialog).toBeVisible({ timeout: 5000 });
+    } else {
+      test.skip();
     }
   });
 
@@ -47,8 +48,9 @@ test.describe('Pricing Modal - Display', () => {
     if (await pricingButton.isVisible()) {
       await pricingButton.click();
       const badge = page.getByText('Most Popular');
-      const hasBadge = await badge.isVisible().catch(() => false);
-      expect(hasBadge || true).toBeTruthy();
+      await expect(badge).toBeVisible({ timeout: 5000 });
+    } else {
+      test.skip();
     }
   });
 });

@@ -3,11 +3,9 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
-import type { RecordingState } from '@/types';
 import { ShareIcon, DownloadIcon, SettingsIcon } from '@/components/icons';
 
 interface HeaderProps {
-  recordingState: RecordingState;
   isMobile: boolean;
   hasRecording: boolean;
   onExport: () => void;
@@ -17,7 +15,6 @@ interface HeaderProps {
 }
 
 export function Header({
-  recordingState: _recordingState,
   isMobile,
   hasRecording,
   onExport,

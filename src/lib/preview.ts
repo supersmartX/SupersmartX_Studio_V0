@@ -75,7 +75,3 @@ export function getMaxPreviewDuration(
   if (isAuthenticated) return totalDuration;
   return Math.min(totalDuration, GUEST_PREVIEW_MAX_SECONDS);
 }
-
-export function canDownload(isAuthenticated: boolean, plan: string): boolean {
-  return isAuthenticated && plan !== 'free';
-}

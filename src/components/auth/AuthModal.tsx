@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { signIn, useSession } from 'next-auth/react';
+import { validatePassword } from '@/lib/validation';
 import { CloseIcon } from '@/components/icons';
 import { StepItem } from './StepItem';
 import { SocialButton } from './SocialButton';
@@ -62,8 +63,13 @@ export function AuthModal({
     const passwordValue = isRegister ? password : loginPassword;
 
     if (isRegister) {
-      if (!passwordValue || passwordValue.length < 8) {
-        setError('Password must be at least 8 characters');
+      if (!passwordValue) {
+        setError('Please enter a password');
+        return;
+      }
+      const validation = validatePassword(passwordValue);
+      if (!validation.valid) {
+        setError(validation.errors[0]);
         return;
       }
     } else if (!passwordValue) {
@@ -84,7 +90,7 @@ export function AuthModal({
       const result = await signIn('credentials', payload) as unknown as { error?: string | null } | void;
 
       if (result && 'error' in result && result.error) {
-        setError(isRegister ? 'Registration failed. Email may already be in use.' : 'Invalid email or password.');
+        setError(isRegister ? 'Registration failed. Please check your details and try again.' : 'Invalid email or password.');
         setIsLoading(false);
       } else {
         await update();
@@ -277,7 +283,7 @@ export function AuthModal({
                         <EyeIcon visible={showPassword} />
                       </button>
                     </div>
-                    <p className="text-[11px] text-text-muted">Requires at least 8 symbols.</p>
+                    <p className="text-[11px] text-text-muted">8+ characters with uppercase, lowercase, number, and special character.</p>
                   </div>
                 </div>
 

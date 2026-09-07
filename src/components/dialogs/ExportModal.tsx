@@ -8,6 +8,7 @@ import { VideoPlayer } from '@/components/studio/VideoPlayer';
 import { generateFilename } from '@/services/download.service';
 import { setPendingDownload } from '@/lib/auth-guard';
 import { GUEST_PREVIEW_MAX_SECONDS } from '@/lib/preview';
+import { getEntitlements } from '@/lib/entitlements';
 import type { ExportStep, PlatformId, ExportConfig, MasterRecording, ExportJob } from '@/types';
 import { PLATFORM_PRESETS } from '@/constants';
 import { formatTime } from '@/utils/format';
@@ -23,14 +24,10 @@ interface ExportModalProps {
   isAuthenticated: boolean;
   userPlan: string;
   onAuthRequired: () => void;
-  downloadCount: number;
-  downloadLimit: number;
   onDownloadLimitReached: () => void;
   exportConfig: ExportConfig | null;
-  exportJobs: ExportJob[];
-  onSelectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number) => ExportConfig;
+  onSelectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }) => ExportConfig;
   onUpdateCrop: (updates: { x?: number; y?: number; zoom?: number }) => void;
-  onResetCrop: () => void;
   onStartExport: (master: MasterRecording, onProgress?: (progress: number) => void) => Promise<ExportJob>;
   onStartBatchExport?: (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void) => Promise<ExportJob[]>;
   onCancelExport?: () => void;
@@ -46,14 +43,10 @@ export function ExportModal({
   isAuthenticated,
   userPlan,
   onAuthRequired,
-  downloadCount: _downloadCount,
-  downloadLimit: _downloadLimit,
   onDownloadLimitReached,
   exportConfig,
-  exportJobs: _exportJobs,
   onSelectPlatform,
   onUpdateCrop,
-  onResetCrop: _onResetCrop,
   onStartExport,
   onStartBatchExport,
   onCancelExport,
@@ -69,13 +62,15 @@ export function ExportModal({
   const isGuest = !isAuthenticated;
   const isPreview = isGuest && (masterRecording?.duration || 0) > GUEST_PREVIEW_MAX_SECONDS;
   const canDownloadFile = isAuthenticated && userPlan !== 'free';
+  const isPro = userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
 
   const handleSelectPlatform = useCallback((platformId: PlatformId) => {
     const srcW = masterRecording?.sourceWidth || 1920;
     const srcH = masterRecording?.sourceHeight || 1080;
-    onSelectPlatform(platformId, srcW, srcH);
+    const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
+    onSelectPlatform(platformId, srcW, srcH, entitlements.maxResolution);
     setStep('crop');
-  }, [onSelectPlatform, masterRecording]);
+  }, [onSelectPlatform, masterRecording, userPlan]);
 
   const handleToggleBatchPlatform = useCallback((platformId: PlatformId) => {
     setBatchPlatforms((prev) =>
@@ -87,6 +82,10 @@ export function ExportModal({
 
   const handleBatchExport = useCallback(async () => {
     if (!masterRecording || batchPlatforms.length === 0 || !onStartBatchExport) return;
+    if (!isPro) {
+      onDownloadLimitReached();
+      return;
+    }
 
     setIsExporting(true);
     setStep('encoding');
@@ -94,8 +93,9 @@ export function ExportModal({
 
     const srcW = masterRecording.sourceWidth || 1920;
     const srcH = masterRecording.sourceHeight || 1080;
+    const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
     const configs = batchPlatforms.map((pid) => {
-      return onSelectPlatform(pid, srcW, srcH);
+      return onSelectPlatform(pid, srcW, srcH, entitlements.maxResolution);
     });
 
     setBatchProgress({ current: 0, total: configs.length });
@@ -123,7 +123,7 @@ export function ExportModal({
       setBatchProgress(null);
       setExportProgress(0);
     }
-  }, [masterRecording, batchPlatforms, onStartBatchExport, onSelectPlatform, showToast]);
+  }, [masterRecording, batchPlatforms, onStartBatchExport, onSelectPlatform, showToast, isPro, onDownloadLimitReached, userPlan]);
 
   const handleExport = useCallback(async () => {
     if (!masterRecording || !exportConfig) return;
@@ -153,8 +153,8 @@ export function ExportModal({
     }
   }, [masterRecording, exportConfig, onStartExport, showToast]);
 
-  const handleDownload = useCallback(() => {
-    if (!exportResult?.resultUrl) return;
+  const handleDownload = useCallback(async () => {
+    if (!exportResult?.exportId) return;
 
     if (!isAuthenticated) {
       setPendingDownload(() => doDownload());
@@ -167,18 +167,30 @@ export function ExportModal({
       return;
     }
 
-    doDownload();
+    await doDownload();
 
-    function doDownload() {
-      if (!exportResult?.resultUrl) return;
+    async function doDownload() {
+      if (!exportResult?.exportId) return;
       const filename = generateFilename('video', 'mp4');
-      const a = document.createElement('a');
-      a.href = exportResult.resultUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      showToast(`Downloaded: ${filename}`);
+
+      try {
+        const response = await fetch(`/api/download?exportId=${encodeURIComponent(exportResult.exportId)}`);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: 'Download failed' }));
+          showToast(errorData.error || 'Download failed. Please try again.');
+          return;
+        }
+        const { url } = await response.json();
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        showToast(`Downloaded: ${filename}`);
+      } catch {
+        showToast('Download failed. Please try again.');
+      }
     }
   }, [exportResult, isAuthenticated, canDownloadFile, onAuthRequired, onDownloadLimitReached, showToast]);
 
@@ -305,7 +317,7 @@ export function ExportModal({
                 </button>
               </div>
 
-              {batchPlatforms.length > 0 && (
+              {batchPlatforms.length > 0 && isPro && (
                 <div className="flex flex-col gap-2">
                   <p className="text-[11px] text-text-muted">
                     {batchPlatforms.length} platform{batchPlatforms.length > 1 ? 's' : ''} selected
@@ -502,9 +514,9 @@ export function ExportModal({
 
           {step === 'done' && exportResult && (
             <>
-              {exportResult.resultUrl && (
+              {exportResult.previewUrl && (
                 <VideoPlayer
-                  videoUrl={exportResult.resultUrl}
+                  videoUrl={exportResult.previewUrl}
                   recordedDuration={masterRecording.duration}
                   onError={() => {}}
                   aspectRatio={exportResult.config?.aspectRatio || exportConfig?.aspectRatio || '16:9'}
@@ -512,15 +524,27 @@ export function ExportModal({
               )}
 
               <div className="flex flex-col gap-2">
-                <Button
-                  variant="primary"
-                  size="lg"
-                  onClick={handleDownload}
-                  className="w-full gap-2"
-                >
-                  <DownloadIcon className="w-4 h-4" />
-                  Download Video
-                </Button>
+                {exportResult.exportId ? (
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={handleDownload}
+                    className="w-full gap-2"
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    Download Video
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={handleExport}
+                    className="w-full gap-2"
+                  >
+                    <DownloadIcon className="w-4 h-4" />
+                    Retry Upload
+                  </Button>
+                )}
 
                 <Button
                   variant="secondary"

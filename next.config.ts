@@ -30,7 +30,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       `img-src 'self' data: blob: https://sdk.cashfree.com${r2Domain ? ` https://${r2Domain}` : ''}`,
       "font-src 'self' data: https://fonts.googleapis.com https://fonts.gstatic.com",
-      `connect-src 'self' https://api.cashfree.com https://sandbox.cashfree.com${r2Domain ? ` https://${r2Domain}` : ''}`,
+      `connect-src 'self' https://api.cashfree.com https://sandbox.cashfree.com https://ipapi.co https://ip-api.com${r2Domain ? ` https://${r2Domain}` : ''}`,
       `media-src 'self' blob: mediastream: https://d8j0ntlcm91z4.cloudfront.net${r2Domain ? ` https://${r2Domain}` : ''}`,
       "worker-src 'self' blob:",
       "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
@@ -39,6 +39,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   async headers() {
     return [
       {

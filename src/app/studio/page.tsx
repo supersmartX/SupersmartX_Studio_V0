@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { NUDGE_AMOUNT_KEYBOARD, PLATFORM_PRESETS } from '@/constants';
+import { NUDGE_AMOUNT_KEYBOARD } from '@/constants';
 
 import { useWelcomeModal } from '@/hooks/useWelcomeModal';
 import { useCamera } from '@/hooks/useCamera';
@@ -12,10 +12,13 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useFocusView } from '@/hooks/useFocusView';
 import { useToast } from '@/hooks/useToast';
 import { useShare } from '@/hooks/useShare';
-import { useSettings } from '@/hooks/useSettings';
-import { useRecordingConfig } from '@/hooks/useRecordingConfig';
 import { useMasterRecording } from '@/hooks/useMasterRecording';
 import { useExportPipeline } from '@/hooks/useExportPipeline';
+
+import { useStudioConfig } from '@/hooks/useStudioConfig';
+import { useStudioCamera } from '@/hooks/useStudioCamera';
+import { useRecordingTimer } from '@/hooks/useRecordingTimer';
+import { useStudioUI } from '@/hooks/useStudioUI';
 
 import { Header } from '@/components/layout/Header';
 import { IconRail } from '@/components/layout/IconRail';
@@ -36,7 +39,6 @@ import { WelcomeModal } from '@/components/dialogs/WelcomeModal';
 import { ExportModal } from '@/components/dialogs/ExportModal';
 import { PricingModal } from '@/components/dialogs/PricingModal';
 import { AuthModal } from '@/components/auth/AuthModal';
-import { executePendingDownload } from '@/lib/auth-guard';
 import { RecordingsPanel } from '@/components/studio/LibraryPanel';
 import { InsightsPlaceholder } from '@/features/insights/InsightsPlaceholder';
 import { Toast } from '@/components/common/Toast';
@@ -57,148 +59,88 @@ function useMediaQuery(query: string): boolean {
 }
 
 export default function HomePage() {
+  // Base hooks (called first, no ordering dependency)
   const welcomeModal = useWelcomeModal();
-  const camera = useCamera();
   const { toast, showToast } = useToast();
   const { share } = useShare(showToast);
   const focusView = useFocusView();
   const scriptStorage = useScriptStorage();
   const { data: session } = useSession();
-  const settingsStore = useSettings();
-  const {
-    config: recordingConfig,
-    setPlatformId: setRecordingPlatformId,
-    setCustomAspectRatio: setRecordingCustomAspectRatio,
-    setCustomDimensions: setRecordingCustomDimensions,
-    setMirrored: setRecordingMirrored,
-    setVideoDevice: setRecordingVideoDevice,
-    setAudioDevice: setRecordingAudioDevice,
-  } = useRecordingConfig();
-  const {
-    masterRecording: masterRecordingData,
-    createMasterRecording,
-    clearMasterRecording,
-  } = useMasterRecording();
+
+  // Core infrastructure hooks
+  const { settings, recordingConfig } = useStudioConfig();
+  const camera = useCamera();
+  const recorder = useRecorder(camera.stream, recordingConfig);
+
+  // Camera management hook (needs settings + recorder state)
+  const { handleCameraInitialize, handleVideoDeviceChange, handleAudioDeviceChange } = useStudioCamera({
+    recordingState: recorder.recordingState,
+    settings,
+    camera,
+  });
+
+  const ui = useStudioUI();
+  const { masterRecording: masterRecordingData, createMasterRecording, clearMasterRecording, restoreMasterRecording } = useMasterRecording();
+  const { elapsedSeconds, resetTimer } = useRecordingTimer({
+    recordingState: recorder.recordingState,
+    stopRecording: recorder.stopRecording,
+    showToast,
+    isPro: session?.user?.plan === 'pro_monthly' || session?.user?.plan === 'pro_yearly' || session?.user?.plan === 'creator_monthly' || session?.user?.plan === 'creator_yearly',
+    resetOnComplete: false,
+  });
+
+  // Local UI state
+  const isMobile = useMediaQuery('(max-width: 640px)');
+  const [activePanel, setActivePanel] = useState<TabType | 'record' | 'share'>('studio');
+  const [isMicMuted, setIsMicMuted] = useState(false);
+  const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+  const prompterContainerRef = useRef<HTMLDivElement>(null);
+
   const {
     exportConfig,
     exportJobs,
     setExportConfig,
     selectPlatform,
     updateCrop,
-    resetCrop,
     startExport,
     startBatchExport,
     cancelExport,
     clearJobs,
   } = useExportPipeline();
 
-  // Only used for drawer/modal state logic, NOT for layout visibility
-  const isMobile = useMediaQuery('(max-width: 640px)');
-
-  const [activePanel, setActivePanel] = useState<TabType | 'record' | 'share'>('studio');
-  const [isDrawerVisible, setIsDrawerVisible] = useState(false);
-  const [isMicMuted, setIsMicMuted] = useState(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [isInspectorOpen, setIsInspectorOpen] = useState(true);
-  const [downloadCount, setDownloadCount] = useState(0);
-  const prompterContainerRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval>>(null);
-  const recordingCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  const FREE_VIDEO_DOWNLOAD_LIMIT = 3;
-  const FREE_MAX_RECORDING_SECONDS = 300; // 5 minutes
-
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
-
-  const handleAuthRequired = useCallback(() => {
-    setIsAuthModalOpen(true);
-  }, []);
-
-  const handleAuthSuccess = useCallback(() => {
-    executePendingDownload();
-  }, []);
-
-  const recorder = useRecorder(camera.stream, recordingConfig);
-
+  // Restore master recording from IndexedDB on mount
   useEffect(() => {
-    if (camera.videoDevices.length > 0) {
-      const stillExists = camera.videoDevices.some(d => d.deviceId === settingsStore.selectedVideoDevice);
-      if (!settingsStore.selectedVideoDevice || !stillExists) {
-        settingsStore.setSelectedVideoDevice(camera.videoDevices[0].deviceId);
+    if (!masterRecordingData) {
+      restoreMasterRecording();
+    }
+  }, [masterRecordingData, restoreMasterRecording]);
+
+  // Handle recording completion → create master recording
+  useEffect(() => {
+    if (recorder.recordingState === 'completed') {
+      ui.setIsDrawerVisible(true);
+
+      if (recorder.recordingResult?.blob) {
+        const videoTrack = camera.stream?.getVideoTracks()[0];
+        const trackSettings = videoTrack?.getSettings();
+        createMasterRecording(
+          recorder.recordingResult.blob,
+          recorder.recordingResult.duration,
+          recorder.recordingResult.hasAudio,
+          trackSettings?.width || recordingConfig.width,
+          trackSettings?.height || recordingConfig.height
+        );
       }
-    } else {
-      settingsStore.setSelectedVideoDevice('');
-    }
-    if (camera.audioDevices.length > 0) {
-      const stillExists = camera.audioDevices.some(d => d.deviceId === settingsStore.selectedAudioDevice);
-      if (!settingsStore.selectedAudioDevice || !stillExists) {
-        settingsStore.setSelectedAudioDevice(camera.audioDevices[0].deviceId);
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sxs-recording-count',
+          (parseInt(localStorage.getItem('sxs-recording-count') || '0', 10) + 1).toString()
+        );
       }
-    } else {
-      settingsStore.setSelectedAudioDevice('');
+
+      resetTimer();
     }
-  }, [camera.videoDevices, camera.audioDevices, settingsStore.selectedVideoDevice, settingsStore.selectedAudioDevice]);
-
-  // Sync settings store changes to recording config store
-  useEffect(() => {
-    setRecordingPlatformId(settingsStore.platformId);
-    setRecordingCustomAspectRatio(settingsStore.customAspectRatio);
-    setRecordingCustomDimensions(settingsStore.customWidth, settingsStore.customHeight);
-    setRecordingMirrored(settingsStore.isMirrored);
-  }, [
-    settingsStore.platformId,
-    settingsStore.customAspectRatio,
-    settingsStore.customWidth,
-    settingsStore.customHeight,
-    settingsStore.isMirrored,
-    setRecordingPlatformId,
-    setRecordingCustomAspectRatio,
-    setRecordingCustomDimensions,
-    setRecordingMirrored,
-  ]);
-
-  // Sync device IDs from settings to recording config
-  useEffect(() => {
-    setRecordingVideoDevice(settingsStore.selectedVideoDevice);
-    setRecordingAudioDevice(settingsStore.selectedAudioDevice);
-  }, [
-    settingsStore.selectedVideoDevice,
-    settingsStore.selectedAudioDevice,
-    setRecordingVideoDevice,
-    setRecordingAudioDevice,
-  ]);
-
-  useEffect(() => {
-    if (recorder.recordingState === 'recording') {
-      const isPro = session?.user?.plan === 'pro_monthly' || session?.user?.plan === 'pro_yearly' || session?.user?.plan === 'creator_monthly' || session?.user?.plan === 'creator_yearly';
-      timerRef.current = setInterval(() => {
-        setElapsedSeconds((prev) => {
-          const next = prev + 1;
-          if (!isPro) {
-            if (next === FREE_MAX_RECORDING_SECONDS - 60) {
-              showToast('1 minute remaining on Free plan recording limit');
-            }
-            if (next >= FREE_MAX_RECORDING_SECONDS) {
-              if (timerRef.current) clearInterval(timerRef.current);
-              setTimeout(() => recorder.stopRecording(), 0);
-              showToast('Recording stopped — 5 minute limit reached on Free plan');
-              return FREE_MAX_RECORDING_SECONDS;
-            }
-          }
-          return next;
-        });
-      }, 1000);
-    } else if (recorder.recordingState === 'paused') {
-      if (timerRef.current) clearInterval(timerRef.current);
-    } else if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [recorder.recordingState, recorder.stopRecording, showToast, session?.user?.plan]);
+  }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, camera.stream, recordingConfig.width, recordingConfig.height]);
 
   const handleRecordStart = useCallback(() => {
     if (!camera.stream) return;
@@ -207,13 +149,13 @@ export default function HomePage() {
       prompterContainerRef.current.scrollTop = 0;
     }
 
-    setElapsedSeconds(0);
+    resetTimer();
 
     const scrollCallback = () => {
       if (!prompterContainerRef.current) return;
       const container = prompterContainerRef.current;
-      const speed = settingsStore.teleprompter.scrollSpeed;
-      const multiplier = settingsStore.teleprompter.scrollSpeedMultiplier;
+      const speed = settings.teleprompter.scrollSpeed;
+      const multiplier = settings.teleprompter.scrollSpeedMultiplier;
       container.scrollTop += (speed / 20) * multiplier;
     };
 
@@ -226,7 +168,7 @@ export default function HomePage() {
     };
 
     recorder.startRecording(scrollCallback, checkEndCallback);
-  }, [camera.stream, recorder, settingsStore.teleprompter.scrollSpeed, settingsStore.teleprompter.scrollSpeedMultiplier]);
+  }, [camera.stream, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, resetTimer]);
 
   const handleRecordStop = useCallback(() => {
     if (recorder.recordingState === 'recording' || recorder.recordingState === 'paused') {
@@ -234,32 +176,29 @@ export default function HomePage() {
     } else if (
       recorder.recordingState === 'idle' &&
       camera.stream &&
-      !isDrawerVisible
+      !ui.isDrawerVisible
     ) {
       handleRecordStart();
     }
-    // Ignore countdown — don't start or stop while countdown is active
-  }, [recorder, camera.stream, isDrawerVisible, handleRecordStart]);
+  }, [recorder, camera.stream, ui.isDrawerVisible, handleRecordStart]);
 
   const handleCloseDrawer = useCallback(() => {
-    setIsDrawerVisible(false);
+    ui.setIsDrawerVisible(false);
     if (recorder.recordingState === 'completed') {
       recorder.resetRecording();
       clearMasterRecording();
       clearJobs();
       setExportConfig(null);
-      setElapsedSeconds(0);
     }
-  }, [recorder, clearMasterRecording, clearJobs, setExportConfig]);
+  }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
 
   const handlePracticeAgain = useCallback(() => {
-    setIsDrawerVisible(false);
+    ui.setIsDrawerVisible(false);
     recorder.resetRecording();
     clearMasterRecording();
     clearJobs();
     setExportConfig(null);
-    setElapsedSeconds(0);
-  }, [recorder, clearMasterRecording, clearJobs, setExportConfig]);
+  }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
 
   const handleNudgeUp = useCallback(() => {
     if (prompterContainerRef.current) {
@@ -299,61 +238,6 @@ export default function HomePage() {
     }
   }, [handleRecordStop]);
 
-  const handleCameraInitialize = useCallback(async () => {
-    const platformPreset = PLATFORM_PRESETS.find((p) => p.id === settingsStore.platformId) ?? PLATFORM_PRESETS[0];
-    const constraints: MediaStreamConstraints = {
-      video: settingsStore.selectedVideoDevice
-        ? { deviceId: { exact: settingsStore.selectedVideoDevice }, width: { ideal: platformPreset.width }, height: { ideal: platformPreset.height } }
-        : { width: { ideal: platformPreset.width }, height: { ideal: platformPreset.height }, facingMode: 'user' },
-      audio: settingsStore.selectedAudioDevice
-        ? { deviceId: { exact: settingsStore.selectedAudioDevice } }
-        : true,
-    };
-
-    try {
-      await camera.initialize(constraints);
-    } catch {
-      await camera.initialize();
-    }
-  }, [camera, settingsStore.selectedAudioDevice, settingsStore.selectedVideoDevice, settingsStore.platformId]);
-
-  const handleVideoDeviceChange = useCallback(async (deviceId: string) => {
-    settingsStore.setSelectedVideoDevice(deviceId);
-    if (camera.isInitialized) {
-      const constraints: MediaStreamConstraints = {
-        video: { deviceId: { exact: deviceId } },
-        audio: settingsStore.selectedAudioDevice
-          ? { deviceId: { exact: settingsStore.selectedAudioDevice } }
-          : true,
-      };
-      await camera.initialize(constraints);
-    }
-  }, [camera, settingsStore.selectedAudioDevice, settingsStore.setSelectedVideoDevice]);
-
-  const handleAudioDeviceChange = useCallback(async (deviceId: string) => {
-    settingsStore.setSelectedAudioDevice(deviceId);
-    if (camera.isInitialized) {
-      const constraints: MediaStreamConstraints = {
-        video: settingsStore.selectedVideoDevice
-          ? { deviceId: { exact: settingsStore.selectedVideoDevice } }
-          : true,
-        audio: { deviceId: { exact: deviceId } },
-      };
-      await camera.initialize(constraints);
-    }
-  }, [camera, settingsStore.selectedVideoDevice, settingsStore.setSelectedAudioDevice]);
-
-  const prevPlatformRef = useRef(settingsStore.platformId);
-  useEffect(() => {
-    if (prevPlatformRef.current !== settingsStore.platformId) {
-      prevPlatformRef.current = settingsStore.platformId;
-      if (camera.isInitialized && recorder.recordingState === 'idle') {
-        handleCameraInitialize();
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsStore.platformId]);
-
   const handleToggleInspector = useCallback(() => {
     setIsInspectorOpen((prev) => !prev);
   }, []);
@@ -369,17 +253,10 @@ export default function HomePage() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const dlCount = parseInt(localStorage.getItem('sxs-download-count') || '0', 10);
-      setDownloadCount(dlCount);
-
       if (window.location.search) {
         window.history.replaceState({}, '', window.location.pathname);
       }
     }
-  }, []);
-
-  const handlePricingClick = useCallback(() => {
-    setIsPricingModalOpen(true);
   }, []);
 
   useKeyboardShortcuts({
@@ -389,60 +266,36 @@ export default function HomePage() {
     onCloseDrawer: handleCloseDrawer,
     isRecording: recorder.recordingState === 'recording',
     canRecord: !!camera.stream,
-    isDrawerVisible,
+    isDrawerVisible: ui.isDrawerVisible,
     showNudgeToast: showToast,
   });
-
-  useEffect(() => {
-    if (recorder.recordingState === 'completed') {
-      setIsDrawerVisible(true);
-      
-      if (recorder.recordingResult?.blob) {
-        const videoTrack = camera.stream?.getVideoTracks()[0];
-        const settings = videoTrack?.getSettings();
-        createMasterRecording(
-          recorder.recordingResult.blob,
-          elapsedSeconds,
-          recorder.recordingResult.hasAudio,
-          settings?.width || recordingConfig.width,
-          settings?.height || recordingConfig.height
-        );
-      }
-      
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('sxs-recording-count',
-          (parseInt(localStorage.getItem('sxs-recording-count') || '0', 10) + 1).toString()
-        );
-      }
-    }
-  }, [recorder.recordingState, recorder.recordingResult, elapsedSeconds, createMasterRecording]);
 
   const isStudio = activePanel === 'studio';
 
   const inspectorProps = {
-    settings: settingsStore.teleprompter,
-    onSettingsChange: settingsStore.setTeleprompter,
+    settings: settings.teleprompter,
+    onSettingsChange: settings.setTeleprompter,
     focusViewEnabled: focusView.isEnabled,
     onFocusViewToggle: focusView.toggle,
-    mirrorCamera: settingsStore.isMirrored,
-    onMirrorCameraToggle: () => settingsStore.setIsMirrored((prev) => !prev),
-    countdownEnabled: settingsStore.countdownEnabled,
-    onCountdownToggle: () => settingsStore.setCountdownEnabled((prev) => !prev),
+    mirrorCamera: settings.isMirrored,
+    onMirrorCameraToggle: () => settings.setIsMirrored((prev) => !prev),
+    countdownEnabled: settings.countdownEnabled,
+    onCountdownToggle: () => settings.setCountdownEnabled((prev) => !prev),
     videoDevices: camera.videoDevices,
     audioDevices: camera.audioDevices,
-    selectedVideoDevice: settingsStore.selectedVideoDevice,
-    selectedAudioDevice: settingsStore.selectedAudioDevice,
+    selectedVideoDevice: settings.selectedVideoDevice,
+    selectedAudioDevice: settings.selectedAudioDevice,
     onVideoDeviceChange: handleVideoDeviceChange,
     onAudioDeviceChange: handleAudioDeviceChange,
-    platformId: settingsStore.platformId,
-    onPlatformChange: settingsStore.setPlatformId,
-    customAspectRatio: settingsStore.customAspectRatio,
-    onCustomAspectRatioChange: settingsStore.setCustomAspectRatio,
-    customWidth: settingsStore.customWidth,
-    onCustomWidthChange: settingsStore.setCustomWidth,
-    customHeight: settingsStore.customHeight,
-    onCustomHeightChange: settingsStore.setCustomHeight,
-    aspectRatio: settingsStore.aspectRatio,
+    platformId: settings.platformId,
+    onPlatformChange: settings.setPlatformId,
+    customAspectRatio: settings.customAspectRatio,
+    onCustomAspectRatioChange: settings.setCustomAspectRatio,
+    customWidth: settings.customWidth,
+    onCustomWidthChange: settings.setCustomWidth,
+    customHeight: settings.customHeight,
+    onCustomHeightChange: settings.setCustomHeight,
+    aspectRatio: settings.aspectRatio,
     script: scriptStorage.script,
     onScriptChange: scriptStorage.setScript,
     onClearScript: scriptStorage.clearScript,
@@ -463,17 +316,15 @@ export default function HomePage() {
 
       <div className="h-screen flex flex-col bg-canvas overflow-hidden">
         <Header
-          recordingState={recorder.recordingState}
           isMobile={isMobile}
           hasRecording={recorder.recordingState === 'completed'}
-          onExport={() => setIsDrawerVisible(true)}
+          onExport={() => ui.setIsDrawerVisible(true)}
           onShare={share}
           onToggleInspector={handleToggleInspector}
-          onSignIn={handleAuthRequired}
+          onSignIn={ui.handleAuthRequired}
         />
 
         <div className="flex-1 min-h-0 flex overflow-hidden">
-          {/* IconRail - hidden on mobile/tablet via CSS (hidden lg:flex) */}
           <IconRail
             activePanel={activePanel}
             onPanelChange={handlePanelChange}
@@ -486,18 +337,17 @@ export default function HomePage() {
             onPreferencesToggle={handleToggleInspector}
             onOpenTeleprompter={handleOpenTeleprompter}
             onShowShortcuts={handleShowShortcuts}
-            onPricingClick={handlePricingClick}
+            onPricingClick={ui.handlePricingClick}
             userPlan={session?.user?.plan || 'free'}
           />
 
           <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden" role="main">
-            {/* Studio view — CSS visibility prevents unmount/remount of CameraPreview stream */}
             <div className={`flex-1 min-h-0 flex flex-col overflow-hidden ${isStudio ? '' : 'hidden'}`}>
               <DeviceSelectorBar
                 videoDevices={camera.videoDevices}
                 audioDevices={camera.audioDevices}
-                selectedVideoDevice={settingsStore.selectedVideoDevice}
-                selectedAudioDevice={settingsStore.selectedAudioDevice}
+                selectedVideoDevice={settings.selectedVideoDevice}
+                selectedAudioDevice={settings.selectedAudioDevice}
                 onVideoDeviceChange={handleVideoDeviceChange}
                 onAudioDeviceChange={handleAudioDeviceChange}
                 onRefresh={camera.refreshDevices}
@@ -506,23 +356,22 @@ export default function HomePage() {
               <Canvas
                 focusViewEnabled={focusView.isEnabled}
                 onFocusViewToggle={focusView.toggle}
-                aspectRatio={settingsStore.aspectRatio}
+                aspectRatio={settings.aspectRatio}
                 recordingConfig={recordingConfig}
-                onCanvasReady={(canvas) => { recordingCanvasRef.current = canvas; }}
               >
                 <CameraPreview
                   stream={camera.stream}
-                  isMirrored={settingsStore.isMirrored}
+                  isMirrored={settings.isMirrored}
                   focusViewEnabled={focusView.isEnabled}
                 />
 
                 <TeleprompterOverlay
                   ref={prompterContainerRef}
                   script={scriptStorage.script}
-                  settings={settingsStore.teleprompter}
+                  settings={settings.teleprompter}
                 />
 
-                <FocalGuideway position={settingsStore.teleprompter.textStartPosition} />
+                <FocalGuideway position={settings.teleprompter.textStartPosition} />
 
                 <RecordingBadge recordingState={recorder.recordingState} />
 
@@ -533,7 +382,7 @@ export default function HomePage() {
 
                 <CountdownOverlay
                   countdownText={recorder.countdownText}
-                  isVisible={recorder.recordingState === 'countdown' && settingsStore.countdownEnabled}
+                  isVisible={recorder.recordingState === 'countdown' && settings.countdownEnabled}
                 />
 
                 {!camera.isInitialized && (
@@ -558,7 +407,7 @@ export default function HomePage() {
                       recording.width,
                       recording.height
                     );
-                    setIsDrawerVisible(true);
+                    ui.setIsDrawerVisible(true);
                   }}
                 />
               </div>
@@ -584,8 +433,8 @@ export default function HomePage() {
                   () => {
                     if (!prompterContainerRef.current) return;
                     const container = prompterContainerRef.current;
-                    const speed = settingsStore.teleprompter.scrollSpeed;
-                    const multiplier = settingsStore.teleprompter.scrollSpeedMultiplier;
+                    const speed = settings.teleprompter.scrollSpeed;
+                    const multiplier = settings.teleprompter.scrollSpeedMultiplier;
                     container.scrollTop += (speed / 20) * multiplier;
                   },
                   () => {
@@ -602,7 +451,6 @@ export default function HomePage() {
             />
           </main>
 
-          {/* InspectorPanel - CSS visibility prevents unmount/remount on tab switch */}
           <div className={isStudio ? '' : 'hidden'}>
             <InspectorPanel
               {...inspectorProps}
@@ -613,25 +461,23 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* BottomNav - hidden on tablet/desktop via CSS (flex md:hidden) */}
         <BottomNav
           activePanel={activePanel}
           onPanelChange={handlePanelChange}
           recordingState={recorder.recordingState}
           onRecordToggle={handleRecordStop}
           onSettingsToggle={handleToggleInspector}
-          onPricingClick={handlePricingClick}
+          onPricingClick={ui.handlePricingClick}
           isCameraInitialized={camera.isInitialized}
           onCameraInitialize={handleCameraInitialize}
           userPlan={session?.user?.plan || 'free'}
         />
 
-        {/* Footer - hidden on mobile/tablet via CSS (hidden md:flex) */}
         <Footer />
       </div>
 
       <ExportModal
-        isVisible={isDrawerVisible}
+        isVisible={ui.isDrawerVisible}
         masterRecording={masterRecordingData}
         onClose={handleCloseDrawer}
         onPracticeAgain={handlePracticeAgain}
@@ -639,30 +485,26 @@ export default function HomePage() {
         showToast={showToast}
         isAuthenticated={!!session?.user}
         userPlan={session?.user?.plan || 'free'}
-        onAuthRequired={handleAuthRequired}
-        downloadCount={downloadCount}
-        downloadLimit={FREE_VIDEO_DOWNLOAD_LIMIT}
-        onDownloadLimitReached={() => setIsPricingModalOpen(true)}
+        onAuthRequired={ui.handleAuthRequired}
+        onDownloadLimitReached={() => ui.setIsPricingModalOpen(true)}
         exportConfig={exportConfig}
-        exportJobs={exportJobs}
         onSelectPlatform={selectPlatform}
         onUpdateCrop={updateCrop}
-        onResetCrop={resetCrop}
         onStartExport={startExport}
         onStartBatchExport={startBatchExport}
         onCancelExport={() => cancelExport(exportJobs[exportJobs.length - 1]?.id || '')}
       />
 
       <PricingModal
-        isOpen={isPricingModalOpen}
-        onClose={() => setIsPricingModalOpen(false)}
+        isOpen={ui.isPricingModalOpen}
+        onClose={() => ui.setIsPricingModalOpen(false)}
         showToast={showToast}
       />
 
       <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        onSuccess={handleAuthSuccess}
+        isOpen={ui.isAuthModalOpen}
+        onClose={() => ui.setIsAuthModalOpen(false)}
+        onSuccess={ui.handleAuthSuccess}
         mode="download"
       />
 

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { getSignedDownloadUrl, isR2Configured } from '@/lib/r2';
+import { findExportByIdAndUser, findUserById, atomicIncrementDownloadCount, ensureUserStatsRow } from '@/lib/db';
+import { getEntitlements, isPlanActive } from '@/lib/entitlements';
+import type { PlanType } from '@/types/db';
+
+const SIGNED_URL_TTL_SECONDS = parseInt(process.env.R2_SIGNED_URL_TTL_SECONDS || '3600', 10);
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,36 +15,65 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userPlan = session.user.plan || 'free';
-
-    if (userPlan === 'free') {
-      return NextResponse.json({ error: 'Pro plan required' }, { status: 403 });
-    }
-
     if (!isR2Configured()) {
       return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
     }
 
     const { searchParams } = new URL(request.url);
-    const key = searchParams.get('key');
+    const exportId = searchParams.get('exportId');
 
-    if (!key) {
-      return NextResponse.json({ error: 'Missing key parameter' }, { status: 400 });
+    if (!exportId) {
+      return NextResponse.json({ error: 'Missing exportId parameter' }, { status: 400 });
     }
 
-    const normalizedKey = key.replace(/\\/g, '/').replace(/\/+/g, '/');
-    if (normalizedKey.includes('..') || normalizedKey.includes('%2e%2e')) {
-      return NextResponse.json({ error: 'Invalid key' }, { status: 400 });
+    if (exportId.includes('..') || exportId.includes('%2e%2e')) {
+      return NextResponse.json({ error: 'Invalid exportId' }, { status: 400 });
     }
 
-    if (!normalizedKey.startsWith(`recordings/${session.user.id}/`)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const user = await findUserById(session.user.id);
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 401 });
     }
 
-    const url = await getSignedDownloadUrl(normalizedKey, 3600);
+    const userPlan = user.plan || 'free';
+    if (!isPlanActive(user.planExpiresAt)) {
+      return NextResponse.json({ error: 'Plan has expired' }, { status: 403 });
+    }
 
-    return NextResponse.json({ url, expiresIn: 3600 });
-  } catch {
+    const entitlements = getEntitlements(userPlan as PlanType);
+    if (!entitlements.canDownload) {
+      return NextResponse.json({ error: 'Upgrade required to download recordings' }, { status: 403 });
+    }
+
+    const exportRecord = await findExportByIdAndUser(exportId, session.user.id);
+    if (!exportRecord) {
+      return NextResponse.json({ error: 'Export not found' }, { status: 404 });
+    }
+
+    if (exportRecord.status !== 'completed') {
+      return NextResponse.json({ error: 'Export is not available for download' }, { status: 404 });
+    }
+
+    await ensureUserStatsRow(session.user.id);
+
+    if (entitlements.maxDownloads !== null) {
+      const success = await atomicIncrementDownloadCount(session.user.id, entitlements.maxDownloads);
+      if (!success) {
+        return NextResponse.json(
+          { error: `Download limit reached. Maximum is ${entitlements.maxDownloads} downloads on your plan` },
+          { status: 403 },
+        );
+      }
+    } else {
+      const { incrementDownloadCount } = await import('@/lib/db');
+      await incrementDownloadCount(session.user.id);
+    }
+
+    const url = await getSignedDownloadUrl(exportRecord.r2Key, SIGNED_URL_TTL_SECONDS);
+
+    return NextResponse.json({ url, expiresIn: SIGNED_URL_TTL_SECONDS });
+  } catch (error) {
+    console.error('Download failed:', error);
     return NextResponse.json({ error: 'Download failed' }, { status: 500 });
   }
 }

@@ -1,43 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findUserByEmail } from '@/auth';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
 import { createHash, randomBytes } from 'crypto';
+import { saveResetToken } from '@/lib/db';
+import { rateLimit } from '@/lib/rate-limit';
 import { Resend } from 'resend';
 
-const DATA_DIR = join(process.cwd(), 'data');
-const TOKENS_FILE = join(DATA_DIR, 'reset-tokens.json');
 const TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
-
-interface ResetToken {
-  tokenHash: string;
-  email: string;
-  expiresAt: string;
-}
-
-function getTokens(): ResetToken[] {
-  try {
-    if (!existsSync(TOKENS_FILE)) return [];
-    return JSON.parse(readFileSync(TOKENS_FILE, 'utf-8'));
-  } catch {
-    return [];
-  }
-}
-
-function saveTokens(tokens: ResetToken[]) {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
-}
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit: 3 requests per minute per IP
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    const { allowed, retryAfterMs } = rateLimit(`forgot:${ip}`, 3, 60_000);
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } },
+      );
+    }
+
     const { email } = await request.json();
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: 'Invalid email' }, { status: 400 });
     }
 
-    const user = findUserByEmail(email);
+    const user = await findUserByEmail(email);
     if (!user) {
       // Don't reveal whether user exists
       return NextResponse.json({ ok: true });
@@ -47,19 +35,17 @@ export async function POST(request: NextRequest) {
     const rawToken = randomBytes(32).toString('hex');
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
-    // Save token
-    const tokens = getTokens().filter((t) => t.email !== email);
-    tokens.push({
+    // Save token (replaces any existing token for this email)
+    await saveResetToken({
       tokenHash,
-      email,
+      email: email.toLowerCase(),
       expiresAt: new Date(Date.now() + TOKEN_EXPIRY_MS).toISOString(),
     });
-    saveTokens(tokens);
 
     // Send email
     const apiKey = process.env.RESEND_API_KEY;
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'SupersmartX Studio <noreply@supersmartx.com>';
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://studio.supersmartx.com';
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.supersmartx.com';
     const resetUrl = `${appUrl}/auth/reset-password?token=${rawToken}`;
 
     if (!apiKey) {

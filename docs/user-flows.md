@@ -21,7 +21,7 @@
 ## 1. Landing Page & First Visit
 
 Entry
-User visits SupersmartX Studio for the first time via `https://studio.supersmartx.com/`.
+User visits SupersmartX Studio for the first time via `https://www.supersmartx.com/`.
 
 ↓
 

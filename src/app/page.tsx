@@ -103,6 +103,7 @@ export default function LandingPage() {
   }, [menuOpen, closeMenu]);
 
   useEffect(() => {
+    const cleanupFns: Array<() => void> = [];
     const raf = requestAnimationFrame(() => {
       const appears = document.querySelectorAll<HTMLElement>('.lsx-appear');
       const heroPhoto = document.querySelector('.lsx-hero-photo');
@@ -112,7 +113,9 @@ export default function LandingPage() {
         if (anims.length === 0) {
           el.classList.add('lsx-is-in');
         } else {
-          el.addEventListener('animationend', () => el.classList.add('lsx-is-in'), { once: true });
+          const handler = () => el.classList.add('lsx-is-in');
+          el.addEventListener('animationend', handler, { once: true });
+          cleanupFns.push(() => el.removeEventListener('animationend', handler));
         }
       });
 
@@ -121,11 +124,13 @@ export default function LandingPage() {
         if (anims.length === 0) {
           heroPhoto.classList.add('lsx-is-in');
         } else {
-          heroPhoto.addEventListener('animationend', () => heroPhoto.classList.add('lsx-is-in'), { once: true });
+          const handler = () => heroPhoto.classList.add('lsx-is-in');
+          heroPhoto.addEventListener('animationend', handler, { once: true });
+          cleanupFns.push(() => heroPhoto.removeEventListener('animationend', handler));
         }
       }
 
-      setTimeout(() => {
+      const timerId = setTimeout(() => {
         appears.forEach((el) => {
           if (!el.classList.contains('lsx-is-in')) el.classList.add('lsx-is-in');
         });
@@ -133,8 +138,10 @@ export default function LandingPage() {
           heroPhoto.classList.add('lsx-is-in');
         }
       }, 2500);
+      cleanupFns.push(() => clearTimeout(timerId));
     });
-    return () => cancelAnimationFrame(raf);
+    cleanupFns.push(() => cancelAnimationFrame(raf));
+    return () => cleanupFns.forEach(fn => fn());
   }, []);
 
   return (

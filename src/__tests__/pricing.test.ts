@@ -3,7 +3,6 @@ import {
   getPricingForCountry,
   formatPrice,
   getServerPrice,
-  validateOrderAmount,
   detectCountry,
   getCachedCountry,
   cacheCountry,
@@ -91,28 +90,6 @@ describe('getServerPrice', () => {
 
   it('falls back to INR for unknown currency', () => {
     expect(getServerPrice('creator_monthly', 'UNKNOWN')).toBe(349);
-  });
-});
-
-describe('validateOrderAmount', () => {
-  it('returns true for correct amount', () => {
-    expect(validateOrderAmount('creator_monthly', 'USD', 7.99)).toBe(true);
-  });
-
-  it('returns true for amount within tolerance', () => {
-    expect(validateOrderAmount('creator_monthly', 'USD', 7.995)).toBe(true);
-  });
-
-  it('returns false for wrong amount', () => {
-    expect(validateOrderAmount('creator_monthly', 'USD', 1)).toBe(false);
-  });
-
-  it('returns false for invalid plan', () => {
-    expect(validateOrderAmount('free', 'USD', 0)).toBe(false);
-  });
-
-  it('returns false for negative amount', () => {
-    expect(validateOrderAmount('creator_monthly', 'USD', -7.99)).toBe(false);
   });
 });
 

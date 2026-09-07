@@ -15,11 +15,11 @@ export const metadata: Metadata = {
   icons: {
     icon: '/SXS_ICON.png',
   },
-  metadataBase: new URL('https://studio.supersmartx.com'),
+  metadataBase: new URL('https://www.supersmartx.com'),
   openGraph: {
     title: 'SupersmartX Studio',
     description: 'Interactive Teleprompter and Video Script Reader — Record professional videos from your browser.',
-    url: 'https://studio.supersmartx.com',
+    url: 'https://www.supersmartx.com',
     siteName: 'SupersmartX Studio',
     images: [
       {

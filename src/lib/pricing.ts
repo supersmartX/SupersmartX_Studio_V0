@@ -182,10 +182,3 @@ export function getServerPrice(plan: string, currency: string): number | null {
   const fallback = REGION_PRICING['IN'];
   return fallback[field];
 }
-
-export function validateOrderAmount(plan: string, currency: string, clientAmount: number): boolean {
-  const expected = getServerPrice(plan, currency);
-  if (expected === null) return false;
-  const TOLERANCE = 0.01;
-  return Math.abs(clientAmount - expected) <= TOLERANCE;
-}

@@ -10,9 +10,30 @@ import {
   verifyPassword,
   getGravatarUrl,
 } from './lib/user-store';
+import { isAccountLocked, recordFailedLogin, resetFailedLogins } from './lib/db';
+import { validatePassword } from './lib/validation';
 
 if (!process.env.NEXTAUTH_SECRET && process.env.NODE_ENV === 'production') {
   throw new Error('NEXTAUTH_SECRET must be set in production');
+}
+
+let migrationDone = false;
+
+async function ensureMigration() {
+  if (migrationDone) return;
+  migrationDone = true;
+  try {
+    const { migrateFromJson } = await import('./lib/db/migrate');
+    const result = await migrateFromJson();
+    if (result.users > 0 || result.tokens > 0) {
+      console.log(`[DB] Migrated ${result.users} users, ${result.tokens} reset tokens from JSON`);
+    }
+    if (result.errors.length > 0) {
+      console.warn('[DB] Migration warnings:', result.errors);
+    }
+  } catch {
+    // Migration files may not exist yet during build
+  }
 }
 
 const providers = [];
@@ -53,8 +74,12 @@ providers.push(
 
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
 
+      await ensureMigration();
+
       if (mode === 'register' && password && name) {
-        const existing = findUserByEmail(email);
+        const validation = validatePassword(password);
+        if (!validation.valid) return null;
+        const existing = await findUserByEmail(email);
         if (existing) return null;
         const user = await createUser(email, name, password);
         if (!user) return null;
@@ -62,9 +87,15 @@ providers.push(
       }
 
       if (password) {
+        const locked = await isAccountLocked(email);
+        if (locked) return null;
         const valid = await verifyPassword(email, password);
-        if (!valid) return null;
-        const user = findUserByEmail(email);
+        if (!valid) {
+          await recordFailedLogin(email);
+          return null;
+        }
+        await resetFailedLogins(email);
+        const user = await findUserByEmail(email);
         if (!user) return null;
         return { id: user.id, email: user.email, name: user.name, image: getGravatarUrl(user.email) };
       }
@@ -85,7 +116,8 @@ const fullAuthConfig = {
         token.image = user.image;
       }
       if (token.email) {
-        const fullUser = findUserByEmail(token.email as string);
+        await ensureMigration();
+        const fullUser = await findUserByEmail(token.email as string);
         token.plan = fullUser?.plan || 'free';
       }
       return token;
@@ -95,4 +127,4 @@ const fullAuthConfig = {
 
 export const { handlers, signIn, signOut, auth } = NextAuth(fullAuthConfig);
 
-export { findUserByEmail, createUser, updateUserPlan, verifyPassword } from './lib/user-store';
+export { findUserByEmail, createUser, updateUserPlan, verifyPassword, getGravatarUrl } from './lib/user-store';

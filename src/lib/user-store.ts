@@ -1,73 +1,46 @@
 import { createHash } from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
 import bcrypt from 'bcryptjs';
+import * as db from './db';
+import type { StoredUser, PlanType } from '@/types/db';
 
-export interface StoredUser {
-  id: string;
-  email: string;
-  name: string;
-  passwordHash: string;
-  createdAt: string;
-  plan: 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly';
-  planExpiresAt?: string;
+export type { StoredUser, PlanType };
+
+export async function findUserByEmail(email: string): Promise<StoredUser | undefined> {
+  return db.findUserByEmail(email);
 }
 
-const DATA_DIR = join(process.cwd(), 'data');
-const USERS_FILE = join(DATA_DIR, 'users.json');
-
-function getUsers(): StoredUser[] {
-  try {
-    if (!existsSync(USERS_FILE)) return [];
-    return JSON.parse(readFileSync(USERS_FILE, 'utf-8'));
-  } catch {
-    return [];
-  }
-}
-
-function saveUsers(users: StoredUser[]) {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-}
-
-export function findUserByEmail(email: string): StoredUser | undefined {
-  return getUsers().find((u) => u.email === email.toLowerCase());
-}
-
-export async function createUser(email: string, name: string, password: string): Promise<StoredUser | null> {
-  const users = getUsers();
-  if (users.some((u) => u.email === email.toLowerCase())) return null;
-  const passwordHash = await bcrypt.hash(password, 12);
-  const user: StoredUser = {
-    id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    email: email.toLowerCase(),
-    name,
-    passwordHash,
-    createdAt: new Date().toISOString(),
-    plan: 'free',
-  };
-  users.push(user);
-  saveUsers(users);
-  return user;
-}
-
-export function updateUserPlan(
+export async function createUser(
   email: string,
-  plan: 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly',
-  expiresAt?: string
-): boolean {
-  const users = getUsers();
-  const userIndex = users.findIndex((u) => u.email === email.toLowerCase());
-  if (userIndex === -1) return false;
-
-  users[userIndex].plan = plan;
-  users[userIndex].planExpiresAt = expiresAt;
-  saveUsers(users);
-  return true;
+  name: string,
+  password: string,
+): Promise<StoredUser | null> {
+  const existing = await db.findUserByEmail(email);
+  if (existing) return null;
+  const passwordHash = await bcrypt.hash(password, 12);
+  return db.createUser(email, name, passwordHash);
 }
 
-export async function verifyPassword(email: string, password: string): Promise<boolean> {
-  const user = findUserByEmail(email);
+export async function updateUserPlan(
+  email: string,
+  plan: PlanType,
+  expiresAt?: string,
+): Promise<boolean> {
+  return db.updateUserPlan(email, plan, expiresAt);
+}
+
+export async function updateUserPassword(
+  email: string,
+  newPassword: string,
+): Promise<boolean> {
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  return db.updateUserPassword(email, passwordHash);
+}
+
+export async function verifyPassword(
+  email: string,
+  password: string,
+): Promise<boolean> {
+  const user = await db.findUserByEmail(email);
   if (!user) return false;
   return bcrypt.compare(password, user.passwordHash);
 }
