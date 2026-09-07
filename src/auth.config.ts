@@ -2,7 +2,7 @@ import type { NextAuthConfig } from 'next-auth';
 
 export const authConfig = {
   session: { strategy: 'jwt' as const },
-  trustHost: process.env.NODE_ENV === 'development',
+  trustHost: true,
   secret: process.env.NEXTAUTH_SECRET ?? (() => {
     throw new Error('NEXTAUTH_SECRET must be set');
   })(),

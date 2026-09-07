@@ -231,21 +231,20 @@ export function useExportPipeline(): UseExportPipelineReturn {
           exportId = data.exportId;
           r2Key = data.r2Key;
         } catch (uploadError) {
+          // Upload failed (e.g. R2 not configured) — still return the blob for direct download
           if (!mountedRef.current) return job;
-          const failedJob: ExportJob = {
+          const previewUrl = URL.createObjectURL(resultBlob);
+          const partialJob: ExportJob = {
             ...job,
-            status: 'error',
-            error: uploadError instanceof Error ? uploadError.message : 'Upload failed',
+            status: 'done',
+            previewUrl,
+            resultBlob,
             serverJobId,
+            progress: 100,
           };
-          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
-          fetch(`/api/export-jobs/${serverJobId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'failed', errorMessage: uploadError instanceof Error ? uploadError.message : 'Upload failed' }),
-          }).catch(() => {});
+          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? partialJob : j)));
           abortControllerRef.current.delete(jobId);
-          return failedJob;
+          return partialJob;
         }
 
         if (!mountedRef.current) return job;

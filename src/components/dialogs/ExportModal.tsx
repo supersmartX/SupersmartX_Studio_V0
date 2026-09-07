@@ -65,12 +65,16 @@ export function ExportModal({
   const isPro = userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
 
   const handleSelectPlatform = useCallback((platformId: PlatformId) => {
+    if (isGuest) {
+      onAuthRequired();
+      return;
+    }
     const srcW = masterRecording?.sourceWidth || 1920;
     const srcH = masterRecording?.sourceHeight || 1080;
     const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
     onSelectPlatform(platformId, srcW, srcH, entitlements.maxResolution);
     setStep('crop');
-  }, [onSelectPlatform, masterRecording, userPlan]);
+  }, [isGuest, onSelectPlatform, masterRecording, userPlan, onAuthRequired]);
 
   const handleToggleBatchPlatform = useCallback((platformId: PlatformId) => {
     setBatchPlatforms((prev) =>
@@ -154,6 +158,23 @@ export function ExportModal({
   }, [masterRecording, exportConfig, onStartExport, showToast]);
 
   const handleDownload = useCallback(async () => {
+    const filename = generateFilename('video', 'mp4');
+
+    // Direct download from blob (works without R2/auth)
+    if (exportResult?.resultBlob) {
+      const url = URL.createObjectURL(exportResult.resultBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(`Downloaded: ${filename}`);
+      return;
+    }
+
+    // Server download via R2 (requires auth + R2)
     if (!exportResult?.exportId) return;
 
     if (!isAuthenticated) {
@@ -171,7 +192,6 @@ export function ExportModal({
 
     async function doDownload() {
       if (!exportResult?.exportId) return;
-      const filename = generateFilename('video', 'mp4');
 
       try {
         const response = await fetch(`/api/download?exportId=${encodeURIComponent(exportResult.exportId)}`);
@@ -427,39 +447,16 @@ export function ExportModal({
               </div>
 
               <div className="flex flex-col gap-2">
-                {isGuest ? (
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={onAuthRequired}
-                    className="w-full gap-2"
-                    disabled={isExporting}
-                  >
-                    <DownloadIcon className="w-4 h-4" />
-                    Sign In to Download
-                  </Button>
-                ) : canDownloadFile ? (
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={handleExport}
-                    className="w-full gap-2"
-                    disabled={isExporting}
-                  >
-                    <DownloadIcon className="w-4 h-4" />
-                    Export & Download
-                  </Button>
-                ) : (
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={onDownloadLimitReached}
-                    className="w-full gap-2"
-                  >
-                    <DownloadIcon className="w-4 h-4" />
-                    Upgrade to Download
-                  </Button>
-                )}
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={handleExport}
+                  className="w-full gap-2"
+                  disabled={isExporting}
+                >
+                  <DownloadIcon className="w-4 h-4" />
+                  Export & Download
+                </Button>
 
                 <Button
                   variant="secondary"
@@ -524,27 +521,15 @@ export function ExportModal({
               )}
 
               <div className="flex flex-col gap-2">
-                {exportResult.exportId ? (
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={handleDownload}
-                    className="w-full gap-2"
-                  >
-                    <DownloadIcon className="w-4 h-4" />
-                    Download Video
-                  </Button>
-                ) : (
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={handleExport}
-                    className="w-full gap-2"
-                  >
-                    <DownloadIcon className="w-4 h-4" />
-                    Retry Upload
-                  </Button>
-                )}
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={handleDownload}
+                  className="w-full gap-2"
+                >
+                  <DownloadIcon className="w-4 h-4" />
+                  Download Video
+                </Button>
 
                 <Button
                   variant="secondary"
