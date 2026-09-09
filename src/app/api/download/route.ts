@@ -6,7 +6,10 @@ import { getEntitlements, isPlanActive } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
 import type { PlanType } from '@/types/db';
 
-const SIGNED_URL_TTL_SECONDS = parseInt(process.env.R2_SIGNED_URL_TTL_SECONDS || '3600', 10);
+const SIGNED_URL_TTL_SECONDS = (() => {
+  const v = parseInt(process.env.R2_SIGNED_URL_TTL_SECONDS || '3600', 10);
+  return Number.isFinite(v) && v > 0 ? v : 3600;
+})();
 const DOWNLOAD_RATE_LIMIT_MAX = 30;
 const DOWNLOAD_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
@@ -47,7 +50,7 @@ export async function GET(request: NextRequest) {
     }
 
     const userPlan = user.plan || 'free';
-    if (!isPlanActive(user.planExpiresAt)) {
+    if (!isPlanActive(user.planExpiresAt, user.plan)) {
       return NextResponse.json({ error: 'Plan has expired' }, { status: 403 });
     }
 

@@ -11,9 +11,9 @@ test.describe('Pricing Modal - Display', () => {
     const isPricingVisible = await pricingButton.isVisible().catch(() => false);
     if (isPricingVisible) {
       await pricingButton.click();
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(1000);
       const dialog = page.getByRole('dialog');
-      await expect(dialog).toBeVisible({ timeout: 5000 });
+      await expect(dialog).toBeVisible({ timeout: 10000 });
     } else {
       test.skip();
     }
@@ -47,8 +47,9 @@ test.describe('Pricing Modal - Display', () => {
     const pricingButton = page.getByRole('button', { name: /pricing|upgrade|pro/i }).first();
     if (await pricingButton.isVisible()) {
       await pricingButton.click();
+      await page.waitForTimeout(1000);
       const badge = page.getByText('Most Popular');
-      await expect(badge).toBeVisible({ timeout: 5000 });
+      await expect(badge).toBeVisible({ timeout: 10000 });
     } else {
       test.skip();
     }

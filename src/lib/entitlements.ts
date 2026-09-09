@@ -74,8 +74,14 @@ export function getEntitlements(plan: PlanType): PlanEntitlements {
   return ENTITLEMENTS[plan] || ENTITLEMENTS.free;
 }
 
-export function isPlanActive(expiresAt?: string | null): boolean {
-  if (!expiresAt) return true;
+export function isPlanActive(
+  expiresAt: string | null | undefined,
+  plan?: PlanType | null
+): boolean {
+  // Free plan: no expiry needed — always active
+  if (!plan || plan === 'free') return true;
+  // Paid plan without expiry: treat as inactive (grace period expired or data missing)
+  if (!expiresAt) return false;
   return new Date(expiresAt) > new Date();
 }
 

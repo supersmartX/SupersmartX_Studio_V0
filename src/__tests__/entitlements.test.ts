@@ -60,27 +60,38 @@ describe('getEntitlements', () => {
 });
 
 describe('isPlanActive', () => {
-  it('returns true for undefined expiry', () => {
+  it('free plan is always active regardless of expiry', () => {
+    expect(isPlanActive(undefined, 'free')).toBe(true);
+    expect(isPlanActive(null, 'free')).toBe(true);
     expect(isPlanActive(undefined)).toBe(true);
-  });
-
-  it('returns true for null expiry', () => {
     expect(isPlanActive(null)).toBe(true);
   });
 
-  it('returns true for future date', () => {
+  it('paid plan with null expiry is inactive', () => {
+    expect(isPlanActive(null, 'pro_monthly')).toBe(false);
+    expect(isPlanActive(undefined, 'creator_yearly')).toBe(false);
+  });
+
+  it('paid plan with future date is active', () => {
     const future = new Date(Date.now() + 86400000).toISOString();
-    expect(isPlanActive(future)).toBe(true);
+    expect(isPlanActive(future, 'pro_monthly')).toBe(true);
+    expect(isPlanActive(future, 'creator_monthly')).toBe(true);
   });
 
-  it('returns false for past date', () => {
+  it('paid plan with past date is inactive', () => {
     const past = new Date(Date.now() - 86400000).toISOString();
-    expect(isPlanActive(past)).toBe(false);
+    expect(isPlanActive(past, 'pro_monthly')).toBe(false);
+    expect(isPlanActive(past, 'creator_yearly')).toBe(false);
   });
 
-  it('returns false for current time (edge case)', () => {
+  it('paid plan with current time is inactive (edge case)', () => {
     const now = new Date().toISOString();
-    expect(isPlanActive(now)).toBe(false);
+    expect(isPlanActive(now, 'pro_monthly')).toBe(false);
+  });
+
+  it('no plan argument defaults to free behavior', () => {
+    expect(isPlanActive(null)).toBe(true);
+    expect(isPlanActive(undefined)).toBe(true);
   });
 });
 

@@ -13,6 +13,8 @@ import {
   deleteOldExportJobs,
   atomicIncrementUploadCount,
   ensureUserStatsRow,
+  createPendingOrder,
+  findPendingOrder,
 } from '@/lib/db';
 import { getEntitlements, isPlanActive } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
@@ -68,26 +70,31 @@ describe('security', () => {
   describe('expired paid user cannot upload', () => {
     it('expired plan is not active', () => {
       const pastDate = new Date(Date.now() - 86400000).toISOString();
-      expect(isPlanActive(pastDate)).toBe(false);
+      expect(isPlanActive(pastDate, 'pro_monthly')).toBe(false);
     });
 
     it('active plan is active', () => {
       const futureDate = new Date(Date.now() + 86400000).toISOString();
-      expect(isPlanActive(futureDate)).toBe(true);
+      expect(isPlanActive(futureDate, 'pro_monthly')).toBe(true);
     });
 
-    it('null plan expiry is active (legacy)', () => {
-      expect(isPlanActive(null)).toBe(true);
+    it('paid plan with null expiry is inactive', () => {
+      expect(isPlanActive(null, 'pro_monthly')).toBe(false);
+      expect(isPlanActive(null, 'creator_yearly')).toBe(false);
+    });
+
+    it('free plan with null expiry is active', () => {
+      expect(isPlanActive(null, 'free')).toBe(true);
     });
 
     it('expired creator_monthly plan is rejected', () => {
       const pastDate = new Date(Date.now() - 86400000).toISOString();
-      expect(isPlanActive(pastDate)).toBe(false);
+      expect(isPlanActive(pastDate, 'creator_monthly')).toBe(false);
     });
 
     it('active creator_monthly plan is accepted', () => {
       const futureDate = new Date(Date.now() + 86400000).toISOString();
-      expect(isPlanActive(futureDate)).toBe(true);
+      expect(isPlanActive(futureDate, 'creator_monthly')).toBe(true);
     });
   });
 
@@ -264,9 +271,18 @@ describe('security', () => {
       expect(entitlements.canExport).toBe(false);
     });
 
-    it('expired plan is rejected regardless of client claims', () => {
+    it('expired paid plan is rejected regardless of client claims', () => {
       const pastDate = new Date(Date.now() - 86400000).toISOString();
-      expect(isPlanActive(pastDate)).toBe(false);
+      expect(isPlanActive(pastDate, 'pro_monthly')).toBe(false);
+    });
+
+    it('paid plan with null expiry is rejected (no spoofing)', () => {
+      expect(isPlanActive(null, 'pro_monthly')).toBe(false);
+      expect(isPlanActive(null, 'creator_monthly')).toBe(false);
+    });
+
+    it('free plan with null expiry is active', () => {
+      expect(isPlanActive(null, 'free')).toBe(true);
     });
   });
 
@@ -277,13 +293,24 @@ describe('security', () => {
       expect(key).toMatch(/\.webm$/);
     });
 
-    it('generateRecordingKey uses timestamp and random suffix', () => {
+    it('generateRecordingKey uses UUID-based naming', () => {
       const key = generateRecordingKey('user-123', 'mp4');
       const parts = key.split('/');
       expect(parts.length).toBe(3);
       expect(parts[0]).toBe('recordings');
       expect(parts[1]).toBe('user-123');
-      expect(parts[2]).toMatch(/^\d+-[a-z0-9]+\.mp4$/);
+      expect(parts[2]).toMatch(/^[a-f0-9-]+\.mp4$/);
+    });
+
+    it('generateRecordingKey rejects invalid extensions', () => {
+      expect(() => generateRecordingKey('user-123', 'exe')).toThrow('Invalid extension');
+      expect(() => generateRecordingKey('user-123', 'js')).toThrow('Invalid extension');
+      expect(() => generateRecordingKey('user-123', '../etc/passwd')).toThrow('Invalid extension');
+    });
+
+    it('generateRecordingKey accepts webm and mp4', () => {
+      expect(generateRecordingKey('user-123', 'webm')).toMatch(/\.webm$/);
+      expect(generateRecordingKey('user-123', 'mp4')).toMatch(/\.mp4$/);
     });
   });
 
@@ -344,6 +371,92 @@ describe('security', () => {
     it('paid plans do not require watermark', () => {
       expect(getEntitlements('creator_monthly').watermarkRequired).toBe(false);
       expect(getEntitlements('pro_monthly').watermarkRequired).toBe(false);
+    });
+  });
+
+  describe('pending orders for payment verification', () => {
+    it('createPendingOrder stores order with userId', async () => {
+      const user = await createUser('order@example.com', 'Order User', 'password123');
+      await createPendingOrder({
+        orderId: 'sxs-test-123',
+        userId: user.id,
+        plan: 'pro_monthly',
+        amount: 499,
+        currency: 'INR',
+      });
+
+      const found = await findPendingOrder('sxs-test-123');
+      expect(found).toBeDefined();
+      expect(found!.userId).toBe(user.id);
+      expect(found!.plan).toBe('pro_monthly');
+      expect(found!.amount).toBe(499);
+      expect(found!.currency).toBe('INR');
+    });
+
+    it('findPendingOrder returns null for unknown order', async () => {
+      const found = await findPendingOrder('nonexistent-order');
+      expect(found).toBeNull();
+    });
+
+    it('pending order links to correct user (not email)', async () => {
+      const userA = await createUser('a@example.com', 'User A', 'password123');
+      const userB = await createUser('b@example.com', 'User B', 'password456');
+
+      await createPendingOrder({
+        orderId: 'order-a',
+        userId: userA.id,
+        plan: 'creator_monthly',
+        amount: 299,
+        currency: 'INR',
+      });
+
+      const found = await findPendingOrder('order-a');
+      expect(found!.userId).toBe(userA.id);
+      expect(found!.userId).not.toBe(userB.id);
+    });
+  });
+
+  describe('updateUserPlanById', () => {
+    it('updates plan by userId', async () => {
+      const user = await createUser('planbyid@example.com', 'Plan ID User', 'password123');
+      const expiresAt = new Date(Date.now() + 86400000 * 30).toISOString();
+
+      const { updateUserPlanById } = await import('@/lib/db');
+      const updated = await updateUserPlanById(user.id, 'pro_monthly', expiresAt);
+      expect(updated).toBe(true);
+    });
+
+    it('returns false for nonexistent userId', async () => {
+      const { updateUserPlanById } = await import('@/lib/db');
+      const updated = await updateUserPlanById('nonexistent-id', 'pro_monthly');
+      expect(updated).toBe(false);
+    });
+  });
+
+  describe('isPlanActive with plan parameter', () => {
+    it('paid plan without expiry is treated as inactive', () => {
+      expect(isPlanActive(null, 'pro_monthly')).toBe(false);
+      expect(isPlanActive(null, 'creator_monthly')).toBe(false);
+    });
+
+    it('free plan without expiry is treated as active', () => {
+      expect(isPlanActive(null, 'free')).toBe(true);
+      expect(isPlanActive(undefined, 'free')).toBe(true);
+    });
+
+    it('no plan argument defaults to free behavior', () => {
+      expect(isPlanActive(null)).toBe(true);
+      expect(isPlanActive(undefined)).toBe(true);
+    });
+
+    it('expired paid plan is rejected', () => {
+      const pastDate = new Date(Date.now() - 86400000).toISOString();
+      expect(isPlanActive(pastDate, 'pro_monthly')).toBe(false);
+    });
+
+    it('active paid plan is accepted', () => {
+      const futureDate = new Date(Date.now() + 86400000).toISOString();
+      expect(isPlanActive(futureDate, 'pro_monthly')).toBe(true);
     });
   });
 });

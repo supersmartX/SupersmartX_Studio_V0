@@ -105,11 +105,15 @@ export async function listUserRecordings(
   }));
 }
 
+const ALLOWED_UPLOAD_EXTENSIONS = ['webm', 'mp4'];
+
 export function generateRecordingKey(
   userId: string,
   extension: string
 ): string {
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).slice(2, 8);
-  return `recordings/${userId}/${timestamp}-${random}.${extension}`;
+  if (!ALLOWED_UPLOAD_EXTENSIONS.includes(extension)) {
+    throw new Error(`Invalid extension: ${extension}`);
+  }
+  const uuid = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `recordings/${userId}/${uuid}.${extension}`;
 }

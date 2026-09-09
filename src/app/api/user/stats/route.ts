@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getUserStats } from '@/lib/db';
-import { getEntitlements } from '@/lib/entitlements';
+import { getUserStats, findUserById } from '@/lib/db';
+import { getEntitlements, isPlanActive } from '@/lib/entitlements';
 import type { PlanType } from '@/types/db';
 
 export async function GET() {
@@ -12,12 +12,17 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userPlan = (session.user.plan || 'free') as PlanType;
-    const entitlements = getEntitlements(userPlan);
+    // Read plan from DB (authoritative) instead of JWT (stale)
+    const user = await findUserById(session.user.id);
+    const userPlan = (user?.plan || 'free') as PlanType;
+
+    // If plan is expired, downgrade to free for this response
+    const activePlan = isPlanActive(user?.planExpiresAt, userPlan) ? userPlan : 'free';
+    const entitlements = getEntitlements(activePlan);
     const stats = await getUserStats(session.user.id);
 
     return NextResponse.json({
-      plan: userPlan,
+      plan: activePlan,
       downloads: {
         used: stats.downloadCount,
         limit: entitlements.maxDownloads,

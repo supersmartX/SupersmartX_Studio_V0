@@ -17,6 +17,8 @@ export default defineConfig({
     video: 'retain-on-failure',
     locale: 'en-US',
     timezoneId: 'America/New_York',
+    navigationTimeout: 30_000,
+    actionTimeout: 10_000,
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },

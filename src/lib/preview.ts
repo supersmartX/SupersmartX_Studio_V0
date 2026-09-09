@@ -1,5 +1,14 @@
 'use client';
 
+/**
+ * Maximum preview duration for unauthenticated (guest) users.
+ *
+ * NOTE: This is a UX limitation, NOT a security control. The full recording
+ * is captured client-side and can be accessed via browser DevTools. The 15-second
+ * limit is enforced purely in the UI layer to encourage sign-up. Server-side
+ * entitlements (via DB) are the authoritative access control for exports, downloads,
+ * and storage.
+ */
 export const GUEST_PREVIEW_MAX_SECONDS = 15;
 
 export interface PreviewOptions {

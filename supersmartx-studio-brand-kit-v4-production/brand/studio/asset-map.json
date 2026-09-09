@@ -1,0 +1,9 @@
+{
+  "canonical_source": "public/brand/studio/logo/primary/studio-mark-approved.png",
+  "canonical_svg_wrapper": "public/brand/studio/logo/primary/studio-mark-approved.svg",
+  "web_icons": "public/brand/studio/icon/",
+  "social_preview": "brand/studio/exports/social/og-image-1200x630.png",
+  "high_res_raster": "brand/studio/exports/png/",
+  "colors": "brand/studio/colors/tokens.json",
+  "guidelines": "brand/studio/guidelines/"
+}

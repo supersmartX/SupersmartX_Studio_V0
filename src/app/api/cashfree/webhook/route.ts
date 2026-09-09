@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { sendPaymentConfirmationEmail, sendAdminNotification } from '@/lib/email';
-import { updateUserPlan } from '@/auth';
-import { isWebhookProcessed, markWebhookProcessed } from '@/lib/db';
+import { updateUserPlanById } from '@/lib/db';
+import { isWebhookProcessed, markWebhookProcessed, findPendingOrder } from '@/lib/db';
+import { getServerPrice } from '@/lib/pricing';
 
 const CASHFREE_BASE_URL =
   process.env.CASHFREE_ENV === 'production'
@@ -50,13 +51,6 @@ async function getOrderStatus(orderId: string) {
   return response.json();
 }
 
-function extractPlanFromOrderId(orderId: string): 'pro_monthly' | 'pro_yearly' | 'creator_monthly' | 'creator_yearly' {
-  if (orderId.includes('creator_yearly')) return 'creator_yearly';
-  if (orderId.includes('creator_monthly')) return 'creator_monthly';
-  if (orderId.includes('pro_yearly')) return 'pro_yearly';
-  return 'pro_monthly';
-}
-
 export async function POST(request: NextRequest) {
   try {
     if (!process.env.CASHFREE_SECRET_KEY) {
@@ -89,40 +83,62 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'ok' });
     }
 
-    await markWebhookProcessed(orderId);
+    // Look up the pending order server-side — no plan derivation from order ID
+    const pendingOrder = await findPendingOrder(orderId);
+    if (!pendingOrder) {
+      console.error('Webhook received for unknown order:', orderId);
+      return NextResponse.json({ error: 'Unknown order' }, { status: 400 });
+    }
 
     const order = await getOrderStatus(orderId);
     const paymentStatus = body.data?.payment?.payment_status;
 
     if (order.order_status === 'PAID' || paymentStatus === 'SUCCESS') {
-      const plan = extractPlanFromOrderId(orderId);
+      // Verify amount matches what we stored server-side
+      const paidAmount = Number(order.order_amount);
+      if (Math.abs(paidAmount - pendingOrder.amount) > 0.01) {
+        console.error('Amount mismatch for order:', orderId, {
+          expected: pendingOrder.amount,
+          paid: paidAmount,
+        });
+        return NextResponse.json({ error: 'Amount mismatch' }, { status: 400 });
+      }
+
+      // Idempotent activation — mark processed before activating
+      await markWebhookProcessed(orderId);
+
+      const plan = pendingOrder.plan as 'pro_monthly' | 'pro_yearly' | 'creator_monthly' | 'creator_yearly';
       const billingPeriod = plan.includes('yearly') ? 'yearly' as const : 'monthly' as const;
 
+      // Calculate expiry
+      const expiresAt = new Date();
+      if (billingPeriod === 'yearly') {
+        expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+      } else {
+        expiresAt.setMonth(expiresAt.getMonth() + 1);
+      }
+
+      // Activate plan by userId (not email)
+      await updateUserPlanById(pendingOrder.userId, plan, expiresAt.toISOString());
+
+      // Send confirmation email (best-effort)
       const emailData = {
         orderId,
         plan,
-        amount: order.order_amount,
-        currency: order.order_currency || 'INR',
+        amount: paidAmount,
+        currency: pendingOrder.currency,
         customerName: order.customer_details?.customer_name || '',
         customerEmail: order.customer_details?.customer_email || '',
         billingPeriod,
       };
 
-      if (emailData.customerEmail) {
-        await Promise.allSettled([
-          sendPaymentConfirmationEmail(emailData),
-          sendAdminNotification(emailData),
-        ]);
-
-        // Activate plan for the user
-        const expiresAt = new Date();
-        if (billingPeriod === 'yearly') {
-          expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-        } else {
-          expiresAt.setMonth(expiresAt.getMonth() + 1);
-        }
-        await updateUserPlan(emailData.customerEmail, plan, expiresAt.toISOString());
-      }
+      await Promise.allSettled([
+        sendPaymentConfirmationEmail(emailData),
+        sendAdminNotification(emailData),
+      ]);
+    } else {
+      // Still mark as processed to avoid retrying non-success webhooks
+      await markWebhookProcessed(orderId);
     }
 
     return NextResponse.json({ status: 'ok' });

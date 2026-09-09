@@ -67,8 +67,8 @@ export async function saveRecording(recording: StoredRecording): Promise<void> {
         reject(tx.error);
       };
     });
-  } catch {
-    // Silently fail - recording persistence is best-effort
+  } catch (e) {
+    console.warn('Failed to save recording to IndexedDB:', e instanceof Error ? e.message : 'unknown');
   }
 }
 
@@ -99,7 +99,8 @@ export async function getRecording(id: string): Promise<StoredRecording | null> 
         resolve(null);
       };
     });
-  } catch {
+  } catch (e) {
+    console.warn('Failed to read recording from IndexedDB:', e instanceof Error ? e.message : 'unknown');
     return null;
   }
 }
@@ -121,8 +122,8 @@ export async function deleteRecording(id: string): Promise<void> {
         reject(tx.error);
       };
     });
-  } catch {
-    // Silently fail
+  } catch (e) {
+    console.warn('Failed to delete recording from IndexedDB:', e instanceof Error ? e.message : 'unknown');
   }
 }
 
@@ -156,7 +157,8 @@ export async function cleanupExpired(): Promise<number> {
         resolve(deletedCount);
       };
     });
-  } catch {
+  } catch (e) {
+    console.warn('Failed to cleanup IndexedDB:', e instanceof Error ? e.message : 'unknown');
     return 0;
   }
 }
@@ -190,7 +192,8 @@ export async function getLatestRecording(): Promise<StoredRecording | null> {
         resolve(null);
       };
     });
-  } catch {
+  } catch (e) {
+    console.warn('Failed to get latest recording from IndexedDB:', e instanceof Error ? e.message : 'unknown');
     return null;
   }
 }
@@ -225,7 +228,8 @@ export async function getAllRecordings(): Promise<StoredRecording[]> {
         resolve(recordings);
       };
     });
-  } catch {
+  } catch (e) {
+    console.warn('Failed to get recordings from IndexedDB:', e instanceof Error ? e.message : 'unknown');
     return [];
   }
 }

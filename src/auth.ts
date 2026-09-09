@@ -121,7 +121,7 @@ const fullAuthConfig = {
         const fullUser = await findUserByEmail(token.email as string);
         if (!fullUser) {
           token.plan = 'free';
-        } else if (!isPlanActive(fullUser.planExpiresAt)) {
+        } else if (!isPlanActive(fullUser.planExpiresAt, fullUser.plan)) {
           token.plan = 'free';
         } else {
           token.plan = fullUser.plan || 'free';

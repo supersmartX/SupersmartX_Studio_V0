@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userPlan = user.plan || 'free';
-    if (!isPlanActive(user.planExpiresAt)) {
+    if (!isPlanActive(user.planExpiresAt, user.plan)) {
       return NextResponse.json({ error: 'Plan has expired' }, { status: 403 });
     }
 

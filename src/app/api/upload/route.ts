@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 401 });
     }
 
-    if (!isPlanActive(user.planExpiresAt)) {
+    if (!isPlanActive(user.planExpiresAt, user.plan)) {
       return NextResponse.json({ error: 'Plan has expired' }, { status: 403 });
     }
 
@@ -63,10 +63,6 @@ export async function POST(request: NextRequest) {
 
     if (user.plan === 'free' || !entitlements.canExport) {
       return NextResponse.json({ error: 'Upgrade required to upload recordings' }, { status: 403 });
-    }
-
-    if (!entitlements.canExport) {
-      return NextResponse.json({ error: 'Upgrade required to export recordings' }, { status: 403 });
     }
 
     const formData = await request.formData();

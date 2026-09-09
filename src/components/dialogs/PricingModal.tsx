@@ -38,7 +38,7 @@ const COUNTRY_FLAGS: Record<string, string> = {
 
 const TIERS: TierKey[] = ['free', 'creator', 'pro'];
 
-const BADGES: Partial<Record<TierKey, string>> = { creator: 'Popular' };
+const BADGES: Partial<Record<TierKey, string>> = { creator: 'Most Popular' };
 
 function getPlanId(tier: TierKey, period: BillingPeriod): string {
   if (tier === 'free') return 'free';

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/driver';
 import { ensureMigrated } from '@/lib/db';
+import { auth } from '@/auth';
 
 export async function GET() {
   const checks: Record<string, string> = {};
@@ -12,25 +13,27 @@ export async function GET() {
     await db.execute('SELECT 1');
     checks.database = 'ok';
   } catch (e) {
-    checks.database = `error: ${e instanceof Error ? e.message : 'unknown'}`;
-  }
-
-  // R2 check (optional — only if configured)
-  if (process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID) {
-    checks.r2 = 'configured';
-  } else {
-    checks.r2 = 'not_configured';
+    checks.database = 'error';
+    console.error('Health check DB error:', e instanceof Error ? e.message : 'unknown');
   }
 
   const healthy = checks.database === 'ok';
 
-  return NextResponse.json(
-    {
-      status: healthy ? 'healthy' : 'degraded',
-      timestamp: new Date().toISOString(),
-      checks,
-      version: process.env.npm_package_version || 'unknown',
-    },
-    { status: healthy ? 200 : 503 },
-  );
+  // Basic response for unauthenticated requests — no internal details
+  const response: Record<string, unknown> = {
+    status: healthy ? 'healthy' : 'degraded',
+    timestamp: new Date().toISOString(),
+    version: process.env.npm_package_version || 'unknown',
+  };
+
+  // Only expose detailed checks to authenticated users
+  const session = await auth().catch(() => null);
+  if (session?.user?.id) {
+    checks.r2 = (process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID)
+      ? 'configured'
+      : 'not_configured';
+    response.checks = checks;
+  }
+
+  return NextResponse.json(response, { status: healthy ? 200 : 503 });
 }

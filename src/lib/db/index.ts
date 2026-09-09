@@ -101,6 +101,20 @@ export async function updateUserPlan(
   return result.rowsAffected > 0;
 }
 
+export async function updateUserPlanById(
+  userId: string,
+  plan: PlanType,
+  expiresAt?: string,
+): Promise<boolean> {
+  await ensureMigrated();
+  const db = getDb();
+  const result = await db.execute({
+    sql: 'UPDATE users SET plan = ?, plan_expires_at = ? WHERE id = ?',
+    args: [plan, expiresAt || null, userId],
+  });
+  return result.rowsAffected > 0;
+}
+
 export async function updateUserPassword(
   email: string,
   passwordHash: string,
@@ -570,4 +584,45 @@ export async function resetFailedLogins(email: string): Promise<void> {
     sql: "UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE email = ?",
     args: [email.toLowerCase()],
   });
+}
+
+// --- Pending orders for payment verification ---
+
+export async function createPendingOrder(order: {
+  orderId: string;
+  userId: string;
+  plan: string;
+  amount: number;
+  currency: string;
+}): Promise<void> {
+  await ensureMigrated();
+  const db = getDb();
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO pending_orders (order_id, user_id, plan, amount, currency) VALUES (?, ?, ?, ?, ?)`,
+    args: [order.orderId, order.userId, order.plan, order.amount, order.currency],
+  });
+}
+
+export async function findPendingOrder(orderId: string): Promise<{
+  orderId: string;
+  userId: string;
+  plan: string;
+  amount: number;
+  currency: string;
+} | null> {
+  await ensureMigrated();
+  const db = getDb();
+  const result = await db.execute({
+    sql: `SELECT order_id, user_id, plan, amount, currency FROM pending_orders WHERE order_id = ? LIMIT 1`,
+    args: [orderId],
+  });
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    orderId: row.order_id as string,
+    userId: row.user_id as string,
+    plan: row.plan as string,
+    amount: row.amount as number,
+    currency: row.currency as string,
+  };
 }

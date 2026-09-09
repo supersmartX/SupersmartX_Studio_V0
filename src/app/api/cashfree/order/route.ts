@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { getServerPrice } from '@/lib/pricing';
+import { createPendingOrder } from '@/lib/db';
 
 const CASHFREE_BASE_URL =
   process.env.CASHFREE_ENV === 'production'
@@ -33,7 +34,7 @@ function isValidEmail(email: string): boolean {
 }
 
 function generateId(): string {
-  return globalThis.crypto?.randomUUID?.() 
+  return globalThis.crypto?.randomUUID?.()
     || Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
@@ -162,6 +163,15 @@ export async function POST(request: NextRequest) {
       name: name || 'User',
       email,
       phone,
+    });
+
+    // Store order server-side for webhook verification
+    await createPendingOrder({
+      orderId: order.order_id,
+      userId: session.user.id,
+      plan,
+      amount: serverAmount,
+      currency: finalCurrency,
     });
 
     return NextResponse.json({

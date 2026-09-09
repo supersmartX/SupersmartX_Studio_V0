@@ -1,6 +1,6 @@
 import type { Client } from '@libsql/client';
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const MIGRATIONS = [
   // Version 1
@@ -78,6 +78,17 @@ const MIGRATIONS = [
   // Version 6 — Account lockout
   `ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN locked_until TEXT DEFAULT NULL`,
+  // Version 7 — Pending orders for payment verification
+  `CREATE TABLE IF NOT EXISTS pending_orders (
+    order_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    plan TEXT NOT NULL,
+    amount REAL NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'INR',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_pending_orders_user ON pending_orders(user_id)`,
 ];
 
 async function getSchemaVersion(db: Client): Promise<number> {

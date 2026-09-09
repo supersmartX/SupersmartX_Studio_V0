@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { sendFeedback } from '@/services/discord.service';
 import { Button } from '@/components/ui/Button';
 import { DiscordIcon } from '@/components/icons';
 
@@ -22,7 +21,17 @@ export function DiscordFeedback({ onSuccess }: DiscordFeedbackProps) {
 
     setIsSending(true);
     try {
-      await sendFeedback(text);
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to send');
+      }
+
       onSuccess('Successfully connected! Thank you!');
       setInput('');
     } catch {
