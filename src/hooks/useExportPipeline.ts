@@ -159,7 +159,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
           });
           if (createRes.ok) {
             const data = await createRes.json();
-            serverJobId = data.serverJobId;
+            serverJobId = data.jobId;
           }
         } catch {
           // Server job creation failed — continue with client-side encoding only
@@ -318,7 +318,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
           let serverJobId: string | undefined;
           if (createRes.ok) {
             const data = await createRes.json();
-            serverJobId = data.serverJobId;
+            serverJobId = data.jobId;
           }
 
           // 2. Update status to encoding

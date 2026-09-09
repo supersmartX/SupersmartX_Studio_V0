@@ -11,6 +11,7 @@ import {
   getGravatarUrl,
 } from './lib/user-store';
 import { isAccountLocked, recordFailedLogin, resetFailedLogins } from './lib/db';
+import { isPlanActive } from './lib/entitlements';
 import { validatePassword } from './lib/validation';
 
 if (!process.env.NEXTAUTH_SECRET && process.env.NODE_ENV === 'production') {
@@ -118,7 +119,13 @@ const fullAuthConfig = {
       if (token.email) {
         await ensureMigration();
         const fullUser = await findUserByEmail(token.email as string);
-        token.plan = fullUser?.plan || 'free';
+        if (!fullUser) {
+          token.plan = 'free';
+        } else if (!isPlanActive(fullUser.planExpiresAt)) {
+          token.plan = 'free';
+        } else {
+          token.plan = fullUser.plan || 'free';
+        }
       }
       return token;
     },

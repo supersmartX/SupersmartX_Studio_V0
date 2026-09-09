@@ -54,7 +54,7 @@ export async function PATCH(
       resultExportId,
       resultFileSize,
       errorMessage: sanitizedError,
-    });
+    }, session.user.id);
 
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -1,5 +1,19 @@
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
+let lastCleanupAt = 0;
+const CLEANUP_INTERVAL_MS = 60 * 1000;
+
+function cleanupStaleEntries(): void {
+  const now = Date.now();
+  if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
+  lastCleanupAt = now;
+  for (const [key, entry] of rateLimitMap) {
+    if (now > entry.resetAt) {
+      rateLimitMap.delete(key);
+    }
+  }
+}
+
 /**
  * Simple in-memory rate limiter.
  * Note: On Vercel serverless, each cold start resets the counter.
@@ -11,6 +25,7 @@ export function rateLimit(
   windowMs: number,
 ): { allowed: boolean; retryAfterMs: number } {
   const now = Date.now();
+  cleanupStaleEntries();
   const entry = rateLimitMap.get(key);
 
   if (!entry || now > entry.resetAt) {

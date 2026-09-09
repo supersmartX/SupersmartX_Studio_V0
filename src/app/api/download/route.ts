@@ -3,9 +3,12 @@ import { auth } from '@/auth';
 import { getSignedDownloadUrl, isR2Configured } from '@/lib/r2';
 import { findExportByIdAndUser, findUserById, atomicIncrementDownloadCount, ensureUserStatsRow } from '@/lib/db';
 import { getEntitlements, isPlanActive } from '@/lib/entitlements';
+import { rateLimit } from '@/lib/rate-limit';
 import type { PlanType } from '@/types/db';
 
 const SIGNED_URL_TTL_SECONDS = parseInt(process.env.R2_SIGNED_URL_TTL_SECONDS || '3600', 10);
+const DOWNLOAD_RATE_LIMIT_MAX = 30;
+const DOWNLOAD_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,6 +20,14 @@ export async function GET(request: NextRequest) {
 
     if (!isR2Configured()) {
       return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
+    }
+
+    const rl = rateLimit(`download:${session.user.id}`, DOWNLOAD_RATE_LIMIT_MAX, DOWNLOAD_RATE_LIMIT_WINDOW_MS);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Download rate limit exceeded. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      );
     }
 
     const { searchParams } = new URL(request.url);

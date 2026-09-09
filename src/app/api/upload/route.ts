@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { uploadRecording, generateRecordingKey, isR2Configured } from '@/lib/r2';
-import { atomicIncrementUploadCount, ensureUserStatsRow } from '@/lib/db';
-import { getEntitlements } from '@/lib/entitlements';
+import { atomicIncrementUploadCount, ensureUserStatsRow, findUserById } from '@/lib/db';
+import { getEntitlements, isPlanActive } from '@/lib/entitlements';
+import { rateLimit } from '@/lib/rate-limit';
 import type { PlanType } from '@/types/db';
+
+const UPLOAD_RATE_LIMIT_MAX = 10;
+const UPLOAD_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const ALLOWED_MIME_TYPES = [
@@ -38,8 +42,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
     }
 
-    const userPlan = (session.user.plan || 'free') as PlanType;
-    const entitlements = getEntitlements(userPlan);
+    const rl = rateLimit(`upload:${session.user.id}`, UPLOAD_RATE_LIMIT_MAX, UPLOAD_RATE_LIMIT_WINDOW_MS);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Upload rate limit exceeded. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      );
+    }
+
+    const user = await findUserById(session.user.id);
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 401 });
+    }
+
+    if (!isPlanActive(user.planExpiresAt)) {
+      return NextResponse.json({ error: 'Plan has expired' }, { status: 403 });
+    }
+
+    const entitlements = getEntitlements(user.plan as PlanType);
+
+    if (user.plan === 'free' || !entitlements.canExport) {
+      return NextResponse.json({ error: 'Upgrade required to upload recordings' }, { status: 403 });
+    }
 
     if (!entitlements.canExport) {
       return NextResponse.json({ error: 'Upgrade required to export recordings' }, { status: 403 });

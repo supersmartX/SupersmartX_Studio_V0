@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { deleteOldExportJobs } from '@/lib/db';
+import { deleteOldExportJobs, getOldExportJobs } from '@/lib/db';
+import { deleteRecording } from '@/lib/r2';
 import crypto from 'crypto';
 
 const CLEANUP_SECRET = process.env.CLEANUP_SECRET;
@@ -21,9 +22,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // 1. Fetch old jobs with R2 keys before deleting DB rows
+    const oldJobs = await getOldExportJobs(MAX_AGE_MS);
+
+    // 2. Delete R2 objects
+    for (const job of oldJobs) {
+      try {
+        await deleteRecording(job.r2Key);
+      } catch {
+        // R2 deletion failed — continue with DB cleanup
+      }
+    }
+
+    // 3. Delete DB rows
     const deletedCount = await deleteOldExportJobs(MAX_AGE_MS);
 
-    return NextResponse.json({ deleted: deletedCount });
+    return NextResponse.json({ deleted: deletedCount, r2Cleaned: oldJobs.length });
   } catch (error) {
     console.error('Cleanup failed:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ error: 'Cleanup failed' }, { status: 500 });

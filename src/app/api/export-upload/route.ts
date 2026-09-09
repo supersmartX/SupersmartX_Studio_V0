@@ -2,14 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { auth } from '@/auth';
 import { uploadRecording, isR2Configured } from '@/lib/r2';
-import { createExport, findUserById, ensureUserStatsRow, findExportJobByIdAndUser, updateExportJobStatus } from '@/lib/db';
+import { createExport, findUserById, ensureUserStatsRow, findExportJobByIdAndUser, updateExportJobStatus, atomicIncrementUploadCount } from '@/lib/db';
 import { getEntitlements, isPlanActive, clampResolution } from '@/lib/entitlements';
+import { rateLimit } from '@/lib/rate-limit';
 import { PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
 
 const MAX_EXPORT_SIZE_MB = 200;
 const MAX_EXPORT_SIZE_BYTES = MAX_EXPORT_SIZE_MB * 1024 * 1024;
+const EXPORT_UPLOAD_RATE_LIMIT_MAX = 20;
+const EXPORT_UPLOAD_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 function generateExportKey(userId: string): string {
   const id = crypto.randomUUID();
@@ -28,6 +31,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
     }
 
+    const rl = rateLimit(`export-upload:${session.user.id}`, EXPORT_UPLOAD_RATE_LIMIT_MAX, EXPORT_UPLOAD_RATE_LIMIT_WINDOW_MS);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Export upload rate limit exceeded. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      );
+    }
+
     const user = await findUserById(session.user.id);
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 401 });
@@ -39,7 +50,7 @@ export async function POST(request: NextRequest) {
     }
 
     const entitlements = getEntitlements(userPlan as PlanType);
-    if (!entitlements.canExport) {
+    if (userPlan === 'free' || !entitlements.canExport) {
       return NextResponse.json({ error: 'Upgrade required to export recordings' }, { status: 403 });
     }
 
@@ -101,10 +112,21 @@ export async function POST(request: NextRequest) {
       if (!job) {
         return NextResponse.json({ error: 'Invalid job' }, { status: 400 });
       }
-      await updateExportJobStatus(jobId, 'uploading');
+      await updateExportJobStatus(jobId, 'uploading', {}, session.user.id);
     }
 
     await ensureUserStatsRow(session.user.id);
+
+    const maxStorageBytes = entitlements.maxStorageMB ? entitlements.maxStorageMB * 1024 * 1024 : null;
+    const quotaResult = await atomicIncrementUploadCount(
+      session.user.id,
+      file.size,
+      entitlements.maxUploads,
+      maxStorageBytes,
+    );
+    if (!quotaResult.allowed) {
+      return NextResponse.json({ error: quotaResult.reason }, { status: 403 });
+    }
 
     const r2Key = generateExportKey(session.user.id);
 
@@ -134,7 +156,7 @@ export async function POST(request: NextRequest) {
         resultR2Key: r2Key,
         resultExportId: exportRecord.id,
         resultFileSize: file.size,
-      });
+      }, session.user.id);
     }
 
     return NextResponse.json({

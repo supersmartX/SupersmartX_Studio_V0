@@ -410,6 +410,7 @@ export async function updateExportJobStatus(
     resultFileSize?: number;
     errorMessage?: string;
   } = {},
+  userId?: string,
 ): Promise<boolean> {
   await ensureMigrated();
   const db = getDb();
@@ -443,9 +444,14 @@ export async function updateExportJobStatus(
     args.push(patch.errorMessage);
   }
 
+  let whereClause = 'WHERE id = ?';
   args.push(jobId);
+  if (userId) {
+    whereClause += ' AND user_id = ?';
+    args.push(userId);
+  }
   const result = await db.execute({
-    sql: `UPDATE export_jobs SET ${sets.join(', ')} WHERE id = ?`,
+    sql: `UPDATE export_jobs SET ${sets.join(', ')} ${whereClause}`,
     args,
   });
   return result.rowsAffected > 0;
@@ -485,6 +491,17 @@ export async function deleteOldExportJobs(maxAgeMs: number): Promise<number> {
     args: [cutoff],
   });
   return result.rowsAffected;
+}
+
+export async function getOldExportJobs(maxAgeMs: number): Promise<{ r2Key: string }[]> {
+  await ensureMigrated();
+  const db = getDb();
+  const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+  const result = await db.execute({
+    sql: 'SELECT result_r2_key FROM export_jobs WHERE created_at < ? AND result_r2_key IS NOT NULL',
+    args: [cutoff],
+  });
+  return result.rows.map((row) => ({ r2Key: row.result_r2_key as string }));
 }
 
 export async function isWebhookProcessed(orderId: string): Promise<boolean> {
