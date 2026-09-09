@@ -1,20 +1,18 @@
 import { Session } from 'next-auth';
 
-const PENDING_DOWNLOAD_KEY = 'sxs-pending-download';
+let pendingDownloadFn: (() => void) | null = null;
 
 export function setPendingDownload(fn: () => void) {
   if (typeof window !== 'undefined') {
-    sessionStorage.setItem(PENDING_DOWNLOAD_KEY, Date.now().toString());
-    (window as any).__sxsPendingDownload = fn;
+    pendingDownloadFn = fn;
   }
 }
 
 export function executePendingDownload() {
   if (typeof window !== 'undefined') {
-    const fn = (window as any).__sxsPendingDownload;
+    const fn = pendingDownloadFn;
+    pendingDownloadFn = null;
     if (fn) {
-      (window as any).__sxsPendingDownload = null;
-      sessionStorage.removeItem(PENDING_DOWNLOAD_KEY);
       fn();
     }
   }
@@ -22,8 +20,7 @@ export function executePendingDownload() {
 
 export function clearPendingDownload() {
   if (typeof window !== 'undefined') {
-    (window as any).__sxsPendingDownload = null;
-    sessionStorage.removeItem(PENDING_DOWNLOAD_KEY);
+    pendingDownloadFn = null;
   }
 }
 

@@ -19,7 +19,7 @@ export async function sendFeedback(text: string): Promise<void> {
       throw new Error('Failed to send feedback');
     }
   } catch (err) {
-    console.error('Discord feedback error:', err);
+    console.error('Discord feedback error:', err instanceof Error ? err.message : 'Unknown error');
     throw err;
   }
 }

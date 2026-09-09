@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ deleted: deletedCount });
   } catch (error) {
-    console.error('Cleanup failed:', error);
+    console.error('Cleanup failed:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ error: 'Cleanup failed' }, { status: 500 });
   }
 }

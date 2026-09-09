@@ -246,10 +246,9 @@ export async function sendPaymentConfirmationEmail(data: PaymentEmailData): Prom
       text: buildUserConfirmationText(data),
     });
 
-    console.log(`Confirmation email sent to ${data.customerEmail} for order ${data.orderId}`);
     return true;
   } catch (error) {
-    console.error('Failed to send confirmation email:', error);
+    console.error('Failed to send confirmation email:', error instanceof Error ? error.message : 'Unknown error');
     return false;
   }
 }
@@ -273,10 +272,9 @@ export async function sendAdminNotification(data: PaymentEmailData): Promise<boo
       text: buildAdminNotificationText(data),
     });
 
-    console.log(`Admin notification sent for order ${data.orderId}`);
     return true;
   } catch (error) {
-    console.error('Failed to send admin notification:', error);
+    console.error('Failed to send admin notification:', error instanceof Error ? error.message : 'Unknown error');
     return false;
   }
 }

@@ -26,7 +26,7 @@ export async function GET(_request: NextRequest) {
       })),
     });
   } catch (error) {
-    console.error('List recordings error:', error);
+    console.error('List recordings error:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ error: 'Failed to list recordings' }, { status: 500 });
   }
 }

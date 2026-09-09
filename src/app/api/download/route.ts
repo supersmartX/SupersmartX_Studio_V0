@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ url, expiresIn: SIGNED_URL_TTL_SECONDS });
   } catch (error) {
-    console.error('Download failed:', error);
+    console.error('Download failed:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ error: 'Download failed' }, { status: 500 });
   }
 }

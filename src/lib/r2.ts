@@ -1,5 +1,3 @@
-// @ts-nocheck — @aws-sdk packages need `npm install` first
-// Run: npm install @aws-sdk/client-s3 @aws-sdk/s3-request-presigner
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 

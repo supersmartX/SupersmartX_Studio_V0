@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
       paymentSessionId: order.payment_session_id,
     });
   } catch (error) {
-    console.error('Cashfree order creation failed:', error);
+    console.error('Cashfree order creation failed:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json(
       { error: 'Failed to create payment order' },
       { status: 500 }

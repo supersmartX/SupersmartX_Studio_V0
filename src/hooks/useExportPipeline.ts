@@ -148,28 +148,32 @@ export function useExportPipeline(): UseExportPipelineReturn {
       setExportJobs((prev) => [...prev, job]);
 
       try {
-        // 1. Create server job
-        const createRes = await fetch('/api/export-jobs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config: exportConfig }),
-          signal: abortController.signal,
-        });
-
-        if (!createRes.ok) {
-          const err = await createRes.json().catch(() => ({ error: 'Failed' }));
-          throw new Error(err.error || 'Failed to create export job');
+        // 1. Create server job (non-fatal — client-side encoding works without it)
+        let serverJobId: string | undefined;
+        try {
+          const createRes = await fetch('/api/export-jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config: exportConfig }),
+            signal: abortController.signal,
+          });
+          if (createRes.ok) {
+            const data = await createRes.json();
+            serverJobId = data.serverJobId;
+          }
+        } catch {
+          // Server job creation failed — continue with client-side encoding only
         }
 
-        const { serverJobId } = await createRes.json();
-
-        // 2. Update status to encoding
-        await fetch(`/api/export-jobs/${serverJobId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'encoding' }),
-          signal: abortController.signal,
-        }).catch(() => {});
+        if (serverJobId) {
+          // 2. Update status to encoding
+          await fetch(`/api/export-jobs/${serverJobId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'encoding' }),
+            signal: abortController.signal,
+          }).catch(() => {});
+        }
 
         setExportJobs((prev) => prev.map((j) =>
           j.id === jobId ? { ...j, status: 'encoding', serverJobId, progress: 0 } : j,

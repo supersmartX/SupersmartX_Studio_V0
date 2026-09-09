@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
       r2Key,
     });
   } catch (error) {
-    console.error('Export upload failed:', error);
+    console.error('Export upload failed:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ error: 'Export upload failed' }, { status: 500 });
   }
 }

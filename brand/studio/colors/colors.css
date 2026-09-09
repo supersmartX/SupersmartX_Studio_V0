@@ -1,0 +1,9 @@
+:root {
+  --studio-accent:#7C3AED; --studio-accent-hover:#8B5CF6; --studio-accent-dark:#6D28D9;
+  --studio-accent-muted:rgba(124,58,237,.12);
+  --studio-canvas:#09090B; --studio-surface:#111113; --studio-elevated:#18181B;
+  --studio-overlay:#27272A; --studio-subtle:#2E2E32;
+  --studio-text-primary:#FAFAFA; --studio-text-secondary:#A1A1AA; --studio-text-muted:#52525B;
+  --studio-border-subtle:#1C1C1F; --studio-border-default:#27272A; --studio-border-strong:#3F3F46;
+  --studio-success:#22C55E; --studio-warning:#F59E0B; --studio-error:#EF4444; --studio-recording:#EF4444;
+}

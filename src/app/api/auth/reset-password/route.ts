@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
-import { findResetToken, deleteResetToken, updateUserPassword } from '@/lib/db';
+import { findResetToken, deleteResetToken } from '@/lib/db';
+import { updateUserPassword } from '@/lib/user-store';
 import { rateLimit } from '@/lib/rate-limit';
 import { validatePassword } from '@/lib/validation';
 

@@ -69,12 +69,16 @@ export function ExportModal({
       onAuthRequired();
       return;
     }
+    const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
+    if (!entitlements.canExport) {
+      onDownloadLimitReached();
+      return;
+    }
     const srcW = masterRecording?.sourceWidth || 1920;
     const srcH = masterRecording?.sourceHeight || 1080;
-    const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
     onSelectPlatform(platformId, srcW, srcH, entitlements.maxResolution);
     setStep('crop');
-  }, [isGuest, onSelectPlatform, masterRecording, userPlan, onAuthRequired]);
+  }, [isGuest, onSelectPlatform, masterRecording, userPlan, onAuthRequired, onDownloadLimitReached]);
 
   const handleToggleBatchPlatform = useCallback((platformId: PlatformId) => {
     setBatchPlatforms((prev) =>
@@ -132,6 +136,12 @@ export function ExportModal({
   const handleExport = useCallback(async () => {
     if (!masterRecording || !exportConfig) return;
 
+    const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
+    if (!entitlements.canExport) {
+      onDownloadLimitReached();
+      return;
+    }
+
     setIsExporting(true);
     setStep('encoding');
     setExportProgress(0);
@@ -160,7 +170,14 @@ export function ExportModal({
   const handleDownload = useCallback(async () => {
     const filename = generateFilename('video', 'mp4');
 
-    // Direct download from blob (works without R2/auth)
+    // Check download entitlement
+    const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
+    if (!entitlements.canDownload) {
+      onDownloadLimitReached();
+      return;
+    }
+
+    // Direct download from blob (works without R2)
     if (exportResult?.resultBlob) {
       const url = URL.createObjectURL(exportResult.resultBlob);
       const a = document.createElement('a');
@@ -212,7 +229,7 @@ export function ExportModal({
         showToast('Download failed. Please try again.');
       }
     }
-  }, [exportResult, isAuthenticated, canDownloadFile, onAuthRequired, onDownloadLimitReached, showToast]);
+  }, [exportResult, isAuthenticated, userPlan, canDownloadFile, onAuthRequired, onDownloadLimitReached, showToast]);
 
   const handleBack = useCallback(() => {
     if (step === 'crop') {

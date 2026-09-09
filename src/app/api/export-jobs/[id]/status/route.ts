@@ -31,7 +31,7 @@ export async function GET(
       completedAt: job.completedAt,
     });
   } catch (error) {
-    console.error('Get export job status failed:', error);
+    console.error('Get export job status failed:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ error: 'Failed to get job status' }, { status: 500 });
   }
 }

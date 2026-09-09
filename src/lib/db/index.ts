@@ -223,7 +223,7 @@ export async function atomicIncrementUploadCount(
 
   // Build conditional WHERE clauses for atomic check+increment
   const conditions: string[] = [];
-  const args: (string | number)[] = [userId, fileSize, fileSize];
+  const args: (string | number)[] = [fileSize, userId];
 
   if (maxUploads !== null) {
     conditions.push('upload_count < ?');

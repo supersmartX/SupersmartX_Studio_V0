@@ -58,7 +58,7 @@ export async function PATCH(
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error('Update export job failed:', error);
+    console.error('Update export job failed:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ error: 'Failed to update job' }, { status: 500 });
   }
 }

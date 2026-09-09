@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ jobId: job.id }, { status: 201 });
   } catch (error) {
-    console.error('Create export job failed:', error);
+    console.error('Create export job failed:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ error: 'Failed to create export job' }, { status: 500 });
   }
 }
