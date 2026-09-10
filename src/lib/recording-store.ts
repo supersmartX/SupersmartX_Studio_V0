@@ -7,6 +7,7 @@ const RECORDING_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface StoredRecording {
   id: string;
+  name: string;
   blob: Blob;
   mimeType: string;
   extension: string;
@@ -124,6 +125,35 @@ export async function deleteRecording(id: string): Promise<void> {
     });
   } catch (e) {
     console.warn('Failed to delete recording from IndexedDB:', e instanceof Error ? e.message : 'unknown');
+  }
+}
+
+export async function renameRecording(id: string, name: string): Promise<void> {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.get(id);
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        const record = request.result;
+        if (record) {
+          record.name = name;
+          store.put(record);
+        }
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  } catch (e) {
+    console.warn('Failed to rename recording in IndexedDB:', e instanceof Error ? e.message : 'unknown');
   }
 }
 

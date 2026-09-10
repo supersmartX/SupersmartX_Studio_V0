@@ -121,15 +121,37 @@ export default function HomePage() {
       ui.setIsDrawerVisible(true);
 
       if (recorder.recordingResult?.blob) {
-        const videoTrack = camera.stream?.getVideoTracks()[0];
-        const trackSettings = videoTrack?.getSettings();
-        createMasterRecording(
-          recorder.recordingResult.blob,
-          recorder.recordingResult.duration,
-          recorder.recordingResult.hasAudio,
-          trackSettings?.width || recordingConfig.width,
-          trackSettings?.height || recordingConfig.height
-        );
+        // Extract actual video dimensions from the recorded blob
+        // Camera track settings can differ from actual MediaRecorder output
+        const videoEl = document.createElement('video');
+        const blobUrl = URL.createObjectURL(recorder.recordingResult.blob);
+        videoEl.src = blobUrl;
+        videoEl.preload = 'metadata';
+
+        videoEl.onloadedmetadata = () => {
+          URL.revokeObjectURL(blobUrl);
+          const actualWidth = videoEl.videoWidth || recordingConfig.width;
+          const actualHeight = videoEl.videoHeight || recordingConfig.height;
+          createMasterRecording(
+            recorder.recordingResult!.blob,
+            recorder.recordingResult!.duration,
+            recorder.recordingResult!.hasAudio,
+            actualWidth,
+            actualHeight
+          );
+        };
+
+        videoEl.onerror = () => {
+          URL.revokeObjectURL(blobUrl);
+          // Fallback to config dimensions
+          createMasterRecording(
+            recorder.recordingResult!.blob,
+            recorder.recordingResult!.duration,
+            recorder.recordingResult!.hasAudio,
+            recordingConfig.width,
+            recordingConfig.height
+          );
+        };
       }
 
       if (typeof window !== 'undefined') {
@@ -140,7 +162,7 @@ export default function HomePage() {
 
       resetTimer();
     }
-  }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, camera.stream, recordingConfig.width, recordingConfig.height]);
+  }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height]);
 
   const handleRecordStart = useCallback(() => {
     if (!camera.stream) return;

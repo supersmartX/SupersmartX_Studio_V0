@@ -296,8 +296,7 @@ export function ExportModal({
                   return (
                     <button
                       key={preset.id}
-                      onClick={() => handleToggleBatchPlatform(preset.id)}
-                      onDoubleClick={() => handleSelectPlatform(preset.id)}
+                      onClick={() => handleSelectPlatform(preset.id)}
                       className={`group relative flex items-center gap-2.5 p-3 rounded-lg border transition-all duration-150 text-left min-h-[48px] ${
                         isSelected
                           ? 'shadow-sm ring-1'
@@ -583,15 +582,9 @@ export function ExportModal({
             </>
           )}
 
-          <details className="group">
-            <summary className="text-[11px] text-text-muted cursor-pointer hover:text-text-secondary transition-colors list-none flex items-center gap-1">
-              <span className="group-open:rotate-90 transition-transform text-[8px]">&#9654;</span>
-              Have feedback?
-            </summary>
-            <div className="mt-2">
-              <DiscordFeedback onSuccess={showToast} />
-            </div>
-          </details>
+          <div>
+            <DiscordFeedback onSuccess={showToast} />
+          </div>
         </div>
       </div>
     </div>

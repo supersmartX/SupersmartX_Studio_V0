@@ -42,6 +42,7 @@ export function useMasterRecording(): UseMasterRecordingReturn {
 
       saveRecording({
         id: recording.id,
+        name: '',
         blob: recording.blob,
         mimeType: recording.mimeType,
         extension: recording.extension,

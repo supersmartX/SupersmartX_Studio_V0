@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { getAllRecordings, deleteRecording, type StoredRecording } from '@/lib/recording-store';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { getAllRecordings, deleteRecording, renameRecording, type StoredRecording } from '@/lib/recording-store';
 import { formatTime, formatRelativeTime } from '@/utils/format';
 
 interface RecordingsPanelProps {
@@ -14,6 +14,9 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
   const [recordings, setRecordings] = useState<StoredRecording[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   const loadRecordings = useCallback(async () => {
     const all = await getAllRecordings();
@@ -25,6 +28,13 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
     loadRecordings();
   }, [loadRecordings]);
 
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
+
   const handleDelete = useCallback(async (id: string) => {
     await deleteRecording(id);
     setRecordings((prev) => prev.filter((r) => r.id !== id));
@@ -34,6 +44,31 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
   const handleLoad = useCallback((recording: StoredRecording) => {
     onLoadRecording?.(recording);
   }, [onLoadRecording]);
+
+  const handleStartRename = useCallback((recording: StoredRecording, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(recording.id);
+    setEditName(recording.name || `${recording.extension.toUpperCase()} Recording`);
+  }, []);
+
+  const handleSaveRename = useCallback(async (id: string) => {
+    const trimmed = editName.trim();
+    if (trimmed) {
+      await renameRecording(id, trimmed);
+      setRecordings((prev) => prev.map((r) => r.id === id ? { ...r, name: trimmed } : r));
+    }
+    setEditingId(null);
+    setEditName('');
+  }, [editName]);
+
+  const handleCancelRename = useCallback(() => {
+    setEditingId(null);
+    setEditName('');
+  }, []);
+
+  const getDisplayName = useCallback((recording: StoredRecording) => {
+    return recording.name || `${recording.extension.toUpperCase()} Recording`;
+  }, []);
 
   return (
     <div className="flex flex-col h-full">
@@ -72,8 +107,8 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
                 role="button"
                 tabIndex={0}
                 className="group relative p-3 rounded-lg hover:bg-elevated transition-colors cursor-pointer"
-                onClick={() => handleLoad(recording)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleLoad(recording); } }}
+                onClick={() => { if (editingId !== recording.id) handleLoad(recording); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (editingId !== recording.id) handleLoad(recording); } }}
               >
                 {confirmDeleteId === recording.id ? (
                   <div className="flex items-center gap-2">
@@ -96,9 +131,26 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h4 className="text-xs font-medium text-text-primary truncate">
-                            {recording.extension.toUpperCase()} Recording
-                          </h4>
+                          {editingId === recording.id ? (
+                            <input
+                              ref={editInputRef}
+                              type="text"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              onBlur={() => handleSaveRename(recording.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveRename(recording.id);
+                                if (e.key === 'Escape') handleCancelRename();
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-xs font-medium text-text-primary bg-canvas border border-accent rounded px-1.5 py-0.5 outline-none w-full max-w-[200px]"
+                              maxLength={50}
+                            />
+                          ) : (
+                            <h4 className="text-xs font-medium text-text-primary truncate">
+                              {getDisplayName(recording)}
+                            </h4>
+                          )}
                           <span className="text-[9px] px-1.5 py-0.5 rounded bg-elevated text-text-muted border border-border-subtle">
                             {recording.aspectRatio}
                           </span>
@@ -117,6 +169,15 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                             <polyline points="7 10 12 15 17 10" />
                             <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => handleStartRename(recording, e)}
+                          className="p-1 rounded hover:bg-accent/10 transition-colors"
+                          aria-label="Rename recording"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-text-muted" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                           </svg>
                         </button>
                         <button
