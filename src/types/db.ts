@@ -10,6 +10,7 @@ export interface StoredUser {
   createdAt: string;
   plan: PlanType;
   planExpiresAt?: string;
+  sessionVersion: number;
 }
 
 export interface ResetToken {

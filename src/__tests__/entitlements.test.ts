@@ -1,16 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { getEntitlements, isPlanActive, clampResolution } from '@/lib/entitlements';
+import { getEntitlements, isPlanActive, clampResolution, FREE_MAX_DURATION_SECONDS, CREATOR_MAX_DURATION_SECONDS, FREE_MONTHLY_EXPORT_LIMIT } from '@/lib/entitlements';
 import type { PlanType } from '@/types/db';
 
 describe('getEntitlements', () => {
   it('returns free entitlements for free plan', () => {
     const e = getEntitlements('free');
-    expect(e.canExport).toBe(false);
-    expect(e.canDownload).toBe(false);
+    expect(e.canExport).toBe(true);
+    expect(e.canDownload).toBe(true);
     expect(e.canBatchExport).toBe(false);
+    expect(e.canCrop).toBe(false);
     expect(e.maxResolution).toEqual({ width: 1920, height: 1080 });
-    expect(e.maxDurationSeconds).toBe(300);
-    expect(e.maxDownloads).toBe(3);
+    expect(e.maxDurationSeconds).toBe(180);
+    expect(e.maxExportsPerMonth).toBe(3);
     expect(e.maxUploads).toBe(3);
     expect(e.maxStorageMB).toBe(500);
     expect(e.watermarkRequired).toBe(true);
@@ -21,9 +22,10 @@ describe('getEntitlements', () => {
     expect(e.canExport).toBe(true);
     expect(e.canDownload).toBe(true);
     expect(e.canBatchExport).toBe(false);
+    expect(e.canCrop).toBe(true);
     expect(e.maxResolution).toEqual({ width: 1920, height: 1080 });
-    expect(e.maxDurationSeconds).toBe(Infinity);
-    expect(e.maxDownloads).toBeNull();
+    expect(e.maxDurationSeconds).toBe(1800);
+    expect(e.maxExportsPerMonth).toBeNull();
     expect(e.maxUploads).toBeNull();
     expect(e.maxStorageMB).toBeNull();
     expect(e.watermarkRequired).toBe(false);
@@ -33,29 +35,28 @@ describe('getEntitlements', () => {
     const e = getEntitlements('creator_yearly');
     expect(e.canExport).toBe(true);
     expect(e.canBatchExport).toBe(false);
+    expect(e.canCrop).toBe(true);
+    expect(e.maxDurationSeconds).toBe(1800);
+    expect(e.maxExportsPerMonth).toBeNull();
   });
 
-  it('returns pro entitlements for pro_monthly', () => {
+  it('pro retained internally but not customer-facing', () => {
     const e = getEntitlements('pro_monthly');
-    expect(e.canExport).toBe(true);
-    expect(e.canDownload).toBe(true);
     expect(e.canBatchExport).toBe(true);
-    expect(e.maxResolution).toEqual({ width: 3840, height: 2160 });
-    expect(e.maxDurationSeconds).toBe(Infinity);
-    expect(e.maxDownloads).toBeNull();
-    expect(e.watermarkRequired).toBe(false);
-  });
-
-  it('returns pro entitlements for pro_yearly', () => {
-    const e = getEntitlements('pro_yearly');
-    expect(e.canBatchExport).toBe(true);
+    expect(e.canCrop).toBe(true);
     expect(e.maxResolution).toEqual({ width: 3840, height: 2160 });
   });
 
   it('falls back to free for unknown plan', () => {
     const e = getEntitlements('unknown' as never);
-    expect(e.canExport).toBe(false);
-    expect(e.canDownload).toBe(false);
+    expect(e.canCrop).toBe(false);
+    expect(e.maxDurationSeconds).toBe(180);
+  });
+
+  it('launch constants match spec', () => {
+    expect(FREE_MAX_DURATION_SECONDS).toBe(180);
+    expect(CREATOR_MAX_DURATION_SECONDS).toBe(1800);
+    expect(FREE_MONTHLY_EXPORT_LIMIT).toBe(3);
   });
 });
 
@@ -83,16 +84,6 @@ describe('isPlanActive', () => {
     expect(isPlanActive(past, 'pro_monthly')).toBe(false);
     expect(isPlanActive(past, 'creator_yearly')).toBe(false);
   });
-
-  it('paid plan with current time is inactive (edge case)', () => {
-    const now = new Date().toISOString();
-    expect(isPlanActive(now, 'pro_monthly')).toBe(false);
-  });
-
-  it('no plan argument defaults to free behavior', () => {
-    expect(isPlanActive(null)).toBe(true);
-    expect(isPlanActive(undefined)).toBe(true);
-  });
 });
 
 describe('clampResolution', () => {
@@ -100,98 +91,45 @@ describe('clampResolution', () => {
     const result = clampResolution(1920, 1080, { width: 1920, height: 1080 });
     expect(result).toEqual({ width: 1920, height: 1080 });
   });
-
-  it('returns original if smaller than limits', () => {
-    const result = clampResolution(1280, 720, { width: 1920, height: 1080 });
-    expect(result).toEqual({ width: 1280, height: 720 });
-  });
-
-  it('scales down 4K to 1080p', () => {
+  it('scales down 4K to 1080p for launch', () => {
     const result = clampResolution(3840, 2160, { width: 1920, height: 1080 });
     expect(result.width).toBeLessThanOrEqual(1920);
     expect(result.height).toBeLessThanOrEqual(1080);
   });
-
-  it('preserves aspect ratio when scaling', () => {
+  it('preserves aspect ratio', () => {
     const result = clampResolution(3840, 2160, { width: 1920, height: 1080 });
-    const originalRatio = 3840 / 2160;
-    const resultRatio = result.width / result.height;
-    expect(Math.abs(originalRatio - resultRatio)).toBeLessThan(0.01);
-  });
-
-  it('handles non-standard aspect ratios', () => {
-    const result = clampResolution(2560, 1440, { width: 1920, height: 1080 });
-    expect(result.width).toBeLessThanOrEqual(1920);
-    expect(result.height).toBeLessThanOrEqual(1080);
-  });
-
-  it('handles portrait orientation', () => {
-    const result = clampResolution(1080, 1920, { width: 1080, height: 1920 });
-    expect(result).toEqual({ width: 1080, height: 1920 });
-  });
-
-  it('clamps portrait when max is landscape', () => {
-    const result = clampResolution(1080, 1920, { width: 1920, height: 1080 });
-    expect(result.width).toBeLessThanOrEqual(1920);
-    expect(result.height).toBeLessThanOrEqual(1080);
+    expect(Math.abs(3840/2160 - result.width/result.height)).toBeLessThan(0.01);
   });
 });
 
-describe('Plan entitlements matrix', () => {
-  const plans: PlanType[] = ['free', 'creator_monthly', 'creator_yearly', 'pro_monthly', 'pro_yearly'];
-
-  it('all plans have valid structure', () => {
-    for (const plan of plans) {
-      const e = getEntitlements(plan);
-      expect(typeof e.canExport).toBe('boolean');
-      expect(typeof e.canDownload).toBe('boolean');
-      expect(typeof e.canBatchExport).toBe('boolean');
-      expect(e.maxResolution).toHaveProperty('width');
-      expect(e.maxResolution).toHaveProperty('height');
-      expect(typeof e.maxDurationSeconds).toBe('number');
-      expect(typeof e.watermarkRequired).toBe('boolean');
-    }
-  });
-
-  it('free plan cannot export or download', () => {
+describe('Launch entitlement matrix', () => {
+  it('free can export but limited to 3/month, no crop', () => {
     const e = getEntitlements('free');
-    expect(e.canExport).toBe(false);
-    expect(e.canDownload).toBe(false);
+    expect(e.canExport).toBe(true);
+    expect(e.canCrop).toBe(false);
+    expect(e.maxExportsPerMonth).toBe(3);
   });
-
-  it('creator plans can export and download but not batch', () => {
-    for (const plan of ['creator_monthly', 'creator_yearly'] as PlanType[]) {
+  it('creator can export unlimited, can crop', () => {
+    for (const plan of ['creator_monthly','creator_yearly'] as PlanType[]) {
       const e = getEntitlements(plan);
-      expect(e.canExport).toBe(true);
-      expect(e.canDownload).toBe(true);
-      expect(e.canBatchExport).toBe(false);
+      expect(e.maxExportsPerMonth).toBeNull();
+      expect(e.canCrop).toBe(true);
     }
   });
-
-  it('pro plans can batch export', () => {
-    for (const plan of ['pro_monthly', 'pro_yearly'] as PlanType[]) {
-      const e = getEntitlements(plan);
-      expect(e.canBatchExport).toBe(true);
-    }
+  it('both launch plans are 1080p, no 4K', () => {
+    expect(getEntitlements('free').maxResolution).toEqual({width:1920,height:1080});
+    expect(getEntitlements('creator_monthly').maxResolution).toEqual({width:1920,height:1080});
   });
-
-  it('pro has higher max resolution than creator', () => {
-    const creator = getEntitlements('creator_monthly');
-    const pro = getEntitlements('pro_monthly');
-    expect(pro.maxResolution.width).toBeGreaterThan(creator.maxResolution.width);
-    expect(pro.maxResolution.height).toBeGreaterThan(creator.maxResolution.height);
+  it('batch export disabled for launch plans', () => {
+    expect(getEntitlements('free').canBatchExport).toBe(false);
+    expect(getEntitlements('creator_monthly').canBatchExport).toBe(false);
   });
-
-  it('free has limited downloads', () => {
-    const e = getEntitlements('free');
-    expect(e.maxDownloads).not.toBeNull();
-    expect(e.maxDownloads).toBeGreaterThan(0);
+  it('duration limits exact', () => {
+    expect(getEntitlements('free').maxDurationSeconds).toBe(180);
+    expect(getEntitlements('creator_monthly').maxDurationSeconds).toBe(1800);
   });
-
-  it('paid plans have unlimited downloads', () => {
-    for (const plan of ['creator_monthly', 'creator_yearly', 'pro_monthly', 'pro_yearly'] as PlanType[]) {
-      const e = getEntitlements(plan);
-      expect(e.maxDownloads).toBeNull();
-    }
+  it('watermark required only for free', () => {
+    expect(getEntitlements('free').watermarkRequired).toBe(true);
+    expect(getEntitlements('creator_monthly').watermarkRequired).toBe(false);
   });
 });

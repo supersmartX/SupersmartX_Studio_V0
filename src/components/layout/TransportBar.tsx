@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 import type { RecordingState } from '@/types';
 import { formatTime } from '@/utils/format';
 import {
@@ -23,6 +23,7 @@ interface TransportBarProps {
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
+  onConfirmStop?: () => void;
 }
 
 export function TransportBar({
@@ -36,15 +37,33 @@ export function TransportBar({
   onPause,
   onResume,
   onStop,
+  onConfirmStop,
 }: TransportBarProps) {
   const isIdle = recordingState === 'idle' || recordingState === 'completed';
   const isRecording = recordingState === 'recording';
   const isPaused = recordingState === 'paused';
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHoldModeRef = useRef(false);
+  const [confirmStop, setConfirmStop] = useState(false);
+  const [holdActive, setHoldActive] = useState(false);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleStopClick = useCallback(() => {
+    if (confirmStop) {
+      setConfirmStop(false);
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+      onConfirmStop ? onConfirmStop() : onStop();
+    } else {
+      setConfirmStop(true);
+      confirmTimerRef.current = setTimeout(() => {
+        setConfirmStop(false);
+      }, 3000);
+    }
+  }, [confirmStop, onStop, onConfirmStop]);
 
   const handleRecordMouseDown = useCallback(() => {
     isHoldModeRef.current = false;
+    setHoldActive(true);
     holdTimerRef.current = setTimeout(() => {
       isHoldModeRef.current = true;
       onStart();
@@ -52,6 +71,7 @@ export function TransportBar({
   }, [onStart]);
 
   const handleRecordMouseUp = useCallback(() => {
+    setHoldActive(false);
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
@@ -61,6 +81,12 @@ export function TransportBar({
       if (recordingState === 'recording') onStop();
     }
   }, [recordingState, onStop]);
+
+  useEffect(() => {
+    return () => {
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    };
+  }, []);
 
   return (
     <footer className="h-14 sm:h-16 border-t border-border-subtle bg-surface flex items-center px-3 sm:px-6 shrink-0" aria-label="Recording controls">
@@ -91,7 +117,7 @@ export function TransportBar({
         {isIdle && !hasRecording && (
           <div className="flex flex-col min-w-0">
             <span className="text-[14px] sm:text-[16px] font-mono font-bold text-text-primary tabular-nums">00:00</span>
-            <span className="text-[10px] text-text-muted hidden sm:block">Ready to record</span>
+            <span className="text-[12px] text-text-secondary hidden sm:block">Ready to record</span>
           </div>
         )}
         {/* Audio visualizer - hidden on mobile to save space */}
@@ -140,7 +166,11 @@ export function TransportBar({
             onTouchStart={handleRecordMouseDown}
             onTouchEnd={handleRecordMouseUp}
             disabled={!canRecord}
-            className="flex items-center justify-center w-12 h-12 rounded-full bg-recording hover:bg-red-600 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-recording/30 select-none"
+            className={`flex items-center justify-center w-12 h-12 rounded-full text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg select-none ${
+              holdActive
+                ? 'bg-red-700 shadow-recording/50 scale-95'
+                : 'bg-recording hover:bg-red-600 shadow-recording/30'
+            }`}
             aria-label="Start Recording"
           >
             <RecordIcon className="w-5 h-5" />
@@ -157,11 +187,15 @@ export function TransportBar({
               <PauseIcon className="w-5 h-5" />
             </button>
             <button
-              onClick={onStop}
-              className="flex flex-col items-center gap-0.5 p-2 rounded-lg text-text-secondary hover:text-recording hover:bg-recording/10 transition-colors min-w-[44px] min-h-[44px] justify-center"
+              onClick={handleStopClick}
+              className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[44px] min-h-[44px] justify-center ${
+                confirmStop
+                  ? 'text-recording bg-recording/10 animate-pulse'
+                  : 'text-text-secondary hover:text-recording hover:bg-recording/10'
+              }`}
             >
               <StopIcon className="w-5 h-5" />
-              <span className="text-[9px] sm:text-[10px] font-medium">Stop</span>
+              <span className="text-[9px] sm:text-[10px] font-medium">{confirmStop ? 'Confirm?' : 'Stop'}</span>
             </button>
           </>
         )}
@@ -176,11 +210,15 @@ export function TransportBar({
               <PlayIcon className="w-5 h-5" />
             </button>
             <button
-              onClick={onStop}
-              className="flex flex-col items-center gap-0.5 p-2 rounded-lg text-text-secondary hover:text-recording hover:bg-recording/10 transition-colors min-w-[44px] min-h-[44px] justify-center"
+              onClick={handleStopClick}
+              className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[44px] min-h-[44px] justify-center ${
+                confirmStop
+                  ? 'text-recording bg-recording/10 animate-pulse'
+                  : 'text-text-secondary hover:text-recording hover:bg-recording/10'
+              }`}
             >
               <StopIcon className="w-5 h-5" />
-              <span className="text-[9px] sm:text-[10px] font-medium">Stop</span>
+              <span className="text-[9px] sm:text-[10px] font-medium">{confirmStop ? 'Confirm?' : 'Stop'}</span>
             </button>
           </>
         )}

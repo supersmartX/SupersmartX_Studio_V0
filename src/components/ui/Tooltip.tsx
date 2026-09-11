@@ -39,23 +39,22 @@ export function Tooltip({ content, children, side = 'right' }: TooltipProps) {
       onBlur={() => setIsVisible(false)}
     >
       {child}
-      {isVisible && (
-        <div
-          id={tooltipId}
-          className={`
-            absolute z-50 whitespace-nowrap
-            bg-overlay text-text-primary text-xs font-medium
-            px-2 py-1 rounded-md
-            shadow-lg border border-border-subtle
-            pointer-events-none
-            animate-fade-in
-            ${sideStyles[side]}
-          `}
-          role="tooltip"
-        >
-          {content}
-        </div>
-      )}
+      <div
+        id={tooltipId}
+        className={`
+          absolute z-50 whitespace-nowrap
+          bg-overlay text-text-primary text-xs font-medium
+          px-2 py-1 rounded-md
+          shadow-lg border border-border-subtle
+          pointer-events-none
+          transition-opacity duration-150
+          ${isVisible ? 'opacity-100' : 'opacity-0'}
+          ${sideStyles[side]}
+        `}
+        role="tooltip"
+      >
+        {content}
+      </div>
     </div>
   );
 }

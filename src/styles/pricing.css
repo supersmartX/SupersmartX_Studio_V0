@@ -12,7 +12,7 @@
   border-radius: 8px;
   border: 1px solid var(--color-border-subtle, rgba(255,255,255,0.08));
   background: transparent;
-  color: var(--color-text-muted, rgba(255,255,255,0.5));
+  color: var(--color-text-secondary, #A1A1AA);
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -30,7 +30,7 @@
 }
 .lsx-pricing-toggle-save {
   color: var(--color-success);
-  font-size: 11px;
+  font-size: 12px;
   margin-left: 4px;
 }
 .lsx-pricing-toggle-btn--active .lsx-pricing-toggle-save {
@@ -39,9 +39,9 @@
 
 .lsx-pricing-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 24px;
-  max-width: 960px;
+  max-width: 680px;
   margin: 0 auto;
 }
 .lsx-pricing-card {
@@ -103,7 +103,7 @@
 }
 .lsx-pricing-note {
   font-size: 12px;
-  color: rgba(255,255,255,0.3);
+  color: var(--color-text-secondary, #A1A1AA);
   margin-top: 6px;
 }
 .lsx-pricing-features {
@@ -119,18 +119,29 @@
   align-items: center;
   gap: 10px;
   font-size: 14px;
-  color: rgba(255,255,255,0.5);
+  color: var(--color-text-secondary, #A1A1AA);
   line-height: 1.4;
 }
 .lsx-pricing-feature svg {
   flex-shrink: 0;
 }
 .lsx-pricing-feature--highlight {
-  color: rgba(255,255,255,0.8);
+  color: #FAFAFA;
 }
 .lsx-pricing-card--selected {
   border-color: var(--color-accent) !important;
   background: rgba(124,58,237,0.08) !important;
+}
+.lsx-pricing-card--current {
+  opacity: 0.6;
+  cursor: default;
+}
+.lsx-pricing-card--current:hover {
+  border-color: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.02);
+}
+.lsx-pricing-card--current.lsx-pricing-badge {
+  background: rgba(255,255,255,0.15);
 }
 .lsx-pricing-btn {
   width: 100%;

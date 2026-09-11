@@ -12,8 +12,8 @@ interface UseExportPipelineReturn {
   selectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }) => ExportConfig;
   updateCrop: (updates: Partial<CropConfig>) => void;
   resetCrop: () => void;
-  startExport: (master: MasterRecording, onProgress?: (progress: number) => void) => Promise<ExportJob>;
-  startBatchExport: (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void) => Promise<ExportJob[]>;
+  startExport: (master: MasterRecording, onProgress?: (progress: number) => void, watermarkRequired?: boolean) => Promise<ExportJob>;
+  startBatchExport: (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void, watermarkRequired?: boolean) => Promise<ExportJob[]>;
   cancelExport: (jobId: string) => void;
   clearJobs: () => void;
   generateThumbnail: (master: MasterRecording, timeSeconds?: number) => Promise<string>;
@@ -128,7 +128,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
   }, []);
 
   const startExport = useCallback(
-    async (master: MasterRecording, onProgress?: (progress: number) => void): Promise<ExportJob> => {
+    async (master: MasterRecording, onProgress?: (progress: number) => void, watermarkRequired?: boolean): Promise<ExportJob> => {
       if (!exportConfig) {
         throw new Error('No export config');
       }
@@ -190,7 +190,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
               body: JSON.stringify({ status: 'encoding', progress: Math.round(p * 100) }),
             }).catch(() => {});
           }
-        });
+        }, watermarkRequired || false);
 
         if (!mountedRef.current) return job;
 
@@ -235,7 +235,13 @@ export function useExportPipeline(): UseExportPipelineReturn {
           exportId = data.exportId;
           r2Key = data.r2Key;
         } catch (uploadError) {
+          const msg = uploadError instanceof Error ? uploadError.message : '';
+          // Quota or entitlement failures must not be treated as successful local export
+          if (msg.includes('Monthly export limit') || msg.includes('Upgrade required') || msg.includes('Crop & reframe')) {
+            throw uploadError;
+          }
           // Upload failed (e.g. R2 not configured) — still return the blob for direct download
+          // But this path still consumed quota via atomicTryConsume, so it is counted
           if (!mountedRef.current) return job;
           const previewUrl = URL.createObjectURL(resultBlob);
           const partialJob: ExportJob = {
@@ -290,7 +296,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
   );
 
   const startBatchExport = useCallback(
-    async (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void): Promise<ExportJob[]> => {
+    async (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void, watermarkRequired?: boolean): Promise<ExportJob[]> => {
       const results: ExportJob[] = [];
       for (let i = 0; i < configs.length; i++) {
         if (!mountedRef.current) break;
@@ -345,7 +351,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
                 body: JSON.stringify({ status: 'encoding', progress: Math.round(p * 100) }),
               }).catch(() => {});
             }
-          });
+          }, watermarkRequired || false);
 
           if (!mountedRef.current) break;
 
@@ -502,11 +508,33 @@ function getAvcCodec(width: number, height: number): string {
   return 'avc1.640028'; // High Profile, Level 4.0 (up to 1080p)
 }
 
+export function drawWatermark(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  ctx.save();
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  const fontSize = Math.max(14, Math.round(width * 0.035));
+  ctx.font = `bold ${fontSize}px Inter, sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  // Semi-transparent background for readability
+  const text = 'SupersmartX';
+  const metrics = ctx.measureText(text);
+  const padding = 8;
+  const bgWidth = metrics.width + padding * 2;
+  const bgHeight = fontSize + padding;
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(width - bgWidth - 12, height - bgHeight - 12, bgWidth, bgHeight);
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.fillText(text, width - 12 - padding, height - 12 - padding/2);
+  ctx.restore();
+}
+
 async function encodeExport(
   master: MasterRecording,
   config: ExportConfig,
   signal?: AbortSignal,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  watermarkRequired = false
 ): Promise<Blob> {
   const { crop, outputWidth, outputHeight } = config;
 
@@ -673,6 +701,9 @@ async function encodeExport(
         const sh = (crop.height / (master.sourceHeight || 1080)) * sourceH;
 
         ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
+        if (watermarkRequired) {
+          drawWatermark(ctx, outputWidth, outputHeight);
+        }
 
         const frame = new VideoFrame(canvas, { timestamp: frameCount * frameDuration });
         if (videoEncoder && videoEncoder.state === 'configured') {

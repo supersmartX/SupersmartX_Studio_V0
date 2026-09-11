@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import { ShareIcon, DownloadIcon, SettingsIcon } from '@/components/icons';
@@ -25,6 +25,7 @@ export function Header({
   const { data: session } = useSession();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -43,7 +44,7 @@ export function Header({
     <header className="h-12 border-b border-border-subtle bg-surface flex items-center px-3 sm:px-4 justify-between shrink-0 z-30 safe-area-top">
       {/* Left: Logo */}
       <div className="flex items-center min-w-0">
-        <Link href="/" className="text-[14px] font-semibold tracking-tight text-text-primary truncate" aria-label="SupersmartX Studio">
+        <Link href="/" className="text-[14px] font-semibold tracking-tight text-text-primary truncate hover:text-text-secondary transition-colors" aria-label="SupersmartX Studio">
           SUPERSMARTX<span className="text-accent font-normal">Studio</span>
         </Link>
       </div>
@@ -62,6 +63,7 @@ export function Header({
         <button
           onClick={onExport}
           disabled={!hasRecording}
+          title={!hasRecording ? 'Record a video first' : undefined}
           aria-label="Export recording"
           className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] justify-center"
         >
@@ -104,10 +106,21 @@ export function Header({
                 </div>
                 <button
                   role="menuitem"
-                  onClick={() => { signOut({ callbackUrl: '/' }); setShowUserMenu(false); }}
-                  className="w-full text-left px-3 py-2 text-[12px] text-text-secondary hover:bg-elevated transition-colors"
+                  onClick={async () => {
+                    setSigningOut(true);
+                    await signOut({ callbackUrl: '/' });
+                  }}
+                  disabled={signingOut}
+                  className="w-full text-left px-3 py-2 text-[12px] text-text-secondary hover:bg-elevated transition-colors flex items-center gap-2"
                 >
-                  Sign out
+                  {signingOut ? (
+                    <>
+                      <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                      Signing out...
+                    </>
+                  ) : (
+                    'Sign out'
+                  )}
                 </button>
               </div>
             )}

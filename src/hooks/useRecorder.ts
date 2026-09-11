@@ -54,6 +54,8 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
 
   recordingStateRef.current = recordingState;
 
+  const beforeUnloadRef = useRef<((e: BeforeUnloadEvent) => void) | null>(null);
+
   // Keep stream ref in sync
   useEffect(() => {
     streamRef.current = stream;
@@ -87,6 +89,9 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
 
   useEffect(() => {
     return () => {
+      if (beforeUnloadRef.current) {
+        window.removeEventListener('beforeunload', beforeUnloadRef.current);
+      }
       try {
         if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {
           mediaRecorderRef.current.stop();
@@ -269,6 +274,13 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
             mediaRecorderRef.current = recorder;
             setRecordingState('recording');
 
+            // Protect against accidental navigation during recording
+            beforeUnloadRef.current = (e: BeforeUnloadEvent) => {
+              e.preventDefault();
+              e.returnValue = '';
+            };
+            window.addEventListener('beforeunload', beforeUnloadRef.current);
+
             scrollIntervalRef.current = setInterval(scrollCallback, 50);
             checkEndRef.current = checkEndCallback;
 
@@ -332,6 +344,10 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
   );
 
   const stopRecording = useCallback(() => {
+    if (beforeUnloadRef.current) {
+      window.removeEventListener('beforeunload', beforeUnloadRef.current);
+      beforeUnloadRef.current = null;
+    }
     if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {
       mediaRecorderRef.current.stop();
     } else {
@@ -343,6 +359,10 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
   }, [clearCountdownInterval, clearRecordingIntervals, stopAudioRecorder, revokeUrls]);
 
   const resetRecording = useCallback(() => {
+    if (beforeUnloadRef.current) {
+      window.removeEventListener('beforeunload', beforeUnloadRef.current);
+      beforeUnloadRef.current = null;
+    }
     if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {
       mediaRecorderRef.current.stop();
     }

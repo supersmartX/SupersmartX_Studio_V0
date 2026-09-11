@@ -1,6 +1,6 @@
 import type { Client } from '@libsql/client';
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 9;
 
 const MIGRATIONS = [
   // Version 1
@@ -89,6 +89,17 @@ const MIGRATIONS = [
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   )`,
   `CREATE INDEX IF NOT EXISTS idx_pending_orders_user ON pending_orders(user_id)`,
+  // Version 8 — Session version for password-reset invalidation
+  `ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0`,
+  // Version 9 — Monthly export quota atomic counter (Free 3/month)
+  `CREATE TABLE IF NOT EXISTS monthly_export_counts (
+    user_id TEXT NOT NULL,
+    period TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, period),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_monthly_counts_user_period ON monthly_export_counts(user_id, period)`,
 ];
 
 async function getSchemaVersion(db: Client): Promise<number> {

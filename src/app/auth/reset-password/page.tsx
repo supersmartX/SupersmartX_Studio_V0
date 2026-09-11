@@ -86,9 +86,9 @@ function ResetPasswordForm() {
             </svg>
           </div>
           <h1 className="text-xl font-medium text-white">Password reset!</h1>
-          <p className="text-sm text-white/40">Your password has been updated. You can now sign in.</p>
+          <p className="text-sm text-white/40">Your password has been updated. You can now log in.</p>
           <Link href="/" className="inline-flex items-center justify-center h-11 px-6 rounded-lg bg-white text-black text-sm font-medium hover:bg-white/90 transition-all">
-            Sign In
+            Log in
           </Link>
         </div>
       </div>
@@ -155,7 +155,7 @@ function ResetPasswordForm() {
 
         <p className="text-sm text-white/40 text-center">
           <Link href="/" className="text-white font-medium hover:underline">
-            Back to sign in
+            Back to log in
           </Link>
         </p>
       </div>

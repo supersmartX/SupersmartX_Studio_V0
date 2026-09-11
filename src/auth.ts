@@ -121,11 +121,18 @@ const fullAuthConfig = {
         const fullUser = await findUserByEmail(token.email as string);
         if (!fullUser) {
           token.plan = 'free';
-        } else if (!isPlanActive(fullUser.planExpiresAt, fullUser.plan)) {
+          return token;
+        }
+        if (!isPlanActive(fullUser.planExpiresAt, fullUser.plan)) {
           token.plan = 'free';
         } else {
           token.plan = fullUser.plan || 'free';
         }
+        // Session version check: reject JWT if password was changed
+        if (token.sessionVersion !== undefined && token.sessionVersion !== fullUser.sessionVersion) {
+          return null; // Token rejected — forces re-login
+        }
+        token.sessionVersion = fullUser.sessionVersion;
       }
       return token;
     },

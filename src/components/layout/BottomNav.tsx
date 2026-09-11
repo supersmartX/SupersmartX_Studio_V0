@@ -4,6 +4,8 @@ import type { RecordingState, TabType } from '@/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 import {
   RecordIcon,
+  PauseIcon,
+  PlayIcon,
   FileTextIcon,
   CameraIcon,
   BookOpenIcon,
@@ -15,9 +17,12 @@ interface BottomNavProps {
   onPanelChange: (panel: TabType | 'record' | 'share') => void;
   recordingState: RecordingState;
   onRecordToggle: () => void;
+  onPause: () => void;
+  onResume: () => void;
   onSettingsToggle: () => void;
   onPricingClick: () => void;
   isCameraInitialized: boolean;
+  isCameraRequesting: boolean;
   onCameraInitialize: () => void;
   userPlan?: string;
 }
@@ -27,13 +32,18 @@ export function BottomNav({
   onPanelChange,
   recordingState,
   onRecordToggle,
+  onPause,
+  onResume,
   onSettingsToggle,
   onPricingClick,
   isCameraInitialized,
+  isCameraRequesting,
   onCameraInitialize,
   userPlan = 'free',
 }: BottomNavProps) {
-  const isRecording = recordingState === 'recording' || recordingState === 'paused';
+  const isRecording = recordingState === 'recording';
+  const isPaused = recordingState === 'paused';
+  const isBusy = isRecording || isPaused;
   const isPaid = userPlan === 'creator_monthly' || userPlan === 'creator_yearly' || userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
   const isPro = userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
 
@@ -45,13 +55,13 @@ export function BottomNav({
           className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center ${
             activePanel === 'studio'
               ? 'text-accent'
-              : 'text-text-muted hover:text-text-secondary'
+              : 'text-text-secondary hover:text-text-primary'
           }`}
           aria-label="Studio"
           aria-current={activePanel === 'studio' ? 'page' : undefined}
         >
           <FileTextIcon className="w-5 h-5" />
-          <span className="text-[9px] font-medium">Studio</span>
+          <span className="text-[12px] font-medium">Studio</span>
         </button>
       </Tooltip>
 
@@ -59,45 +69,71 @@ export function BottomNav({
         <button
           onClick={() => onPanelChange('library')}
           className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center ${
-            activePanel === 'library'
-              ? 'text-accent'
-              : 'text-text-muted hover:text-text-secondary'
-          }`}
+              activePanel === 'library'
+                ? 'text-accent'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
           aria-label="Recordings"
           aria-current={activePanel === 'library' ? 'page' : undefined}
         >
           <BookOpenIcon className="w-5 h-5" />
-          <span className="text-[9px] font-medium">Recordings</span>
+          <span className="text-[12px] font-medium">Recordings</span>
         </button>
       </Tooltip>
 
-      <Tooltip content={isRecording ? 'Stop Recording' : 'Start Recording'} side="top">
+      <Tooltip content={isBusy ? (isRecording ? 'Pause Recording' : 'Resume Recording') : 'Start Recording'} side="top">
         <button
-          onClick={onRecordToggle}
+          onClick={isRecording ? onPause : isPaused ? onResume : onRecordToggle}
           className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center ${
-            isRecording
+            isBusy
               ? 'text-recording'
-              : 'text-text-muted hover:text-text-secondary'
+              : 'text-text-secondary hover:text-text-primary'
           }`}
-          aria-label={isRecording ? 'Stop Recording' : 'Start Recording'}
+          aria-label={isRecording ? 'Pause Recording' : isPaused ? 'Resume Recording' : 'Start Recording'}
         >
-          <RecordIcon className={`w-6 h-6 ${isRecording ? 'animate-pulse-recording' : ''}`} />
-          <span className="text-[9px] font-medium">{isRecording ? 'Stop' : 'Record'}</span>
+          {isRecording ? (
+            <PauseIcon className="w-6 h-6" />
+          ) : isPaused ? (
+            <PlayIcon className="w-6 h-6" />
+          ) : (
+            <RecordIcon className="w-6 h-6" />
+          )}
+          <span className="text-[12px] font-medium">{isRecording ? 'Pause' : isPaused ? 'Resume' : 'Record'}</span>
         </button>
       </Tooltip>
 
-      <Tooltip content={isCameraInitialized ? 'Camera Active' : 'Enable Camera'} side="top">
+      {isBusy && (
+        <Tooltip content="Stop Recording" side="top">
+          <button
+            onClick={onRecordToggle}
+            className="flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center text-text-secondary hover:text-recording"
+            aria-label="Stop Recording"
+          >
+            <div className="w-5 h-5 rounded-sm bg-current" />
+            <span className="text-[12px] font-medium">Stop</span>
+          </button>
+        </Tooltip>
+      )}
+
+      <Tooltip content={isCameraRequesting ? 'Initializing camera...' : isCameraInitialized ? 'Camera Active' : 'Enable Camera'} side="top">
         <button
           onClick={onCameraInitialize}
+          disabled={isCameraRequesting}
           className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center ${
-            isCameraInitialized
-              ? 'text-success'
-              : 'text-text-muted hover:text-text-secondary'
+            isCameraRequesting
+              ? 'text-warning'
+              : isCameraInitialized
+                ? 'text-success'
+                : 'text-text-secondary hover:text-text-primary'
           }`}
-          aria-label={isCameraInitialized ? 'Camera Active' : 'Enable Camera'}
+          aria-label={isCameraRequesting ? 'Initializing camera' : isCameraInitialized ? 'Camera Active' : 'Enable Camera'}
         >
-          <CameraIcon className="w-5 h-5" />
-          <span className="text-[9px] font-medium">Camera</span>
+          {isCameraRequesting ? (
+            <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <CameraIcon className="w-5 h-5" />
+          )}
+          <span className="text-[12px] font-medium">{isCameraRequesting ? 'Loading' : 'Camera'}</span>
         </button>
       </Tooltip>
 
@@ -107,7 +143,7 @@ export function BottomNav({
           className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center ${
             isPaid
               ? 'text-accent'
-              : 'text-text-muted hover:text-text-secondary hover:bg-accent/10'
+              : 'text-text-secondary hover:text-text-primary hover:bg-accent/10'
           }`}
           aria-label={isPaid ? (isPro ? 'Pro Plan Active' : 'Creator Plan Active') : 'Upgrade'}
         >
@@ -119,18 +155,18 @@ export function BottomNav({
               <span className="absolute -top-1 -right-1 w-2 h-2 bg-accent rounded-full" />
             )}
           </div>
-          <span className="text-[9px] font-medium">{isPaid ? (isPro ? 'Pro' : 'Creator') : 'Upgrade'}</span>
+          <span className="text-[12px] font-medium">{isPaid ? (isPro ? 'Pro' : 'Creator') : 'Upgrade'}</span>
         </button>
       </Tooltip>
 
       <Tooltip content="Settings" side="top">
         <button
           onClick={onSettingsToggle}
-          className="flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center text-text-muted hover:text-text-secondary"
+          className="flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center text-text-secondary hover:text-text-primary"
           aria-label="Settings"
         >
           <SettingsIcon className="w-5 h-5" />
-          <span className="text-[9px] font-medium">Settings</span>
+          <span className="text-[12px] font-medium">Settings</span>
         </button>
       </Tooltip>
     </nav>

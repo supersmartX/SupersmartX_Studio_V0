@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { auth } from '@/auth';
 import { uploadRecording, isR2Configured } from '@/lib/r2';
-import { createExport, findUserById, ensureUserStatsRow, findExportJobByIdAndUser, updateExportJobStatus, atomicIncrementUploadCount } from '@/lib/db';
+import { createExport, findUserById, ensureUserStatsRow, findExportJobByIdAndUser, updateExportJobStatus, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, getCurrentPeriod } from '@/lib/db';
 import { getEntitlements, isPlanActive, clampResolution } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
 import { PLATFORM_PRESETS } from '@/constants';
@@ -27,10 +27,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (!isR2Configured()) {
-      return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
-    }
-
     const rl = rateLimit(`export-upload:${session.user.id}`, EXPORT_UPLOAD_RATE_LIMIT_MAX, EXPORT_UPLOAD_RATE_LIMIT_WINDOW_MS);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -50,7 +46,7 @@ export async function POST(request: NextRequest) {
     }
 
     const entitlements = getEntitlements(userPlan as PlanType);
-    if (userPlan === 'free' || !entitlements.canExport) {
+    if (!entitlements.canExport) {
       return NextResponse.json({ error: 'Upgrade required to export recordings' }, { status: 403 });
     }
 
@@ -117,6 +113,53 @@ export async function POST(request: NextRequest) {
 
     await ensureUserStatsRow(session.user.id);
 
+    // Monthly export quota — atomic consume (counts every successful export, R2 or local)
+    let quotaConsumed = false;
+    if (entitlements.maxExportsPerMonth !== null) {
+      const result = await atomicTryConsumeMonthlyExport(session.user.id, entitlements.maxExportsPerMonth);
+      if (!result.allowed) {
+        const period = getCurrentPeriod();
+        return NextResponse.json(
+          { error: `Monthly export limit reached (${entitlements.maxExportsPerMonth} exports for ${period}). Upgrade to Creator for unlimited exports.` },
+          { status: 403 },
+        );
+      }
+      quotaConsumed = true;
+    }
+
+    // Crop & reframe entitlement — Free cannot manipulate crop
+    if (!entitlements.canCrop) {
+      const cropRaw = formData.get('crop') as string | null;
+      if (cropRaw) {
+        try {
+          const crop = JSON.parse(cropRaw);
+          // Any non-default crop (x!=0, y!=0, zoom!=1) is considered manipulation
+          if (crop && (crop.x !== 0 || crop.y !== 0 || crop.zoom !== 1)) {
+            return NextResponse.json({ error: 'Crop & reframe requires Creator plan' }, { status: 403 });
+          }
+        } catch {}
+      }
+      // Also check explicit crop fields if provided via separate params
+      const cropX = formData.get('cropX') as string | null;
+      const cropY = formData.get('cropY') as string | null;
+      const cropZoom = formData.get('cropZoom') as string | null;
+      if ((cropX && parseFloat(cropX) !== 0) || (cropY && parseFloat(cropY) !== 0) || (cropZoom && parseFloat(cropZoom) !== 1)) {
+        return NextResponse.json({ error: 'Crop & reframe requires Creator plan' }, { status: 403 });
+      }
+    }
+
+    // Duration enforcement if duration is provided
+    const durationParam = formData.get('duration') as string | null;
+    if (durationParam) {
+      const durationNum = parseFloat(durationParam);
+      if (Number.isFinite(durationNum) && durationNum > entitlements.maxDurationSeconds) {
+        return NextResponse.json(
+          { error: `Recording too long. Maximum is ${entitlements.maxDurationSeconds} seconds on your plan` },
+          { status: 403 },
+        );
+      }
+    }
+
     const maxStorageBytes = entitlements.maxStorageMB ? entitlements.maxStorageMB * 1024 * 1024 : null;
     const quotaResult = await atomicIncrementUploadCount(
       session.user.id,
@@ -125,30 +168,44 @@ export async function POST(request: NextRequest) {
       maxStorageBytes,
     );
     if (!quotaResult.allowed) {
+      if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
       return NextResponse.json({ error: quotaResult.reason }, { status: 403 });
     }
 
     const r2Key = generateExportKey(session.user.id);
 
-    await uploadRecording(r2Key, file, {
-      userId: session.user.id,
-      platform: platformId,
-      outputWidth: String(outputWidth),
-      outputHeight: String(outputHeight),
-      uploadedAt: new Date().toISOString(),
-    });
+    try {
+      if (isR2Configured()) {
+        await uploadRecording(r2Key, file, {
+          userId: session.user.id,
+          platform: platformId,
+          outputWidth: String(outputWidth),
+          outputHeight: String(outputHeight),
+          uploadedAt: new Date().toISOString(),
+        });
+      }
+    } catch (uploadErr) {
+      if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
+      throw uploadErr;
+    }
 
-    const exportRecord = await createExport({
-      userId: session.user.id,
-      r2Key,
-      platform: platformId,
-      outputWidth,
-      outputHeight,
-      fileSize: file.size,
-      mimeType,
-      status: 'completed',
-      jobId: jobId ?? undefined,
-    });
+    let exportRecord;
+    try {
+      exportRecord = await createExport({
+        userId: session.user.id,
+        r2Key: isR2Configured() ? r2Key : `local/${session.user.id}/${r2Key.split('/').pop()}`,
+        platform: platformId,
+        outputWidth,
+        outputHeight,
+        fileSize: file.size,
+        mimeType,
+        status: 'completed',
+        jobId: jobId ?? undefined,
+      });
+    } catch (e) {
+      if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
+      throw e;
+    }
 
     // Mark job as completed
     if (jobId) {
@@ -161,7 +218,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       exportId: exportRecord.id,
-      r2Key,
+      r2Key: exportRecord.r2Key,
     });
   } catch (error) {
     console.error('Export upload failed:', error instanceof Error ? error.message : 'Unknown error');

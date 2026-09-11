@@ -37,18 +37,20 @@ describe('security', () => {
   });
 
   describe('free user cannot upload to R2', () => {
-    it('free user entitlements block export', () => {
+    it('free user entitlements allow export with monthly quota', () => {
       const entitlements = getEntitlements('free');
-      expect(entitlements.canExport).toBe(false);
-      expect(entitlements.canDownload).toBe(false);
+      expect(entitlements.canExport).toBe(true);
+      expect(entitlements.canDownload).toBe(true);
+      expect(entitlements.maxExportsPerMonth).toBe(3);
     });
 
-    it('free user cannot pass canExport check', async () => {
+    it('free user can pass canExport check but is quota-limited', async () => {
       const user = await createUser('free@example.com', 'Free User', 'password123');
       const entitlements = getEntitlements(user.plan as PlanType);
 
       expect(user.plan).toBe('free');
-      expect(entitlements.canExport).toBe(false);
+      expect(entitlements.canExport).toBe(true);
+      expect(entitlements.maxExportsPerMonth).toBe(3);
     });
 
     it('free user has limited uploads', () => {
@@ -119,9 +121,10 @@ describe('security', () => {
   });
 
   describe('download entitlements', () => {
-    it('canDownload is false for free user', () => {
+    it('canDownload is true for free user (quota-limited)', () => {
       const entitlements = getEntitlements('free');
-      expect(entitlements.canDownload).toBe(false);
+      expect(entitlements.canDownload).toBe(true);
+      expect(entitlements.maxExportsPerMonth).toBe(3);
     });
 
     it('canDownload is true for creator_monthly', () => {
@@ -268,7 +271,8 @@ describe('security', () => {
       expect(user.plan).toBe('free');
 
       const entitlements = getEntitlements(user.plan as PlanType);
-      expect(entitlements.canExport).toBe(false);
+      expect(entitlements.canExport).toBe(true);
+      expect(entitlements.maxExportsPerMonth).toBe(3);
     });
 
     it('expired paid plan is rejected regardless of client claims', () => {
@@ -350,10 +354,11 @@ describe('security', () => {
       expect(entitlements.canDownload).toBe(true);
     });
 
-    it('free has export and download disabled', () => {
+    it('free has export and download enabled with quota', () => {
       const entitlements = getEntitlements('free');
-      expect(entitlements.canExport).toBe(false);
-      expect(entitlements.canDownload).toBe(false);
+      expect(entitlements.canExport).toBe(true);
+      expect(entitlements.canDownload).toBe(true);
+      expect(entitlements.maxExportsPerMonth).toBe(3);
     });
 
     it('pro has higher resolution limit than creator', () => {

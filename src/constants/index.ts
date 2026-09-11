@@ -11,36 +11,48 @@ export const ASPECT_RATIO_PRESETS: Record<AspectRatio, { label: string; icon: st
 export const PRICING_PLANS = {
   free: {
     name: 'Free',
+    priceLabel: '$0',
+    forLabel: 'For trying the complete workflow',
     features: [
-      { text: 'Teleprompter (always free)', highlight: false },
-      { text: 'Audio recording & download', highlight: false },
-      { text: '3 video downloads free', highlight: false },
-      { text: 'Videos up to 5 min duration', highlight: false },
+      { text: 'Teleprompter', highlight: false },
+      { text: 'Video recording', highlight: false },
+      { text: 'Up to 3 minutes per video', highlight: false },
+      { text: '1 selected platform per video', highlight: false },
+      { text: '3 video exports per month', highlight: false },
+      { text: '1080p', highlight: false },
+      { text: 'Watermark', highlight: false },
     ],
     cta: 'Get Started',
   },
   creator: {
     name: 'Creator',
+    priceLabel: '$7.99/month',
+    forLabel: 'For regular creators',
     features: [
       { text: 'Everything in Free', highlight: false },
-      { text: 'Unlimited video downloads', highlight: true },
-      { text: 'Unlimited recording length', highlight: true },
-      { text: '1080p export quality', highlight: true },
+      { text: 'Up to 30 minutes per video', highlight: true },
+      { text: 'Unlimited video exports', highlight: true },
+      { text: 'Create for all supported platforms', highlight: false },
       { text: 'All platform presets', highlight: false },
-      { text: 'Crop & reframe for each platform', highlight: false },
+      { text: 'Crop & reframe', highlight: true },
+      { text: '1080p', highlight: false },
+      { text: 'No watermark', highlight: false },
     ],
     cta: 'Get Creator',
   },
-  pro: {
-    name: 'Pro',
-    features: [
-      { text: 'Everything in Creator', highlight: false },
-      { text: '4K export quality', highlight: true },
-      { text: 'Batch export (multiple platforms)', highlight: true },
-      { text: 'Priority support', highlight: false },
-    ],
-    cta: 'Get Pro',
-  },
+} as const;
+
+// Internal Pro plan — not customer-facing at launch. Retained for DB compatibility.
+export const INTERNAL_PRO_PLAN = {
+  name: 'Pro',
+  priceLabel: '$14.99/month',
+  features: [
+    { text: 'Everything in Creator', highlight: false },
+    { text: '4K export quality', highlight: true },
+    { text: 'Batch export (multiple platforms)', highlight: true },
+    { text: 'Priority support', highlight: false },
+  ],
+  cta: 'Get Pro',
 } as const;
 
 export const PLATFORM_PRESETS: PlatformPreset[] = [

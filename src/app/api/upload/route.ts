@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
 
     const entitlements = getEntitlements(user.plan as PlanType);
 
-    if (user.plan === 'free' || !entitlements.canExport) {
+    if (!entitlements.canExport) {
       return NextResponse.json({ error: 'Upgrade required to upload recordings' }, { status: 403 });
     }
 

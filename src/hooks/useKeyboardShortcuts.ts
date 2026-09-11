@@ -4,10 +4,14 @@ import { useEffect } from 'react';
 
 interface UseKeyboardShortcutsProps {
   onRecordStop: () => void;
+  onRecordPause: () => void;
+  onRecordResume: () => void;
+  onMicToggle: () => void;
   onNudgeUp: () => void;
   onNudgeDown: () => void;
   onCloseDrawer: () => void;
   isRecording: boolean;
+  isPaused: boolean;
   canRecord: boolean;
   isDrawerVisible: boolean;
   showNudgeToast: (message: string) => void;
@@ -15,10 +19,14 @@ interface UseKeyboardShortcutsProps {
 
 export function useKeyboardShortcuts({
   onRecordStop,
+  onRecordPause,
+  onRecordResume,
+  onMicToggle,
   onNudgeUp,
   onNudgeDown,
   onCloseDrawer,
   isRecording,
+  isPaused,
   canRecord,
   isDrawerVisible,
   showNudgeToast,
@@ -33,21 +41,34 @@ export function useKeyboardShortcuts({
 
       if (e.code === 'Space') {
         e.preventDefault();
-        if (isRecording || canRecord) {
+        if (isRecording) {
+          onRecordStop();
+        } else if (isPaused) {
+          onRecordResume();
+        } else if (canRecord) {
           onRecordStop();
         }
+      }
+
+      if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        if (isRecording) onRecordPause();
+        else if (isPaused) onRecordResume();
+      }
+
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        onMicToggle();
       }
 
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         onNudgeUp();
-        showNudgeToast('Nudged Up');
       }
 
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         onNudgeDown();
-        showNudgeToast('Nudged Down');
       }
 
       if (e.key === 'Escape' && isDrawerVisible) {
@@ -57,5 +78,5 @@ export function useKeyboardShortcuts({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onRecordStop, onNudgeUp, onNudgeDown, onCloseDrawer, isRecording, canRecord, isDrawerVisible, showNudgeToast]);
+  }, [onRecordStop, onRecordPause, onRecordResume, onMicToggle, onNudgeUp, onNudgeDown, onCloseDrawer, isRecording, isPaused, canRecord, isDrawerVisible, showNudgeToast]);
 }

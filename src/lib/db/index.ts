@@ -26,7 +26,7 @@ export async function findUserByEmail(email: string): Promise<StoredUser | undef
   await ensureMigrated();
   const db = getDb();
   const result = await db.execute({
-    sql: 'SELECT id, email, name, password_hash, created_at, plan, plan_expires_at FROM users WHERE email = ?',
+    sql: 'SELECT id, email, name, password_hash, created_at, plan, plan_expires_at, session_version FROM users WHERE email = ?',
     args: [email.toLowerCase()],
   });
   if (result.rows.length === 0) return undefined;
@@ -39,6 +39,7 @@ export async function findUserByEmail(email: string): Promise<StoredUser | undef
     createdAt: row.created_at as string,
     plan: row.plan as PlanType,
     planExpiresAt: row.plan_expires_at as string | undefined,
+    sessionVersion: Number(row.session_version),
   };
 }
 
@@ -46,7 +47,7 @@ export async function findUserById(userId: string): Promise<StoredUser | undefin
   await ensureMigrated();
   const db = getDb();
   const result = await db.execute({
-    sql: 'SELECT id, email, name, password_hash, created_at, plan, plan_expires_at FROM users WHERE id = ?',
+    sql: 'SELECT id, email, name, password_hash, created_at, plan, plan_expires_at, session_version FROM users WHERE id = ?',
     args: [userId],
   });
   if (result.rows.length === 0) return undefined;
@@ -59,6 +60,7 @@ export async function findUserById(userId: string): Promise<StoredUser | undefin
     createdAt: row.created_at as string,
     plan: row.plan as PlanType,
     planExpiresAt: row.plan_expires_at as string | undefined,
+    sessionVersion: Number(row.session_version),
   };
 }
 
@@ -84,6 +86,7 @@ export async function createUser(
     passwordHash,
     createdAt: now,
     plan: 'free',
+    sessionVersion: 0,
   };
 }
 
@@ -121,11 +124,27 @@ export async function updateUserPassword(
 ): Promise<boolean> {
   await ensureMigrated();
   const db = getDb();
+  // Increment session_version to invalidate all existing JWTs for this user
   const result = await db.execute({
-    sql: 'UPDATE users SET password_hash = ? WHERE email = ?',
+    sql: 'UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE email = ?',
     args: [passwordHash, email.toLowerCase()],
   });
   return result.rowsAffected > 0;
+}
+
+export async function incrementSessionVersion(userId: string): Promise<number> {
+  await ensureMigrated();
+  const db = getDb();
+  const result = await db.execute({
+    sql: 'UPDATE users SET session_version = session_version + 1 WHERE id = ?',
+    args: [userId],
+  });
+  if (result.rowsAffected === 0) return 0;
+  const check = await db.execute({
+    sql: 'SELECT session_version FROM users WHERE id = ?',
+    args: [userId],
+  });
+  return Number(check.rows[0]?.session_version) || 0;
 }
 
 export async function saveResetToken(token: ResetToken): Promise<void> {
@@ -372,6 +391,69 @@ export async function ensureUserStatsRow(userId: string): Promise<void> {
           VALUES (?, 0, 0, 0)
           ON CONFLICT(user_id) DO NOTHING`,
     args: [userId],
+  });
+}
+
+export function getMonthStartIso(now = new Date()): string {
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+  return start.toISOString();
+}
+
+export function getCurrentPeriod(now = new Date()): string {
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+export async function getMonthlyExportCount(userId: string, now = new Date()): Promise<number> {
+  await ensureMigrated();
+  const db = getDb();
+  const period = getCurrentPeriod(now);
+  // Prefer atomic counter table if populated
+  const counterResult = await db.execute({
+    sql: `SELECT count FROM monthly_export_counts WHERE user_id = ? AND period = ?`,
+    args: [userId, period],
+  });
+  if (counterResult.rows.length > 0) {
+    return Number(counterResult.rows[0].count) || 0;
+  }
+  // Fallback to timestamp scan for historical data before counter table
+  const monthStart = getMonthStartIso(now);
+  const result = await db.execute({
+    sql: `SELECT COUNT(*) as cnt FROM exports WHERE user_id = ? AND created_at >= ?`,
+    args: [userId, monthStart],
+  });
+  return Number(result.rows[0]?.cnt) || 0;
+}
+
+export async function atomicTryConsumeMonthlyExport(userId: string, limit: number, now = new Date()): Promise<{ allowed: boolean; count: number }> {
+  await ensureMigrated();
+  const db = getDb();
+  const period = getCurrentPeriod(now);
+  // Ensure row exists (0 count) — ignore if already exists
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO monthly_export_counts (user_id, period, count) VALUES (?, ?, 0)`,
+    args: [userId, period],
+  });
+  // Atomic increment only if count < limit
+  const updateResult = await db.execute({
+    sql: `UPDATE monthly_export_counts SET count = count + 1 WHERE user_id = ? AND period = ? AND count < ?`,
+    args: [userId, period, limit],
+  });
+  const allowed = updateResult.rowsAffected > 0;
+  const res = await db.execute({
+    sql: `SELECT count FROM monthly_export_counts WHERE user_id = ? AND period = ?`,
+    args: [userId, period],
+  });
+  const count = Number(res.rows[0]?.count) || 0;
+  return { allowed, count };
+}
+
+export async function atomicRevertMonthlyExport(userId: string, now = new Date()): Promise<void> {
+  await ensureMigrated();
+  const db = getDb();
+  const period = getCurrentPeriod(now);
+  await db.execute({
+    sql: `UPDATE monthly_export_counts SET count = MAX(0, count - 1) WHERE user_id = ? AND period = ?`,
+    args: [userId, period],
   });
 }
 

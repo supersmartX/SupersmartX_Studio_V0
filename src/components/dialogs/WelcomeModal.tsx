@@ -25,7 +25,10 @@ export function WelcomeModal({
 
   return (
     <div className={`fixed inset-0 z-onboard isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Welcome" {...swipeHandlers}>
-      <div className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`} />
+      <div
+        className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
+        onClick={closeModal}
+      />
 
       <div className={`relative w-full max-w-xl bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] overflow-y-auto`}>
         <button
@@ -78,7 +81,7 @@ export function WelcomeModal({
                   </svg>
                 ),
                 title: 'Private by Design',
-                desc: 'Everything stays on your device. No uploads. No accounts.',
+                desc: 'Your recordings stay on your device until you choose to export.',
               },
               {
                 icon: (
@@ -98,10 +101,10 @@ export function WelcomeModal({
                   {feature.icon}
                 </div>
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-[11px] font-semibold text-text-primary">
+                  <span className="text-[12px] font-semibold text-text-primary">
                     {feature.title}
                   </span>
-                  <p className="text-[10px] text-text-muted leading-relaxed">
+                  <p className="text-[12px] text-text-secondary leading-relaxed">
                     {feature.desc}
                   </p>
                 </div>
@@ -121,7 +124,7 @@ export function WelcomeModal({
           </Button>
           <button
             onClick={closeModal}
-            className="w-full py-2.5 min-h-[44px] text-[13px] text-text-muted hover:text-text-secondary font-medium transition-colors"
+            className="w-full py-2.5 min-h-[44px] text-[13px] text-text-secondary hover:text-text-primary font-medium transition-colors active:scale-[0.98]"
           >
             Explore Studio
           </button>
@@ -134,11 +137,11 @@ export function WelcomeModal({
                 onChange={(e) => onDontShowChange(e.target.checked)}
                 className="w-4 h-4 rounded border-border-default bg-elevated text-accent focus:ring-accent focus:ring-offset-surface"
               />
-              <span className="text-[11px] text-text-muted group-hover:text-text-secondary transition-colors">
+              <span className="text-[12px] text-text-secondary group-hover:text-text-primary transition-colors">
                 Don&apos;t show again
               </span>
             </label>
-            <span className="text-[10px] text-text-muted italic">
+            <span className="text-[12px] text-text-secondary italic">
               Permissions requested on first use.
             </span>
           </div>

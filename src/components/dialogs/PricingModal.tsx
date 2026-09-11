@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
-import { detectCountry, getPricingForCountry, formatPrice, type RegionalPricing } from '@/lib/pricing';
+import { detectCountry, getPricingForCountry, formatPrice, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
 import { loadCashfreeSDK } from '@/lib/cashfree';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 import { PRICING_PLANS } from '@/constants';
@@ -13,6 +13,8 @@ interface PricingModalProps {
   isOpen: boolean;
   onClose: () => void;
   showToast: (message: string) => void;
+  userPlan?: string;
+  isAuthenticated?: boolean;
 }
 
 type BillingPeriod = 'monthly' | 'yearly';
@@ -25,18 +27,7 @@ const CHECK_ICON = (
   </svg>
 );
 
-const COUNTRY_FLAGS: Record<string, string> = {
-  US: '\u{1F1FA}\u{1F1F8}', GB: '\u{1F1EC}\u{1F1E7}', DE: '\u{1F1E9}\u{1F1EA}', FR: '\u{1F1EB}\u{1F1F7}', IN: '\u{1F1EE}\u{1F1F3}', JP: '\u{1F1EF}\u{1F1F5}', AU: '\u{1F1E6}\u{1F1FA}', CA: '\u{1F1E8}\u{1F1E6}',
-  BR: '\u{1F1E7}\u{1F1F7}', MX: '\u{1F1F2}\u{1F1FD}', KR: '\u{1F1F0}\u{1F1F7}', IT: '\u{1F1EE}\u{1F1F9}', ES: '\u{1F1EA}\u{1F1F8}', NL: '\u{1F1F3}\u{1F1F1}', SE: '\u{1F1F8}\u{1F1EA}', SG: '\u{1F1F8}\u{1F1EC}',
-  AE: '\u{1F1E6}\u{1F1EA}', SA: '\u{1F1F8}\u{1F1E6}', NG: '\u{1F1F3}\u{1F1EC}', KE: '\u{1F1F0}\u{1F1EA}', ZA: '\u{1F1FF}\u{1F1E6}', PH: '\u{1F1F5}\u{1F1ED}', ID: '\u{1F1EE}\u{1F1E9}', TH: '\u{1F1F9}\u{1F1ED}',
-  VN: '\u{1F1FB}\u{1F1F3}', PK: '\u{1F1F5}\u{1F1F0}', BD: '\u{1F1E7}\u{1F1E9}', EG: '\u{1F1EA}\u{1F1EC}', GH: '\u{1F1EC}\u{1F1ED}', TR: '\u{1F1F9}\u{1F1F7}', PL: '\u{1F1F5}\u{1F1F1}', RO: '\u{1F1F7}\u{1F1F4}',
-  CZ: '\u{1F1E8}\u{1F1FF}', PT: '\u{1F1F5}\u{1F1F9}', MY: '\u{1F1F2}\u{1F1FE}', CN: '\u{1F1E8}\u{1F1F3}', CH: '\u{1F1E8}\u{1F1ED}', NO: '\u{1F1F3}\u{1F1F4}', DK: '\u{1F1E9}\u{1F1F0}', NZ: '\u{1F1F3}\u{1F1FF}',
-  FI: '\u{1F1EB}\u{1F1EE}', AT: '\u{1F1E6}\u{1F1F9}', BE: '\u{1F1E7}\u{1F1EA}', IE: '\u{1F1EE}\u{1F1EA}', EE: '\u{1F1EA}\u{1F1EA}', SI: '\u{1F1F8}\u{1F1EE}', LT: '\u{1F1F1}\u{1F1F9}', HR: '\u{1F1ED}\u{1F1F7}',
-  CO: '\u{1F1E8}\u{1F1F4}', AR: '\u{1F1E6}\u{1F1F7}', CL: '\u{1F1E8}\u{1F1F1}', PE: '\u{1F1F5}\u{1F1EA}', HU: '\u{1F1ED}\u{1F1FA}', MM: '\u{1F1F2}\u{1F1F2}', NP: '\u{1F1F3}\u{1F1F5}', LK: '\u{1F1F1}\u{1F1F0}',
-  UA: '\u{1F1FA}\u{1F1E6}', TZ: '\u{1F1F9}\u{1F1FF}', UG: '\u{1F1FA}\u{1F1EC}', ET: '\u{1F1EA}\u{1F1F9}', OM: '\u{1F1F4}\u{1F1F2}', QA: '\u{1F1F6}\u{1F1E6}', KW: '\u{1F1F0}\u{1F1FC}', LU: '\u{1F1F1}\u{1F1FA}',
-};
-
-const TIERS: TierKey[] = ['free', 'creator', 'pro'];
+const TIERS: TierKey[] = ['free', 'creator'];
 
 const BADGES: Partial<Record<TierKey, string>> = { creator: 'Most Popular' };
 
@@ -45,7 +36,7 @@ function getPlanId(tier: TierKey, period: BillingPeriod): string {
   return `${tier}_${period}`;
 }
 
-export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) {
+export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthenticated = false }: PricingModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isOpen, onClose);
   const [step, setStep] = useState<'select' | 'form' | 'processing' | 'error'>('select');
   const [selectedTier, setSelectedTier] = useState<TierKey>('creator');
@@ -61,12 +52,17 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
   useEffect(() => {
     if (isOpen && !pricing) {
       setIsLoadingPricing(true);
-      detectCountry().then(country => {
-        setPricing(getPricingForCountry(country));
+      if (isAuthenticated) {
+        detectCountry().then(country => {
+          setPricing(getPricingForCountry(country));
+          setIsLoadingPricing(false);
+        });
+      } else {
+        setPricing(getPricingForCountry('US'));
         setIsLoadingPricing(false);
-      });
+      }
     }
-  }, [isOpen, pricing]);
+  }, [isOpen, pricing, isAuthenticated]);
 
   useEffect(() => {
     if (isOpen) {
@@ -74,10 +70,19 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
     }
   }, [isOpen]);
 
-  const currentPricing = pricing || getPricingForCountry('IN');
-  const countryFlag = COUNTRY_FLAGS[currentPricing.country] || '\u{1F30D}';
+  const currentPricing = pricing || getPricingForCountry('US');
 
   const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
+
+  const formatZero = (amount: number) => formatPriceZero(amount, currentPricing.symbol, currentPricing.locale);
+
+  const getUserPlanTier = (): TierKey | null => {
+    if (!userPlan || userPlan === 'free') return 'free';
+    if (userPlan.startsWith('creator')) return 'creator';
+    if (userPlan.startsWith('pro')) return 'creator'; // Pro internal → show as Creator (not customer-facing)
+    return null;
+  };
+  const currentTier = getUserPlanTier();
 
   const getTierPrice = (tier: TierKey, period: BillingPeriod): number => {
     if (tier === 'free') return 0;
@@ -171,11 +176,6 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
             <h2 className="text-base font-semibold text-text-primary">
               {step === 'select' ? 'Choose Your Plan' : step === 'form' ? 'Complete Payment' : step === 'processing' ? 'Processing...' : 'Payment Error'}
             </h2>
-            {!isLoadingPricing && (
-              <span className="text-[11px] text-text-muted bg-elevated px-2.5 py-1 rounded-full">
-                {countryFlag} {currentPricing.currency}
-              </span>
-            )}
           </div>
           <button
             onClick={handleClose}
@@ -210,7 +210,7 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                       onClick={() => setBillingPeriod('yearly')}
                       className={`lsx-pricing-toggle-btn ${billingPeriod === 'yearly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
                     >
-                      Yearly <span className="lsx-pricing-toggle-save">Save 17%</span>
+                      Yearly <span className="lsx-pricing-toggle-save">{formatSavingsPercent(currentPricing.creatorMonthly, currentPricing.creatorYearly)}</span>
                     </button>
                   </div>
 
@@ -218,8 +218,9 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                   <div className="lsx-pricing-grid">
                     {TIERS.map((tier) => {
                       const plan = PRICING_PLANS[tier];
-                      const badge = BADGES[tier];
+                      const badge = tier === currentTier ? 'Current Plan' : BADGES[tier];
                       const isSelected = selectedTier === tier;
+                      const isCurrentPlan = tier === currentTier;
                       const price = getTierPrice(tier, billingPeriod);
                       const periodLabel = tier === 'free' ? '/forever' : billingPeriod === 'monthly' ? '/month' : '/year';
 
@@ -227,8 +228,9 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                         <button
                           key={tier}
                           type="button"
-                          onClick={() => setSelectedTier(tier)}
-                          className={`lsx-pricing-card ${isSelected ? 'lsx-pricing-card--selected' : ''} ${tier !== 'free' ? 'lsx-pricing-card--pro' : ''}`}
+                          onClick={() => !isCurrentPlan && setSelectedTier(tier)}
+                          disabled={isCurrentPlan}
+                          className={`lsx-pricing-card ${isSelected ? 'lsx-pricing-card--selected' : ''} ${tier !== 'free' ? 'lsx-pricing-card--pro' : ''} ${isCurrentPlan ? 'lsx-pricing-card--current' : ''}`}
                         >
                           {badge && (
                             <div className="lsx-pricing-badge">{badge}</div>
@@ -236,14 +238,14 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                           <div className="lsx-pricing-card-header">
                             <h3 className="lsx-pricing-plan">{plan.name}</h3>
                             <div className="lsx-pricing-price">
-                              {price === 0 ? '$0' : format(price)}
+                              {price === 0 ? formatZero(0) : format(price)}
                               <span className="lsx-pricing-period">{periodLabel}</span>
                             </div>
                             {tier !== 'free' && billingPeriod === 'yearly' && (
                               <p className="lsx-pricing-note">That&apos;s {format(getTierPrice(tier, 'yearly') / 12)}/month</p>
                             )}
                             {tier !== 'free' && billingPeriod === 'monthly' && (
-                              <p className="lsx-pricing-note">PPP-adjusted by region</p>
+                              <p className="lsx-pricing-note">Regional pricing</p>
                             )}
                           </div>
                           <ul className="lsx-pricing-features">
@@ -261,18 +263,21 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
 
                   {/* CTA */}
                   <Button
-                    variant="primary"
+                    variant={selectedTier === currentTier ? 'secondary' : 'primary'}
                     size="lg"
                     onClick={() => selectedPlan === 'free' ? handleSubscribe() : setStep('form')}
+                    disabled={selectedTier === currentTier}
                     className="lsx-pricing-btn"
                   >
-                    {selectedPlan === 'free'
-                      ? PRICING_PLANS.free.cta
-                      : `Subscribe for ${format(getTierPrice(selectedTier, billingPeriod))}${billingPeriod === 'monthly' ? '/mo' : '/yr'}`}
+                    {selectedTier === currentTier
+                      ? 'Current Plan'
+                      : selectedPlan === 'free'
+                        ? PRICING_PLANS.free.cta
+                        : `Subscribe for ${format(getTierPrice(selectedTier, billingPeriod))}${billingPeriod === 'monthly' ? '/mo' : '/yr'}`}
                   </Button>
 
                   <p className="text-xs text-text-muted text-center">
-                    Prices in {currentPricing.currency}. Secure checkout powered by Cashfree.
+                    Secure checkout powered by Cashfree.
                   </p>
                 </div>
               )}
@@ -310,9 +315,23 @@ export function PricingModal({ isOpen, onClose, showToast }: PricingModalProps) 
                         placeholder="you@example.com"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
+                        onBlur={() => {
+                          if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                            setErrorMessage('Please enter a valid email');
+                          } else {
+                            setErrorMessage('');
+                          }
+                        }}
                         maxLength={254}
-                        className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-lg text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors"
+                        className={`w-full px-4 py-3 bg-elevated border rounded-lg text-sm text-text-primary placeholder-text-muted outline-none transition-colors ${
+                          email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+                            ? 'border-recording focus:border-recording'
+                            : 'border-border-subtle focus:border-accent'
+                        }`}
                       />
+                      {email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && (
+                        <p className="text-[11px] text-recording">Please enter a valid email address</p>
+                      )}
                     </div>
                   </div>
 

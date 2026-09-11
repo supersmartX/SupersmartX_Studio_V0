@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AuthModal } from '@/components/auth/AuthModal';
-import { detectCountry, getPricingForCountry, formatPrice, type RegionalPricing } from '@/lib/pricing';
+import { getPricingForCountry, formatPrice, formatPriceZero, formatSavingsPercent } from '@/lib/pricing';
 import { PRICING_PLANS } from '@/constants';
 import '@/styles/pricing.css';
 
@@ -56,17 +56,11 @@ export default function LandingPage() {
   const router = useRouter();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [pricing, setPricing] = useState<RegionalPricing | null>(null);
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
 
-  const currentPricing = pricing || getPricingForCountry('US');
+  const currentPricing = getPricingForCountry('US');
   const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
-
-  useEffect(() => {
-    detectCountry().then(country => {
-      setPricing(getPricingForCountry(country));
-    });
-  }, []);
+  const formatZero = (amount: number) => formatPriceZero(amount, currentPricing.symbol, currentPricing.locale);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
@@ -734,7 +728,7 @@ export default function LandingPage() {
                 className="lsx-btn lsx-btn-ghost"
                 style={{ marginRight: '8px' }}
               >
-                Log In
+                Log in
               </button>
               <button
                 type="button"
@@ -797,7 +791,7 @@ export default function LandingPage() {
                 className="lsx-btn lsx-btn-ghost lsx-hero-btn lsx-hero-ghost lsx-appear lsx-appear--btn"
                 style={{ '--lsx-d': '1.06s' } as React.CSSProperties}
               >
-                Log In
+                Log in
               </button>
             </div>
           </div>
@@ -856,7 +850,7 @@ export default function LandingPage() {
             <div className="lsx-section-header">
               <span className="lsx-section-label">Pricing</span>
               <h2 className="lsx-section-title">Start free. Upgrade when ready.</h2>
-              <p className="lsx-section-subtitle">PPP-adjusted pricing in 60+ countries. Prices in {currentPricing.currency}.</p>
+              <p className="lsx-section-subtitle">Local pricing available in supported countries.</p>
             </div>
 
             {/* Billing period toggle */}
@@ -873,7 +867,7 @@ export default function LandingPage() {
                 onClick={() => setBillingPeriod('yearly')}
                 className={`lsx-pricing-toggle-btn ${billingPeriod === 'yearly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
               >
-                Yearly <span className="lsx-pricing-toggle-save">Save 17%</span>
+                Yearly <span className="lsx-pricing-toggle-save">{formatSavingsPercent(currentPricing.creatorMonthly, currentPricing.creatorYearly)}</span>
               </button>
             </div>
 
@@ -881,7 +875,7 @@ export default function LandingPage() {
               <div className="lsx-pricing-card">
                 <div className="lsx-pricing-card-header">
                   <h3 className="lsx-pricing-plan">{PRICING_PLANS.free.name}</h3>
-                  <div className="lsx-pricing-price">$0<span className="lsx-pricing-period">/forever</span></div>
+                  <div className="lsx-pricing-price">{formatZero(0)}<span className="lsx-pricing-period">/forever</span></div>
                 </div>
                 <ul className="lsx-pricing-features">
                   {PRICING_PLANS.free.features.map((f) => (
@@ -908,7 +902,7 @@ export default function LandingPage() {
                     <p className="lsx-pricing-note">That&apos;s {format(currentPricing.creatorYearly / 12)}/month</p>
                   )}
                   {billingPeriod === 'monthly' && (
-                    <p className="lsx-pricing-note">PPP-adjusted by region</p>
+                    <p className="lsx-pricing-note">Regional pricing</p>
                   )}
                 </div>
                 <ul className="lsx-pricing-features">
@@ -925,33 +919,6 @@ export default function LandingPage() {
                   className="lsx-btn lsx-btn-solid lsx-pricing-btn"
                 >
                   {PRICING_PLANS.creator.cta}
-                </button>
-              </div>
-              <div className="lsx-pricing-card lsx-pricing-card--pro">
-                <div className="lsx-pricing-card-header">
-                  <h3 className="lsx-pricing-plan">{PRICING_PLANS.pro.name}</h3>
-                  <div className="lsx-pricing-price">{format(billingPeriod === 'monthly' ? currentPricing.proMonthly : currentPricing.proYearly)}<span className="lsx-pricing-period">/{billingPeriod === 'monthly' ? 'month' : 'year'}</span></div>
-                  {billingPeriod === 'yearly' && (
-                    <p className="lsx-pricing-note">That&apos;s {format(currentPricing.proYearly / 12)}/month</p>
-                  )}
-                  {billingPeriod === 'monthly' && (
-                    <p className="lsx-pricing-note">PPP-adjusted by region</p>
-                  )}
-                </div>
-                <ul className="lsx-pricing-features">
-                  {PRICING_PLANS.pro.features.map((f) => (
-                    <li key={f.text} className={`lsx-pricing-feature ${f.highlight ? 'lsx-pricing-feature--highlight' : ''}`}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                      {f.text}
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  type="button"
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="lsx-btn lsx-btn-solid lsx-pricing-btn"
-                >
-                  {PRICING_PLANS.pro.cta}
                 </button>
               </div>
             </div>
@@ -1019,7 +986,7 @@ export default function LandingPage() {
                 onClick={() => { setIsAuthModalOpen(true); closeMenu(); }}
                 className="lsx-btn lsx-btn-ghost lsx-mobile-nav-btn"
               >
-                Log In
+                Log in
               </button>
               <button
                 type="button"

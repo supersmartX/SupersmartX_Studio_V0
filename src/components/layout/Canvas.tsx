@@ -71,7 +71,7 @@ export function Canvas({
         </button>
 
         {/* Canvas dimensions indicator */}
-        <div className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 z-20 px-2 py-1 rounded-md bg-black/60 backdrop-blur-sm text-white/60 text-[10px] font-medium">
+        <div className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 z-20 px-2 py-1 rounded-md bg-black/70 backdrop-blur-sm text-white/80 text-[10px] font-medium tabular-nums">
           {recordingConfig.width} × {recordingConfig.height}
         </div>
       </div>

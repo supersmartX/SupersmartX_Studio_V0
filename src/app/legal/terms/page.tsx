@@ -11,7 +11,7 @@ export default function TermsPage() {
       <div className="max-w-3xl mx-auto px-6 py-16 space-y-8">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold">Terms of Service</h1>
-          <p className="text-sm text-text-muted">Last updated: August 2026</p>
+          <p className="text-sm text-text-secondary">Last updated: August 2026</p>
         </div>
 
         <div className="space-y-6 text-sm leading-relaxed text-text-secondary">

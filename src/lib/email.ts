@@ -44,7 +44,7 @@ function getPlanFeatures(plan: string): string[] {
       return ['Everything in Creator', '4K export quality', 'Batch export (multiple platforms)', 'Priority support'];
     case 'creator_monthly':
     case 'creator_yearly':
-      return ['Unlimited video downloads', 'Unlimited recording length', '1080p export quality', 'All platform presets', 'Crop & reframe for each platform'];
+      return ['Up to 30 minutes per video', 'Unlimited video exports', 'All platform presets', 'Crop & reframe', '1080p', 'No watermark'];
     default:
       return [];
   }

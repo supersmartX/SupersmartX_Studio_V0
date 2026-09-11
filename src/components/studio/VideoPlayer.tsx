@@ -27,6 +27,7 @@ export function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
+  const speedMenuRef = useRef<HTMLDivElement>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -35,11 +36,22 @@ export function VideoPlayer({
   const [isMuted, setIsMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-  const fullscreenRef = useRef(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isValidated, setIsValidated] = useState(false);
   const [validationError, setValidationError] = useState('');
   const [controlsVisible, setControlsVisible] = useState(false);
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout>>(null);
+
+  useEffect(() => {
+    if (!showSpeedMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (speedMenuRef.current && !speedMenuRef.current.contains(e.target as Node)) {
+        setShowSpeedMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showSpeedMenu]);
 
   const showControls = useCallback(() => {
     setControlsVisible(true);
@@ -112,7 +124,7 @@ export function VideoPlayer({
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      fullscreenRef.current = !!document.fullscreenElement;
+      setIsFullscreen(!!document.fullscreenElement);
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
@@ -199,7 +211,7 @@ export function VideoPlayer({
         ref={videoRef}
         src={videoUrl}
         className={`w-full ${ASPECT_RATIO_PRESETS[aspectRatio].cssClass} object-contain`}
-        onClick={toggleControls}
+        onClick={showControls}
         playsInline
         onContextMenu={(e) => isPreview && e.preventDefault()}
         disablePictureInPicture={isPreview}
@@ -285,7 +297,7 @@ export function VideoPlayer({
 
             <div className="flex items-center gap-2">
               {!isPreview && (
-                <div className="relative">
+                <div className="relative" ref={speedMenuRef}>
                   <button
                     onClick={() => setShowSpeedMenu(!showSpeedMenu)}
                     className="text-micro text-text-secondary hover:text-text-primary font-mono px-1.5 py-0.5 rounded bg-elevated"
@@ -310,10 +322,16 @@ export function VideoPlayer({
                 </div>
               )}
 
-              <button onClick={toggleFullscreen} className="text-text-secondary hover:text-text-primary">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                </svg>
+              <button onClick={toggleFullscreen} aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} className="text-text-secondary hover:text-text-primary">
+                {isFullscreen ? (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                )}
               </button>
             </div>
           </div>

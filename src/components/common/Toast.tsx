@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react';
 
 interface ToastProps {
   message: string | null;
+  queueLength?: number;
 }
 
-export function Toast({ message }: ToastProps) {
+export function Toast({ message, queueLength = 0 }: ToastProps) {
   const [visible, setVisible] = useState(false);
   const [displayMessage, setDisplayMessage] = useState('');
 
@@ -40,6 +41,9 @@ export function Toast({ message }: ToastProps) {
     >
       <span className="text-accent">&#128279;</span>
       <span>{displayMessage}</span>
+      {queueLength > 0 && (
+        <span className="text-text-muted ml-1">(+{queueLength})</span>
+      )}
     </div>
   );
 }

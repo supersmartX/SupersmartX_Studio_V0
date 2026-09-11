@@ -75,7 +75,7 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
       {/* Header */}
       <div className="px-4 pt-4 pb-3">
         <h2 className="text-sm font-semibold text-text-primary">Recordings</h2>
-        <p className="text-[10px] text-text-muted mt-0.5">Saved studio recordings (24h)</p>
+        <p className="text-[12px] text-text-secondary mt-0.5">Stored locally for 24 hours</p>
       </div>
 
       <div className="h-px bg-border-subtle" />
@@ -83,8 +83,20 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
       {/* Recording List */}
       <div className="flex-1 overflow-y-auto px-4 py-2">
         {!isLoaded ? (
-          <div className="flex items-center justify-center py-8">
-            <span className="text-xs text-text-muted">Loading...</span>
+          <div className="flex flex-col gap-2 py-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="p-3 rounded-lg bg-elevated/50 animate-pulse">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-24 bg-border-subtle rounded" />
+                      <div className="h-3 w-10 bg-border-subtle rounded" />
+                    </div>
+                    <div className="h-2.5 w-36 bg-border-subtle rounded mt-1.5" />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         ) : recordings.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -96,8 +108,8 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
                 <line x1="8" y1="23" x2="16" y2="23" />
               </svg>
             </div>
-            <p className="text-xs text-text-muted">No recordings yet.</p>
-            <p className="text-[10px] text-text-muted/60 mt-1">Record a video to see it here.</p>
+            <p className="text-[13px] text-text-secondary">No recordings yet.</p>
+            <p className="text-[12px] text-text-secondary mt-1">Record a video to see it here.</p>
           </div>
         ) : (
           <div className="flex flex-col gap-1">
@@ -151,15 +163,15 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
                               {getDisplayName(recording)}
                             </h4>
                           )}
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-elevated text-text-muted border border-border-subtle">
+                          <span className="text-[11px] px-1.5 py-0.5 rounded bg-elevated text-text-secondary border border-border-subtle">
                             {recording.aspectRatio}
                           </span>
                         </div>
-                        <p className="text-[10px] text-text-muted mt-0.5">
+                        <p className="text-[12px] text-text-secondary mt-0.5">
                           {formatTime(recording.duration)} · {recording.width}×{recording.height} · {formatRelativeTime(recording.createdAt)}
                         </p>
                       </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
                         <button
                           onClick={(e) => { e.stopPropagation(); onExportRecording?.(recording); }}
                           className="p-1 rounded hover:bg-accent/10 transition-colors"
@@ -194,11 +206,11 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
                     </div>
                     <div className="flex items-center gap-2 mt-1.5">
                       {recording.hasAudio && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">
                           Audio
                         </span>
                       )}
-                      <span className="text-[9px] text-text-muted/60">
+                      <span className="text-[11px] text-text-secondary">
                         {recording.mimeType}
                       </span>
                     </div>
@@ -213,7 +225,7 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
       {/* Footer count */}
       {recordings.length > 0 && (
         <div className="px-4 py-2 border-t border-border-subtle">
-          <span className="text-[10px] text-text-muted">{recordings.length} recording{recordings.length !== 1 ? 's' : ''}</span>
+          <span className="text-[12px] text-text-secondary">{recordings.length} recording{recordings.length !== 1 ? 's' : ''}</span>
         </div>
       )}
     </div>

@@ -30,20 +30,20 @@ function SuccessContent() {
         {/* Receipt */}
         <div className="p-6">
           <div className="bg-elevated rounded-xl p-4 mb-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">Receipt</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-3">Receipt</h3>
             <div className="space-y-2">
               {orderId && (
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-text-muted">Order ID</span>
+                  <span className="text-sm text-text-secondary">Order ID</span>
                   <span className="text-xs font-mono text-text-secondary">{orderId}</span>
                 </div>
               )}
               <div className="flex justify-between items-center">
-                <span className="text-sm text-text-muted">Plan</span>
+                <span className="text-sm text-text-secondary">Plan</span>
                 <span className="text-sm font-semibold text-text-primary">{planName}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-text-muted">Status</span>
+                <span className="text-sm text-text-secondary">Status</span>
                 <span className="text-sm font-semibold text-success">Paid</span>
               </div>
             </div>
@@ -56,7 +56,7 @@ function SuccessContent() {
             </svg>
             <div>
               <p className="text-xs font-semibold text-accent">Confirmation email sent</p>
-              <p className="text-[11px] text-text-muted mt-0.5">Check your inbox for the receipt and plan details.</p>
+              <p className="text-[12px] text-text-secondary mt-0.5">Check your inbox for the receipt and plan details.</p>
             </div>
           </div>
 

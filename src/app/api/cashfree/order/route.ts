@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getServerPrice } from '@/lib/pricing';
+import { getServerPrice, getServerPricingForCountry, ALL_COUNTRIES } from '@/lib/pricing';
 import { createPendingOrder } from '@/lib/db';
 
 const CASHFREE_BASE_URL =
@@ -8,9 +8,10 @@ const CASHFREE_BASE_URL =
     ? 'https://api.cashfree.com/pg'
     : 'https://sandbox.cashfree.com/pg';
 
-const VALID_CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'BRL', 'MXN', 'NGN', 'ZAR', 'SGD', 'AED', 'SAR', 'PKR', 'BDT', 'PHP', 'IDR', 'MYR', 'THB', 'KRW', 'VND'];
+// Derive valid currencies from canonical pricing source to stay in sync
+const VALID_CURRENCIES = [...new Set(ALL_COUNTRIES.map(c => c.currency))];
 
-const VALID_PLANS = ['free', 'creator_monthly', 'creator_yearly', 'pro_monthly', 'pro_yearly'];
+const VALID_PLANS = ['free', 'creator_monthly', 'creator_yearly'];
 
 interface CashfreeOrderRequest {
   plan: string;
@@ -132,7 +133,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { plan, currency, name, email, phone } = body as CashfreeOrderRequest;
+    const { plan, currency, country, name, email, phone } = body as CashfreeOrderRequest;
 
     if (!plan || typeof plan !== 'string' || !VALID_PLANS.includes(plan)) {
       return NextResponse.json({ error: 'Invalid plan' }, { status: 400 });
@@ -142,8 +143,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Free plan does not require payment' }, { status: 400 });
     }
 
-    const finalCurrency = currency && VALID_CURRENCIES.includes(currency) ? currency : 'INR';
-    const serverAmount = getServerPrice(plan, finalCurrency);
+    // Resolve pricing by exact country code — not by currency.
+    // Multiple countries share currencies (e.g., EUR), so currency alone is ambiguous.
+    // The country from the client is used for pricing lookup only.
+    // The currency comes from REGION_PRICING (server-authoritative), not from the client.
+    const resolvedCountry = typeof country === 'string' && country.length > 0 ? country : null;
+    const countryPricing = resolvedCountry ? getServerPricingForCountry(resolvedCountry) : null;
+    const finalCurrency = countryPricing
+      ? countryPricing.currency
+      : currency && VALID_CURRENCIES.includes(currency)
+        ? currency
+        : 'USD';
+    const serverAmount = resolvedCountry && countryPricing
+      ? getServerPrice(plan, resolvedCountry)
+      : getServerPrice(plan, finalCurrency);
     if (serverAmount === null) {
       return NextResponse.json({ error: 'Invalid plan or currency' }, { status: 400 });
     }

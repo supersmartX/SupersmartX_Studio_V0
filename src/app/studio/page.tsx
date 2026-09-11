@@ -14,11 +14,13 @@ import { useToast } from '@/hooks/useToast';
 import { useShare } from '@/hooks/useShare';
 import { useMasterRecording } from '@/hooks/useMasterRecording';
 import { useExportPipeline } from '@/hooks/useExportPipeline';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 import { useStudioConfig } from '@/hooks/useStudioConfig';
 import { useStudioCamera } from '@/hooks/useStudioCamera';
 import { useRecordingTimer } from '@/hooks/useRecordingTimer';
 import { useStudioUI } from '@/hooks/useStudioUI';
+import { getEntitlements } from '@/lib/entitlements';
 
 import { Header } from '@/components/layout/Header';
 import { IconRail } from '@/components/layout/IconRail';
@@ -44,24 +46,10 @@ import { InsightsPlaceholder } from '@/features/insights/InsightsPlaceholder';
 import { Toast } from '@/components/common/Toast';
 import type { TabType } from '@/types';
 
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false);
-
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    setMatches(media.matches);
-    const listener = (e: MediaQueryListEvent) => setMatches(e.matches);
-    media.addEventListener('change', listener);
-    return () => media.removeEventListener('change', listener);
-  }, [query]);
-
-  return matches;
-}
-
 export default function HomePage() {
   // Base hooks (called first, no ordering dependency)
   const welcomeModal = useWelcomeModal();
-  const { toast, showToast } = useToast();
+  const { toast, showToast, queueLength } = useToast();
   const { share } = useShare(showToast);
   const focusView = useFocusView();
   const scriptStorage = useScriptStorage();
@@ -81,11 +69,28 @@ export default function HomePage() {
 
   const ui = useStudioUI();
   const { masterRecording: masterRecordingData, createMasterRecording, clearMasterRecording, restoreMasterRecording } = useMasterRecording();
+
+  const handlePricingClick = useCallback(() => {
+    if (!session?.user) {
+      ui.setIsAuthModalOpen(true);
+    } else {
+      ui.setIsPricingModalOpen(true);
+    }
+  }, [session, ui]);
+
+  const handleUpgradeClick = useCallback(() => {
+    if (!session?.user) {
+      ui.setIsAuthModalOpen(true);
+    } else {
+      ui.setIsPricingModalOpen(true);
+    }
+  }, [session, ui]);
+  const entitlements = getEntitlements((session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free');
   const { elapsedSeconds, resetTimer } = useRecordingTimer({
     recordingState: recorder.recordingState,
     stopRecording: recorder.stopRecording,
     showToast,
-    isPro: session?.user?.plan === 'pro_monthly' || session?.user?.plan === 'pro_yearly' || session?.user?.plan === 'creator_monthly' || session?.user?.plan === 'creator_yearly',
+    maxDurationSeconds: entitlements.maxDurationSeconds,
     resetOnComplete: false,
   });
 
@@ -154,12 +159,6 @@ export default function HomePage() {
         };
       }
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('sxs-recording-count',
-          (parseInt(localStorage.getItem('sxs-recording-count') || '0', 10) + 1).toString()
-        );
-      }
-
       resetTimer();
     }
   }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height]);
@@ -205,6 +204,11 @@ export default function HomePage() {
   }, [recorder, camera.stream, ui.isDrawerVisible, handleRecordStart]);
 
   const handleCloseDrawer = useCallback(() => {
+    if (recorder.recordingState === 'completed' && masterRecordingData) {
+      if (!window.confirm('Discard this recording? This cannot be undone.')) {
+        return;
+      }
+    }
     ui.setIsDrawerVisible(false);
     if (recorder.recordingState === 'completed') {
       recorder.resetRecording();
@@ -212,7 +216,7 @@ export default function HomePage() {
       clearJobs();
       setExportConfig(null);
     }
-  }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
+  }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig, masterRecordingData]);
 
   const handlePracticeAgain = useCallback(() => {
     ui.setIsDrawerVisible(false);
@@ -265,7 +269,7 @@ export default function HomePage() {
   }, []);
 
   const handleShowShortcuts = useCallback(() => {
-    showToast('Space: Record/Pause · Arrows: Nudge script · Esc: Close');
+    showToast('Space: Start/Stop · P: Pause/Resume · M: Mute · ↑↓: Nudge script · Esc: Close');
   }, [showToast]);
 
   const handleOpenTeleprompter = useCallback(() => {
@@ -283,10 +287,31 @@ export default function HomePage() {
 
   useKeyboardShortcuts({
     onRecordStop: handleRecordStop,
+    onRecordPause: recorder.pauseRecording,
+    onRecordResume: () =>
+      recorder.resumeRecording(
+        () => {
+          if (!prompterContainerRef.current) return;
+          const container = prompterContainerRef.current;
+          const speed = settings.teleprompter.scrollSpeed;
+          const multiplier = settings.teleprompter.scrollSpeedMultiplier;
+          container.scrollTop += (speed / 20) * multiplier;
+        },
+        () => {
+          if (!prompterContainerRef.current) return false;
+          const container = prompterContainerRef.current;
+          return (
+            container.scrollTop + container.clientHeight >=
+            container.scrollHeight - 5
+          );
+        }
+      ),
+    onMicToggle: handleMicToggle,
     onNudgeUp: handleNudgeUp,
     onNudgeDown: handleNudgeDown,
     onCloseDrawer: handleCloseDrawer,
     isRecording: recorder.recordingState === 'recording',
+    isPaused: recorder.recordingState === 'paused',
     canRecord: !!camera.stream,
     isDrawerVisible: ui.isDrawerVisible,
     showNudgeToast: showToast,
@@ -332,14 +357,17 @@ export default function HomePage() {
         isVisible={welcomeModal.isVisible}
         dontShowAgain={welcomeModal.dontShowAgain}
         onDontShowChange={welcomeModal.setDontShowAgain}
-        onGetStarted={welcomeModal.closeModal}
+        onGetStarted={() => {
+          welcomeModal.closeModal();
+          if (!camera.isInitialized) handleCameraInitialize();
+        }}
         onExploreStudio={welcomeModal.closeModal}
       />
 
       <div className="h-screen flex flex-col bg-canvas overflow-hidden">
         <Header
           isMobile={isMobile}
-          hasRecording={recorder.recordingState === 'completed'}
+          hasRecording={recorder.recordingState === 'completed' && !!masterRecordingData}
           onExport={() => ui.setIsDrawerVisible(true)}
           onShare={share}
           onToggleInspector={handleToggleInspector}
@@ -351,6 +379,7 @@ export default function HomePage() {
             activePanel={activePanel}
             onPanelChange={handlePanelChange}
             isCameraInitialized={camera.isInitialized}
+            isCameraRequesting={camera.status === 'requesting'}
             onCameraInitialize={handleCameraInitialize}
             isMicMuted={isMicMuted}
             onMicToggle={handleMicToggle}
@@ -359,7 +388,7 @@ export default function HomePage() {
             onPreferencesToggle={handleToggleInspector}
             onOpenTeleprompter={handleOpenTeleprompter}
             onShowShortcuts={handleShowShortcuts}
-            onPricingClick={ui.handlePricingClick}
+            onPricingClick={handlePricingClick}
             userPlan={session?.user?.plan || 'free'}
           />
 
@@ -488,9 +517,30 @@ export default function HomePage() {
           onPanelChange={handlePanelChange}
           recordingState={recorder.recordingState}
           onRecordToggle={handleRecordStop}
+          onPause={recorder.pauseRecording}
+          onResume={() =>
+            recorder.resumeRecording(
+              () => {
+                if (!prompterContainerRef.current) return;
+                const container = prompterContainerRef.current;
+                const speed = settings.teleprompter.scrollSpeed;
+                const multiplier = settings.teleprompter.scrollSpeedMultiplier;
+                container.scrollTop += (speed / 20) * multiplier;
+              },
+              () => {
+                if (!prompterContainerRef.current) return false;
+                const container = prompterContainerRef.current;
+                return (
+                  container.scrollTop + container.clientHeight >=
+                  container.scrollHeight - 5
+                );
+              }
+            )
+          }
           onSettingsToggle={handleToggleInspector}
-          onPricingClick={ui.handlePricingClick}
+          onPricingClick={handlePricingClick}
           isCameraInitialized={camera.isInitialized}
+          isCameraRequesting={camera.status === 'requesting'}
           onCameraInitialize={handleCameraInitialize}
           userPlan={session?.user?.plan || 'free'}
         />
@@ -508,7 +558,7 @@ export default function HomePage() {
         isAuthenticated={!!session?.user}
         userPlan={session?.user?.plan || 'free'}
         onAuthRequired={ui.handleAuthRequired}
-        onDownloadLimitReached={() => ui.setIsPricingModalOpen(true)}
+        onDownloadLimitReached={handleUpgradeClick}
         exportConfig={exportConfig}
         onSelectPlatform={selectPlatform}
         onUpdateCrop={updateCrop}
@@ -521,6 +571,8 @@ export default function HomePage() {
         isOpen={ui.isPricingModalOpen}
         onClose={() => ui.setIsPricingModalOpen(false)}
         showToast={showToast}
+        userPlan={session?.user?.plan || 'free'}
+        isAuthenticated={!!session?.user}
       />
 
       <AuthModal
@@ -530,7 +582,7 @@ export default function HomePage() {
         mode="download"
       />
 
-      <Toast message={toast?.message ?? null} />
+      <Toast message={toast?.message ?? null} queueLength={queueLength} />
     </>
   );
 }

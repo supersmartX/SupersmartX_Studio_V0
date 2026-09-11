@@ -275,14 +275,14 @@ function InspectorContent({
             className="flex items-center justify-between w-full text-left"
             aria-expanded={!collapsedSections.script}
           >
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Script</h3>
-            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-muted transition-transform ${collapsedSections.script ? '-rotate-90' : ''}`} />
+            <h3 className="text-[12px] font-bold uppercase tracking-wider text-text-secondary">Script</h3>
+            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.script ? '-rotate-90' : ''}`} />
           </button>
 
           {!collapsedSections.script && (<>
           <div className="flex items-center justify-between">
             <span className="text-xs text-text-secondary">{wordCount} words</span>
-            <span className="text-[10px] text-text-muted">{Math.round(progress)}% of target</span>
+            <span className="text-[12px] text-text-secondary">{Math.round(progress)}% of target</span>
           </div>
 
           <div
@@ -308,20 +308,23 @@ function InspectorContent({
           />
 
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-text-muted flex items-center gap-1.5">
+            <span className="text-[12px] text-text-secondary flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-success" />
               Saved locally
             </span>
             <button
-              onClick={onClearScript}
-              className="text-[11px] text-text-muted hover:text-text-secondary transition-colors"
+              onClick={() => {
+                if (script.trim() && !window.confirm('Clear your script? This cannot be undone.')) return;
+                onClearScript();
+              }}
+              className="text-[12px] text-text-secondary hover:text-text-primary transition-colors"
               suppressHydrationWarning
             >
               Clear
             </button>
           </div>
 
-          <InspirationLoader onLoad={onLoadInspiration} />
+          <InspirationLoader onLoad={onLoadInspiration} hasExistingScript={!!script.trim()} />
           </>)}
         </div>
       </Card>
@@ -336,8 +339,8 @@ function InspectorContent({
             className="flex items-center justify-between w-full text-left"
             aria-expanded={!collapsedSections.teleprompter}
           >
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Teleprompter</h3>
-            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-muted transition-transform ${collapsedSections.teleprompter ? '-rotate-90' : ''}`} />
+            <h3 className="text-[12px] font-bold uppercase tracking-wider text-text-secondary">Teleprompter</h3>
+            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.teleprompter ? '-rotate-90' : ''}`} />
           </button>
 
           {!collapsedSections.teleprompter && (<>
@@ -462,8 +465,8 @@ function InspectorContent({
             className="flex items-center justify-between w-full text-left"
             aria-expanded={!collapsedSections.recording}
           >
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Recording</h3>
-            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-muted transition-transform ${collapsedSections.recording ? '-rotate-90' : ''}`} />
+            <h3 className="text-[12px] font-bold uppercase tracking-wider text-text-secondary">Recording</h3>
+            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.recording ? '-rotate-90' : ''}`} />
           </button>
 
           {!collapsedSections.recording && (<>

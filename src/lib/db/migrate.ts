@@ -83,6 +83,7 @@ export async function migrateFromJson(): Promise<{ users: number; tokens: number
             createdAt: item.createdAt!,
             plan: VALID_PLANS.has(item.plan as string) ? (item.plan as StoredUser['plan']) : 'free',
             planExpiresAt: item.planExpiresAt,
+            sessionVersion: 0,
           });
         }
 
@@ -93,7 +94,7 @@ export async function migrateFromJson(): Promise<{ users: number; tokens: number
         // Insert valid users — use existing IDs, preserve password hashes
         for (const user of validUsers) {
           await db.execute({
-            sql: 'INSERT OR IGNORE INTO users (id, email, name, password_hash, created_at, plan, plan_expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            sql: 'INSERT OR IGNORE INTO users (id, email, name, password_hash, created_at, plan, plan_expires_at, session_version) VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
             args: [user.id, user.email, user.name, user.passwordHash, user.createdAt, user.plan, user.planExpiresAt || null],
           });
         }

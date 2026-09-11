@@ -17,7 +17,7 @@ export function PlatformSelector({ selectedPlatformId, onSelect, layout = 'inspe
   return (
     <div className="flex flex-col gap-1.5">
       {layout === 'inspector' && (
-        <span className="text-[11px] font-medium text-text-muted uppercase tracking-wider">Platform</span>
+        <span className="text-[12px] font-medium text-text-secondary uppercase tracking-wider">Platform</span>
       )}
       <div className={gridClass} role="radiogroup" aria-label="Video platform">
         {PLATFORM_PRESETS.map((preset) => {
@@ -53,7 +53,7 @@ export function PlatformSelector({ selectedPlatformId, onSelect, layout = 'inspe
                 } ${isActive ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary'}`}>
                   {preset.label}
                 </span>
-                <span className="text-[10px] text-text-muted leading-tight truncate">
+                <span className="text-[12px] text-text-secondary leading-tight truncate">
                   {preset.sublabel}
                 </span>
               </div>

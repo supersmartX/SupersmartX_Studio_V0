@@ -25,7 +25,7 @@ export function AuthModal({
   isOpen,
   onClose,
   onSuccess,
-  title = 'Create an account or sign in',
+  title = 'Create an account or log in',
   callbackUrl = '/studio',
   mode = 'default',
 }: AuthModalProps) {
@@ -47,7 +47,7 @@ export function AuthModal({
     try {
       await signIn('google', { callbackUrl });
     } catch {
-      setError('Google sign-in failed. Please try again.');
+      setError('Google login failed. Please try again.');
       setIsLoading(false);
     }
   }, [callbackUrl]);
@@ -133,7 +133,7 @@ export function AuthModal({
   if (!shouldRender) return null;
 
   return (
-    <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={step === 'chooser' ? 'Sign in or create account' : 'Enter your email'} {...swipeHandlers}>
+    <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={step === 'chooser' ? 'Log in or create account' : 'Enter your email'} {...swipeHandlers}>
       <div
         className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
         onClick={handleModalClose}
@@ -199,13 +199,13 @@ export function AuthModal({
                   {step === 'chooser' ? 'Create New Profile' : 'Enter your email'}
                 </h2>
                 {step === 'chooser' && (
-                  <p className="text-text-muted text-sm mt-1">
+                  <p className="text-text-secondary text-sm mt-1">
                     {title}
                   </p>
                 )}
                 {step === 'email' && (
-                  <p className="text-text-muted text-sm mt-1">
-                    We&apos;ll sign you in with your email.
+                  <p className="text-text-secondary text-sm mt-1">
+                    We&apos;ll log you in with your email.
                   </p>
                 )}
               </div>
@@ -235,7 +235,7 @@ export function AuthModal({
                     <div className="w-full border-t border-white/10" />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="bg-canvas px-4 text-xs font-medium text-text-muted uppercase tracking-widest">
+                    <span className="bg-canvas px-4 text-xs font-medium text-text-secondary uppercase tracking-widest">
                       Or
                     </span>
                   </div>
@@ -283,7 +283,7 @@ export function AuthModal({
                         <EyeIcon visible={showPassword} />
                       </button>
                     </div>
-                    <p className="text-[11px] text-text-muted">8+ characters with uppercase, lowercase, number, and special character.</p>
+                    <p className="text-[12px] text-text-secondary">8+ characters with uppercase, lowercase, number, and special character.</p>
                   </div>
                 </div>
 
@@ -301,7 +301,7 @@ export function AuthModal({
                 </button>
 
                 {/* Footer */}
-                <p className="text-sm text-text-muted text-center">
+                <p className="text-sm text-text-secondary text-center">
                   Already have an account?{' '}
                   <button
                     onClick={() => setStep('email')}
@@ -359,10 +359,10 @@ export function AuthModal({
                   disabled={isLoading || !email || !loginPassword}
                   className="w-full h-12 bg-accent text-white font-semibold rounded-lg hover:bg-accent-hover active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {isLoading ? 'Signing in...' : 'Sign In'}
+                  {isLoading ? 'Signing in...' : 'Log in'}
                 </button>
 
-                <p className="text-sm text-text-muted text-center">
+                <p className="text-sm text-text-secondary text-center">
                   <button onClick={handleBack} className="text-text-primary font-medium hover:underline">
                     Back to all options
                   </button>

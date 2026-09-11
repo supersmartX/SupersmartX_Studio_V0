@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 import './globals.css';
@@ -7,6 +7,14 @@ const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
 });
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: '#09090B',
+};
 
 export const metadata: Metadata = {
   title: 'SupersmartX Studio',
@@ -45,9 +53,6 @@ export const metadata: Metadata = {
     title: 'SupersmartX Studio',
     description: 'Interactive Teleprompter and Video Script Reader — Record professional videos from your browser.',
     images: ['/brand/studio/exports/social/og-image-1200x630.png'],
-  },
-  other: {
-    'theme-color': '#09090B',
   },
 };
 

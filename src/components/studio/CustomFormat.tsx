@@ -64,8 +64,14 @@ export function CustomFormat({
           <input
             type="number"
             value={width}
-            onChange={(e) => onWidthChange(Math.max(1, Number(e.target.value)))}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              onWidthChange(val > 7680 ? 7680 : val < 1 ? 1 : val);
+            }}
+            max={7680}
+            min={1}
             className="bg-canvas border border-border-subtle rounded-md px-2.5 py-2 text-[13px] text-text-primary outline-none focus:border-accent transition-colors w-full min-h-[36px]"
+            aria-label="Width in pixels"
           />
         </div>
         <div className="flex items-end pb-2.5 text-text-muted text-[11px]">×</div>
@@ -74,8 +80,14 @@ export function CustomFormat({
           <input
             type="number"
             value={height}
-            onChange={(e) => onHeightChange(Math.max(1, Number(e.target.value)))}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              onHeightChange(val > 7680 ? 7680 : val < 1 ? 1 : val);
+            }}
+            max={7680}
+            min={1}
             className="bg-canvas border border-border-subtle rounded-md px-2.5 py-2 text-[13px] text-text-primary outline-none focus:border-accent transition-colors w-full min-h-[36px]"
+            aria-label="Height in pixels"
           />
         </div>
       </div>

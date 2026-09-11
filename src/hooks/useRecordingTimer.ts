@@ -3,17 +3,15 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { RecordingState } from '@/types';
 
-const FREE_MAX_RECORDING_SECONDS = 300; // 5 minutes
-
 interface UseRecordingTimerOptions {
   recordingState: RecordingState;
   stopRecording: () => void;
   showToast: (message: string) => void;
-  isPro: boolean;
+  maxDurationSeconds: number;
   resetOnComplete?: boolean;
 }
 
-export function useRecordingTimer({ recordingState, stopRecording, showToast, isPro, resetOnComplete }: UseRecordingTimerOptions) {
+export function useRecordingTimer({ recordingState, stopRecording, showToast, maxDurationSeconds, resetOnComplete }: UseRecordingTimerOptions) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval>>(null);
 
@@ -22,15 +20,18 @@ export function useRecordingTimer({ recordingState, stopRecording, showToast, is
       timerRef.current = setInterval(() => {
         setElapsedSeconds((prev) => {
           const next = prev + 1;
-          if (!isPro) {
-            if (next === FREE_MAX_RECORDING_SECONDS - 60) {
-              showToast('1 minute remaining on Free plan recording limit');
+          if (Number.isFinite(maxDurationSeconds)) {
+            if (next === maxDurationSeconds - 60) {
+              const mins = Math.ceil(maxDurationSeconds / 60);
+              showToast(`1 minute remaining on ${mins} minute recording limit`);
             }
-            if (next >= FREE_MAX_RECORDING_SECONDS) {
+            if (next >= maxDurationSeconds) {
               if (timerRef.current) clearInterval(timerRef.current);
               setTimeout(() => stopRecording(), 0);
-              showToast('Recording stopped — 5 minute limit reached on Free plan');
-              return FREE_MAX_RECORDING_SECONDS;
+              const mins = Math.ceil(maxDurationSeconds / 60);
+              const display = maxDurationSeconds >= 1800 ? `${mins} minute` : `${maxDurationSeconds / 60} minute`;
+              showToast(`Recording stopped — ${display} limit reached`);
+              return maxDurationSeconds;
             }
           }
           return next;
@@ -45,7 +46,7 @@ export function useRecordingTimer({ recordingState, stopRecording, showToast, is
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [recordingState, stopRecording, showToast, isPro]);
+  }, [recordingState, stopRecording, showToast, maxDurationSeconds]);
 
   // Reset elapsed when recording completes (if configured)
   useEffect(() => {

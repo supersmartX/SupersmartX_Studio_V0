@@ -76,7 +76,7 @@ const REGION_PRICING: Record<string, RegionalPricing> = {
   PE: { country: 'PE', currency: 'PEN', symbol: 'S/', locale: 'es-PE', creatorMonthly: 29.99, creatorYearly: 229.99, proMonthly: 56.99, proYearly: 459.99, pppIndex: 40 },
 };
 
-const FALLBACK: RegionalPricing = REGION_PRICING['IN'];
+const FALLBACK: RegionalPricing = REGION_PRICING['US'];
 
 const STORAGE_KEY = 'sxs-pricing-region';
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
@@ -121,7 +121,7 @@ export async function detectCountry(): Promise<string> {
     clearTimeout(timeout);
     if (!res.ok) throw new Error('Geo lookup failed');
     const data = await res.json();
-    const country = data.country_code || 'IN';
+    const country = data.country_code || 'US';
     cacheCountry(country);
     return country;
   } catch {
@@ -132,11 +132,11 @@ export async function detectCountry(): Promise<string> {
       clearTimeout(timeout);
       if (!res.ok) throw new Error('Geo lookup failed');
       const data = await res.json();
-      const country = data.countryCode || 'IN';
+      const country = data.countryCode || 'US';
       cacheCountry(country);
       return country;
     } catch {
-      return 'IN';
+      return 'US';
     }
   }
 }
@@ -148,11 +148,60 @@ export function getPricingForCountry(country: string): RegionalPricing {
 export function formatPrice(amount: number, symbol: string, locale: string): string {
   if (amount === 0) return 'Free';
 
-  const isDecimal = !Number.isInteger(amount);
-  if (isDecimal) {
-    return `${symbol}${amount.toFixed(2)}`;
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: getCurrencyCode(symbol, locale),
+      minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+      maximumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    }).format(amount);
+  } catch {
+    // Fallback for locales that don't support the currency
+    return `${symbol}${amount.toLocaleString(locale)}`;
   }
-  return `${symbol}${amount.toLocaleString()}`;
+}
+
+export function formatPriceZero(amount: number, symbol: string, locale: string): string {
+  if (amount === 0) {
+    try {
+      return new Intl.NumberFormat(locale, {
+        style: 'currency',
+        currency: getCurrencyCode(symbol, locale),
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      }).format(0);
+    } catch {
+      return `${symbol}0`;
+    }
+  }
+  return formatPrice(amount, symbol, locale);
+}
+
+function getCurrencyCode(symbol: string, locale: string): string {
+  // Map known symbols to ISO currency codes for Intl.NumberFormat
+  const symbolMap: Record<string, string> = {
+    '$': 'USD', '€': 'EUR', '£': 'GBP', '₹': 'INR', '¥': 'JPY',
+    '₩': 'KRW', 'A$': 'AUD', 'NZ$': 'NZD', 'S$': 'SGD', 'CA$': 'CAD',
+    'CHF': 'CHF', 'kr': 'SEK', 'RM': 'MYR', 'R$': 'BRL', 'MX$': 'MXN',
+    'R': 'ZAR', 'Rp': 'IDR', '₫': 'VND', '₱': 'PHP', '₺': 'TRY',
+    'E£': 'EGP', '₦': 'NGN', 'KSh': 'KES', 'GH₵': 'GHS', 'BR': 'ETB',
+    'K': 'MMK', 'Rs': 'INR', ' lei': 'RON', 'zł': 'PLN', 'Ft': 'HUF',
+    'AR$': 'ARS', 'CL$': 'CLP', 'COL$': 'COP', 'S/': 'PEN',
+    'QR': 'QAR', 'OMR': 'OMR', 'KD': 'KWD', 'TSh': 'TZS', 'USh': 'UGX',
+    '৳': 'BDT', '₨': 'PKR', '₴': 'UAH', 'Kč': 'CZK',
+  };
+  return symbolMap[symbol] || 'USD';
+}
+
+export function calculateYearlySavingsPercent(monthlyPrice: number, yearlyPrice: number): number {
+  if (monthlyPrice <= 0) return 0;
+  const annualAtMonthly = monthlyPrice * 12;
+  return Math.round(((annualAtMonthly - yearlyPrice) / annualAtMonthly) * 100);
+}
+
+export function formatSavingsPercent(monthlyPrice: number, yearlyPrice: number): string {
+  const pct = calculateYearlySavingsPercent(monthlyPrice, yearlyPrice);
+  return pct > 0 ? `Save ${pct}%` : '';
 }
 
 export const ALL_COUNTRIES = Object.values(REGION_PRICING).map(r => ({
@@ -162,6 +211,29 @@ export const ALL_COUNTRIES = Object.values(REGION_PRICING).map(r => ({
   pppIndex: r.pppIndex,
 }));
 
+// Unique currencies for selector (one entry per currency code)
+export const UNIQUE_CURRENCIES = Object.values(
+  Object.fromEntries(
+    Object.values(REGION_PRICING).map(r => [r.currency, { currency: r.currency, symbol: r.symbol, locale: r.locale }])
+  )
+);
+
+// Country selector entries: one per country with flag emoji
+const FLAG_OFFSET = 0x1F1E6 - 65; // Regional indicator symbol offset
+function getCountryFlag(code: string): string {
+  return String.fromCodePoint(code.charCodeAt(0) + FLAG_OFFSET, code.charCodeAt(1) + FLAG_OFFSET);
+}
+
+export const COUNTRY_OPTIONS = Object.values(REGION_PRICING)
+  .map(r => ({
+    code: r.country,
+    flag: getCountryFlag(r.country),
+    currency: r.currency,
+    symbol: r.symbol,
+    label: `${getCountryFlag(r.country)} ${r.currency}`,
+  }))
+  .sort((a, b) => a.currency.localeCompare(b.currency));
+
 const PLAN_AMOUNT_KEY: Record<string, 'creatorMonthly' | 'creatorYearly' | 'proMonthly' | 'proYearly'> = {
   creator_monthly: 'creatorMonthly',
   creator_yearly: 'creatorYearly',
@@ -169,16 +241,26 @@ const PLAN_AMOUNT_KEY: Record<string, 'creatorMonthly' | 'creatorYearly' | 'proM
   pro_yearly: 'proYearly',
 };
 
-export function getServerPrice(plan: string, currency: string): number | null {
+export function getServerPrice(plan: string, currencyOrCountry: string): number | null {
   const field = PLAN_AMOUNT_KEY[plan];
   if (!field) return null;
 
+  // Primary: resolve by exact country code
+  const byCountry = REGION_PRICING[currencyOrCountry];
+  if (byCountry) {
+    return byCountry[field];
+  }
+
+  // Fallback: resolve by currency (for backward compatibility / webhook flows)
   for (const pricing of Object.values(REGION_PRICING)) {
-    if (pricing.currency === currency) {
+    if (pricing.currency === currencyOrCountry) {
       return pricing[field];
     }
   }
 
-  const fallback = REGION_PRICING['IN'];
-  return fallback[field];
+  return null;
+}
+
+export function getServerPricingForCountry(country: string): RegionalPricing | null {
+  return REGION_PRICING[country] || null;
 }
