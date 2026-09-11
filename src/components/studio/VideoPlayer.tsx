@@ -43,6 +43,11 @@ export function VideoPlayer({
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
   useEffect(() => {
+    setValidationError('');
+    setIsValidated(false);
+  }, [videoUrl]);
+
+  useEffect(() => {
     if (!showSpeedMenu) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (speedMenuRef.current && !speedMenuRef.current.contains(e.target as Node)) {
@@ -67,6 +72,11 @@ export function VideoPlayer({
       showControls();
     }
   }, [controlsVisible, showControls]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) video.load();
+  }, [videoUrl]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -101,7 +111,10 @@ export function VideoPlayer({
     const handlePause = () => setIsPlaying(false);
     const handleEnded = () => setIsPlaying(false);
     const handleError = () => {
-      setValidationError('Failed to load video');
+      const video = videoRef.current;
+      const code = video?.error?.code;
+      const msg = code === 4 ? 'Video format not supported' : code === 3 ? 'Video decode failed' : 'Failed to load video';
+      setValidationError(msg);
       onError('Video playback failed');
     };
 
@@ -199,8 +212,9 @@ export function VideoPlayer({
 
   if (validationError) {
     return (
-      <div className={`${ASPECT_RATIO_PRESETS[aspectRatio].cssClass} bg-canvas rounded-lg flex items-center justify-center`}>
+      <div className={`${ASPECT_RATIO_PRESETS[aspectRatio].cssClass} bg-canvas rounded-lg flex flex-col items-center justify-center gap-2 p-4`}>
         <p className="text-sm text-recording">{validationError}</p>
+        <p className="text-xs text-text-muted text-center">Preview failed, but your export is ready to download below.</p>
       </div>
     );
   }

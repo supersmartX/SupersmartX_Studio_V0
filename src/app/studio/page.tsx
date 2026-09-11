@@ -573,6 +573,10 @@ export default function HomePage() {
         showToast={showToast}
         userPlan={session?.user?.plan || 'free'}
         isAuthenticated={!!session?.user}
+        onAuthRequired={() => {
+          ui.setIsPricingModalOpen(false);
+          ui.setIsAuthModalOpen(true);
+        }}
       />
 
       <AuthModal

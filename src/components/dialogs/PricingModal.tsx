@@ -15,6 +15,7 @@ interface PricingModalProps {
   showToast: (message: string) => void;
   userPlan?: string;
   isAuthenticated?: boolean;
+  onAuthRequired?: () => void;
 }
 
 type BillingPeriod = 'monthly' | 'yearly';
@@ -36,7 +37,7 @@ function getPlanId(tier: TierKey, period: BillingPeriod): string {
   return `${tier}_${period}`;
 }
 
-export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthenticated = false }: PricingModalProps) {
+export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthenticated = false, onAuthRequired }: PricingModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isOpen, onClose);
   const [step, setStep] = useState<'select' | 'form' | 'processing' | 'error'>('select');
   const [selectedTier, setSelectedTier] = useState<TierKey>('creator');
@@ -91,6 +92,13 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   };
 
   const handleSubscribe = useCallback(async () => {
+    if (!isAuthenticated) {
+      handleClose();
+      onAuthRequired?.();
+      showToast('Please log in or create an account to continue');
+      return;
+    }
+
     if (selectedPlan === 'free') {
       showToast('Free plan activated!');
       handleClose();
@@ -123,9 +131,15 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({ error: 'Failed to create order' }));
 
       if (!response.ok) {
+        if (response.status === 401) {
+          handleClose();
+          onAuthRequired?.();
+          showToast('Please log in or create an account to continue');
+          return;
+        }
         throw new Error(data.error || 'Failed to create order');
       }
 
@@ -148,7 +162,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       setStep('error');
       setErrorMessage(err instanceof Error ? err.message : 'Something went wrong');
     }
-  }, [selectedPlan, selectedTier, billingPeriod, currentPricing, name, email, showToast]);
+  }, [selectedPlan, selectedTier, billingPeriod, currentPricing, name, email, showToast, isAuthenticated, onAuthRequired]);
 
   const handleClose = useCallback(() => {
     setStep('select');
