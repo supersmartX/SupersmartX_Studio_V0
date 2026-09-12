@@ -1,18 +1,19 @@
 import type { NextAuthConfig } from 'next-auth';
 
 const isProduction = process.env.NODE_ENV === 'production';
-const secret = process.env.NEXTAUTH_SECRET;
+const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
 
-if (!secret && isProduction) {
-  console.error('[AUTH] NEXTAUTH_SECRET is not set. Auth will not work until it is configured in your hosting provider.');
+const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
+if (!secret && isProduction && !isBuildPhase) {
+  throw new Error('[AUTH] NEXTAUTH_SECRET is not set. Auth will not work until it is configured in your hosting provider.');
 }
 
-if (isProduction && secret && secret.length < 32) {
-  console.error('[AUTH] NEXTAUTH_SECRET is too short (min 32 chars). Set a cryptographically random secret in your hosting provider.');
+if (isProduction && secret && secret.length < 32 && !isBuildPhase) {
+  throw new Error('[AUTH] NEXTAUTH_SECRET is too short (min 32 chars). Set a cryptographically random secret in your hosting provider.');
 }
 
-if (isProduction && secret && /^(dev-secret-change-in-production|change-me|secret|password)/i.test(secret)) {
-  console.error('[AUTH] NEXTAUTH_SECRET appears to be a default/weak value. Rotate it immediately in your hosting provider.');
+if (isProduction && secret && /^(dev-secret-change-in-production|change-me|secret|password)/i.test(secret) && !isBuildPhase) {
+  throw new Error('[AUTH] NEXTAUTH_SECRET appears to be a default/weak value. Rotate it immediately in your hosting provider.');
 }
 
 export const authConfig = {

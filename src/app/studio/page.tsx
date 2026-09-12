@@ -450,6 +450,8 @@ export default function HomePage() {
               <div className="flex-1 min-h-0 overflow-auto">
                 <RecordingsPanel
                   isMobile={isMobile}
+                  isAuthenticated={!!session?.user}
+                  refreshKey={exportJobs.length}
                   onExportRecording={(recording) => {
                     createMasterRecording(
                       recording.blob,

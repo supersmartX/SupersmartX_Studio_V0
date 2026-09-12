@@ -578,6 +578,8 @@ export default function LandingPage() {
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 20px;
+  margin-right: 12px;
+  vertical-align: middle;
 }
 .lsx-step-icon {
   display: inline-flex;
@@ -590,6 +592,7 @@ export default function LandingPage() {
   border: 1px solid rgba(255,255,255,0.08);
   color: var(--color-accent-hover);
   margin-bottom: 20px;
+  vertical-align: middle;
 }
 .lsx-step-title {
   font-size: 17px;
@@ -814,7 +817,7 @@ export default function LandingPage() {
                   </svg>
                 </div>
                 <h3 className="lsx-step-title">Write your script</h3>
-                <p className="lsx-step-desc">Type, paste, or generate a script with AI. Our built-in teleprompter scrolls at your pace so you never lose your place.</p>
+                <p className="lsx-step-desc">Type, paste, or generate a script. Our built-in teleprompter scrolls at your pace so you never lose your place.</p>
               </div>
               <div className="lsx-step-connector" />
               <div className="lsx-step">

@@ -2,21 +2,32 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getAllRecordings, deleteRecording, renameRecording, type StoredRecording } from '@/lib/recording-store';
+import { getAllLocalExports, deleteLocalExport, type LocalExport } from '@/lib/local-exports-store';
 import { formatTime, formatRelativeTime } from '@/utils/format';
 
 interface RecordingsPanelProps {
   onLoadRecording?: (recording: StoredRecording) => void;
   onExportRecording?: (recording: StoredRecording) => void;
   isMobile?: boolean;
+  isAuthenticated?: boolean;
+  refreshKey?: number;
 }
 
-export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }: RecordingsPanelProps) {
+export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile, isAuthenticated, refreshKey }: RecordingsPanelProps) {
   const [recordings, setRecordings] = useState<StoredRecording[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const editInputRef = useRef<HTMLInputElement>(null);
+
+  // Cloud + local exports
+  const [cloudExports, setCloudExports] = useState<Array<{ id: string; r2Key: string; platform: string; outputWidth: number; outputHeight: number; fileSize: number; createdAt: string; status: string }>>([]);
+  const [localExports, setLocalExports] = useState<LocalExport[]>([]);
+  const [cloudLoading, setCloudLoading] = useState(false);
+  const [cloudError, setCloudError] = useState('');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const loadRecordings = useCallback(async () => {
     const all = await getAllRecordings();
@@ -68,6 +79,75 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
 
   const getDisplayName = useCallback((recording: StoredRecording) => {
     return recording.name || `${recording.extension.toUpperCase()} Recording`;
+  }, []);
+
+  const loadCloudExports = useCallback(async () => {
+    if (!isAuthenticated) { setCloudExports([]); return; }
+    setCloudLoading(true); setCloudError('');
+    try {
+      const res = await fetch('/api/exports');
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setCloudExports(data.exports || []);
+    } catch {
+      setCloudError('Could not load cloud exports');
+    } finally { setCloudLoading(false); }
+  }, [isAuthenticated]);
+
+  const loadLocalExports = useCallback(async () => {
+    const locals = await getAllLocalExports();
+    setLocalExports(locals);
+  }, []);
+
+  useEffect(() => {
+    loadCloudExports();
+    loadLocalExports();
+  }, [loadCloudExports, loadLocalExports, refreshKey]);
+
+  const handleDeleteCloud = useCallback(async (id: string) => {
+    const res = await fetch(`/api/exports/${id}`, { method: 'DELETE' });
+    if (res.ok) setCloudExports(prev => prev.filter(e => e.id !== id));
+  }, []);
+
+  const handleDeleteLocal = useCallback(async (id: string) => {
+    await deleteLocalExport(id);
+    setLocalExports(prev => prev.filter(e => e.id !== id));
+  }, []);
+
+  const handlePreviewCloud = useCallback(async (id: string) => {
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(`/api/exports/${id}/preview`);
+      if (!res.ok) throw new Error('Preview failed');
+      const data = await res.json();
+      setPreviewUrl(data.url);
+    } catch { setCloudError('Preview failed'); }
+    finally { setPreviewLoading(false); }
+  }, []);
+
+  const handleDownloadCloud = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/download?exportId=${encodeURIComponent(id)}`);
+      if (!res.ok) throw new Error('Download failed');
+      const data = await res.json();
+      const a = document.createElement('a');
+      a.href = data.url;
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {}
+  }, []);
+
+  const handleDownloadLocal = useCallback((exp: LocalExport) => {
+    const url = URL.createObjectURL(exp.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${exp.platform}-${exp.outputWidth}x${exp.outputHeight}.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }, []);
 
   return (
@@ -220,6 +300,75 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile }
             ))}
           </div>
         )}
+      </div>
+
+      {/* Saved Exports */}
+      <div className="px-4 pt-4 pb-2 border-t border-border-subtle mt-2">
+        <h3 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary">Saved Exports</h3>
+        <p className="text-[11px] text-text-secondary mt-0.5">{isAuthenticated ? 'Cloud exports (Creator) persist securely' : 'Local exports — 7 days'}</p>
+      </div>
+      <div className="px-4 py-2 space-y-2 max-h-[40vh] overflow-y-auto">
+        {previewUrl && (
+          <div className="rounded-lg overflow-hidden bg-black border border-border-subtle">
+            <video src={previewUrl} controls className="w-full max-h-[200px]" />
+            <button onClick={() => setPreviewUrl(null)} className="w-full text-[11px] text-text-secondary py-1 hover:text-text-primary">Close preview</button>
+          </div>
+        )}
+        {isAuthenticated && (
+          <>
+            {cloudLoading ? (
+              <p className="text-[12px] text-text-secondary">Loading cloud exports...</p>
+            ) : cloudError ? (
+              <p className="text-[12px] text-recording">{cloudError}</p>
+            ) : cloudExports.length === 0 ? (
+              <p className="text-[12px] text-text-secondary">No cloud exports yet.</p>
+            ) : (
+              cloudExports.map(exp => (
+                <div key={exp.id} className="p-2.5 rounded-lg bg-elevated border border-border-subtle flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[12px] font-medium text-text-primary truncate">{exp.platform}</span>
+                    <span className="text-[11px] text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] text-text-secondary">
+                    <span>{(exp.fileSize / (1024*1024)).toFixed(1)} MB</span>
+                    <span>·</span>
+                    <span>{formatRelativeTime(exp.createdAt)}</span>
+                    <span>·</span>
+                    <span className="capitalize">{exp.status}</span>
+                  </div>
+                  <div className="flex gap-1.5 mt-1">
+                    <button onClick={() => handlePreviewCloud(exp.id)} className="text-[11px] px-2 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20">Preview</button>
+                    <button onClick={() => handleDownloadCloud(exp.id)} className="text-[11px] px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover">Download</button>
+                    <button onClick={() => handleDeleteCloud(exp.id)} className="text-[11px] px-2 py-1 rounded bg-red-500/10 text-recording hover:bg-red-500/20 ml-auto">Delete</button>
+                  </div>
+                </div>
+              ))
+            )}
+          </>
+        )}
+        {!isAuthenticated || localExports.length > 0 ? (
+          localExports.length === 0 ? (
+            isAuthenticated ? null : <p className="text-[12px] text-text-secondary">No local exports yet.</p>
+          ) : (
+            localExports.map(exp => (
+              <div key={exp.id} className="p-2.5 rounded-lg bg-elevated border border-border-subtle flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-medium text-text-primary truncate">{exp.platform} (local)</span>
+                  <span className="text-[11px] text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
+                </div>
+                <div className="flex items-center gap-2 text-[11px] text-text-secondary">
+                  <span>{(exp.fileSize / (1024*1024)).toFixed(1)} MB</span>
+                  <span>·</span>
+                  <span>{formatRelativeTime(exp.createdAt)}</span>
+                </div>
+                <div className="flex gap-1.5 mt-1">
+                  <button onClick={() => handleDownloadLocal(exp)} className="text-[11px] px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover">Download</button>
+                  <button onClick={() => handleDeleteLocal(exp.id)} className="text-[11px] px-2 py-1 rounded bg-red-500/10 text-recording hover:bg-red-500/20 ml-auto">Delete</button>
+                </div>
+              </div>
+            ))
+          )
+        ) : null}
       </div>
 
       {/* Footer count */}

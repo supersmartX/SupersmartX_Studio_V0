@@ -14,8 +14,8 @@ import { isAccountLocked, recordFailedLogin, resetFailedLogins } from './lib/db'
 import { isPlanActive } from './lib/entitlements';
 import { validatePassword } from './lib/validation';
 
-if (!process.env.NEXTAUTH_SECRET && process.env.NODE_ENV === 'production') {
-  console.error('[AUTH] NEXTAUTH_SECRET is not set. Auth will not work until it is configured in your hosting provider.');
+if (!process.env.AUTH_SECRET && !process.env.NEXTAUTH_SECRET && process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build') {
+  throw new Error('[AUTH] NEXTAUTH_SECRET is not set. Auth will not work until it is configured in your hosting provider.');
 }
 
 let migrationDone = false;

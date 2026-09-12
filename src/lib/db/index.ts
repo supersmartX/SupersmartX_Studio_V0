@@ -186,6 +186,23 @@ export async function deleteResetToken(tokenHash: string): Promise<void> {
   });
 }
 
+export async function consumeResetToken(tokenHash: string): Promise<ResetToken | null> {
+  await ensureMigrated();
+  const db = getDb();
+  // Atomic single-use: delete only if not expired, return deleted row
+  const result = await db.execute({
+    sql: `DELETE FROM reset_tokens WHERE token_hash = ? AND expires_at > datetime('now') RETURNING token_hash, email, expires_at`,
+    args: [tokenHash],
+  });
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    tokenHash: row.token_hash as string,
+    email: row.email as string,
+    expiresAt: row.expires_at as string,
+  };
+}
+
 export async function deleteResetTokensByEmail(email: string): Promise<void> {
   await ensureMigrated();
   const db = getDb();

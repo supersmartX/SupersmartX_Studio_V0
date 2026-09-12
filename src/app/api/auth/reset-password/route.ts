@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
-import { findResetToken, deleteResetToken } from '@/lib/db';
+import { consumeResetToken } from '@/lib/db';
 import { updateUserPassword } from '@/lib/user-store';
 import { rateLimit } from '@/lib/rate-limit';
 import { validatePassword } from '@/lib/validation';
@@ -28,28 +28,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: validation.errors[0] }, { status: 400 });
     }
 
-    // Hash the incoming token and find matching record
+    // Atomic single-use token consume (prevents replay)
     const tokenHash = createHash('sha256').update(token).digest('hex');
-    const record = await findResetToken(tokenHash);
+    const record = await consumeResetToken(tokenHash);
 
     if (!record) {
-      return NextResponse.json({ error: 'Invalid reset token' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid or expired reset token' }, { status: 400 });
     }
 
-    // Check expiry
-    if (new Date(record.expiresAt) < new Date()) {
-      await deleteResetToken(tokenHash);
-      return NextResponse.json({ error: 'Reset link has expired' }, { status: 400 });
-    }
-
-    // Atomic: update password then delete token
     // Pass raw password — updateUserPassword handles hashing
     const updated = await updateUserPassword(record.email, password);
     if (!updated) {
       return NextResponse.json({ error: 'User not found' }, { status: 400 });
     }
-
-    await deleteResetToken(tokenHash);
 
     return NextResponse.json({ ok: true });
   } catch {

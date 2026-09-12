@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import type { ExportConfig, ExportJob, CropConfig, PlatformId, MasterRecording } from '@/types';
 import { PLATFORM_PRESETS } from '@/constants';
+import { saveLocalExport } from '@/lib/local-exports-store';
 
 interface UseExportPipelineReturn {
   exportConfig: ExportConfig | null;
@@ -148,21 +149,23 @@ export function useExportPipeline(): UseExportPipelineReturn {
       setExportJobs((prev) => [...prev, job]);
 
       try {
-        // 1. Create server job (non-fatal — client-side encoding works without it)
+        // 1. Create server job for Creator only (Free is local-only, no server job needed)
         let serverJobId: string | undefined;
-        try {
-          const createRes = await fetch('/api/export-jobs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ config: exportConfig }),
-            signal: abortController.signal,
-          });
-          if (createRes.ok) {
-            const data = await createRes.json();
-            serverJobId = data.jobId;
+        if (!watermarkRequired) {
+          try {
+            const createRes = await fetch('/api/export-jobs', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ config: exportConfig }),
+              signal: abortController.signal,
+            });
+            if (createRes.ok) {
+              const data = await createRes.json();
+              serverJobId = data.jobId;
+            }
+          } catch {
+            // Server job creation failed — continue with client-side encoding only
           }
-        } catch {
-          // Server job creation failed — continue with client-side encoding only
         }
 
         if (serverJobId) {
@@ -212,36 +215,34 @@ export function useExportPipeline(): UseExportPipelineReturn {
         let exportId: string | undefined;
         let r2Key: string | undefined;
 
-        try {
-          const formData = new FormData();
-          formData.append('file', resultBlob, 'export.mp4');
-          formData.append('platformId', exportConfig.platformId);
-          if (serverJobId) {
-            formData.append('jobId', serverJobId);
+        // Branch: Free = local-only (no R2), Creator = direct R2 via presigned PUT
+        if (watermarkRequired) {
+          // FREE: consume quota via control plane only, no R2 PutObject
+          try {
+            const quotaRes = await fetch('/api/exports/consume-quota', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ platformId: exportConfig.platformId, duration: master.duration }),
+              signal: abortController.signal,
+            });
+            if (!quotaRes.ok) {
+              const err = await quotaRes.json().catch(() => ({ error: 'Quota exceeded' }));
+              throw new Error(err.error || 'Monthly export limit reached');
+            }
+          } catch (e) {
+            throw e;
           }
-
-          const response = await fetch('/api/export-upload', {
-            method: 'POST',
-            body: formData,
-            signal: abortController.signal,
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ error: 'Upload failed' }));
-            throw new Error(errorData.error || 'Cloud upload failed');
-          }
-
-          const data = await response.json();
-          exportId = data.exportId;
-          r2Key = data.r2Key;
-        } catch (uploadError) {
-          const msg = uploadError instanceof Error ? uploadError.message : '';
-          // Quota or entitlement failures must not be treated as successful local export
-          if (msg.includes('Monthly export limit') || msg.includes('Upgrade required') || msg.includes('Crop & reframe')) {
-            throw uploadError;
-          }
-          // Upload failed (e.g. R2 not configured) — still return the blob for direct download
-          // But this path still consumed quota via atomicTryConsume, so it is counted
+          // Save to IndexedDB local export store (7-day, best-effort)
+          try {
+            await saveLocalExport({
+              id: `local-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
+              blob: resultBlob,
+              platform: exportConfig.platformId,
+              outputWidth: exportConfig.outputWidth,
+              outputHeight: exportConfig.outputHeight,
+              fileSize: resultBlob.size,
+            });
+          } catch {}
           if (!mountedRef.current) return job;
           const previewUrl = URL.createObjectURL(resultBlob);
           const partialJob: ExportJob = {
@@ -255,6 +256,69 @@ export function useExportPipeline(): UseExportPipelineReturn {
           setExportJobs((prev) => prev.map((j) => (j.id === jobId ? partialJob : j)));
           abortControllerRef.current.delete(jobId);
           return partialJob;
+        } else {
+          // CREATOR: direct browser → R2 via presigned PUT
+          try {
+            const presignedRes = await fetch('/api/exports/presigned-put', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                platformId: exportConfig.platformId,
+                outputWidth: exportConfig.outputWidth,
+                outputHeight: exportConfig.outputHeight,
+                duration: master.duration,
+                crop: exportConfig.crop,
+                jobId: serverJobId,
+              }),
+              signal: abortController.signal,
+            });
+            if (!presignedRes.ok) {
+              const err = await presignedRes.json().catch(() => ({ error: 'Failed to get upload URL' }));
+              throw new Error(err.error || 'Failed to get upload URL');
+            }
+            const presignedData = await presignedRes.json();
+            const presignedKey: string = presignedData.key;
+            const presignedUrl: string = presignedData.uploadUrl;
+            const presignedJobId: string | undefined = presignedData.jobId;
+            if (presignedJobId) serverJobId = presignedJobId;
+            r2Key = presignedKey;
+
+            const putRes = await fetch(presignedUrl, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'video/mp4' },
+              body: resultBlob,
+              signal: abortController.signal,
+            });
+            if (!putRes.ok) throw new Error('Direct upload to storage failed');
+
+            const completeRes = await fetch('/api/exports/complete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jobId: serverJobId,
+                key: presignedKey,
+                fileSize: resultBlob.size,
+                mimeType: 'video/mp4',
+                platformId: exportConfig.platformId,
+                outputWidth: exportConfig.outputWidth,
+                outputHeight: exportConfig.outputHeight,
+              }),
+              signal: abortController.signal,
+            });
+            if (!completeRes.ok) {
+              const err = await completeRes.json().catch(() => ({ error: 'Completion failed' }));
+              throw new Error(err.error || 'Completion failed');
+            }
+            const data = await completeRes.json();
+            exportId = data.exportId;
+            r2Key = data.r2Key;
+          } catch (uploadError) {
+            const msg = uploadError instanceof Error ? uploadError.message : '';
+            if (msg.includes('Monthly export limit') || msg.includes('Upgrade required') || msg.includes('Crop & reframe')) {
+              throw uploadError;
+            }
+            throw uploadError;
+          }
         }
 
         if (!mountedRef.current) return job;

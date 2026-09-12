@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { createExportJob, findUserById, ensureUserStatsRow, getActiveExportJobCount, getMonthlyExportCount, getMonthStartIso } from '@/lib/db';
+import { createExportJob, findUserById, ensureUserStatsRow, getActiveExportJobCount } from '@/lib/db';
 import { getEntitlements, isPlanActive } from '@/lib/entitlements';
 import type { PlanType } from '@/types/db';
 
@@ -52,18 +52,6 @@ export async function POST(request: NextRequest) {
     }
 
     await ensureUserStatsRow(session.user.id);
-
-    // Monthly export quota (Free: 3/month, Creator: unlimited)
-    if (entitlements.maxExportsPerMonth !== null) {
-      const monthlyCount = await getMonthlyExportCount(session.user.id);
-      if (monthlyCount >= entitlements.maxExportsPerMonth) {
-        const monthLabel = getMonthStartIso().slice(0, 7);
-        return NextResponse.json(
-          { error: `Monthly export limit reached (${entitlements.maxExportsPerMonth} exports for ${monthLabel}). Upgrade to Creator for unlimited exports.` },
-          { status: 403 },
-        );
-      }
-    }
 
     const job = await createExportJob(
       session.user.id,

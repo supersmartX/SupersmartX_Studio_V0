@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 function getR2Client(): S3Client | null {
@@ -81,6 +81,41 @@ export async function deleteRecording(key: string): Promise<void> {
   });
 
   await client.send(command);
+}
+
+export async function getSignedUploadUrl(
+  key: string,
+  contentType: string = 'video/mp4',
+  expiresIn: number = 900
+): Promise<string> {
+  const client = getR2Client();
+  if (!client) throw new Error('R2 not configured');
+  const bucket = process.env.R2_BUCKET_NAME!;
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    ContentType: contentType,
+  });
+  return getSignedUrl(client, command, { expiresIn });
+}
+
+export async function headObject(key: string): Promise<{ size: number; contentType?: string } | null> {
+  const client = getR2Client();
+  if (!client) throw new Error('R2 not configured');
+  const bucket = process.env.R2_BUCKET_NAME!;
+  try {
+    const command = new HeadObjectCommand({ Bucket: bucket, Key: key });
+    const result = await client.send(command);
+    return { size: result.ContentLength || 0, contentType: result.ContentType };
+  } catch (e: any) {
+    if (e?.name === 'NotFound' || e?.$metadata?.httpStatusCode === 404) return null;
+    throw e;
+  }
+}
+
+export function generateExportKey(userId: string): string {
+  const uuid = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `exports/${userId}/${uuid}.mp4`;
 }
 
 export async function listUserRecordings(

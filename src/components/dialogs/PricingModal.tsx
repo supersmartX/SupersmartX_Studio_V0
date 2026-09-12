@@ -121,6 +121,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       const response = await fetch('/api/cashfree/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({
           plan: selectedPlan,
           currency: currentPricing.currency,

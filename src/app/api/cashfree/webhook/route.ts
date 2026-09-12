@@ -94,8 +94,9 @@ export async function POST(request: NextRequest) {
     const paymentStatus = body.data?.payment?.payment_status;
 
     if (order.order_status === 'PAID' || paymentStatus === 'SUCCESS') {
-      // Verify amount matches what we stored server-side
+      // Verify amount and currency matches what we stored server-side
       const paidAmount = Number(order.order_amount);
+      const paidCurrency = order.order_currency;
       if (Math.abs(paidAmount - pendingOrder.amount) > 0.01) {
         console.error('Amount mismatch for order:', orderId, {
           expected: pendingOrder.amount,
@@ -103,9 +104,13 @@ export async function POST(request: NextRequest) {
         });
         return NextResponse.json({ error: 'Amount mismatch' }, { status: 400 });
       }
-
-      // Idempotent activation — mark processed before activating
-      await markWebhookProcessed(orderId);
+      if (paidCurrency && pendingOrder.currency && paidCurrency !== pendingOrder.currency) {
+        console.error('Currency mismatch for order:', orderId, {
+          expected: pendingOrder.currency,
+          paid: paidCurrency,
+        });
+        return NextResponse.json({ error: 'Currency mismatch' }, { status: 400 });
+      }
 
       const plan = pendingOrder.plan as 'pro_monthly' | 'pro_yearly' | 'creator_monthly' | 'creator_yearly';
       const billingPeriod = plan.includes('yearly') ? 'yearly' as const : 'monthly' as const;
@@ -120,6 +125,7 @@ export async function POST(request: NextRequest) {
 
       // Activate plan by userId (not email)
       await updateUserPlanById(pendingOrder.userId, plan, expiresAt.toISOString());
+      await markWebhookProcessed(orderId);
 
       // Send confirmation email (best-effort)
       const emailData = {

@@ -40,6 +40,22 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  async redirects() {
+    return [
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: 'supersmartx.com' }],
+        destination: 'https://studio.supersmartx.com/:path*',
+        permanent: true,
+      },
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: 'www.supersmartx.com' }],
+        destination: 'https://studio.supersmartx.com/:path*',
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

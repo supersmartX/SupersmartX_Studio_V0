@@ -143,11 +143,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Free plan does not require payment' }, { status: 400 });
     }
 
-    // Resolve pricing by exact country code — not by currency.
-    // Multiple countries share currencies (e.g., EUR), so currency alone is ambiguous.
-    // The country from the client is used for pricing lookup only.
-    // The currency comes from REGION_PRICING (server-authoritative), not from the client.
-    const resolvedCountry = typeof country === 'string' && country.length > 0 ? country : null;
+    // Resolve pricing by server-verified country (prevents client arbitrage).
+    // Vercel/Cloudflare provide geo header; fallback to client country only in dev.
+    const serverCountry = request.headers.get('x-vercel-ip-country') || request.headers.get('cf-ipcountry') || null;
+    const serverCountryValid = serverCountry && getServerPricingForCountry(serverCountry) ? serverCountry : null;
+    const clientCountryValid = typeof country === 'string' && getServerPricingForCountry(country) ? country : null;
+    // Prefer server geo when available (production), else client (local dev)
+    const resolvedCountry = serverCountryValid || clientCountryValid;
+    if (serverCountryValid && clientCountryValid && serverCountryValid !== clientCountryValid) {
+      console.warn(`[PAYMENT] Country mismatch: server=${serverCountryValid} client=${clientCountryValid} user=${session.user.id}`);
+    }
     const countryPricing = resolvedCountry ? getServerPricingForCountry(resolvedCountry) : null;
     const finalCurrency = countryPricing
       ? countryPricing.currency
