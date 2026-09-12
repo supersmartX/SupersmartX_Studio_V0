@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
+import { useSession } from 'next-auth/react';
 import { detectCountry, getPricingForCountry, formatPrice, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
 import { loadCashfreeSDK } from '@/lib/cashfree';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
@@ -49,6 +50,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   const [isLoadingPricing, setIsLoadingPricing] = useState(true);
 
   const selectedPlan = getPlanId(selectedTier, billingPeriod);
+  const { data: session } = useSession();
 
   useEffect(() => {
     if (isOpen && !pricing) {
@@ -105,7 +107,12 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       return;
     }
 
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    // Use session email/name directly — no separate form step, open Cashfree directly
+    const effectiveEmail = (email || session?.user?.email || '').trim();
+    const effectiveName = (name || session?.user?.name || 'User').trim();
+    if (!effectiveEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(effectiveEmail)) {
+      // Fallback to form if session has no email
+      setStep('form');
       setErrorMessage('Please enter a valid email');
       return;
     }
@@ -127,8 +134,8 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
           currency: currentPricing.currency,
           country: currentPricing.country,
           amount: planPrice,
-          name: name || 'User',
-          email,
+          name: effectiveName,
+          email: effectiveEmail,
         }),
       });
 
@@ -163,7 +170,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       setStep('error');
       setErrorMessage(err instanceof Error ? err.message : 'Something went wrong');
     }
-  }, [selectedPlan, selectedTier, billingPeriod, currentPricing, name, email, showToast, isAuthenticated, onAuthRequired]);
+  }, [selectedPlan, selectedTier, billingPeriod, currentPricing, name, email, showToast, isAuthenticated, onAuthRequired, session]);
 
   const handleClose = useCallback(() => {
     setStep('select');
@@ -280,7 +287,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                   <Button
                     variant={selectedTier === currentTier ? 'secondary' : 'primary'}
                     size="lg"
-                    onClick={() => selectedPlan === 'free' ? handleSubscribe() : setStep('form')}
+                    onClick={handleSubscribe}
                     disabled={selectedTier === currentTier}
                     className="lsx-pricing-btn"
                   >
