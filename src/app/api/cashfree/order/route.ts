@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { getServerPrice, getServerPricingForCountry, ALL_COUNTRIES } from '@/lib/pricing';
 import { createPendingOrder } from '@/lib/db';
+import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
 
 const CASHFREE_BASE_URL =
   process.env.CASHFREE_ENV === 'production'
@@ -108,10 +109,12 @@ function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: number } {
 }
 
 export async function POST(request: NextRequest) {
+  const requestId = getRequestId(request);
   try {
     const session = await auth();
     if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      logger.warn('payment.order_failed', { route: '/api/cashfree/order', requestId, errorCode: 'unauthorized' });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: { 'x-request-id': requestId } });
     }
 
     if (!process.env.CASHFREE_APP_ID || !process.env.CASHFREE_SECRET_KEY) {
@@ -126,9 +129,10 @@ export async function POST(request: NextRequest) {
 
     const { allowed, retryAfter } = checkRateLimit(ip);
     if (!allowed) {
+      logger.warn('api.rate_limited', { route: '/api/cashfree/order', requestId, userIdHash: hashUserId(session.user.id) });
       return NextResponse.json(
         { error: 'Too many requests' },
-        { status: 429, headers: { 'Retry-After': String(retryAfter || 60) } }
+        { status: 429, headers: { 'Retry-After': String(retryAfter || 60), 'x-request-id': requestId } }
       );
     }
 
@@ -192,15 +196,19 @@ export async function POST(request: NextRequest) {
       currency: finalCurrency,
     });
 
-    return NextResponse.json({
+    logger.info('payment.order_created', { route: '/api/cashfree/order', requestId, userIdHash: hashUserId(session.user.id), plan, currency: finalCurrency });
+
+    const res = NextResponse.json({
       orderId: order.order_id,
       paymentSessionId: order.payment_session_id,
     });
+    res.headers.set('x-request-id', requestId);
+    return res;
   } catch (error) {
-    console.error('Cashfree order creation failed:', error instanceof Error ? error.message : 'Unknown error');
+    logger.error('payment.order_failed', { route: '/api/cashfree/order', requestId, errorCode: (error as Error)?.message?.slice(0, 100) || 'unknown' });
     return NextResponse.json(
       { error: 'Failed to create payment order' },
-      { status: 500 }
+      { status: 500, headers: { 'x-request-id': requestId } }
     );
   }
 }

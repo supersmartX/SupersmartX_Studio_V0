@@ -14,13 +14,18 @@ function isPublicRoute(pathname: string): boolean {
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const requestId = req.headers.get('x-request-id') || globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   if (!pathname.startsWith('/api/')) {
-    return NextResponse.next();
+    const res = NextResponse.next();
+    res.headers.set('x-request-id', requestId);
+    return res;
   }
 
   if (isPublicRoute(pathname)) {
-    return NextResponse.next();
+    const res = NextResponse.next();
+    res.headers.set('x-request-id', requestId);
+    return res;
   }
 
   const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
@@ -35,10 +40,14 @@ export async function middleware(req: NextRequest) {
   });
 
   if (!token?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const res = NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    res.headers.set('x-request-id', requestId);
+    return res;
   }
 
-  return NextResponse.next();
+  const res = NextResponse.next();
+  res.headers.set('x-request-id', requestId);
+  return res;
 }
 
 export const config = {
