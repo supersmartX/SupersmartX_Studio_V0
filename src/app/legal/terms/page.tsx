@@ -1,8 +1,17 @@
 import type { Metadata } from 'next';
 
+import { SEO_CONFIG } from '@/lib/seo/config';
+
 export const metadata: Metadata = {
   title: 'Terms of Service | SupersmartX Studio',
-  description: 'Terms of Service for SupersmartX Studio.',
+  description: 'Terms of Service for SupersmartX Studio — browser-based teleprompter and recording.',
+  alternates: { canonical: `${SEO_CONFIG.siteUrl}/legal/terms` },
+  openGraph: {
+    title: 'Terms of Service | SupersmartX Studio',
+    description: 'Terms for using SupersmartX Studio.',
+    url: `${SEO_CONFIG.siteUrl}/legal/terms`,
+    type: 'article',
+  },
 };
 
 export default function TermsPage() {

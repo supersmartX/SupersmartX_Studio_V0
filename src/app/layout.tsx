@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/components/auth/AuthProvider';
+import { SEO_CONFIG } from '@/lib/seo/config';
+import { JsonLd, organizationSchema, websiteSchema, softwareApplicationSchema } from '@/components/seo/JsonLd';
 import './globals.css';
 
 const inter = Inter({
@@ -17,9 +19,15 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'SupersmartX Studio',
-  description:
-    'Interactive Teleprompter and Video Script Reader — Record professional videos from your browser.',
+  title: {
+    default: SEO_CONFIG.defaultTitle,
+    template: `%s | ${SEO_CONFIG.siteName}`,
+  },
+  description: SEO_CONFIG.defaultDescription,
+  metadataBase: new URL(SEO_CONFIG.siteUrl),
+  alternates: {
+    canonical: SEO_CONFIG.siteUrl,
+  },
   icons: {
     icon: [
       { url: '/brand/studio/icon/favicon-32.png', sizes: '32x32', type: 'image/png' },
@@ -32,28 +40,29 @@ export const metadata: Metadata = {
       { rel: 'icon', url: '/brand/studio/icon/favicon.svg', type: 'image/svg+xml' },
     ],
   },
-  metadataBase: new URL('https://www.supersmartx.com'),
   openGraph: {
-    title: 'SupersmartX Studio',
-    description: 'Interactive Teleprompter and Video Script Reader — Record professional videos from your browser.',
-    url: 'https://www.supersmartx.com',
-    siteName: 'SupersmartX Studio',
+    title: SEO_CONFIG.defaultTitle,
+    description: SEO_CONFIG.defaultDescription,
+    url: SEO_CONFIG.siteUrl,
+    siteName: SEO_CONFIG.siteName,
     images: [
       {
-        url: '/brand/studio/exports/social/og-image-1200x630.png',
+        url: SEO_CONFIG.defaultImage,
         width: 1200,
         height: 630,
-        alt: 'SupersmartX Studio',
+        alt: SEO_CONFIG.siteName,
       },
     ],
     type: 'website',
+    locale: 'en_US',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'SupersmartX Studio',
-    description: 'Interactive Teleprompter and Video Script Reader — Record professional videos from your browser.',
-    images: ['/brand/studio/exports/social/og-image-1200x630.png'],
+    title: SEO_CONFIG.defaultTitle,
+    description: SEO_CONFIG.defaultDescription,
+    images: [SEO_CONFIG.defaultImage],
   },
+  robots: SEO_CONFIG.defaultRobots,
 };
 
 export default function RootLayout({
@@ -68,6 +77,9 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `try{document.querySelectorAll('[fdprocessedid]').forEach(function(e){e.removeAttribute('fdprocessedid')})}catch(e){}`,
           }}
+        />
+        <JsonLd
+          data={[organizationSchema(), websiteSchema(), softwareApplicationSchema()]}
         />
       </head>
       <body

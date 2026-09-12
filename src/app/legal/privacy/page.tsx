@@ -1,8 +1,17 @@
 import type { Metadata } from 'next';
 
+import { SEO_CONFIG } from '@/lib/seo/config';
+
 export const metadata: Metadata = {
   title: 'Privacy Policy | SupersmartX Studio',
-  description: 'Privacy Policy for SupersmartX Studio.',
+  description: 'Privacy Policy for SupersmartX Studio — how scripts, recordings and payments are handled. Local-first, private by design.',
+  alternates: { canonical: `${SEO_CONFIG.siteUrl}/legal/privacy` },
+  openGraph: {
+    title: 'Privacy Policy | SupersmartX Studio',
+    description: 'How SupersmartX Studio handles scripts, recordings and payments.',
+    url: `${SEO_CONFIG.siteUrl}/legal/privacy`,
+    type: 'article',
+  },
 };
 
 export default function PrivacyPage() {

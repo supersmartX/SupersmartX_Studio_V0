@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { getPricingForCountry, formatPrice, formatPriceZero, formatSavingsPercent } from '@/lib/pricing';
 import { PRICING_PLANS } from '@/constants';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { SEO_CONFIG } from '@/lib/seo/config';
 import '@/styles/pricing.css';
 
 const NAV_LINKS = [
@@ -701,6 +703,41 @@ export default function LandingPage() {
 
       <GrainOverlay />
       <HeroVideo />
+      <JsonLd
+        data={{
+          '@context': 'https://schema.org',
+          '@type': 'BreadcrumbList',
+          itemListElement: [
+            { '@type': 'ListItem', position: 1, name: 'Home', item: SEO_CONFIG.siteUrl },
+            { '@type': 'ListItem', position: 2, name: 'Pricing', item: `${SEO_CONFIG.siteUrl}/#pricing` },
+            { '@type': 'ListItem', position: 3, name: 'How It Works', item: `${SEO_CONFIG.siteUrl}/#how-it-works` },
+          ],
+        }}
+      />
+      <JsonLd
+        data={{
+          '@context': 'https://schema.org',
+          '@type': 'HowTo',
+          name: 'How to record with SupersmartX Studio',
+          totalTime: 'PT5M',
+          step: [
+            { '@type': 'HowToStep', name: 'Write your script', text: 'Type, paste, or generate a script. The teleprompter scrolls at your pace.' },
+            { '@type': 'HowToStep', name: 'Record yourself', text: 'Use your webcam with teleprompter overlay. Pause and resume until it feels right.' },
+            { '@type': 'HowToStep', name: 'Export and share', text: 'Download in 1080p and share to YouTube, LinkedIn or any platform.' },
+          ],
+        }}
+      />
+      <JsonLd
+        data={{
+          '@context': 'https://schema.org',
+          '@type': 'FAQPage',
+          mainEntity: [
+            { '@type': 'Question', name: 'What is SupersmartX Studio?', acceptedAnswer: { '@type': 'Answer', text: 'SupersmartX Studio is a browser-based teleprompter and video recording studio for creators.' } },
+            { '@type': 'Question', name: 'How much does SupersmartX Studio cost?', acceptedAnswer: { '@type': 'Answer', text: 'Free $0 and Creator $7.99 per month. Creator includes up to 30 minutes per video and unlimited exports.' } },
+            { '@type': 'Question', name: 'Is there a watermark on the free plan?', acceptedAnswer: { '@type': 'Answer', text: 'Yes, free exports include a watermark. Creator has no watermark.' } },
+          ],
+        }}
+      />
 
       <div
         className="lsx-page"
@@ -924,6 +961,52 @@ export default function LandingPage() {
                   {PRICING_PLANS.creator.cta}
                 </button>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="lsx-section" id="faq" aria-labelledby="faq-title">
+          <div className="lsx-section-inner">
+            <div className="lsx-section-header">
+              <span className="lsx-section-label">FAQ</span>
+              <h2 id="faq-title" className="lsx-section-title">Frequently asked questions</h2>
+              <p className="lsx-section-subtitle">Answers about pricing, recording limits, and privacy.</p>
+            </div>
+            <div className="max-w-3xl mx-auto space-y-4 text-left">
+              {[
+                {
+                  q: 'What is SupersmartX Studio?',
+                  a: 'SupersmartX Studio is a browser-based teleprompter and video recording studio. It helps you read scripts while maintaining eye contact and record professional videos without installs.',
+                },
+                {
+                  q: 'Who is SupersmartX Studio for?',
+                  a: 'Creators, educators, founders, sales teams, teachers and podcasters who need to record presentations, YouTube videos, courses and pitches.',
+                },
+                {
+                  q: 'How does it work?',
+                  a: 'Write or paste your script, open the teleprompter overlay, record with your webcam, then export in 1080p for YouTube, Instagram, TikTok or LinkedIn.',
+                },
+                {
+                  q: 'How much does SupersmartX Studio cost?',
+                  a: 'Free $0 forever with teleprompter, 3-minute videos, 1 platform per video, 3 exports per month and watermark. Creator $7.99 per month includes up to 30 minutes per video, unlimited exports, all platforms, crop and reframe, and no watermark.',
+                },
+                {
+                  q: 'Is there a watermark on the free plan?',
+                  a: 'Yes, free exports include a SupersmartX watermark. Creator exports have no watermark.',
+                },
+                {
+                  q: 'What is the maximum recording length?',
+                  a: 'Free: up to 3 minutes per video. Creator: up to 30 minutes per video.',
+                },
+              ].map((item) => (
+                <details key={item.q} className="group bg-white/[0.02] border border-white/5 rounded-xl p-5 open:bg-white/[0.03]">
+                  <summary className="cursor-pointer list-none flex items-center justify-between gap-4">
+                    <h3 className="text-[15px] font-medium text-white">{item.q}</h3>
+                    <span className="text-accent group-open:rotate-180 transition-transform">⌃</span>
+                  </summary>
+                  <p className="mt-3 text-[14px] leading-relaxed text-white/60">{item.a}</p>
+                </details>
+              ))}
             </div>
           </div>
         </section>
