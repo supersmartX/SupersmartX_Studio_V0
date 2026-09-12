@@ -72,7 +72,9 @@ async function createCashfreeOrder(data: { amount: number; currency: string; pla
   });
 
   if (!response.ok) {
-    throw new Error(`Cashfree API returned ${response.status}`);
+    const body = await response.text().catch(() => '');
+    const snippet = body.slice(0, 500).replace(/"x-client-secret"\s*:\s*"[^"]+"/g, '"x-client-secret":"[REDACTED]"');
+    throw new Error(`Cashfree API ${response.status}: ${snippet || response.statusText}`);
   }
 
   return response.json();
