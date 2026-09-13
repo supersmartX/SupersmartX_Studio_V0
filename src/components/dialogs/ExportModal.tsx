@@ -13,6 +13,7 @@ import type { ExportStep, PlatformId, ExportConfig, MasterRecording, ExportJob }
 import { PLATFORM_PRESETS } from '@/constants';
 import { formatTime } from '@/utils/format';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
+import { computePreviewStyle, getSafeAreaInset } from '@/lib/composition';
 
 interface ExportModalProps {
   isVisible: boolean;
@@ -410,68 +411,128 @@ export function ExportModal({
                   <video
                     src={masterRecording.url}
                     className="w-full h-full"
-                    style={{
-                      objectFit: 'cover',
-                      objectPosition: `${-(exportConfig.crop.x / (masterRecording.sourceWidth || 1920)) * 100}% ${-(exportConfig.crop.y / (masterRecording.sourceHeight || 1080)) * 100}%`,
-                      transform: `scale(${exportConfig.crop.zoom})`,
-                      transformOrigin: 'center center',
-                    }}
+                    style={computePreviewStyle(exportConfig.crop, masterRecording.sourceWidth || 1920, masterRecording.sourceHeight || 1080)}
                     autoPlay
                     loop
                     muted
                     playsInline
                   />
+                  {/* Safe-area guidance — editor only, not baked into export */}
+                  <div
+                    className="absolute inset-0 pointer-events-none border border-white/20"
+                    style={{
+                      margin: getSafeAreaInset(exportConfig.aspectRatio),
+                      borderStyle: 'dashed',
+                    }}
+                    aria-hidden
+                  />
+                  <div className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[9px] tracking-widest text-white/60 bg-black/40 px-1.5 py-0.5 rounded pointer-events-none">
+                    SAFE AREA
+                  </div>
                 </div>
               </div>
 
               {entitlementsView.canCrop ? (
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      const newX = exportConfig.crop.x - 50;
-                      const maxX = (masterRecording.sourceWidth || 1920) - exportConfig.crop.width;
-                      onUpdateCrop({ x: Math.max(0, Math.min(newX, maxX)) });
-                    }}
-                  >
-                    ←
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      const srcW = masterRecording.sourceWidth || 1920;
-                      const srcH = masterRecording.sourceHeight || 1080;
-                      const centerX = (srcW - exportConfig.crop.width) / 2;
-                      const centerY = (srcH - exportConfig.crop.height) / 2;
-                      onUpdateCrop({ x: Math.round(centerX), y: Math.round(centerY) });
-                    }}
-                  >
-                    Center
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      const newX = exportConfig.crop.x + 50;
-                      const maxX = (masterRecording.sourceWidth || 1920) - exportConfig.crop.width;
-                      onUpdateCrop({ x: Math.max(0, Math.min(newX, maxX)) });
-                    }}
-                  >
-                    →
-                  </Button>
-                  <div className="flex-1 mx-2">
-                    <input
-                      type="range"
-                      min="1"
-                      max="2"
-                      step="0.1"
-                      value={exportConfig.crop.zoom}
-                      onChange={(e) => onUpdateCrop({ zoom: parseFloat(e.target.value) })}
-                      className="w-full h-1 accent-accent"
-                    />
-                    <span className="text-[12px] text-text-secondary">Zoom</span>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const newX = exportConfig.crop.x - 50;
+                        const maxX = (masterRecording.sourceWidth || 1920) - exportConfig.crop.width;
+                        onUpdateCrop({ x: Math.max(0, Math.min(newX, maxX)) });
+                      }}
+                    >
+                      ←
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const srcW = masterRecording.sourceWidth || 1920;
+                        const srcH = masterRecording.sourceHeight || 1080;
+                        const centerX = (srcW - exportConfig.crop.width) / 2;
+                        const centerY = (srcH - exportConfig.crop.height) / 2;
+                        onUpdateCrop({ x: Math.round(centerX), y: Math.round(centerY) });
+                      }}
+                    >
+                      Center
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const newX = exportConfig.crop.x + 50;
+                        const maxX = (masterRecording.sourceWidth || 1920) - exportConfig.crop.width;
+                        onUpdateCrop({ x: Math.max(0, Math.min(newX, maxX)) });
+                      }}
+                    >
+                      →
+                    </Button>
+                    <div className="flex items-center gap-1 ml-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          const newY = exportConfig.crop.y - 50;
+                          const maxY = (masterRecording.sourceHeight || 1080) - exportConfig.crop.height;
+                          onUpdateCrop({ y: Math.max(0, Math.min(newY, maxY)) });
+                        }}
+                      >
+                        ↑
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          const newY = exportConfig.crop.y + 50;
+                          const maxY = (masterRecording.sourceHeight || 1080) - exportConfig.crop.height;
+                          onUpdateCrop({ y: Math.max(0, Math.min(newY, maxY)) });
+                        }}
+                      >
+                        ↓
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-text-secondary">Focal:</span>
+                    {(['center','left','right','top','bottom'] as const).map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => {
+                          const srcW = masterRecording.sourceWidth || 1920;
+                          const srcH = masterRecording.sourceHeight || 1080;
+                          const targetW = exportConfig.outputWidth;
+                          const targetH = exportConfig.outputHeight;
+                          const targetRatio = targetW / targetH;
+                          const sourceRatio = srcW / srcH;
+                          let cropW: number, cropH: number;
+                          if (targetRatio > sourceRatio) { cropW = srcW; cropH = srcW / targetRatio; } else { cropH = srcH; cropW = srcH * targetRatio; }
+                          let x = (srcW - cropW) / 2, y = (srcH - cropH) / 2;
+                          if (f === 'left') x = 0;
+                          if (f === 'right') x = srcW - cropW;
+                          if (f === 'top') y = 0;
+                          if (f === 'bottom') y = srcH - cropH;
+                          onUpdateCrop({ x: Math.round(x), y: Math.round(y), zoom: 1 });
+                        }}
+                        className="text-[11px] px-2 py-1 rounded bg-elevated hover:bg-surface-secondary border border-border-subtle"
+                      >
+                        {f}
+                      </button>
+                    ))}
+                    <div className="flex-1 mx-2 flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="1"
+                        max="2"
+                        step="0.1"
+                        value={exportConfig.crop.zoom}
+                        onChange={(e) => onUpdateCrop({ zoom: parseFloat(e.target.value) })}
+                        className="w-full h-1 accent-accent"
+                      />
+                      <span className="text-[12px] text-text-secondary">Zoom {exportConfig.crop.zoom.toFixed(1)}x</span>
+                    </div>
                   </div>
                 </div>
               ) : (

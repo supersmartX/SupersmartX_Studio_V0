@@ -18,35 +18,12 @@ export interface PreviewOptions {
 
 export async function trimBlobToSeconds(
   blob: Blob,
-  maxSeconds: number
+  _maxSeconds: number
 ): Promise<Blob> {
-  const video = document.createElement('video');
-  const url = URL.createObjectURL(blob);
-
-  return new Promise((resolve) => {
-    video.preload = 'metadata';
-    video.muted = true;
-
-    video.onloadedmetadata = () => {
-      const totalDuration = video.duration;
-      URL.revokeObjectURL(url);
-
-      if (totalDuration <= maxSeconds || !isFinite(totalDuration)) {
-        resolve(blob);
-        return;
-      }
-
-      const trimmed = blob.slice(0, blob.size * (maxSeconds / totalDuration), blob.type);
-      resolve(trimmed);
-    };
-
-    video.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(blob);
-    };
-
-    video.src = url;
-  });
+  // Intentionally no byte-slicing — slicing an MP4/WebM by bytes corrupts the container.
+  // Guest preview limit is enforced at UI level via VideoPlayer timeupdate (15s clamp),
+  // not by truncating the Blob. Return original blob intact.
+  return blob;
 }
 
 export function createWatermarkOverlay(

@@ -1,7 +1,7 @@
 'use client';
 
 const DB_NAME = 'sxs-studio';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'local-exports';
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -22,19 +22,27 @@ function openDB(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
+      // Idempotent migration: create missing stores without deleting existing data
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
         store.createIndex('createdAt', 'createdAt', { unique: false });
         store.createIndex('expiresAt', 'expiresAt', { unique: false });
       }
-      // Also ensure recordings store exists (from recording-store)
+      // Ensure recordings store exists (shared DB with recording-store.ts)
       if (!db.objectStoreNames.contains('recordings')) {
         const store = db.createObjectStore('recordings', { keyPath: 'id' });
         store.createIndex('createdAt', 'createdAt', { unique: false });
         store.createIndex('expiresAt', 'expiresAt', { unique: false });
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onblocked = () => console.warn('[IDB] open blocked — close other tabs');
+    req.onsuccess = () => {
+      const db = req.result;
+      // Safety: if DB was created at version 1 before this fix and missing a store,
+      // the version bump to 2 guarantees onupgradeneeded runs. For edge cases where
+      // version already 2 but store still missing (manual deletion), handle gracefully in callers.
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
   });
 }

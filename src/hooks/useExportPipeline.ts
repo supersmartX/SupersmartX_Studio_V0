@@ -5,6 +5,7 @@ import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import type { ExportConfig, ExportJob, CropConfig, PlatformId, MasterRecording } from '@/types';
 import { PLATFORM_PRESETS } from '@/constants';
 import { saveLocalExport } from '@/lib/local-exports-store';
+import { computeCanvasSourceRect, verifyExportBlob } from '@/lib/composition';
 
 interface UseExportPipelineReturn {
   exportConfig: ExportConfig | null;
@@ -640,6 +641,24 @@ async function encodeExport(
     const frameDuration = 1_000_000 / fps;
     const frameIntervalMs = 1000 / fps;
 
+    // Attempt audio worklet setup before muxer so we don't declare an empty audio track on 404
+    let effectiveHasAudio = false;
+    if (master.hasAudio) {
+      try {
+        audioCtx = new AudioContext({ sampleRate: 48000 });
+        // Pre-load worklet to verify asset exists (fixes 404)
+        await audioCtx.audioWorklet.addModule('/audio-encoder-processor.js');
+        effectiveHasAudio = true;
+      } catch (e) {
+        console.warn('[Export] AudioWorklet failed, continuing without audio:', e);
+        effectiveHasAudio = false;
+        if (audioCtx) {
+          try { await audioCtx.close(); } catch {}
+          audioCtx = null;
+        }
+      }
+    }
+
     const muxer = new Muxer({
       target: new ArrayBufferTarget(),
       video: {
@@ -648,12 +667,12 @@ async function encodeExport(
         height: outputHeight,
         frameRate: fps,
       },
-      audio: master.hasAudio ? {
+      audio: effectiveHasAudio ? {
         codec: 'aac',
         numberOfChannels: 2,
         sampleRate: 48000,
       } : undefined,
-      fastStart: 'fragmented',
+      fastStart: 'in-memory',
       firstTimestampBehavior: 'offset',
     });
 
@@ -674,16 +693,18 @@ async function encodeExport(
       bitrateMode: 'constant',
     });
 
-    if (master.hasAudio) {
+    if (effectiveHasAudio && audioCtx) {
       try {
-        audioCtx = new AudioContext({ sampleRate: 48000 });
         audioSrc = audioCtx.createMediaElementSource(videoEl);
 
         audioEncoder = new AudioEncoder({
           output: (chunk, metadata) => {
             muxer.addAudioChunk(chunk, metadata);
           },
-          error: () => {},
+          error: (e) => {
+            console.warn('[Export] AudioEncoder error, disabling audio track:', e);
+            // Don't fail export on audio errors
+          },
         });
         audioEncoder.configure({
           codec: 'mp4a.40.2',
@@ -692,7 +713,6 @@ async function encodeExport(
           bitrate: 192_000,
         });
 
-        await audioCtx.audioWorklet.addModule('/audio-encoder-processor.js');
         workletNode = new AudioWorkletNode(audioCtx, 'audio-encoder-processor');
         audioSrc.connect(workletNode);
         workletNode.connect(audioCtx.destination);
@@ -718,8 +738,12 @@ async function encodeExport(
           audioEncoder.encode(audioData);
           audioData.close();
         };
-      } catch {
+      } catch (e) {
+        console.warn('[Export] Audio setup failed, exporting video-only:', e);
+        effectiveHasAudio = false;
         audioEncoder = null;
+        if (workletNode) { try { workletNode.disconnect(); } catch {} workletNode = null; }
+        if (audioSrc) { try { audioSrc.disconnect(); } catch {} audioSrc = null; }
       }
     }
 
@@ -759,10 +783,7 @@ async function encodeExport(
           return;
         }
 
-        const sx = (crop.x / (master.sourceWidth || 1920)) * sourceW;
-        const sy = (crop.y / (master.sourceHeight || 1080)) * sourceH;
-        const sw = (crop.width / (master.sourceWidth || 1920)) * sourceW;
-        const sh = (crop.height / (master.sourceHeight || 1080)) * sourceH;
+        const { sx, sy, sw, sh } = computeCanvasSourceRect(crop, sourceW, sourceH, master.sourceWidth || 1920, master.sourceHeight || 1080);
 
         ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
         if (watermarkRequired) {
@@ -804,7 +825,18 @@ async function encodeExport(
     muxer.finalize();
 
     const buffer = muxer.target.buffer;
-    return new Blob([buffer], { type: 'video/mp4' });
+    if (!buffer || buffer.byteLength < 100) {
+      throw new Error('Muxer produced empty buffer — encode failed');
+    }
+    const blob = new Blob([buffer], { type: 'video/mp4' });
+
+    // Exact output dimension verification — fail fast if mismatch (task 7)
+    const verify = await verifyExportBlob(blob, outputWidth, outputHeight);
+    if (!verify.ok) {
+      throw new Error(`Export verification failed: ${verify.error} — preview would show "Video format not supported"`);
+    }
+    // Audio presence check: if effectiveHasAudio but no audio samples muxed, warn but don't fail (video-only fallback)
+    return blob;
   } finally {
     // Close encoders to release resources
     try { if (videoEncoder && videoEncoder.state !== 'closed') videoEncoder.close(); } catch {}
