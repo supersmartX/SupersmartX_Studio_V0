@@ -70,21 +70,31 @@ export default function HomePage() {
   const ui = useStudioUI();
   const { masterRecording: masterRecordingData, createMasterRecording, clearMasterRecording, restoreMasterRecording } = useMasterRecording();
 
+  const [pendingPricingAfterAuth, setPendingPricingAfterAuth] = useState(false);
+
   const handlePricingClick = useCallback(() => {
-    if (!session?.user) {
-      ui.setIsAuthModalOpen(true);
-    } else {
-      ui.setIsPricingModalOpen(true);
-    }
-  }, [session, ui]);
+    ui.setIsPricingModalOpen(true);
+  }, [ui]);
 
   const handleUpgradeClick = useCallback(() => {
-    if (!session?.user) {
-      ui.setIsAuthModalOpen(true);
-    } else {
-      ui.setIsPricingModalOpen(true);
+    ui.setIsPricingModalOpen(true);
+  }, [ui]);
+
+  const handlePricingAuthRequired = useCallback(() => {
+    setPendingPricingAfterAuth(true);
+    ui.setIsPricingModalOpen(false);
+    ui.setIsAuthModalOpen(true);
+  }, [ui]);
+
+  const handleAuthSuccessWithPricing = useCallback(() => {
+    ui.handleAuthSuccess();
+    if (pendingPricingAfterAuth) {
+      setPendingPricingAfterAuth(false);
+      // Reopen pricing after login so guest can continue checkout
+      setTimeout(() => ui.setIsPricingModalOpen(true), 250);
+      showToast('Logged in — continue to checkout');
     }
-  }, [session, ui]);
+  }, [pendingPricingAfterAuth, ui, showToast]);
   const entitlements = getEntitlements((session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free');
   const { elapsedSeconds, resetTimer } = useRecordingTimer({
     recordingState: recorder.recordingState,
@@ -575,16 +585,16 @@ export default function HomePage() {
         showToast={showToast}
         userPlan={session?.user?.plan || 'free'}
         isAuthenticated={!!session?.user}
-        onAuthRequired={() => {
-          ui.setIsPricingModalOpen(false);
-          ui.setIsAuthModalOpen(true);
-        }}
+        onAuthRequired={handlePricingAuthRequired}
       />
 
       <AuthModal
         isOpen={ui.isAuthModalOpen}
-        onClose={() => ui.setIsAuthModalOpen(false)}
-        onSuccess={ui.handleAuthSuccess}
+        onClose={() => {
+          setPendingPricingAfterAuth(false);
+          ui.setIsAuthModalOpen(false);
+        }}
+        onSuccess={handleAuthSuccessWithPricing}
         mode="download"
       />
 
