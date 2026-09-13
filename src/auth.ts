@@ -111,10 +111,33 @@ const fullAuthConfig = {
   providers,
   callbacks: {
     ...authConfig.callbacks,
-    async jwt({ token, user }: { token: JWT; user: User | null }) {
+    async jwt({ token, user, account }: { token: JWT; user: User | null; account?: any }) {
       if (user) {
         token.id = user.id as string;
         token.image = user.image;
+        // OAuth first login: ensure DB user exists to satisfy pending_orders FK
+        if (account && account.provider !== 'credentials' && token.email) {
+          try {
+            await ensureMigration();
+            const existing = await findUserByEmail(token.email as string);
+            if (!existing) {
+              const { getDb } = await import('./lib/db/driver');
+              const { ensureMigrated } = await import('./lib/db');
+              await ensureMigrated();
+              const db = getDb();
+              const stubHash = `$oauth$${(globalThis.crypto?.randomUUID?.() || Date.now().toString(36))}`;
+              try {
+                await db.execute({
+                  sql: 'INSERT OR IGNORE INTO users (id, email, name, password_hash, created_at, plan) VALUES (?, ?, ?, ?, ?, ?)',
+                  args: [token.id as string, (token.email as string).toLowerCase(), (user.name || token.name || 'User') as string, stubHash, new Date().toISOString(), 'free'],
+                });
+              } catch {}
+            } else if (existing.id !== token.id) {
+              // Align token.id to DB id for FK consistency
+              token.id = existing.id;
+            }
+          } catch {}
+        }
       }
       if (token.email) {
         await ensureMigration();
