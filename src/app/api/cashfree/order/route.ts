@@ -20,7 +20,7 @@ interface CashfreeOrderRequest {
   country?: string;
   name: string;
   email: string;
-  phone?: string;
+  phone: string;
 }
 
 function sanitizeInput(input: string): string {
@@ -28,11 +28,16 @@ function sanitizeInput(input: string): string {
 }
 
 function sanitizePhone(input: string): string {
-  return input.replace(/[^0-9+\-\s()]/g, '').trim().slice(0, 15);
+  return input.replace(/[^0-9+\-\s()]/g, '').trim().slice(0, 20);
 }
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isValidPhone(phone: string): boolean {
+  const digits = phone.replace(/\D/g, '');
+  return digits.length >= 8 && digits.length <= 15;
 }
 
 function generateId(): string {
@@ -40,9 +45,14 @@ function generateId(): string {
     || Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-async function createCashfreeOrder(data: { amount: number; currency: string; plan: string; name: string; email: string; phone?: string }) {
+async function createCashfreeOrder(data: { amount: number; currency: string; plan: string; name: string; email: string; phone: string }) {
   const orderId = `sxs-${data.plan}-${generateId()}`;
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+  const sanitizedPhone = sanitizePhone(data.phone);
+  if (!isValidPhone(sanitizedPhone)) {
+    throw new Error('Invalid phone number: must contain 8-15 digits');
+  }
 
   const payload = {
     order_id: orderId,
@@ -52,7 +62,7 @@ async function createCashfreeOrder(data: { amount: number; currency: string; pla
       customer_id: `user-${generateId().slice(0, 8)}`,
       customer_name: sanitizeInput(data.name) || 'User',
       customer_email: sanitizeInput(data.email),
-      customer_phone: sanitizePhone(data.phone || ''),
+      customer_phone: sanitizedPhone,
     },
     order_meta: {
       return_url: `${baseUrl}/support/success?order_id={order_id}&plan=${data.plan}`,
@@ -180,6 +190,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid email' }, { status: 400 });
     }
 
+    if (!phone || typeof phone !== 'string' || !isValidPhone(sanitizePhone(phone))) {
+      return NextResponse.json({ error: 'Invalid phone number: 8-15 digits required (include country code, e.g. +919999999999)' }, { status: 400 });
+    }
+
     const order = await createCashfreeOrder({
       amount: serverAmount,
       currency: finalCurrency,
@@ -207,7 +221,19 @@ export async function POST(request: NextRequest) {
     res.headers.set('x-request-id', requestId);
     return res;
   } catch (error) {
-    logger.error('payment.order_failed', { route: '/api/cashfree/order', requestId, errorCode: (error as Error)?.message?.slice(0, 100) || 'unknown' });
+    const msg = (error as Error)?.message || 'unknown';
+    // Surface validation / Cashfree 400 errors as 400 instead of 500
+    if (msg.includes('Invalid phone') || msg.includes('customer_phone') || msg.includes('Cashfree API 400')) {
+      logger.warn('payment.order_failed', { route: '/api/cashfree/order', requestId, errorCode: msg.slice(0, 200) });
+      const clientMsg = msg.includes('Invalid phone')
+        ? msg
+        : 'Invalid payment details: check phone number (8-15 digits with country code)';
+      return NextResponse.json(
+        { error: clientMsg },
+        { status: 400, headers: { 'x-request-id': requestId } }
+      );
+    }
+    logger.error('payment.order_failed', { route: '/api/cashfree/order', requestId, errorCode: msg.slice(0, 100) || 'unknown' });
     return NextResponse.json(
       { error: 'Failed to create payment order' },
       { status: 500, headers: { 'x-request-id': requestId } }

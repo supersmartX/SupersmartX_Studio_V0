@@ -45,6 +45,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [pricing, setPricing] = useState<RegionalPricing | null>(null);
   const [isLoadingPricing, setIsLoadingPricing] = useState(true);
@@ -93,6 +94,11 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     return (currentPricing[key] as number) || 0;
   };
 
+  const isValidPhone = (v: string) => {
+    const digits = v.replace(/\D/g, '');
+    return digits.length >= 8 && digits.length <= 15;
+  };
+
   const handleSubscribe = useCallback(async () => {
     if (!isAuthenticated) {
       handleClose();
@@ -107,13 +113,25 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       return;
     }
 
-    // Use session email/name directly — no separate form step, open Cashfree directly
+    // Always require form step to collect phone (Cashfree requires customer_phone)
+    if (step === 'select') {
+      // Prefill from session if empty
+      if (!email && session?.user?.email) setEmail(session.user.email);
+      if (!name && session?.user?.name) setName(session.user.name);
+      setStep('form');
+      return;
+    }
+
+    // step === 'form' -> validate and create order
     const effectiveEmail = (email || session?.user?.email || '').trim();
     const effectiveName = (name || session?.user?.name || 'User').trim();
+    const effectivePhone = phone.trim();
     if (!effectiveEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(effectiveEmail)) {
-      // Fallback to form if session has no email
-      setStep('form');
       setErrorMessage('Please enter a valid email');
+      return;
+    }
+    if (!effectivePhone || !isValidPhone(effectivePhone)) {
+      setErrorMessage('Please enter a valid phone number (8-15 digits, include country code e.g. +919999999999)');
       return;
     }
 
@@ -136,6 +154,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
           amount: planPrice,
           name: effectiveName,
           email: effectiveEmail,
+          phone: effectivePhone,
         }),
       });
 
@@ -170,7 +189,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       setStep('error');
       setErrorMessage(err instanceof Error ? err.message : 'Something went wrong');
     }
-  }, [selectedPlan, selectedTier, billingPeriod, currentPricing, name, email, showToast, isAuthenticated, onAuthRequired, session]);
+  }, [selectedPlan, selectedTier, billingPeriod, currentPricing, name, email, phone, step, showToast, isAuthenticated, onAuthRequired, session]);
 
   const handleClose = useCallback(() => {
     setStep('select');
@@ -178,6 +197,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     setBillingPeriod('monthly');
     setName('');
     setEmail('');
+    setPhone('');
     setErrorMessage('');
     closeModal();
   }, [closeModal]);
@@ -355,6 +375,33 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                         <p className="text-[11px] text-recording">Please enter a valid email address</p>
                       )}
                     </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">Phone Number <span className="normal-case text-[10px]">(with country code)</span></label>
+                      <input
+                        type="tel"
+                        placeholder="+919999999999"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        onBlur={() => {
+                          if (phone && !isValidPhone(phone)) {
+                            setErrorMessage('Please enter a valid phone number (8-15 digits, include country code)');
+                          } else if (errorMessage.includes('phone')) {
+                            setErrorMessage('');
+                          }
+                        }}
+                        maxLength={20}
+                        className={`w-full px-4 py-3 bg-elevated border rounded-lg text-sm text-text-primary placeholder-text-muted outline-none transition-colors ${
+                          phone && !isValidPhone(phone)
+                            ? 'border-recording focus:border-recording'
+                            : 'border-border-subtle focus:border-accent'
+                        }`}
+                      />
+                      {phone && !isValidPhone(phone) ? (
+                        <p className="text-[11px] text-recording">Include country code, 8-15 digits (e.g. +919999999999, +14155552671)</p>
+                      ) : (
+                        <p className="text-[11px] text-text-muted">Required by Cashfree for payment verification</p>
+                      )}
+                    </div>
                   </div>
 
                   {errorMessage && (
@@ -366,7 +413,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     <Button
                       variant="primary"
                       onClick={handleSubscribe}
-                      disabled={!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)}
+                      disabled={!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !phone || !isValidPhone(phone)}
                       className="flex-1"
                     >
                       Continue to Payment
