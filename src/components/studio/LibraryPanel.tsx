@@ -147,7 +147,9 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile, 
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Defer revoke until the browser has started fetching the blob —
+    // synchronous revoke can abort the download and orphan in-flight blob GETs.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }, []);
 
   return (
