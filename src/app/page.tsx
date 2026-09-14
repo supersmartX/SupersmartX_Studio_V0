@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { getPricingForCountry, formatPrice, formatPriceZero, formatSavingsPercent } from '@/lib/pricing';
 import { PRICING_PLANS } from '@/constants';
@@ -56,9 +57,33 @@ function HeroVideo() {
 
 export default function LandingPage() {
   const router = useRouter();
+  const { data: session } = useSession();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
+
+  // Creator CTA: remember plan, then login → studio opens payment form directly
+  const handleCreatorClick = useCallback(() => {
+    const plan = `creator_${billingPeriod}`;
+    try { window.localStorage.setItem('sxs-pending-plan', plan); } catch {}
+    if (session?.user) {
+      router.push(`/studio?checkout=${plan}`);
+    } else {
+      setIsAuthModalOpen(true);
+    }
+  }, [billingPeriod, session?.user, router]);
+
+  const creatorCallbackUrl = `/studio?checkout=creator_${billingPeriod}`;
+
+  const handleLandingAuthSuccess = useCallback(() => {
+    try {
+      const stored = window.localStorage.getItem('sxs-pending-plan');
+      const plan = stored === 'creator_monthly' || stored === 'creator_yearly' ? stored : `creator_${billingPeriod}`;
+      router.push(`/studio?checkout=${plan}`);
+    } catch {
+      router.push(`/studio?checkout=creator_${billingPeriod}`);
+    }
+  }, [billingPeriod, router]);
 
   const currentPricing = getPricingForCountry('US');
   const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
@@ -955,7 +980,7 @@ export default function LandingPage() {
                 </ul>
                 <button
                   type="button"
-                  onClick={() => setIsAuthModalOpen(true)}
+                  onClick={handleCreatorClick}
                   className="lsx-btn lsx-btn-solid lsx-pricing-btn"
                 >
                   {PRICING_PLANS.creator.cta}
@@ -1023,7 +1048,8 @@ export default function LandingPage() {
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
-        callbackUrl="/studio"
+        callbackUrl={creatorCallbackUrl}
+        onSuccess={handleLandingAuthSuccess}
       />
 
       {menuOpen && (

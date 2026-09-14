@@ -17,6 +17,9 @@ interface PricingModalProps {
   userPlan?: string;
   isAuthenticated?: boolean;
   onAuthRequired?: () => void;
+  initialTier?: TierKey;
+  initialBillingPeriod?: BillingPeriod;
+  initialStep?: 'select' | 'form';
 }
 
 type BillingPeriod = 'monthly' | 'yearly';
@@ -38,7 +41,7 @@ function getPlanId(tier: TierKey, period: BillingPeriod): string {
   return `${tier}_${period}`;
 }
 
-export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthenticated = false, onAuthRequired }: PricingModalProps) {
+export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthenticated = false, onAuthRequired, initialTier, initialBillingPeriod, initialStep }: PricingModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isOpen, onClose);
   const [step, setStep] = useState<'select' | 'form' | 'processing' | 'error'>('select');
   const [selectedTier, setSelectedTier] = useState<TierKey>('creator');
@@ -72,6 +75,25 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     if (isOpen) {
       loadCashfreeSDK().catch(() => {});
     }
+  }, [isOpen]);
+
+  // Apply landing/studio checkout intent on open (e.g. ?checkout=creator_monthly → payment form directly)
+  useEffect(() => {
+    if (!isOpen) return;
+    if (initialTier) setSelectedTier(initialTier);
+    if (initialBillingPeriod) setBillingPeriod(initialBillingPeriod);
+    if (initialStep) {
+      // Prefill from session when jumping straight to payment form
+      if (initialStep === 'form') {
+        if (session?.user?.email) setEmail((prev) => prev || session.user.email as string);
+        if (session?.user?.name) setName((prev) => prev || (session.user.name as string) || prev);
+      }
+      setStep(initialStep);
+    } else {
+      setStep('select');
+    }
+    setErrorMessage('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   const currentPricing = pricing || getPricingForCountry('US');

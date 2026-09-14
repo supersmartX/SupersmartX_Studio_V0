@@ -53,7 +53,7 @@ export default function HomePage() {
   const { share } = useShare(showToast);
   const focusView = useFocusView();
   const scriptStorage = useScriptStorage();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
 
   // Core infrastructure hooks
   const { settings, recordingConfig } = useStudioConfig();
@@ -71,12 +71,17 @@ export default function HomePage() {
   const { masterRecording: masterRecordingData, createMasterRecording, clearMasterRecording, restoreMasterRecording } = useMasterRecording();
 
   const [pendingPricingAfterAuth, setPendingPricingAfterAuth] = useState(false);
+  // Checkout intent from landing page (e.g. ?checkout=creator_monthly → open payment form directly)
+  const [checkoutIntent, setCheckoutIntent] = useState<{ tier: 'creator'; billingPeriod: 'monthly' | 'yearly' } | null>(null);
+  const [pricingInitialStep, setPricingInitialStep] = useState<'select' | 'form'>('select');
 
   const handlePricingClick = useCallback(() => {
+    setPricingInitialStep('select');
     ui.setIsPricingModalOpen(true);
   }, [ui]);
 
   const handleUpgradeClick = useCallback(() => {
+    setPricingInitialStep('select');
     ui.setIsPricingModalOpen(true);
   }, [ui]);
 
@@ -91,10 +96,51 @@ export default function HomePage() {
     if (pendingPricingAfterAuth) {
       setPendingPricingAfterAuth(false);
       // Reopen pricing after login so guest can continue checkout
+      // Preserve checkout intent: go straight to payment form if it came from landing/studio CTA
+      setPricingInitialStep(checkoutIntent ? 'form' : 'select');
       setTimeout(() => ui.setIsPricingModalOpen(true), 250);
       showToast('Logged in — continue to checkout');
+    } else if (checkoutIntent && session?.user) {
+      setPricingInitialStep('form');
+      setTimeout(() => ui.setIsPricingModalOpen(true), 250);
     }
-  }, [pendingPricingAfterAuth, ui, showToast]);
+  }, [pendingPricingAfterAuth, checkoutIntent, session?.user, ui, showToast]);
+
+  // Capture ?checkout=creator_monthly|creator_yearly (landing page) or localStorage pending plan,
+  // then auto-open the payment form. Waits for session load so logged-in users
+  // go straight to payment instead of a stray login prompt.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (sessionStatus === 'loading') return;
+    let intent: { tier: 'creator'; billingPeriod: 'monthly' | 'yearly' } | null = null;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const q = params.get('checkout');
+      if (q === 'creator_monthly') intent = { tier: 'creator', billingPeriod: 'monthly' };
+      else if (q === 'creator_yearly') intent = { tier: 'creator', billingPeriod: 'yearly' };
+      if (!intent) {
+        const stored = window.localStorage.getItem('sxs-pending-plan');
+        if (stored === 'creator_monthly') intent = { tier: 'creator', billingPeriod: 'monthly' };
+        else if (stored === 'creator_yearly') intent = { tier: 'creator', billingPeriod: 'yearly' };
+      }
+    } catch {}
+    if (window.location.search) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    if (!intent) return;
+    setCheckoutIntent(intent);
+    setPricingInitialStep('form');
+    try { window.localStorage.removeItem('sxs-pending-plan'); } catch {}
+    if (session?.user) {
+      const t = setTimeout(() => ui.setIsPricingModalOpen(true), 400);
+      return () => clearTimeout(t);
+    } else {
+      setPendingPricingAfterAuth(true);
+      const t = setTimeout(() => ui.setIsAuthModalOpen(true), 400);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionStatus]);
   const entitlements = getEntitlements((session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free');
   const { elapsedSeconds, resetTimer } = useRecordingTimer({
     recordingState: recorder.recordingState,
@@ -287,13 +333,7 @@ export default function HomePage() {
     setIsInspectorOpen(true);
   }, []);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (window.location.search) {
-        window.history.replaceState({}, '', window.location.pathname);
-      }
-    }
-  }, []);
+  // (checkout intent effect above handles search cleanup)
 
   useKeyboardShortcuts({
     onRecordStop: handleRecordStop,
@@ -581,11 +621,18 @@ export default function HomePage() {
 
       <PricingModal
         isOpen={ui.isPricingModalOpen}
-        onClose={() => ui.setIsPricingModalOpen(false)}
+        onClose={() => {
+          ui.setIsPricingModalOpen(false);
+          setCheckoutIntent(null);
+          setPricingInitialStep('select');
+        }}
         showToast={showToast}
         userPlan={session?.user?.plan || 'free'}
         isAuthenticated={!!session?.user}
         onAuthRequired={handlePricingAuthRequired}
+        initialTier={checkoutIntent?.tier}
+        initialBillingPeriod={checkoutIntent?.billingPeriod}
+        initialStep={pricingInitialStep}
       />
 
       <AuthModal
