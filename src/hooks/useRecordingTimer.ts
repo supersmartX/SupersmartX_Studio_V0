@@ -7,7 +7,8 @@ interface UseRecordingTimerOptions {
   recordingState: RecordingState;
   stopRecording: () => void;
   showToast: (message: string) => void;
-  maxDurationSeconds: number;
+  // null = unlimited (Creator)
+  maxDurationSeconds: number | null;
   resetOnComplete?: boolean;
 }
 
@@ -20,17 +21,14 @@ export function useRecordingTimer({ recordingState, stopRecording, showToast, ma
       timerRef.current = setInterval(() => {
         setElapsedSeconds((prev) => {
           const next = prev + 1;
-          if (Number.isFinite(maxDurationSeconds)) {
+          if (typeof maxDurationSeconds === 'number' && Number.isFinite(maxDurationSeconds)) {
             if (next === maxDurationSeconds - 60) {
-              const mins = Math.ceil(maxDurationSeconds / 60);
-              showToast(`1 minute remaining on ${mins} minute recording limit`);
+              showToast(`1 minute remaining of your 10 min/day Free recording limit`);
             }
             if (next >= maxDurationSeconds) {
               if (timerRef.current) clearInterval(timerRef.current);
               setTimeout(() => stopRecording(), 0);
-              const mins = Math.ceil(maxDurationSeconds / 60);
-              const display = maxDurationSeconds >= 1800 ? `${mins} minute` : `${maxDurationSeconds / 60} minute`;
-              showToast(`Recording stopped — ${display} limit reached`);
+              showToast(`Recording stopped — 10 min/day Free limit reached`);
               return maxDurationSeconds;
             }
           }

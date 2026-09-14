@@ -171,6 +171,10 @@ export function InspectorPanel({
     );
   }
 
+  // Desktop: inline aside panel — respects isOpen so the Settings icon
+  // beside Profile (Header) and BottomNav Settings actually open/close it.
+  if (!isOpen) return null;
+
   return (
     <aside className="hidden lg:flex w-[280px] xl:w-[300px] h-full border-l border-border-subtle bg-surface flex-col shrink-0 overflow-hidden" aria-label="Inspector panel">
       <PanelHeader onClose={onClose} />

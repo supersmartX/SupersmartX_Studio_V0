@@ -37,20 +37,21 @@ describe('security', () => {
   });
 
   describe('free user cannot upload to R2', () => {
-    it('free user entitlements allow export with monthly quota', () => {
+    it('free user entitlements allow unlimited local export/download', () => {
       const entitlements = getEntitlements('free');
       expect(entitlements.canExport).toBe(true);
       expect(entitlements.canDownload).toBe(true);
-      expect(entitlements.maxExportsPerMonth).toBe(3);
+      expect(entitlements.maxExportsPerMonth).toBeNull();
+      expect(entitlements.maxDownloads).toBeNull();
     });
 
-    it('free user can pass canExport check but is quota-limited', async () => {
+    it('free user can pass canExport check with unlimited downloads', async () => {
       const user = await createUser('free@example.com', 'Free User', 'password123');
       const entitlements = getEntitlements(user.plan as PlanType);
 
       expect(user.plan).toBe('free');
       expect(entitlements.canExport).toBe(true);
-      expect(entitlements.maxExportsPerMonth).toBe(3);
+      expect(entitlements.maxExportsPerMonth).toBeNull();
     });
 
     it('free user has limited uploads', () => {
@@ -121,10 +122,10 @@ describe('security', () => {
   });
 
   describe('download entitlements', () => {
-    it('canDownload is true for free user (quota-limited)', () => {
+    it('canDownload is true for free user (unlimited local downloads)', () => {
       const entitlements = getEntitlements('free');
       expect(entitlements.canDownload).toBe(true);
-      expect(entitlements.maxExportsPerMonth).toBe(3);
+      expect(entitlements.maxExportsPerMonth).toBeNull();
     });
 
     it('canDownload is true for creator_monthly', () => {
@@ -272,7 +273,7 @@ describe('security', () => {
 
       const entitlements = getEntitlements(user.plan as PlanType);
       expect(entitlements.canExport).toBe(true);
-      expect(entitlements.maxExportsPerMonth).toBe(3);
+      expect(entitlements.maxExportsPerMonth).toBeNull();
     });
 
     it('expired paid plan is rejected regardless of client claims', () => {
@@ -354,11 +355,11 @@ describe('security', () => {
       expect(entitlements.canDownload).toBe(true);
     });
 
-    it('free has export and download enabled with quota', () => {
+    it('free has export and download enabled without quota', () => {
       const entitlements = getEntitlements('free');
       expect(entitlements.canExport).toBe(true);
       expect(entitlements.canDownload).toBe(true);
-      expect(entitlements.maxExportsPerMonth).toBe(3);
+      expect(entitlements.maxExportsPerMonth).toBeNull();
     });
 
     it('pro has higher resolution limit than creator', () => {

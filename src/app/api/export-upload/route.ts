@@ -148,11 +148,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Duration enforcement if duration is provided
+    // Duration enforcement if duration is provided (null = unlimited Creator)
     const durationParam = formData.get('duration') as string | null;
     if (durationParam) {
       const durationNum = parseFloat(durationParam);
-      if (Number.isFinite(durationNum) && durationNum > entitlements.maxDurationSeconds) {
+      if (
+        Number.isFinite(durationNum) &&
+        entitlements.maxDurationSeconds !== null &&
+        durationNum > entitlements.maxDurationSeconds
+      ) {
         return NextResponse.json(
           { error: `Recording too long. Maximum is ${entitlements.maxDurationSeconds} seconds on your plan` },
           { status: 403 },

@@ -1,8 +1,12 @@
 import type { PlanType } from '@/types/db';
 
-export const FREE_MAX_DURATION_SECONDS = 180;
-export const CREATOR_MAX_DURATION_SECONDS = 1800;
-export const FREE_MONTHLY_EXPORT_LIMIT = 3;
+// FINAL pricing contract:
+// Free: 10 min TOTAL recording/day, 720p, YouTube 16:9, unlimited local downloads, watermark.
+// Creator: unlimited recording, 1080p, all formats, unlimited exports, no watermark.
+// NOTE: recording allowance (min/day) and local downloads (unlimited) are different quotas.
+export const FREE_MAX_DURATION_SECONDS = 600;
+export const FREE_DAILY_RECORDING_SECONDS = 600;
+export const FREE_RESOLUTION = { width: 1280, height: 720 } as const;
 
 export interface PlanEntitlements {
   canExport: boolean;
@@ -10,15 +14,17 @@ export interface PlanEntitlements {
   canBatchExport: boolean;
   canCrop: boolean;
   maxResolution: { width: number; height: number };
-  maxDurationSeconds: number;
+  // null = unlimited recording duration (Creator)
+  maxDurationSeconds: number | null;
   maxDownloads: number | null;
   maxUploads: number | null;
   maxStorageMB: number | null;
+  // null = unlimited (Free local downloads are unlimited — no monthly export quota)
   maxExportsPerMonth: number | null;
   watermarkRequired: boolean;
 }
 
-// Launch entitlements: Only Free + Creator are customer-facing.
+// Only Free + Creator are customer-facing.
 // Pro entries retained for backward compatibility — not exposed in purchase flows.
 const ENTITLEMENTS: Record<PlanType, PlanEntitlements> = {
   free: {
@@ -26,12 +32,12 @@ const ENTITLEMENTS: Record<PlanType, PlanEntitlements> = {
     canDownload: true,
     canBatchExport: false,
     canCrop: false,
-    maxResolution: { width: 1920, height: 1080 },
+    maxResolution: { width: FREE_RESOLUTION.width, height: FREE_RESOLUTION.height },
     maxDurationSeconds: FREE_MAX_DURATION_SECONDS,
     maxDownloads: null,
     maxUploads: 3,
     maxStorageMB: 500,
-    maxExportsPerMonth: FREE_MONTHLY_EXPORT_LIMIT,
+    maxExportsPerMonth: null,
     watermarkRequired: true,
   },
   creator_monthly: {
@@ -40,7 +46,7 @@ const ENTITLEMENTS: Record<PlanType, PlanEntitlements> = {
     canBatchExport: false,
     canCrop: true,
     maxResolution: { width: 1920, height: 1080 },
-    maxDurationSeconds: CREATOR_MAX_DURATION_SECONDS,
+    maxDurationSeconds: null,
     maxDownloads: null,
     maxUploads: null,
     maxStorageMB: null,
@@ -53,7 +59,7 @@ const ENTITLEMENTS: Record<PlanType, PlanEntitlements> = {
     canBatchExport: false,
     canCrop: true,
     maxResolution: { width: 1920, height: 1080 },
-    maxDurationSeconds: CREATOR_MAX_DURATION_SECONDS,
+    maxDurationSeconds: null,
     maxDownloads: null,
     maxUploads: null,
     maxStorageMB: null,
@@ -66,7 +72,7 @@ const ENTITLEMENTS: Record<PlanType, PlanEntitlements> = {
     canBatchExport: true,
     canCrop: true,
     maxResolution: { width: 3840, height: 2160 },
-    maxDurationSeconds: CREATOR_MAX_DURATION_SECONDS,
+    maxDurationSeconds: null,
     maxDownloads: null,
     maxUploads: null,
     maxStorageMB: null,
@@ -79,7 +85,7 @@ const ENTITLEMENTS: Record<PlanType, PlanEntitlements> = {
     canBatchExport: true,
     canCrop: true,
     maxResolution: { width: 3840, height: 2160 },
-    maxDurationSeconds: CREATOR_MAX_DURATION_SECONDS,
+    maxDurationSeconds: null,
     maxDownloads: null,
     maxUploads: null,
     maxStorageMB: null,

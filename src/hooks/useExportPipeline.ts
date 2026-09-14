@@ -218,21 +218,8 @@ export function useExportPipeline(): UseExportPipelineReturn {
 
         // Branch: Free = local-only (no R2), Creator = direct R2 via presigned PUT
         if (watermarkRequired) {
-          // FREE: consume quota via control plane only, no R2 PutObject
-          try {
-            const quotaRes = await fetch('/api/exports/consume-quota', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ platformId: exportConfig.platformId, duration: master.duration }),
-              signal: abortController.signal,
-            });
-            if (!quotaRes.ok) {
-              const err = await quotaRes.json().catch(() => ({ error: 'Quota exceeded' }));
-              throw new Error(err.error || 'Monthly export limit reached');
-            }
-          } catch (e) {
-            throw e;
-          }
+          // FREE: unlimited local downloads — no quota consumed, no R2 PutObject.
+          // Re-downloading the same local export must not count as a new export.
           // Save to IndexedDB local export store (7-day, best-effort)
           try {
             await saveLocalExport({

@@ -7,10 +7,7 @@ import {
   BookOpenIcon,
   BarChartIcon,
   CameraIcon,
-  AudioIcon,
-  MicrophoneOffIcon,
   EyeIcon,
-  SettingsIcon,
   KeyboardIcon,
 } from '@/components/icons';
 
@@ -20,11 +17,8 @@ interface IconRailProps {
   isCameraInitialized: boolean;
   isCameraRequesting: boolean;
   onCameraInitialize: () => void;
-  isMicMuted: boolean;
-  onMicToggle: () => void;
   focusViewEnabled: boolean;
   onFocusViewToggle: () => void;
-  onPreferencesToggle: () => void;
   onOpenTeleprompter: () => void;
   onShowShortcuts: () => void;
   onPricingClick: () => void;
@@ -37,11 +31,8 @@ export function IconRail({
   isCameraInitialized,
   isCameraRequesting,
   onCameraInitialize,
-  isMicMuted,
-  onMicToggle,
   focusViewEnabled,
   onFocusViewToggle,
-  onPreferencesToggle,
   onOpenTeleprompter,
   onShowShortcuts,
   onPricingClick,
@@ -140,26 +131,6 @@ export function IconRail({
           </button>
         </Tooltip>
 
-        <Tooltip content={isMicMuted ? 'Unmute microphone' : 'Mute microphone'} side="right">
-          <button
-            onClick={onMicToggle}
-            aria-pressed={isMicMuted}
-            aria-label={isMicMuted ? 'Unmute microphone' : 'Mute microphone'}
-            className={`flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
-              isMicMuted
-                ? 'text-recording'
-                : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
-            }`}
-          >
-            {isMicMuted ? (
-              <MicrophoneOffIcon className="w-4 h-4" />
-            ) : (
-              <AudioIcon className="w-4 h-4" />
-            )}
-            {isMicMuted ? 'Mic Muted' : 'Audio'}
-          </button>
-        </Tooltip>
-
         <Tooltip content={focusViewEnabled ? 'Disable focus view' : 'Enable focus view'} side="right">
           <button
             onClick={onFocusViewToggle}
@@ -178,19 +149,9 @@ export function IconRail({
 
       <div className="w-full h-px bg-border-subtle mx-3" style={{ width: 'calc(100% - 24px)' }} />
 
-      {/* SETTINGS */}
+      {/* HELP */}
       <div className="flex flex-col gap-0.5 px-3 py-2">
-        <span className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary mb-2 px-2">Settings</span>
-
-        <Tooltip content="Open preferences panel" side="right">
-          <button
-            onClick={onPreferencesToggle}
-            className="flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
-          >
-            <SettingsIcon className="w-4 h-4" />
-            Preferences
-          </button>
-        </Tooltip>
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary mb-2 px-2">Help</span>
 
         <Tooltip content="View keyboard shortcuts" side="right">
           <button
@@ -214,7 +175,7 @@ export function IconRail({
               <span className="text-[11px] font-medium text-text-primary">Active</span>
             </div>
             <p className="text-[12px] text-text-secondary">
-              {isPro ? '4K export & batch processing' : 'Up to 30 min per video & 1080p'}
+              {isPro ? '4K export & batch processing' : 'Unlimited recording & 1080p'}
             </p>
           </div>
         ) : (
@@ -226,7 +187,7 @@ export function IconRail({
               Upgrade to Creator
             </p>
             <p className="text-[12px] text-text-secondary leading-relaxed">
-              Up to 30 min per video &amp; 1080p export.
+              Unlimited recording &amp; 1080p export.
             </p>
             <span className="text-[10px] font-semibold text-accent opacity-0 group-hover:opacity-100 transition-opacity">
               View plans &rarr;

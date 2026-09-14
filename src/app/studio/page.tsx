@@ -21,6 +21,7 @@ import { useStudioCamera } from '@/hooks/useStudioCamera';
 import { useRecordingTimer } from '@/hooks/useRecordingTimer';
 import { useStudioUI } from '@/hooks/useStudioUI';
 import { getEntitlements } from '@/lib/entitlements';
+import { addDailyRecordingSeconds, canRecordToday, getDailyRecordingRemaining } from '@/lib/daily-recording';
 
 import { Header } from '@/components/layout/Header';
 import { IconRail } from '@/components/layout/IconRail';
@@ -54,6 +55,8 @@ export default function HomePage() {
   const focusView = useFocusView();
   const scriptStorage = useScriptStorage();
   const { data: session, status: sessionStatus } = useSession();
+  const userPlan = (session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free';
+  const isCreatorUser = userPlan === 'creator_monthly' || userPlan === 'creator_yearly' || userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
 
   // Core infrastructure hooks
   const { settings, recordingConfig } = useStudioConfig();
@@ -139,14 +142,18 @@ export default function HomePage() {
       const t = setTimeout(() => ui.setIsAuthModalOpen(true), 400);
       return () => clearTimeout(t);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionStatus]);
   const entitlements = getEntitlements((session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free');
+  // Free: a single recording can never exceed the day's remaining budget
+  // (e.g. 4 min used → next recording auto-stops at 6 min). Creator: null = unlimited.
+  const recordingCap = isCreatorUser
+    ? null
+    : Math.max(1, Math.min(entitlements.maxDurationSeconds ?? 600, getDailyRecordingRemaining()));
   const { elapsedSeconds, resetTimer } = useRecordingTimer({
     recordingState: recorder.recordingState,
     stopRecording: recorder.stopRecording,
     showToast,
-    maxDurationSeconds: entitlements.maxDurationSeconds,
+    maxDurationSeconds: recordingCap,
     resetOnComplete: false,
   });
 
@@ -180,6 +187,12 @@ export default function HomePage() {
   useEffect(() => {
     if (recorder.recordingState === 'completed') {
       ui.setIsDrawerVisible(true);
+
+      // Free: accumulate finished recording time toward the 10 min/day budget.
+      // Downloads are unlimited and never consume recording time.
+      if (!isCreatorUser && recorder.recordingResult?.duration) {
+        addDailyRecordingSeconds(recorder.recordingResult.duration);
+      }
 
       if (recorder.recordingResult?.blob) {
         // Extract actual video dimensions from the recorded blob
@@ -217,10 +230,17 @@ export default function HomePage() {
 
       resetTimer();
     }
-  }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height]);
+  }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height, isCreatorUser, ui]);
 
   const handleRecordStart = useCallback(() => {
     if (!camera.stream) return;
+
+    // Free: enforce 10 min TOTAL recording per day (downloads stay unlimited)
+    if (!isCreatorUser && !canRecordToday()) {
+      showToast('Daily recording limit reached (10 min/day on Free). Upgrade to Creator for unlimited recording.');
+      ui.setIsPricingModalOpen(true);
+      return;
+    }
 
     if (prompterContainerRef.current) {
       prompterContainerRef.current.scrollTop = 0;
@@ -245,7 +265,7 @@ export default function HomePage() {
     };
 
     recorder.startRecording(scrollCallback, checkEndCallback);
-  }, [camera.stream, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, resetTimer]);
+  }, [camera.stream, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, resetTimer, isCreatorUser, showToast, ui]);
 
   const handleRecordStop = useCallback(() => {
     if (recorder.recordingState === 'recording' || recorder.recordingState === 'paused') {
@@ -325,7 +345,7 @@ export default function HomePage() {
   }, []);
 
   const handleShowShortcuts = useCallback(() => {
-    showToast('Space: Start/Stop · P: Pause/Resume · M: Mute · ↑↓: Nudge script · Esc: Close');
+    showToast('Space: Start / Stop recording · P: Pause / Resume · M: Mute microphone · ↑ ↓: Move text · Esc: Close');
   }, [showToast]);
 
   const handleOpenTeleprompter = useCallback(() => {
@@ -431,11 +451,8 @@ export default function HomePage() {
             isCameraInitialized={camera.isInitialized}
             isCameraRequesting={camera.status === 'requesting'}
             onCameraInitialize={handleCameraInitialize}
-            isMicMuted={isMicMuted}
-            onMicToggle={handleMicToggle}
             focusViewEnabled={focusView.isEnabled}
             onFocusViewToggle={focusView.toggle}
-            onPreferencesToggle={handleToggleInspector}
             onOpenTeleprompter={handleOpenTeleprompter}
             onShowShortcuts={handleShowShortcuts}
             onPricingClick={handlePricingClick}

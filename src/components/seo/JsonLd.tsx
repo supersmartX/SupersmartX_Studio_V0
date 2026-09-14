@@ -73,9 +73,8 @@ export function softwareApplicationSchema() {
     ],
     featureList: [
       'Teleprompter',
-      'Video recording up to 30 minutes',
-      '1080p export',
-      'Crop and reframe',
+      'Unlimited video recording for Creator, 10 minutes per day for Free',
+      '1080p export for Creator, 720p for Free',
       'Platform presets for YouTube, Instagram, TikTok, LinkedIn',
     ],
   };

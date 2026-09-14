@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getEntitlements, isPlanActive, clampResolution, FREE_MAX_DURATION_SECONDS, CREATOR_MAX_DURATION_SECONDS, FREE_MONTHLY_EXPORT_LIMIT } from '@/lib/entitlements';
+import { getEntitlements, isPlanActive, clampResolution, FREE_MAX_DURATION_SECONDS, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
 import type { PlanType } from '@/types/db';
 
 describe('getEntitlements', () => {
@@ -9,9 +9,9 @@ describe('getEntitlements', () => {
     expect(e.canDownload).toBe(true);
     expect(e.canBatchExport).toBe(false);
     expect(e.canCrop).toBe(false);
-    expect(e.maxResolution).toEqual({ width: 1920, height: 1080 });
-    expect(e.maxDurationSeconds).toBe(180);
-    expect(e.maxExportsPerMonth).toBe(3);
+    expect(e.maxResolution).toEqual({ width: 1280, height: 720 });
+    expect(e.maxDurationSeconds).toBe(600);
+    expect(e.maxExportsPerMonth).toBeNull();
     expect(e.maxUploads).toBe(3);
     expect(e.maxStorageMB).toBe(500);
     expect(e.watermarkRequired).toBe(true);
@@ -24,7 +24,7 @@ describe('getEntitlements', () => {
     expect(e.canBatchExport).toBe(false);
     expect(e.canCrop).toBe(true);
     expect(e.maxResolution).toEqual({ width: 1920, height: 1080 });
-    expect(e.maxDurationSeconds).toBe(1800);
+    expect(e.maxDurationSeconds).toBeNull();
     expect(e.maxExportsPerMonth).toBeNull();
     expect(e.maxUploads).toBeNull();
     expect(e.maxStorageMB).toBeNull();
@@ -36,7 +36,7 @@ describe('getEntitlements', () => {
     expect(e.canExport).toBe(true);
     expect(e.canBatchExport).toBe(false);
     expect(e.canCrop).toBe(true);
-    expect(e.maxDurationSeconds).toBe(1800);
+    expect(e.maxDurationSeconds).toBeNull();
     expect(e.maxExportsPerMonth).toBeNull();
   });
 
@@ -50,13 +50,12 @@ describe('getEntitlements', () => {
   it('falls back to free for unknown plan', () => {
     const e = getEntitlements('unknown' as never);
     expect(e.canCrop).toBe(false);
-    expect(e.maxDurationSeconds).toBe(180);
+    expect(e.maxDurationSeconds).toBe(600);
   });
 
-  it('launch constants match spec', () => {
-    expect(FREE_MAX_DURATION_SECONDS).toBe(180);
-    expect(CREATOR_MAX_DURATION_SECONDS).toBe(1800);
-    expect(FREE_MONTHLY_EXPORT_LIMIT).toBe(3);
+  it('final contract constants match spec', () => {
+    expect(FREE_MAX_DURATION_SECONDS).toBe(600);
+    expect(FREE_DAILY_RECORDING_SECONDS).toBe(600);
   });
 });
 
@@ -100,14 +99,26 @@ describe('clampResolution', () => {
     const result = clampResolution(3840, 2160, { width: 1920, height: 1080 });
     expect(Math.abs(3840/2160 - result.width/result.height)).toBeLessThan(0.01);
   });
+  it('clamps 1080p preset to 720p for free default format', () => {
+    const free = getEntitlements('free');
+    const result = clampResolution(1920, 1080, free.maxResolution);
+    expect(result).toEqual({ width: 1280, height: 720 });
+  });
+  it('keeps 1080p for creator', () => {
+    const creator = getEntitlements('creator_monthly');
+    const result = clampResolution(1920, 1080, creator.maxResolution);
+    expect(result).toEqual({ width: 1920, height: 1080 });
+  });
 });
 
-describe('Launch entitlement matrix', () => {
-  it('free can export but limited to 3/month, no crop', () => {
+describe('Final entitlement matrix', () => {
+  it('free can export unlimited local downloads, no crop', () => {
     const e = getEntitlements('free');
     expect(e.canExport).toBe(true);
+    expect(e.canDownload).toBe(true);
     expect(e.canCrop).toBe(false);
-    expect(e.maxExportsPerMonth).toBe(3);
+    expect(e.maxExportsPerMonth).toBeNull();
+    expect(e.maxDownloads).toBeNull();
   });
   it('creator can export unlimited, can crop', () => {
     for (const plan of ['creator_monthly','creator_yearly'] as PlanType[]) {
@@ -116,17 +127,17 @@ describe('Launch entitlement matrix', () => {
       expect(e.canCrop).toBe(true);
     }
   });
-  it('both launch plans are 1080p, no 4K', () => {
-    expect(getEntitlements('free').maxResolution).toEqual({width:1920,height:1080});
+  it('free is 720p, creator is 1080p, no 4K for customer plans', () => {
+    expect(getEntitlements('free').maxResolution).toEqual({width:1280,height:720});
     expect(getEntitlements('creator_monthly').maxResolution).toEqual({width:1920,height:1080});
   });
   it('batch export disabled for launch plans', () => {
     expect(getEntitlements('free').canBatchExport).toBe(false);
     expect(getEntitlements('creator_monthly').canBatchExport).toBe(false);
   });
-  it('duration limits exact', () => {
-    expect(getEntitlements('free').maxDurationSeconds).toBe(180);
-    expect(getEntitlements('creator_monthly').maxDurationSeconds).toBe(1800);
+  it('duration limits exact (free 10 min/day cap, creator unlimited)', () => {
+    expect(getEntitlements('free').maxDurationSeconds).toBe(600);
+    expect(getEntitlements('creator_monthly').maxDurationSeconds).toBeNull();
   });
   it('watermark required only for free', () => {
     expect(getEntitlements('free').watermarkRequired).toBe(true);

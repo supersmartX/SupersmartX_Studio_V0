@@ -758,7 +758,7 @@ export default function LandingPage() {
           '@type': 'FAQPage',
           mainEntity: [
             { '@type': 'Question', name: 'What is SupersmartX Studio?', acceptedAnswer: { '@type': 'Answer', text: 'SupersmartX Studio is a browser-based teleprompter and video recording studio for creators.' } },
-            { '@type': 'Question', name: 'How much does SupersmartX Studio cost?', acceptedAnswer: { '@type': 'Answer', text: 'Free $0 and Creator $7.99 per month. Creator includes up to 30 minutes per video and unlimited exports.' } },
+            { '@type': 'Question', name: 'How much does SupersmartX Studio cost?', acceptedAnswer: { '@type': 'Answer', text: 'Free $0 and Creator $7.99 per month. Creator includes unlimited recording and unlimited exports.' } },
             { '@type': 'Question', name: 'Is there a watermark on the free plan?', acceptedAnswer: { '@type': 'Answer', text: 'Yes, free exports include a watermark. Creator has no watermark.' } },
           ],
         }}
@@ -1013,7 +1013,7 @@ export default function LandingPage() {
                 },
                 {
                   q: 'How much does SupersmartX Studio cost?',
-                  a: 'Free $0 forever with teleprompter, 3-minute videos, 1 platform per video, 3 exports per month and watermark. Creator $7.99 per month includes up to 30 minutes per video, unlimited exports, all platforms, crop and reframe, and no watermark.',
+                  a: 'Free $0 forever with standard teleprompter, 10 minutes recording per day, YouTube 16:9, 720p, unlimited local downloads and watermark. Creator $7.99 per month includes unlimited recording, unlimited exports, all platform formats, 1080p and no watermark.',
                 },
                 {
                   q: 'Is there a watermark on the free plan?',
@@ -1021,7 +1021,7 @@ export default function LandingPage() {
                 },
                 {
                   q: 'What is the maximum recording length?',
-                  a: 'Free: up to 3 minutes per video. Creator: up to 30 minutes per video.',
+                  a: 'Free: up to 10 minutes recording per day with unlimited local downloads. Creator: unlimited recording.',
                 },
               ].map((item) => (
                 <details key={item.q} className="group bg-white/[0.02] border border-white/5 rounded-xl p-5 open:bg-white/[0.03]">

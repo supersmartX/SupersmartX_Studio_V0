@@ -53,7 +53,7 @@ const REGION_PRICING: Record<string, RegionalPricing> = {
   ZA: { country: 'ZA', currency: 'ZAR', symbol: 'R', locale: 'en-ZA', creatorMonthly: 119.99, creatorYearly: 899.99, proMonthly: 224.99, proYearly: 1799.99, pppIndex: 45 },
   ID: { country: 'ID', currency: 'IDR', symbol: 'Rp', locale: 'id-ID', creatorMonthly: 79900, creatorYearly: 649000, proMonthly: 149900, proYearly: 1299000, pppIndex: 35 },
   BR: { country: 'BR', currency: 'BRL', symbol: 'R$', locale: 'pt-BR', creatorMonthly: 24.99, creatorYearly: 189.99, proMonthly: 46.99, proYearly: 379.99, pppIndex: 38 },
-  IN: { country: 'IN', currency: 'INR', symbol: '₹', locale: 'en-IN', creatorMonthly: 349, creatorYearly: 2490, proMonthly: 649, proYearly: 4990, pppIndex: 25 },
+  IN: { country: 'IN', currency: 'INR', symbol: '₹', locale: 'en-IN', creatorMonthly: 349, creatorYearly: 2899, proMonthly: 649, proYearly: 4990, pppIndex: 25 },
   EG: { country: 'EG', currency: 'EGP', symbol: 'E£', locale: 'ar-EG', creatorMonthly: 169.99, creatorYearly: 1299.99, proMonthly: 319.99, proYearly: 2599.99, pppIndex: 22 },
   PK: { country: 'PK', currency: 'PKR', symbol: '₨', locale: 'en-PK', creatorMonthly: 849, creatorYearly: 6490, proMonthly: 1599, proYearly: 12990, pppIndex: 18 },
   BD: { country: 'BD', currency: 'BDT', symbol: '৳', locale: 'bn-BD', creatorMonthly: 599, creatorYearly: 4490, proMonthly: 1099, proYearly: 8990, pppIndex: 22 },

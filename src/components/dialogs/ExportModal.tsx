@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { DownloadIcon, CloseIcon, ShareIcon, ArrowLeftIcon } from '@/components/icons';
 import { DiscordFeedback } from './DiscordFeedback';
@@ -66,6 +66,12 @@ export function ExportModal({
   const entitlementsView = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
   const canBatch = entitlementsView.canBatchExport;
 
+  // Free plan: only YouTube 16:9 is included. All other formats are Creator-locked.
+  const isCreatorUser = userPlan === 'creator_monthly' || userPlan === 'creator_yearly' || userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
+  const isPlatformLockedForUser = useCallback((platformId: PlatformId) => {
+    return platformId !== 'youtube-landscape' && !isCreatorUser;
+  }, [isCreatorUser]);
+
   const handleSelectPlatform = useCallback((platformId: PlatformId) => {
     if (isGuest) {
       onAuthRequired();
@@ -76,11 +82,36 @@ export function ExportModal({
       onDownloadLimitReached();
       return;
     }
+    if (isPlatformLockedForUser(platformId)) {
+      // Locked format for Free → open upgrade flow, never start an export
+      onDownloadLimitReached();
+      return;
+    }
     const srcW = masterRecording?.sourceWidth || 1920;
     const srcH = masterRecording?.sourceHeight || 1080;
     onSelectPlatform(platformId, srcW, srcH, entitlements.maxResolution);
     setStep('crop');
-  }, [isGuest, onSelectPlatform, masterRecording, userPlan, onAuthRequired, onDownloadLimitReached]);
+  }, [isGuest, onSelectPlatform, masterRecording, userPlan, onAuthRequired, onDownloadLimitReached, isPlatformLockedForUser]);
+
+  // YouTube 16:9 is the default/free format — preselect it so Free users never
+  // have to pick a platform before a basic export. Runs on open and after login.
+  const autoSelectedRef = useRef(false);
+  useEffect(() => {
+    if (!isVisible) {
+      autoSelectedRef.current = false;
+      return;
+    }
+    if (!masterRecording || exportConfig || isGuest || autoSelectedRef.current) return;
+    const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
+    if (!entitlements.canExport) return;
+    autoSelectedRef.current = true;
+    onSelectPlatform(
+      'youtube-landscape',
+      masterRecording.sourceWidth || 1920,
+      masterRecording.sourceHeight || 1080,
+      entitlements.maxResolution,
+    );
+  }, [isVisible, masterRecording, exportConfig, isGuest, userPlan, onSelectPlatform]);
 
   const handleToggleBatchPlatform = useCallback((platformId: PlatformId) => {
     setBatchPlatforms((prev) =>
@@ -143,6 +174,11 @@ export function ExportModal({
       onDownloadLimitReached();
       return;
     }
+    if (!isGuest && isPlatformLockedForUser(exportConfig.platformId)) {
+      // Stale config (e.g. plan changed) — never export a locked format for Free
+      onDownloadLimitReached();
+      return;
+    }
 
     setIsExporting(true);
     setStep('encoding');
@@ -167,7 +203,7 @@ export function ExportModal({
       setIsExporting(false);
       setExportProgress(0);
     }
-  }, [masterRecording, exportConfig, onStartExport, showToast]);
+  }, [masterRecording, exportConfig, onStartExport, showToast, isGuest, isPlatformLockedForUser, onDownloadLimitReached, userPlan]);
 
   const handleDownload = useCallback(async () => {
     const filename = generateFilename('video', 'mp4');
@@ -284,16 +320,13 @@ export function ExportModal({
         <div className="p-4 sm:p-5 flex flex-col gap-4">
           {step === 'platform' && (
             <>
-              {isAuthenticated && userPlan === 'free' && (
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-warning/10 border border-warning/20">
-                  <svg className="w-5 h-5 text-warning shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
+              {isAuthenticated && !isCreatorUser && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-elevated border border-border-subtle">
                   <div className="flex flex-col gap-0.5">
-                    <span className="text-[12px] font-medium text-warning">Free Plan — Export Not Available</span>
-                    <span className="text-[12px] text-text-secondary">Upgrade to Creator to export and download videos.</span>
+                    <span className="text-[12px] font-medium text-text-primary">Free Plan — YouTube 16:9 included, unlimited downloads</span>
+                    <span className="text-[12px] text-text-secondary">Other formats need Creator. Exports include a watermark.</span>
                   </div>
-                  <Button variant="primary" size="sm" onClick={onDownloadLimitReached} className="shrink-0 ml-auto">
+                  <Button variant="secondary" size="sm" onClick={onDownloadLimitReached} className="shrink-0 ml-auto">
                     Upgrade
                   </Button>
                 </div>
@@ -309,23 +342,24 @@ export function ExportModal({
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {PLATFORM_PRESETS.filter((p) => p.id !== 'custom').map((preset) => {
-                  const isSelected = batchPlatforms.includes(preset.id);
+                  const isCurrentSelection = exportConfig?.platformId === preset.id;
+                  const isLocked = !isGuest && isPlatformLockedForUser(preset.id);
                   return (
                     <button
                       key={preset.id}
                       onClick={() => handleSelectPlatform(preset.id)}
                       className={`group relative flex items-center gap-2.5 p-3 rounded-lg border transition-all duration-150 text-left min-h-[48px] ${
-                        isSelected
+                        isCurrentSelection
                           ? 'shadow-sm ring-1'
                           : 'bg-elevated border-border-subtle hover:border-border-strong hover:bg-elevated'
                       }`}
-                      style={isSelected ? {
+                      style={isCurrentSelection ? {
                         borderColor: `${preset.color}66`,
                         backgroundColor: `${preset.color}1a`,
                         boxShadow: `0 0 0 1px ${preset.color}33`,
                       } : undefined}
                     >
-                      {isSelected && (
+                      {isCurrentSelection && (
                         <div
                           className="absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center"
                           style={{ backgroundColor: preset.color }}
@@ -335,22 +369,30 @@ export function ExportModal({
                           </svg>
                         </div>
                       )}
+                      {isLocked && (
+                        <div
+                          className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-accent/20 text-accent text-[9px] font-bold tracking-wide"
+                          title="Creator plan required"
+                        >
+                          👑 CREATOR
+                        </div>
+                      )}
                       <div
                         className={`flex-shrink-0 w-9 h-9 rounded-md flex items-center justify-center text-[10px] font-bold tracking-tight transition-all duration-150 ${
-                          isSelected ? 'text-white shadow-sm' : 'text-text-secondary'
+                          isCurrentSelection ? 'text-white shadow-sm' : 'text-text-secondary'
                         }`}
-                        style={{ backgroundColor: isSelected ? preset.color : `${preset.color}33` }}
+                        style={{ backgroundColor: isCurrentSelection ? preset.color : `${preset.color}33` }}
                       >
                         {preset.icon}
                       </div>
                       <div className="flex flex-col min-w-0 flex-1">
                         <span className={`text-[13px] font-medium leading-tight truncate ${
-                          isSelected ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary'
+                          isCurrentSelection ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary'
                         }`}>
                           {preset.label}
                         </span>
                         <span className="text-[12px] text-text-secondary leading-tight truncate">
-                          {preset.sublabel}
+                          {isLocked ? `${preset.sublabel} · Creator` : preset.sublabel}
                         </span>
                       </div>
                     </button>
@@ -365,10 +407,35 @@ export function ExportModal({
                   </div>
                   <div className="flex flex-col min-w-0 flex-1">
                     <span className="text-[13px] font-medium leading-tight text-text-secondary group-hover:text-text-primary">Custom</span>
-                    <span className="text-[12px] text-text-secondary leading-tight">Define your own</span>
+                    <span className="text-[12px] text-text-secondary leading-tight">Define your own{!isGuest && !isCreatorUser ? ' · Creator' : ''}</span>
                   </div>
+                  {!isGuest && !isCreatorUser && (
+                    <div className="px-1.5 py-0.5 rounded bg-accent/20 text-accent text-[9px] font-bold tracking-wide">
+                      👑 CREATOR
+                    </div>
+                  )}
                 </button>
               </div>
+
+              {exportConfig && (
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={() => {
+                    if (!isGuest && isPlatformLockedForUser(exportConfig.platformId)) {
+                      onDownloadLimitReached();
+                      return;
+                    }
+                    setStep('crop');
+                  }}
+                  className="w-full gap-2"
+                  disabled={isExporting}
+                >
+                  <DownloadIcon className="w-4 h-4" />
+                  Continue with {PLATFORM_PRESETS.find((p) => p.id === exportConfig.platformId)?.label || 'YouTube'}{' '}
+                  {PLATFORM_PRESETS.find((p) => p.id === exportConfig.platformId)?.aspectRatio || '16:9'}
+                </Button>
+              )}
 
               {batchPlatforms.length > 0 && canBatch && (
                 <div className="flex flex-col gap-2">

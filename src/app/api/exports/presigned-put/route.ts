@@ -27,8 +27,8 @@ export async function POST(request: NextRequest) {
 
     const entitlements = getEntitlements(user.plan as PlanType);
     if (!entitlements.canExport) return NextResponse.json({ error: 'Upgrade required' }, { status: 403 });
-    // Free should not use direct R2 upload — they are local-only
-    if (entitlements.maxExportsPerMonth !== null) {
+    // Free should not use direct R2 upload — they are local-only (unlimited local downloads)
+    if ((user.plan || 'free') === 'free') {
       return NextResponse.json({ error: 'Free plan uses local export' }, { status: 403 });
     }
 
@@ -46,8 +46,8 @@ export async function POST(request: NextRequest) {
     const validIds: PlatformId[] = PLATFORM_PRESETS.map(p => p.id);
     if (!validIds.includes(platformId)) return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
 
-    // Duration check
-    if (typeof duration === 'number' && Number.isFinite(duration) && duration > entitlements.maxDurationSeconds) {
+    // Duration check (null = unlimited Creator)
+    if (typeof duration === 'number' && Number.isFinite(duration) && entitlements.maxDurationSeconds !== null && duration > entitlements.maxDurationSeconds) {
       return NextResponse.json({ error: `Recording too long. Maximum is ${entitlements.maxDurationSeconds} seconds` }, { status: 403 });
     }
     // Crop check
