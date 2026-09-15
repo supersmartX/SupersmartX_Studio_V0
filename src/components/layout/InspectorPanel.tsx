@@ -29,6 +29,9 @@ interface InspectorPanelProps {
   onAudioDeviceChange: (deviceId: string) => void;
   platformId: PlatformId;
   onPlatformChange: (id: PlatformId) => void;
+  userPlan: string;
+  isAuthenticated: boolean;
+  onUpgradeRequired: () => void;
   customAspectRatio: AspectRatio;
   onCustomAspectRatioChange: (ratio: AspectRatio) => void;
   customWidth: number;
@@ -64,6 +67,9 @@ export function InspectorPanel({
   onAudioDeviceChange,
   platformId,
   onPlatformChange,
+  userPlan,
+  isAuthenticated,
+  onUpgradeRequired,
   customAspectRatio,
   onCustomAspectRatioChange,
   customWidth,
@@ -128,6 +134,9 @@ export function InspectorPanel({
       onAudioDeviceChange={onAudioDeviceChange}
       platformId={platformId}
       onPlatformChange={onPlatformChange}
+      userPlan={userPlan}
+      isAuthenticated={isAuthenticated}
+      onUpgradeRequired={onUpgradeRequired}
       customAspectRatio={customAspectRatio}
       onCustomAspectRatioChange={onCustomAspectRatioChange}
       customWidth={customWidth}
@@ -219,6 +228,9 @@ function InspectorContent({
   onAudioDeviceChange,
   platformId,
   onPlatformChange,
+  userPlan,
+  isAuthenticated,
+  onUpgradeRequired,
   customAspectRatio,
   onCustomAspectRatioChange,
   customWidth,
@@ -249,6 +261,9 @@ function InspectorContent({
   onAudioDeviceChange: (deviceId: string) => void;
   platformId: PlatformId;
   onPlatformChange: (id: PlatformId) => void;
+  userPlan: string;
+  isAuthenticated: boolean;
+  onUpgradeRequired: () => void;
   customAspectRatio: AspectRatio;
   onCustomAspectRatioChange: (ratio: AspectRatio) => void;
   customWidth: number;
@@ -477,6 +492,9 @@ function InspectorContent({
           <PlatformSelector
             selectedPlatformId={platformId}
             onSelect={onPlatformChange}
+            userPlan={userPlan}
+            isAuthenticated={isAuthenticated}
+            onUpgradeRequired={onUpgradeRequired}
           />
 
           {platformId === 'custom' && (

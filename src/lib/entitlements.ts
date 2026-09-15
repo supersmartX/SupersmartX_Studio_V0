@@ -1,4 +1,7 @@
 import type { PlanType } from '@/types/db';
+import type { PlatformId } from '@/types';
+
+const CREATOR_PLANS: readonly PlanType[] = ['creator_monthly', 'creator_yearly', 'pro_monthly', 'pro_yearly'];
 
 // FINAL pricing contract:
 // Free: 10 min TOTAL recording/day, 720p, YouTube 16:9, unlimited local downloads, watermark.
@@ -96,6 +99,14 @@ const ENTITLEMENTS: Record<PlanType, PlanEntitlements> = {
 
 export function getEntitlements(plan: PlanType): PlanEntitlements {
   return ENTITLEMENTS[plan] || ENTITLEMENTS.free;
+}
+
+export function isCreatorPlan(plan: string): boolean {
+  return (CREATOR_PLANS as readonly string[]).includes(plan);
+}
+
+export function isPlatformLockedForUser(platformId: PlatformId, plan: string): boolean {
+  return platformId !== 'youtube-landscape' && !isCreatorPlan(plan);
 }
 
 export function isPlanActive(
