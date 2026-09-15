@@ -20,8 +20,8 @@ import { useStudioConfig } from '@/hooks/useStudioConfig';
 import { useStudioCamera } from '@/hooks/useStudioCamera';
 import { useRecordingTimer } from '@/hooks/useRecordingTimer';
 import { useStudioUI } from '@/hooks/useStudioUI';
-import { getEntitlements } from '@/lib/entitlements';
-import { addDailyRecordingSeconds, canRecordToday, getDailyRecordingRemaining } from '@/lib/daily-recording';
+import { getEntitlements, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
+import { addDailyRecordingSeconds, canRecordToday, getDailyRecordingRemainingInFlight } from '@/lib/daily-recording';
 
 import { Header } from '@/components/layout/Header';
 import { IconRail } from '@/components/layout/IconRail';
@@ -72,6 +72,13 @@ export default function HomePage() {
 
   const ui = useStudioUI();
   const { masterRecording: masterRecordingData, createMasterRecording, clearMasterRecording, restoreMasterRecording } = useMasterRecording();
+  // Guard: completion effect must run once per recording blob.
+  // `ui` is a new object every render, so including it in deps would
+  // re-create the master recording (and revoke the preview URL) on every
+  // re-render while state stays 'completed' — breaking preview + spamming
+  // blob ERR_FILE_NOT_FOUND.
+  const setDrawerVisible = ui.setIsDrawerVisible;
+  const processedRecordingRef = useRef<Blob | null>(null);
 
   const [pendingPricingAfterAuth, setPendingPricingAfterAuth] = useState(false);
   // Checkout intent from landing page (e.g. ?checkout=creator_monthly → open payment form directly)
@@ -148,7 +155,7 @@ export default function HomePage() {
   // (e.g. 4 min used → next recording auto-stops at 6 min). Creator: null = unlimited.
   const recordingCap = isCreatorUser
     ? null
-    : Math.max(1, Math.min(entitlements.maxDurationSeconds ?? 600, getDailyRecordingRemaining()));
+    : Math.max(1, Math.min(entitlements.maxDurationSeconds ?? 600, getDailyRecordingRemainingInFlight(0)));
   const { elapsedSeconds, resetTimer } = useRecordingTimer({
     recordingState: recorder.recordingState,
     stopRecording: recorder.stopRecording,
@@ -156,6 +163,11 @@ export default function HomePage() {
     maxDurationSeconds: recordingCap,
     resetOnComplete: false,
   });
+
+  const isRecordingOrPaused = recorder.recordingState === 'recording' || recorder.recordingState === 'paused';
+  const dailyRemainingDisplay = isCreatorUser
+    ? null
+    : getDailyRecordingRemainingInFlight(isRecordingOrPaused ? elapsedSeconds : 0);
 
   // Local UI state
   const isMobile = useMediaQuery('(max-width: 640px)');
@@ -183,10 +195,16 @@ export default function HomePage() {
     }
   }, [masterRecordingData, restoreMasterRecording]);
 
-  // Handle recording completion → create master recording
+  // Handle recording completion → create master recording (once per blob)
   useEffect(() => {
-    if (recorder.recordingState === 'completed') {
-      ui.setIsDrawerVisible(true);
+    if (recorder.recordingState !== 'completed') return;
+    const resultBlob = recorder.recordingResult?.blob;
+    if (!resultBlob) return;
+    // Already handled this exact blob — skip (prevents revoke/recreate loop)
+    if (processedRecordingRef.current === resultBlob) return;
+    processedRecordingRef.current = resultBlob;
+
+    setDrawerVisible(true);
 
       // Free: accumulate finished recording time toward the 10 min/day budget.
       // Downloads are unlimited and never consume recording time.
@@ -197,40 +215,48 @@ export default function HomePage() {
       if (recorder.recordingResult?.blob) {
         // Extract actual video dimensions from the recorded blob
         // Camera track settings can differ from actual MediaRecorder output
+        const result = recorder.recordingResult;
         const videoEl = document.createElement('video');
-        const blobUrl = URL.createObjectURL(recorder.recordingResult.blob);
-        videoEl.src = blobUrl;
+        const blobUrl = URL.createObjectURL(result.blob);
         videoEl.preload = 'metadata';
+        videoEl.src = blobUrl;
+
+        const cleanupProbe = () => {
+          videoEl.onloadedmetadata = null;
+          videoEl.onerror = null;
+          videoEl.removeAttribute('src');
+          videoEl.load();
+          URL.revokeObjectURL(blobUrl);
+        };
 
         videoEl.onloadedmetadata = () => {
-          URL.revokeObjectURL(blobUrl);
           const actualWidth = videoEl.videoWidth || recordingConfig.width;
           const actualHeight = videoEl.videoHeight || recordingConfig.height;
+          cleanupProbe();
           createMasterRecording(
-            recorder.recordingResult!.blob,
-            recorder.recordingResult!.duration,
-            recorder.recordingResult!.hasAudio,
+            result.blob,
+            result.duration,
+            result.hasAudio,
             actualWidth,
             actualHeight
           );
         };
 
         videoEl.onerror = () => {
-          URL.revokeObjectURL(blobUrl);
+          cleanupProbe();
           // Fallback to config dimensions
           createMasterRecording(
-            recorder.recordingResult!.blob,
-            recorder.recordingResult!.duration,
-            recorder.recordingResult!.hasAudio,
+            result.blob,
+            result.duration,
+            result.hasAudio,
             recordingConfig.width,
             recordingConfig.height
           );
         };
       }
 
-      resetTimer();
-    }
-  }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height, isCreatorUser, ui]);
+    resetTimer();
+  }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height, isCreatorUser, setDrawerVisible, resetTimer]);
 
   const handleRecordStart = useCallback(() => {
     if (!camera.stream) return;
@@ -545,6 +571,8 @@ export default function HomePage() {
               hasRecording={recorder.recordingState === 'completed'}
               isMicMuted={isMicMuted}
               elapsedSeconds={elapsedSeconds}
+              dailyRemainingSeconds={dailyRemainingDisplay}
+              dailyRemainingTotalSeconds={FREE_DAILY_RECORDING_SECONDS}
               onMicToggle={handleMicToggle}
               onStart={handleRecordStart}
               onPause={recorder.pauseRecording}

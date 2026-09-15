@@ -42,6 +42,16 @@ export function canRecordToday(): boolean {
   return getDailyRecordingRemaining() > 0;
 }
 
+/**
+ * Seconds remaining today, already discounting the in-flight recording's
+ * elapsed time (which is banked only on completion). UI mirror of the budget
+ * used by the per-recording cap min(600, remaining).
+ */
+export function getDailyRecordingRemainingInFlight(elapsedSeconds: number): number {
+  const inFlight = Math.max(0, Math.floor(elapsedSeconds));
+  return Math.max(0, getDailyRecordingRemaining() - inFlight);
+}
+
 /** Add completed recording seconds to today's usage. Call once per finished recording. */
 export function addDailyRecordingSeconds(seconds: number): void {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;

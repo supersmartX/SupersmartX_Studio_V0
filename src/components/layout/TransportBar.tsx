@@ -3,6 +3,7 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import type { RecordingState } from '@/types';
 import { formatTime } from '@/utils/format';
+import { DailyRecordingIndicator } from '@/components/studio/DailyRecordingIndicator';
 import {
   MicrophoneIcon,
   MicrophoneOffIcon,
@@ -18,6 +19,8 @@ interface TransportBarProps {
   hasRecording: boolean;
   isMicMuted: boolean;
   elapsedSeconds: number;
+  dailyRemainingSeconds?: number | null;
+  dailyRemainingTotalSeconds?: number;
   onMicToggle: () => void;
   onStart: () => void;
   onPause: () => void;
@@ -32,6 +35,8 @@ export function TransportBar({
   hasRecording,
   isMicMuted,
   elapsedSeconds,
+  dailyRemainingSeconds,
+  dailyRemainingTotalSeconds = 600,
   onMicToggle,
   onStart,
   onPause,
@@ -135,6 +140,17 @@ export function TransportBar({
             ))}
           </div>
         )}
+
+        {dailyRemainingSeconds !== undefined && (
+          <div className="sm:hidden min-w-0 shrink-0">
+            <DailyRecordingIndicator
+              remainingSeconds={dailyRemainingSeconds}
+              totalSeconds={dailyRemainingTotalSeconds}
+              isRecording={isRecording || isPaused}
+              variant="compact"
+            />
+          </div>
+        )}
       </div>
 
       {/* Center: Transport Controls */}
@@ -224,8 +240,17 @@ export function TransportBar({
         )}
       </div>
 
-      {/* Right: spacer for layout balance - hidden on mobile */}
-      <div className="hidden sm:block min-w-[160px]" />
+      {/* Right: Daily recording allowance */}
+      <div className="hidden sm:flex items-center justify-end min-w-0 pl-2 sm:pl-3 shrink-0">
+        {dailyRemainingSeconds !== undefined && (
+          <DailyRecordingIndicator
+            remainingSeconds={dailyRemainingSeconds}
+            totalSeconds={dailyRemainingTotalSeconds}
+            isRecording={isRecording || isPaused}
+            variant="full"
+          />
+        )}
+      </div>
     </footer>
   );
 }

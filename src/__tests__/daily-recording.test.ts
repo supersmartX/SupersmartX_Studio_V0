@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   getDailyRecordingUsage,
   getDailyRecordingRemaining,
+  getDailyRecordingRemainingInFlight,
   canRecordToday,
   addDailyRecordingSeconds,
 } from '@/lib/daily-recording';
@@ -46,5 +47,57 @@ describe('daily recording budget (Free: 10 min/day, downloads unlimited)', () =>
     addDailyRecordingSeconds(300);
     expect(getDailyRecordingUsage()).toBe(300);
     expect(canRecordToday()).toBe(true);
+  });
+});
+
+describe('getDailyRecordingRemainingInFlight', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns full budget when no usage and no elapsed', () => {
+    expect(getDailyRecordingRemainingInFlight(0)).toBe(FREE_DAILY_RECORDING_SECONDS);
+  });
+
+  it('deducts in-flight elapsed from remaining', () => {
+    addDailyRecordingSeconds(300);
+    expect(getDailyRecordingRemainingInFlight(120)).toBe(180);
+  });
+
+  it('floors fractional elapsed seconds', () => {
+    addDailyRecordingSeconds(300);
+    expect(getDailyRecordingRemainingInFlight(119.9)).toBe(181);
+  });
+
+  it('never goes below zero', () => {
+    addDailyRecordingSeconds(500);
+    expect(getDailyRecordingRemainingInFlight(200)).toBe(0);
+  });
+});
+
+describe('calendar day reset', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-15T08:00:00'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('resets to full budget when the calendar day changes', () => {
+    addDailyRecordingSeconds(300);
+    expect(getDailyRecordingRemaining()).toBe(300);
+
+    vi.setSystemTime(new Date('2026-09-16T08:00:00'));
+    expect(getDailyRecordingRemaining()).toBe(FREE_DAILY_RECORDING_SECONDS);
+    expect(canRecordToday()).toBe(true);
+  });
+
+  it('keeps usage when the calendar day has not changed', () => {
+    addDailyRecordingSeconds(120);
+    vi.setSystemTime(new Date('2026-09-15T23:59:59'));
+    expect(getDailyRecordingRemaining()).toBe(480);
   });
 });

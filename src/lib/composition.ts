@@ -111,9 +111,16 @@ export async function verifyExportBlob(
     video.muted = true;
     video.playsInline = true;
     let done = false;
+    const cleanup = () => {
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute('src');
+      video.load();
+    };
     const timer = setTimeout(() => {
       if (!done) {
         done = true;
+        cleanup();
         URL.revokeObjectURL(url);
         resolve({ ok: false, error: 'verify timeout' });
       }
@@ -125,6 +132,7 @@ export async function verifyExportBlob(
       const actualWidth = video.videoWidth;
       const actualHeight = video.videoHeight;
       const duration = video.duration;
+      cleanup();
       URL.revokeObjectURL(url);
       if (actualWidth === expectedWidth && actualHeight === expectedHeight) {
         resolve({ ok: true, actualWidth, actualHeight, duration });
@@ -142,6 +150,7 @@ export async function verifyExportBlob(
       if (done) return;
       done = true;
       clearTimeout(timer);
+      cleanup();
       URL.revokeObjectURL(url);
       const code = (video.error as any)?.code;
       resolve({ ok: false, error: `video error code ${code ?? 'unknown'}` });
