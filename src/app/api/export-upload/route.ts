@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { auth } from '@/auth';
 import { uploadRecording, isR2Configured } from '@/lib/r2';
 import { createExport, findUserById, ensureUserStatsRow, findExportJobByIdAndUser, updateExportJobStatus, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, getCurrentPeriod } from '@/lib/db';
-import { getEntitlements, isPlanActive, clampResolution } from '@/lib/entitlements';
+import { getEntitlements, isPlanActive, clampResolution, isPlatformLockedForUser } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
 import { PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
@@ -79,6 +79,11 @@ export async function POST(request: NextRequest) {
     const validPlatformIds: PlatformId[] = PLATFORM_PRESETS.map((p) => p.id);
     if (!validPlatformIds.includes(platformId as PlatformId)) {
       return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
+    }
+
+    // Free plan: only YouTube 16:9 is included — reject any other platform server-side
+    if (isPlatformLockedForUser(platformId as PlatformId, userPlan)) {
+      return NextResponse.json({ error: 'This format requires the Creator plan' }, { status: 403 });
     }
 
     const preset = PLATFORM_PRESETS.find((p) => p.id === platformId);

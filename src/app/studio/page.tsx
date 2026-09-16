@@ -20,7 +20,7 @@ import { useStudioConfig } from '@/hooks/useStudioConfig';
 import { useStudioCamera } from '@/hooks/useStudioCamera';
 import { useRecordingTimer } from '@/hooks/useRecordingTimer';
 import { useStudioUI } from '@/hooks/useStudioUI';
-import { getEntitlements, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
+import { getEntitlements, isCreatorPlan, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
 import { addDailyRecordingSeconds, canRecordToday, getDailyRecordingRemainingInFlight } from '@/lib/daily-recording';
 
 import { Header } from '@/components/layout/Header';
@@ -56,7 +56,7 @@ export default function HomePage() {
   const scriptStorage = useScriptStorage();
   const { data: session, status: sessionStatus } = useSession();
   const userPlan = (session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free';
-  const isCreatorUser = userPlan === 'creator_monthly' || userPlan === 'creator_yearly' || userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
+  const isCreatorUser = isCreatorPlan(userPlan);
 
   // Core infrastructure hooks
   const { settings, recordingConfig } = useStudioConfig();

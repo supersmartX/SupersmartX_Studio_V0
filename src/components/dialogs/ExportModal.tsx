@@ -8,7 +8,7 @@ import { VideoPlayer } from '@/components/studio/VideoPlayer';
 import { generateFilename } from '@/services/download.service';
 import { setPendingDownload } from '@/lib/auth-guard';
 import { GUEST_PREVIEW_MAX_SECONDS } from '@/lib/preview';
-import { getEntitlements } from '@/lib/entitlements';
+import { getEntitlements, isCreatorPlan, isPlatformLockedForUser } from '@/lib/entitlements';
 import type { ExportStep, PlatformId, ExportConfig, MasterRecording, ExportJob } from '@/types';
 import { PLATFORM_PRESETS } from '@/constants';
 import { formatTime } from '@/utils/format';
@@ -62,15 +62,14 @@ export function ExportModal({
 
   const isGuest = !isAuthenticated;
   const isPreview = isGuest && (masterRecording?.duration || 0) > GUEST_PREVIEW_MAX_SECONDS;
-  const canDownloadFile = isAuthenticated && userPlan !== 'free';
   const entitlementsView = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
+  // Free plan has unlimited local downloads — mirror entitlements instead of an old hardcoded reject.
+  const canDownloadFile = isAuthenticated && entitlementsView.canDownload;
   const canBatch = entitlementsView.canBatchExport;
 
   // Free plan: only YouTube 16:9 is included. All other formats are Creator-locked.
-  const isCreatorUser = userPlan === 'creator_monthly' || userPlan === 'creator_yearly' || userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
-  const isPlatformLockedForUser = useCallback((platformId: PlatformId) => {
-    return platformId !== 'youtube-landscape' && !isCreatorUser;
-  }, [isCreatorUser]);
+  const isCreatorUser = isCreatorPlan(userPlan);
+  const isLockedPlatform = (platformId: PlatformId) => isPlatformLockedForUser(platformId, userPlan);
 
   const handleSelectPlatform = useCallback((platformId: PlatformId) => {
     if (isGuest) {
@@ -82,7 +81,7 @@ export function ExportModal({
       onDownloadLimitReached();
       return;
     }
-    if (isPlatformLockedForUser(platformId)) {
+    if (isLockedPlatform(platformId)) {
       // Locked format for Free → open upgrade flow, never start an export
       onDownloadLimitReached();
       return;
@@ -91,7 +90,7 @@ export function ExportModal({
     const srcH = masterRecording?.sourceHeight || 1080;
     onSelectPlatform(platformId, srcW, srcH, entitlements.maxResolution);
     setStep('crop');
-  }, [isGuest, onSelectPlatform, masterRecording, userPlan, onAuthRequired, onDownloadLimitReached, isPlatformLockedForUser]);
+  }, [isGuest, onSelectPlatform, masterRecording, userPlan, onAuthRequired, onDownloadLimitReached, isLockedPlatform]);
 
   // YouTube 16:9 is the default/free format — preselect it so Free users never
   // have to pick a platform before a basic export. Runs on open and after login.
@@ -174,7 +173,7 @@ export function ExportModal({
       onDownloadLimitReached();
       return;
     }
-    if (!isGuest && isPlatformLockedForUser(exportConfig.platformId)) {
+    if (!isGuest && isLockedPlatform(exportConfig.platformId)) {
       // Stale config (e.g. plan changed) — never export a locked format for Free
       onDownloadLimitReached();
       return;
@@ -203,7 +202,7 @@ export function ExportModal({
       setIsExporting(false);
       setExportProgress(0);
     }
-  }, [masterRecording, exportConfig, onStartExport, showToast, isGuest, isPlatformLockedForUser, onDownloadLimitReached, userPlan]);
+  }, [masterRecording, exportConfig, onStartExport, showToast, isGuest, isLockedPlatform, onDownloadLimitReached, userPlan]);
 
   const handleDownload = useCallback(async () => {
     const filename = generateFilename('video', 'mp4');
@@ -345,7 +344,7 @@ export function ExportModal({
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {PLATFORM_PRESETS.filter((p) => p.id !== 'custom').map((preset) => {
                   const isCurrentSelection = exportConfig?.platformId === preset.id;
-                  const isLocked = !isGuest && isPlatformLockedForUser(preset.id);
+                  const isLocked = !isGuest && isLockedPlatform(preset.id);
                   return (
                     <button
                       key={preset.id}
@@ -424,7 +423,7 @@ export function ExportModal({
                   variant="primary"
                   size="lg"
                   onClick={() => {
-                    if (!isGuest && isPlatformLockedForUser(exportConfig.platformId)) {
+                    if (!isGuest && isLockedPlatform(exportConfig.platformId)) {
                       onDownloadLimitReached();
                       return;
                     }

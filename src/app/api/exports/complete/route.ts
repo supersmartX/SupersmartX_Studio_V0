@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { findUserById, findExportJobByIdAndUser, updateExportJobStatus, createExport, ensureUserStatsRow, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, getCurrentPeriod } from '@/lib/db';
-import { getEntitlements, isPlanActive } from '@/lib/entitlements';
+import { getEntitlements, isPlanActive, isPlatformLockedForUser } from '@/lib/entitlements';
 import { headObject, deleteRecording, isR2Configured } from '@/lib/r2';
 import { PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
@@ -49,6 +49,10 @@ export async function POST(request: NextRequest) {
     if (job.resultR2Key && job.resultR2Key !== key) return NextResponse.json({ error: 'Key mismatch' }, { status: 403 });
     const validIds: PlatformId[] = PLATFORM_PRESETS.map(p => p.id);
     if (!validIds.includes(platformId)) return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
+    // Free plan: only YouTube 16:9 is included — reject any other platform server-side
+    if (isPlatformLockedForUser(platformId, user.plan || 'free')) {
+      return NextResponse.json({ error: 'This format requires the Creator plan' }, { status: 403 });
+    }
 
     if (!isR2Configured()) return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
 

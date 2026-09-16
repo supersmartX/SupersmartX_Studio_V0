@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createExportJob, findUserById, ensureUserStatsRow, getActiveExportJobCount } from '@/lib/db';
-import { getEntitlements, isPlanActive } from '@/lib/entitlements';
+import { getEntitlements, isPlanActive, isPlatformLockedForUser } from '@/lib/entitlements';
 import type { PlanType } from '@/types/db';
+import type { PlatformId } from '@/types';
 
 const MAX_CONCURRENT_JOBS = 3;
 
@@ -49,6 +50,11 @@ export async function POST(request: NextRequest) {
     }
     if (config.outputWidth < 1 || config.outputWidth > 7680 || config.outputHeight < 1 || config.outputHeight > 4320) {
       return NextResponse.json({ error: 'Dimensions must be between 1 and 7680' }, { status: 400 });
+    }
+
+    // Free plan: only YouTube 16:9 is included — reject any other platform server-side
+    if (isPlatformLockedForUser(config.platformId as PlatformId, user.plan || 'free')) {
+      return NextResponse.json({ error: 'This format requires the Creator plan' }, { status: 403 });
     }
 
     await ensureUserStatsRow(session.user.id);

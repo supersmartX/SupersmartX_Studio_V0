@@ -2,6 +2,7 @@
 
 import type { RecordingState, TabType } from '@/types';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { isCreatorPlan } from '@/lib/entitlements';
 import {
   RecordIcon,
   PauseIcon,
@@ -44,7 +45,7 @@ export function BottomNav({
   const isRecording = recordingState === 'recording';
   const isPaused = recordingState === 'paused';
   const isBusy = isRecording || isPaused;
-  const isPaid = userPlan === 'creator_monthly' || userPlan === 'creator_yearly' || userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
+  const isPaid = isCreatorPlan(userPlan);
   const isPro = userPlan === 'pro_monthly' || userPlan === 'pro_yearly';
 
   return (
