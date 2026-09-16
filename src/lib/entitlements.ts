@@ -9,6 +9,8 @@ const CREATOR_PLANS: readonly PlanType[] = ['creator_monthly', 'creator_yearly',
 // NOTE: recording allowance (min/day) and local downloads (unlimited) are different quotas.
 export const FREE_MAX_DURATION_SECONDS = 600;
 export const FREE_DAILY_RECORDING_SECONDS = 600;
+// Free: the teleprompter overlay is limited to 3 min of use per calendar day.
+export const FREE_DAILY_TELEPROMPTER_SECONDS = 180;
 export const FREE_RESOLUTION = { width: 1280, height: 720 } as const;
 
 export interface PlanEntitlements {

@@ -22,6 +22,12 @@ import { useRecordingTimer } from '@/hooks/useRecordingTimer';
 import { useStudioUI } from '@/hooks/useStudioUI';
 import { getEntitlements, isCreatorPlan, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
 import { addDailyRecordingSeconds, canRecordToday, getDailyRecordingRemainingInFlight } from '@/lib/daily-recording';
+import {
+  addDailyTeleprompterSeconds,
+  canUseTeleprompterToday,
+  getDailyTeleprompterRemaining,
+  getDailyTeleprompterRemainingInFlight,
+} from '@/lib/daily-teleprompter';
 
 import { Header } from '@/components/layout/Header';
 import { IconRail } from '@/components/layout/IconRail';
@@ -169,6 +175,24 @@ export default function HomePage() {
     ? null
     : getDailyRecordingRemainingInFlight(isRecordingOrPaused ? elapsedSeconds : 0);
 
+  // Free teleprompter budget (3 min/day) — separate from the recording budget.
+  const prompterScript = scriptStorage.script.trim();
+  const teleprompterActive = prompterScript.length > 0;
+  const teleprompterActiveRef = useRef(teleprompterActive);
+  useEffect(() => {
+    teleprompterActiveRef.current = teleprompterActive;
+  }, [teleprompterActive]);
+  const teleprompterRemaining = isCreatorUser ? null : getDailyTeleprompterRemaining();
+  const teleprompterDisabled = teleprompterRemaining !== null && teleprompterActive && teleprompterRemaining <= 0;
+  const teleprompterRemainingDisplay = isCreatorUser
+    ? null
+    : getDailyTeleprompterRemainingInFlight(isRecordingOrPaused && teleprompterActive ? elapsedSeconds : 0);
+  const teleprompterNotice = isCreatorUser
+    ? null
+    : teleprompterDisabled
+      ? `Teleprompter limit reached (3 min/day on Free). Upgrade to Creator for unlimited.`
+      : `Free plan: ${Math.max(1, Math.ceil((teleprompterRemainingDisplay ?? 0) / 60))} min teleprompter left today`;
+
   // Local UI state
   const isMobile = useMediaQuery('(max-width: 640px)');
   const [activePanel, setActivePanel] = useState<TabType | 'record' | 'share'>('studio');
@@ -210,6 +234,11 @@ export default function HomePage() {
       // Downloads are unlimited and never consume recording time.
       if (!isCreatorUser && recorder.recordingResult?.duration) {
         addDailyRecordingSeconds(recorder.recordingResult.duration);
+        // Free: bank teleprompter time separately (3 min/day) — only when
+        // the prompter was actually in use (a script was loaded on record start).
+        if (teleprompterActiveRef.current) {
+          addDailyTeleprompterSeconds(recorder.recordingResult.duration);
+        }
       }
 
       if (recorder.recordingResult?.blob) {
@@ -258,8 +287,36 @@ export default function HomePage() {
     resetTimer();
   }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height, isCreatorUser, setDrawerVisible, resetTimer]);
 
+  // Free: stop the recording as soon as the 3 min/day teleprompter budget runs out
+  // mid-recording (banked time + this recording's elapsed time).
+  const teleprompterWarnedRef = useRef(false);
+  useEffect(() => {
+    if (isCreatorUser || recorder.recordingState !== 'recording') {
+      teleprompterWarnedRef.current = false;
+      return;
+    }
+    if (!teleprompterActiveRef.current) return;
+    const remaining = getDailyTeleprompterRemainingInFlight(elapsedSeconds);
+    if (remaining <= 0) {
+      recorder.stopRecording();
+      showToast('Teleprompter limit reached (3 min/day on Free). Upgrade to Creator for unlimited.');
+      ui.setIsPricingModalOpen(true);
+    } else if (remaining <= 60 && !teleprompterWarnedRef.current) {
+      teleprompterWarnedRef.current = true;
+      showToast('1 minute of teleprompter time left today (3 min/day on Free)');
+    }
+  }, [elapsedSeconds, recorder, showToast, ui, isCreatorUser]);
+
   const handleRecordStart = useCallback(() => {
     if (!camera.stream) return;
+
+    // Free: enforce 3 min/day teleprompter budget (separate from recording budget).
+    // A script is loaded → the prompter is in use, so disable it and ask to upgrade.
+    if (!isCreatorUser && teleprompterActiveRef.current && !canUseTeleprompterToday()) {
+      showToast('Teleprompter limit reached (3 min/day on Free). Upgrade to Creator for unlimited teleprompter.');
+      ui.setIsPricingModalOpen(true);
+      return;
+    }
 
     // Free: enforce 10 min TOTAL recording per day (downloads stay unlimited)
     if (!isCreatorUser && !canRecordToday()) {
@@ -435,6 +492,7 @@ export default function HomePage() {
     userPlan: session?.user?.plan || 'free',
     isAuthenticated: !!session?.user,
     onUpgradeRequired: handleUpgradeClick,
+    teleprompterNotice,
     customAspectRatio: settings.customAspectRatio,
     onCustomAspectRatioChange: settings.setCustomAspectRatio,
     customWidth: settings.customWidth,
@@ -512,11 +570,28 @@ export default function HomePage() {
                   focusViewEnabled={focusView.isEnabled}
                 />
 
-                <TeleprompterOverlay
-                  ref={prompterContainerRef}
-                  script={scriptStorage.script}
-                  settings={settings.teleprompter}
-                />
+                {teleprompterDisabled ? (
+                  <div className="absolute inset-0 z-20 flex items-center justify-center p-4">
+                    <div className="flex flex-col items-center gap-3 max-w-sm text-center rounded-xl bg-surface/95 border border-border-default p-5 shadow-2xl">
+                      <span className="text-[12px] font-bold uppercase tracking-wider text-warning">Teleprompter limit reached</span>
+                      <p className="text-[13px] text-text-secondary leading-relaxed">
+                        Free plan includes 3 min of teleprompter time per day. Upgrade to Creator for unlimited teleprompter.
+                      </p>
+                      <button
+                        onClick={handleUpgradeClick}
+                        className="px-4 py-2 rounded-lg bg-accent text-white text-[12px] font-semibold transition-colors hover:bg-accent/90"
+                      >
+                        Upgrade to Creator
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <TeleprompterOverlay
+                    ref={prompterContainerRef}
+                    script={scriptStorage.script}
+                    settings={settings.teleprompter}
+                  />
+                )}
 
                 <FocalGuideway position={settings.teleprompter.textStartPosition} />
 

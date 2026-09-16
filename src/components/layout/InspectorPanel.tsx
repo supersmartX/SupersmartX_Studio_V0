@@ -32,6 +32,7 @@ interface InspectorPanelProps {
   userPlan: string;
   isAuthenticated: boolean;
   onUpgradeRequired: () => void;
+  teleprompterNotice?: string | null;
   customAspectRatio: AspectRatio;
   onCustomAspectRatioChange: (ratio: AspectRatio) => void;
   customWidth: number;
@@ -70,6 +71,7 @@ export function InspectorPanel({
   userPlan,
   isAuthenticated,
   onUpgradeRequired,
+  teleprompterNotice,
   customAspectRatio,
   onCustomAspectRatioChange,
   customWidth,
@@ -137,6 +139,7 @@ export function InspectorPanel({
       userPlan={userPlan}
       isAuthenticated={isAuthenticated}
       onUpgradeRequired={onUpgradeRequired}
+      teleprompterNotice={teleprompterNotice}
       customAspectRatio={customAspectRatio}
       onCustomAspectRatioChange={onCustomAspectRatioChange}
       customWidth={customWidth}
@@ -231,6 +234,7 @@ function InspectorContent({
   userPlan,
   isAuthenticated,
   onUpgradeRequired,
+  teleprompterNotice,
   customAspectRatio,
   onCustomAspectRatioChange,
   customWidth,
@@ -264,6 +268,7 @@ function InspectorContent({
   userPlan: string;
   isAuthenticated: boolean;
   onUpgradeRequired: () => void;
+  teleprompterNotice?: string | null;
   customAspectRatio: AspectRatio;
   onCustomAspectRatioChange: (ratio: AspectRatio) => void;
   customWidth: number;
@@ -363,6 +368,20 @@ function InspectorContent({
           </button>
 
           {!collapsedSections.teleprompter && (<>
+
+          {teleprompterNotice && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-elevated border border-border-subtle">
+              <span className="text-[12px] text-text-secondary leading-snug">{teleprompterNotice}</span>
+              {teleprompterNotice.includes('limit reached') && (
+                <button
+                  onClick={onUpgradeRequired}
+                  className="shrink-0 ml-auto px-2.5 py-1 rounded-md bg-accent/20 text-accent text-[11px] font-semibold hover:bg-accent/30"
+                >
+                  Upgrade
+                </button>
+              )}
+            </div>
+          )}
 
           <Select
             label="Font Family"
