@@ -32,7 +32,7 @@ Target audience: Creators, educators, founders, sales, teachers, podcasters, You
 Primary geography: Global (63-country PPP pricing), India-heavy traffic (ENG IN seen)
 Primary user problem: Reading scripts while maintaining eye contact, recording professional video without installs
 Primary solution: Web teleprompter + webcam recording + platform-specific export (1080p, crop/reframe) + local-first privacy
-Main conversion: Free → Creator $7.99/mo (3 min → 30 min, 3/mo → unlimited, watermark → no watermark)
+Main conversion: Free → Creator (10 min/day → unlimited recording, 3 min/session → unlimited teleprompter, watermark → no watermark)
 Primary competitors: Teleprompter.com, BIGVU, PromptSmart, VEED teleprompter, Riverside
 Important entities: SupersmartX, SupersmartX Studio, Teleprompter, Video Recording, Export, Watermark, Cashfree
 ```
@@ -128,7 +128,7 @@ Organization: SupersmartX
 ## Content Gaps
 
 - Missing: `/features`, `/use-cases`, `/faq`, `/about`, `/contact`, `/compare/*`, `/alternatives`
-- Priority P1: FAQ page (genuine questions from pricing: watermark, 3/mo, 30 min), HowTo schema
+- Priority P1: FAQ page (genuine questions from pricing: watermark, 10 min/day recording, 3 min teleprompter/session), HowTo schema
 
 ## Evidence Gaps
 

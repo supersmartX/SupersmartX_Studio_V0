@@ -66,7 +66,7 @@ async function createCashfreeOrder(data: { amount: number; currency: string; pla
       customer_phone: sanitizedPhone,
     },
     order_meta: {
-      return_url: `${baseUrl}/support/success?order_id={order_id}&plan=${data.plan}`,
+      return_url: `${baseUrl}/studio?payment=success&order_id={order_id}&plan=${data.plan}`,
       notify_url: `${baseUrl}/api/cashfree/webhook`,
     },
   };

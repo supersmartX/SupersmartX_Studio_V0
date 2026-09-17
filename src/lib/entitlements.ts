@@ -9,8 +9,10 @@ const CREATOR_PLANS: readonly PlanType[] = ['creator_monthly', 'creator_yearly',
 // NOTE: recording allowance (min/day) and local downloads (unlimited) are different quotas.
 export const FREE_MAX_DURATION_SECONDS = 600;
 export const FREE_DAILY_RECORDING_SECONDS = 600;
-// Free: the teleprompter overlay is limited to 3 min of use per calendar day.
-export const FREE_DAILY_TELEPROMPTER_SECONDS = 180;
+// Free teleprompter: 3 min PER RECORDING SESSION (fresh allowance each take), never more than
+// the remaining daily recording budget. When it runs out the prompter hides but the camera
+// keeps recording. Teleprompter time does NOT deduct from the 10 min/day recording budget.
+export const FREE_SESSION_TELEPROMPTER_SECONDS = 180;
 export const FREE_RESOLUTION = { width: 1280, height: 720 } as const;
 
 export interface PlanEntitlements {
@@ -74,9 +76,9 @@ const ENTITLEMENTS: Record<PlanType, PlanEntitlements> = {
   pro_monthly: {
     canExport: true,
     canDownload: true,
-    canBatchExport: true,
+    canBatchExport: false,
     canCrop: true,
-    maxResolution: { width: 3840, height: 2160 },
+    maxResolution: { width: 1920, height: 1080 },
     maxDurationSeconds: null,
     maxDownloads: null,
     maxUploads: null,
@@ -87,9 +89,9 @@ const ENTITLEMENTS: Record<PlanType, PlanEntitlements> = {
   pro_yearly: {
     canExport: true,
     canDownload: true,
-    canBatchExport: true,
+    canBatchExport: false,
     canCrop: true,
-    maxResolution: { width: 3840, height: 2160 },
+    maxResolution: { width: 1920, height: 1080 },
     maxDurationSeconds: null,
     maxDownloads: null,
     maxUploads: null,

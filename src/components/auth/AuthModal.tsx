@@ -8,7 +8,7 @@ import { StepItem } from './StepItem';
 import { SocialButton } from './SocialButton';
 import { InputGroup } from './InputGroup';
 import { BrandLogo } from './BrandLogo';
-import { GoogleIcon, GithubIcon, EyeIcon } from './AuthIcons';
+import { GoogleIcon, EyeIcon } from './AuthIcons';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 
 interface AuthModalProps {
@@ -45,9 +45,9 @@ export function AuthModal({
     setIsLoading(true);
     setError('');
     try {
-      await signIn('google', { callbackUrl });
+      await signIn('google', { callbackUrl, redirect: true });
     } catch {
-      setError('Google login failed. Please try again.');
+      setError('Google login is not available. Please use email sign-in.');
       setIsLoading(false);
     }
   }, [callbackUrl]);
@@ -214,18 +214,12 @@ export function AuthModal({
             {step === 'chooser' && (
               <>
                 {/* Social Buttons */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3">
                   <SocialButton
                     label="Google"
                     onClick={handleGoogleSignIn}
                     disabled={isLoading}
                     icon={<GoogleIcon />}
-                  />
-                  <SocialButton
-                    label="GitHub"
-                    onClick={() => signIn('github', { callbackUrl })}
-                    disabled={isLoading}
-                    icon={<GithubIcon />}
                   />
                 </div>
 

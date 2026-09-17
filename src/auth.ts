@@ -1,7 +1,6 @@
 import NextAuth, { type User } from 'next-auth';
 import { type JWT } from 'next-auth/jwt';
 import Google from 'next-auth/providers/google';
-import GitHub from 'next-auth/providers/github';
 import Credentials from 'next-auth/providers/credentials';
 import { authConfig } from './auth.config';
 import {
@@ -44,15 +43,6 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    })
-  );
-}
-
-if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
-  providers.push(
-    GitHub({
-      clientId: process.env.GITHUB_CLIENT_ID,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET,
     })
   );
 }

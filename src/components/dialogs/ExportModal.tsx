@@ -7,25 +7,25 @@ import { DiscordFeedback } from './DiscordFeedback';
 import { VideoPlayer } from '@/components/studio/VideoPlayer';
 import { generateFilename } from '@/services/download.service';
 import { setPendingDownload } from '@/lib/auth-guard';
-import { GUEST_PREVIEW_MAX_SECONDS } from '@/lib/preview';
 import { getEntitlements, isCreatorPlan, isPlatformLockedForUser } from '@/lib/entitlements';
 import type { ExportStep, PlatformId, ExportConfig, MasterRecording, ExportJob } from '@/types';
 import { PLATFORM_PRESETS } from '@/constants';
 import { formatTime } from '@/utils/format';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
-import { computePreviewStyle, getSafeAreaInset } from '@/lib/composition';
 
 interface ExportModalProps {
   isVisible: boolean;
   masterRecording: MasterRecording | null;
   onClose: () => void;
   onPracticeAgain: () => void;
+  onOpenLibrary?: () => void;
   onShare: () => void;
   showToast: (message: string) => void;
   isAuthenticated: boolean;
   userPlan: string;
   onAuthRequired: () => void;
   onDownloadLimitReached: () => void;
+  onUpgradeRequired?: (platformId: PlatformId) => void;
   exportConfig: ExportConfig | null;
   onSelectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }) => ExportConfig;
   onUpdateCrop: (updates: { x?: number; y?: number; zoom?: number }) => void;
@@ -39,12 +39,14 @@ export function ExportModal({
   masterRecording,
   onClose,
   onPracticeAgain,
+  onOpenLibrary,
   onShare,
   showToast,
   isAuthenticated,
   userPlan,
   onAuthRequired,
   onDownloadLimitReached,
+  onUpgradeRequired,
   exportConfig,
   onSelectPlatform,
   onUpdateCrop,
@@ -59,9 +61,26 @@ export function ExportModal({
   const [exportResult, setExportResult] = useState<ExportJob | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [exportProgress, setExportProgress] = useState(0);
+  // Free users have no crop decision (their only output is YouTube 16:9) — set when
+  // the platform step should skip "Adjust your crop" and jump straight to encoding.
+  const [pendingAutoExport, setPendingAutoExport] = useState(false);
+
+  // Modal lifecycle: whenever the drawer closes, return to the first step and drop the
+  // previous job's results. Otherwise the next take would reopen on a stale "Export complete"
+  // screen showing the last export's (possibly revoked) preview URL.
+  useEffect(() => {
+    if (!isVisible) {
+      setStep('platform');
+      setExportResult(null);
+      setIsExporting(false);
+      setExportProgress(0);
+      setBatchProgress(null);
+      setBatchPlatforms([]);
+      setPendingAutoExport(false);
+    }
+  }, [isVisible]);
 
   const isGuest = !isAuthenticated;
-  const isPreview = isGuest && (masterRecording?.duration || 0) > GUEST_PREVIEW_MAX_SECONDS;
   const entitlementsView = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
   // Free plan has unlimited local downloads — mirror entitlements instead of an old hardcoded reject.
   const canDownloadFile = isAuthenticated && entitlementsView.canDownload;
@@ -73,24 +92,31 @@ export function ExportModal({
 
   const handleSelectPlatform = useCallback((platformId: PlatformId) => {
     if (isGuest) {
-      onAuthRequired();
-      return;
+      // Guest: only YouTube 16:9 (free format) is available without auth.
+      // All other platforms require login + Creator plan.
+      if (platformId !== 'youtube-landscape') {
+        onAuthRequired();
+        return;
+      }
     }
     const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
     if (!entitlements.canExport) {
       onDownloadLimitReached();
       return;
     }
-    if (isLockedPlatform(platformId)) {
-      // Locked format for Free → open upgrade flow, never start an export
-      onDownloadLimitReached();
+    if (!isGuest && isLockedPlatform(platformId)) {
+      // Locked format for Free → open contextual upgrade, never start an export
+      onUpgradeRequired?.(platformId) ?? onDownloadLimitReached();
       return;
     }
     const srcW = masterRecording?.sourceWidth || 1920;
     const srcH = masterRecording?.sourceHeight || 1080;
     onSelectPlatform(platformId, srcW, srcH, entitlements.maxResolution);
-    setStep('crop');
-  }, [isGuest, onSelectPlatform, masterRecording, userPlan, onAuthRequired, onDownloadLimitReached, isLockedPlatform]);
+    // Crop/reframe controls are not part of the launch scope.
+    // Skip directly to encoding for all users.
+    setPendingAutoExport(true);
+    setStep('encoding');
+  }, [isGuest, onSelectPlatform, masterRecording, userPlan, onAuthRequired, onDownloadLimitReached, isLockedPlatform, onUpgradeRequired]);
 
   // YouTube 16:9 is the default/free format — preselect it so Free users never
   // have to pick a platform before a basic export. Runs on open and after login.
@@ -100,7 +126,7 @@ export function ExportModal({
       autoSelectedRef.current = false;
       return;
     }
-    if (!masterRecording || exportConfig || isGuest || autoSelectedRef.current) return;
+    if (!masterRecording || exportConfig || autoSelectedRef.current) return;
     const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
     if (!entitlements.canExport) return;
     autoSelectedRef.current = true;
@@ -157,7 +183,7 @@ export function ExportModal({
       }
     } catch (err) {
       setStep('platform');
-      showToast(err instanceof Error ? err.message : 'Batch export failed.');
+      showToast(err instanceof Error ? err.message : 'Export failed. Please try again.');
     } finally {
       setIsExporting(false);
       setBatchProgress(null);
@@ -203,6 +229,14 @@ export function ExportModal({
       setExportProgress(0);
     }
   }, [masterRecording, exportConfig, onStartExport, showToast, isGuest, isLockedPlatform, onDownloadLimitReached, userPlan]);
+
+  // Free users skip the crop step entirely: the platform step flags a pending export and,
+  // once a fresh config exists (auto-selected YouTube 16:9), encoding starts immediately.
+  useEffect(() => {
+    if (!pendingAutoExport || !exportConfig) return;
+    setPendingAutoExport(false);
+    void handleExport();
+  }, [pendingAutoExport, exportConfig, handleExport]);
 
   const handleDownload = useCallback(async () => {
     const filename = generateFilename('video', 'mp4');
@@ -271,9 +305,6 @@ export function ExportModal({
   }, [exportResult, isAuthenticated, userPlan, canDownloadFile, onAuthRequired, onDownloadLimitReached, showToast]);
 
   const handleBack = useCallback(() => {
-    if (step === 'crop') {
-      setStep('platform');
-    }
     if (step === 'done') {
       setStep('platform');
       setExportResult(null);
@@ -304,9 +335,8 @@ export function ExportModal({
             )}
             <h2 className="text-sm font-semibold text-text-primary">
               {step === 'platform' && 'Choose a platform'}
-              {step === 'crop' && 'Adjust your crop'}
               {step === 'encoding' && 'Exporting...'}
-              {step === 'done' && 'Export complete'}
+              {step === 'done' && 'Video exported'}
             </h2>
           </div>
           <button
@@ -321,6 +351,17 @@ export function ExportModal({
         <div className="p-4 sm:p-5 flex flex-col gap-4">
           {step === 'platform' && (
             <>
+              {isGuest && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-elevated border border-border-subtle">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[12px] font-medium text-text-primary">Export as guest — YouTube 16:9 included</span>
+                    <span className="text-[12px] text-text-secondary">Sign in for all formats, higher quality, and cloud library.</span>
+                  </div>
+                  <Button variant="secondary" size="sm" onClick={onAuthRequired} className="shrink-0 ml-auto">
+                    Sign in
+                  </Button>
+                </div>
+              )}
               {isAuthenticated && !isCreatorUser && (
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-elevated border border-border-subtle">
                   <div className="flex flex-col gap-0.5">
@@ -337,14 +378,13 @@ export function ExportModal({
                 videoUrl={masterRecording.url}
                 recordedDuration={masterRecording.duration}
                 onError={() => {}}
-                aspectRatio="16:9"
-                isPreview={isPreview}
+                aspectRatio={exportConfig ? (PLATFORM_PRESETS.find((p) => p.id === exportConfig.platformId)?.aspectRatio ?? '16:9') : '16:9'}
               />
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {PLATFORM_PRESETS.filter((p) => p.id !== 'custom').map((preset) => {
                   const isCurrentSelection = exportConfig?.platformId === preset.id;
-                  const isLocked = !isGuest && isLockedPlatform(preset.id);
+                  const isLocked = isGuest ? preset.id !== 'youtube-landscape' : isLockedPlatform(preset.id);
                   return (
                     <button
                       key={preset.id}
@@ -372,10 +412,13 @@ export function ExportModal({
                       )}
                       {isLocked && (
                         <div
-                          className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-accent/20 text-accent text-[9px] font-bold tracking-wide"
-                          title="Creator plan required"
+                          className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-overlay text-text-muted text-[9px] font-bold tracking-wide flex items-center gap-1"
+                          title={isGuest ? 'Sign in required' : 'Creator plan required'}
                         >
-                          👑 CREATOR
+                          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                          {isGuest ? 'SIGN IN' : 'CREATOR'}
                         </div>
                       )}
                       <div
@@ -393,7 +436,7 @@ export function ExportModal({
                           {preset.label}
                         </span>
                         <span className="text-[12px] text-text-secondary leading-tight truncate">
-                          {isLocked ? `${preset.sublabel} · Creator` : preset.sublabel}
+                          {isLocked ? (isGuest ? `${preset.sublabel} · Sign in` : `${preset.sublabel} · Creator`) : preset.sublabel}
                         </span>
                       </div>
                     </button>
@@ -427,7 +470,12 @@ export function ExportModal({
                       onDownloadLimitReached();
                       return;
                     }
-                    setStep('crop');
+                    if (entitlementsView.canExport) {
+                      setPendingAutoExport(true);
+                      setStep('encoding');
+                    } else {
+                      onDownloadLimitReached();
+                    }
                   }}
                   className="w-full gap-2"
                   disabled={isExporting}
@@ -438,204 +486,12 @@ export function ExportModal({
                 </Button>
               )}
 
-              {batchPlatforms.length > 0 && canBatch && (
-                <div className="flex flex-col gap-2">
-                  <p className="text-[12px] text-text-secondary">
-                    {batchPlatforms.length} platform{batchPlatforms.length > 1 ? 's' : ''} selected
-                  </p>
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={handleBatchExport}
-                    className="w-full gap-2"
-                    disabled={isExporting}
-                  >
-                    <DownloadIcon className="w-4 h-4" />
-                    Export for All ({batchPlatforms.length})
-                  </Button>
-                </div>
-              )}
-
               <div className="flex items-center gap-2 text-[12px] text-text-secondary">
                 <span>{formatTime(masterRecording.duration)}</span>
                 <span>·</span>
                 <span>{masterRecording.extension.toUpperCase()}</span>
                 <span>·</span>
                 <span>{(masterRecording.blob.size / (1024 * 1024)).toFixed(1)} MB</span>
-              </div>
-            </>
-          )}
-
-          {step === 'crop' && exportConfig && (
-            <>
-              <div className="relative bg-black rounded-lg overflow-hidden">
-                <div
-                  className="relative mx-auto overflow-hidden"
-                  style={{
-                    aspectRatio: `${exportConfig.outputWidth} / ${exportConfig.outputHeight}`,
-                    maxHeight: '300px',
-                  }}
-                >
-                  <video
-                    src={masterRecording.url}
-                    className="w-full h-full"
-                    style={computePreviewStyle(exportConfig.crop, masterRecording.sourceWidth || 1920, masterRecording.sourceHeight || 1080)}
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                  />
-                  {/* Safe-area guidance — editor only, not baked into export */}
-                  <div
-                    className="absolute inset-0 pointer-events-none border border-white/20"
-                    style={{
-                      margin: getSafeAreaInset(exportConfig.aspectRatio),
-                      borderStyle: 'dashed',
-                    }}
-                    aria-hidden
-                  />
-                  <div className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[9px] tracking-widest text-white/60 bg-black/40 px-1.5 py-0.5 rounded pointer-events-none">
-                    SAFE AREA
-                  </div>
-                </div>
-              </div>
-
-              {entitlementsView.canCrop ? (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        const newX = exportConfig.crop.x - 50;
-                        const maxX = (masterRecording.sourceWidth || 1920) - exportConfig.crop.width;
-                        onUpdateCrop({ x: Math.max(0, Math.min(newX, maxX)) });
-                      }}
-                    >
-                      ←
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        const srcW = masterRecording.sourceWidth || 1920;
-                        const srcH = masterRecording.sourceHeight || 1080;
-                        const centerX = (srcW - exportConfig.crop.width) / 2;
-                        const centerY = (srcH - exportConfig.crop.height) / 2;
-                        onUpdateCrop({ x: Math.round(centerX), y: Math.round(centerY) });
-                      }}
-                    >
-                      Center
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        const newX = exportConfig.crop.x + 50;
-                        const maxX = (masterRecording.sourceWidth || 1920) - exportConfig.crop.width;
-                        onUpdateCrop({ x: Math.max(0, Math.min(newX, maxX)) });
-                      }}
-                    >
-                      →
-                    </Button>
-                    <div className="flex items-center gap-1 ml-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          const newY = exportConfig.crop.y - 50;
-                          const maxY = (masterRecording.sourceHeight || 1080) - exportConfig.crop.height;
-                          onUpdateCrop({ y: Math.max(0, Math.min(newY, maxY)) });
-                        }}
-                      >
-                        ↑
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          const newY = exportConfig.crop.y + 50;
-                          const maxY = (masterRecording.sourceHeight || 1080) - exportConfig.crop.height;
-                          onUpdateCrop({ y: Math.max(0, Math.min(newY, maxY)) });
-                        }}
-                      >
-                        ↓
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-text-secondary">Focal:</span>
-                    {(['center','left','right','top','bottom'] as const).map((f) => (
-                      <button
-                        key={f}
-                        onClick={() => {
-                          const srcW = masterRecording.sourceWidth || 1920;
-                          const srcH = masterRecording.sourceHeight || 1080;
-                          const targetW = exportConfig.outputWidth;
-                          const targetH = exportConfig.outputHeight;
-                          const targetRatio = targetW / targetH;
-                          const sourceRatio = srcW / srcH;
-                          let cropW: number, cropH: number;
-                          if (targetRatio > sourceRatio) { cropW = srcW; cropH = srcW / targetRatio; } else { cropH = srcH; cropW = srcH * targetRatio; }
-                          let x = (srcW - cropW) / 2, y = (srcH - cropH) / 2;
-                          if (f === 'left') x = 0;
-                          if (f === 'right') x = srcW - cropW;
-                          if (f === 'top') y = 0;
-                          if (f === 'bottom') y = srcH - cropH;
-                          onUpdateCrop({ x: Math.round(x), y: Math.round(y), zoom: 1 });
-                        }}
-                        className="text-[11px] px-2 py-1 rounded bg-elevated hover:bg-surface-secondary border border-border-subtle"
-                      >
-                        {f}
-                      </button>
-                    ))}
-                    <div className="flex-1 mx-2 flex items-center gap-2">
-                      <input
-                        type="range"
-                        min="1"
-                        max="2"
-                        step="0.1"
-                        value={exportConfig.crop.zoom}
-                        onChange={(e) => onUpdateCrop({ zoom: parseFloat(e.target.value) })}
-                        className="w-full h-1 accent-accent"
-                      />
-                      <span className="text-[12px] text-text-secondary">Zoom {exportConfig.crop.zoom.toFixed(1)}x</span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-3 rounded-lg bg-elevated border border-border-subtle text-center">
-                  <p className="text-[12px] text-text-secondary">Crop & reframe requires Creator</p>
-                  <Button variant="primary" size="sm" onClick={onDownloadLimitReached} className="mt-2">
-                    Upgrade to Creator
-                  </Button>
-                </div>
-              )}
-
-              <div className="text-center text-xs text-text-secondary">
-                {exportConfig.aspectRatio} · {exportConfig.outputWidth}×{exportConfig.outputHeight}
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Button
-                  variant="primary"
-                  size="lg"
-                  onClick={handleExport}
-                  className="w-full gap-2"
-                  disabled={isExporting}
-                >
-                  <DownloadIcon className="w-4 h-4" />
-                  Export & Download
-                </Button>
-
-                <Button
-                  variant="secondary"
-                  size="md"
-                  onClick={onPracticeAgain}
-                  className="w-full"
-                >
-                  Record Again
-                </Button>
               </div>
             </>
           )}
@@ -704,6 +560,17 @@ export function ExportModal({
                   <DownloadIcon className="w-4 h-4" />
                   Download Video
                 </Button>
+
+                {onOpenLibrary && (
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    onClick={onOpenLibrary}
+                    className="w-full"
+                  >
+                    Open My Library
+                  </Button>
+                )}
 
                 <Button
                   variant="secondary"

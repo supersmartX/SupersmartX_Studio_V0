@@ -3,21 +3,21 @@ import { test, expect } from '@playwright/test';
 test.describe('Landing Page', () => {
   test('renders hero section with correct content', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByText('Record professional videos on')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Start Free' }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Log In' }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Record once.*Publish/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start Recording — Free' }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'See how it works' }).first()).toBeVisible();
   });
 
-  test('navigates to studio on "Start Free" click', async ({ page }) => {
+  test('navigates to studio on "Start Recording — Free" click', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    const startFreeButton = page.getByRole('button', { name: 'Start Free' }).first();
+    const startFreeButton = page.getByRole('button', { name: 'Start Recording — Free' }).first();
     await startFreeButton.click();
     await expect(page).toHaveURL(/\/studio/);
   });
 
-  test('opens auth modal on "Log In" click', async ({ page }) => {
+  test('opens auth modal on "Log in" click', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    const loginButton = page.getByRole('button', { name: 'Log In' }).first();
+    const loginButton = page.getByRole('button', { name: 'Log in' }).first();
     await loginButton.click();
     const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
@@ -42,17 +42,17 @@ test.describe('Landing Page', () => {
 
   test('displays how-it-works steps', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByText('Write your script')).toBeVisible();
-    await expect(page.getByText('Record yourself')).toBeVisible();
-    await expect(page.getByText('Export & share')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Write your script' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Record yourself' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Preview & export' })).toBeVisible();
   });
 
   test('displays pricing tiers', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('text=Free, text=Pro', { timeout: 10000 }).catch(() => {});
+    await page.waitForSelector('text=Free, text=Creator', { timeout: 10000 }).catch(() => {});
     const hasFree = await page.getByText('Free').first().isVisible().catch(() => false);
-    const hasPro = await page.getByText('Pro').first().isVisible().catch(() => false);
-    expect(hasFree || hasPro).toBeTruthy();
+    const hasCreator = await page.getByText('Creator').first().isVisible().catch(() => false);
+    expect(hasFree || hasCreator).toBeTruthy();
   });
 
   test('mobile menu toggles correctly', async ({ page }) => {

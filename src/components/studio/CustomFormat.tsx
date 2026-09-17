@@ -23,10 +23,9 @@ export function CustomFormat({
   onHeightChange,
 }: CustomFormatProps) {
   return (
-    <div className="flex flex-col gap-3 p-3 rounded-lg bg-elevated border border-border-subtle">
+    <div className="flex flex-col gap-2.5">
       <div className="flex flex-col gap-1.5">
-        <label className="text-[11px] font-medium text-text-muted uppercase tracking-wider">Aspect Ratio</label>
-        <div className="grid grid-cols-5 gap-1.5">
+        <div className="grid grid-cols-5 gap-1">
           {CUSTOM_RATIOS.map((ratio) => {
             const preset = ASPECT_RATIO_PRESETS[ratio];
             const isActive = aspectRatio === ratio;
@@ -39,19 +38,19 @@ export function CustomFormat({
                   onWidthChange(preset.width);
                   onHeightChange(preset.height);
                 }}
-                className={`flex flex-col items-center gap-1 py-2 px-1 rounded-lg border text-center transition-all min-h-[44px] ${
+                className={`flex flex-col items-center gap-1 py-1.5 px-1 rounded-md border text-center transition-all min-h-[36px] ${
                   isActive
                     ? 'bg-accent/15 border-accent/30 text-accent'
-                    : 'bg-canvas border-border-subtle text-text-secondary hover:bg-white/[0.04] hover:text-text-primary'
+                    : 'bg-canvas border-border-subtle text-text-muted hover:bg-white/[0.03] hover:text-text-secondary'
                 }`}
               >
                 <div
                   className={`border-[1.5px] rounded-sm transition-colors ${
-                    isActive ? 'border-accent' : 'border-text-muted/30'
+                    isActive ? 'border-accent' : 'border-text-muted/20'
                   }`}
                   style={{ width: dims.width, height: dims.height }}
                 />
-                <span className="text-[11px] font-medium leading-none">{ratio}</span>
+                <span className="text-[10px] font-medium leading-none">{ratio}</span>
               </button>
             );
           })}
@@ -70,11 +69,11 @@ export function CustomFormat({
             }}
             max={7680}
             min={1}
-            className="bg-canvas border border-border-subtle rounded-md px-2.5 py-2 text-[13px] text-text-primary outline-none focus:border-accent transition-colors w-full min-h-[36px]"
+            className="bg-canvas border border-border-subtle rounded-md px-2 py-1.5 text-[12px] text-text-secondary outline-none focus:border-accent transition-colors w-full min-h-[32px]"
             aria-label="Width in pixels"
           />
         </div>
-        <div className="flex items-end pb-2.5 text-text-muted text-[11px]">×</div>
+        <div className="flex items-end pb-2 text-text-muted text-[10px]">×</div>
         <div className="flex flex-col gap-1 flex-1">
           <label className="text-[10px] text-text-muted">Height</label>
           <input
@@ -86,7 +85,7 @@ export function CustomFormat({
             }}
             max={7680}
             min={1}
-            className="bg-canvas border border-border-subtle rounded-md px-2.5 py-2 text-[13px] text-text-primary outline-none focus:border-accent transition-colors w-full min-h-[36px]"
+            className="bg-canvas border border-border-subtle rounded-md px-2 py-1.5 text-[12px] text-text-secondary outline-none focus:border-accent transition-colors w-full min-h-[32px]"
             aria-label="Height in pixels"
           />
         </div>
@@ -96,7 +95,7 @@ export function CustomFormat({
 }
 
 function getPreviewDimensions(aspectRatio: string): { width: number; height: number } {
-  const max = 18;
+  const max = 14;
   switch (aspectRatio) {
     case '16:9': return { width: max, height: Math.round(max * 9 / 16) };
     case '9:16': return { width: Math.round(max * 9 / 16), height: max };

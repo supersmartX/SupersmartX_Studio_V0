@@ -28,7 +28,7 @@ User visits SupersmartX Studio for the first time via `https://www.supersmartx.c
 Journey
 - App renders the marketing landing page at `/` with hero section, features, how-it-works, privacy info, and feedback/support links.
 - User can explore features without signing in.
-- User clicks "Try Studio Free" or "Open Studio" to navigate to `/studio`.
+- User clicks "Start Recording — Free" to navigate to `/studio`.
 - If user is signed in, header shows avatar with user menu (Open Studio, Sign out).
 - If user is not signed in, header shows Sign In button which opens `AuthModal`.
 
@@ -147,11 +147,10 @@ User wants to support SupersmartX development.
 ↓
 
 Journey
-- Support modal (`SupportModal`) opens automatically after every 3rd recording, or when user clicks Support.
-- User can also access support via `/studio?support=1` URL parameter.
-- Support card in `IconRail` (desktop) or `BottomNav` (mobile) provides quick access.
-- User selects a support amount and completes payment via Cashfree SDK.
-- Payment success redirects to `/support/success`.
+- Pricing modal (`PricingModal`) opens when user clicks Upgrade.
+- User can also access pricing via contextual upgrade prompts (locked platform, daily limit, watermark, teleprompter limit).
+- User selects a plan (monthly or yearly) and completes payment via Cashfree SDK.
+- Payment success redirects to `/studio?payment=success`.
 
 ↓
 
@@ -199,19 +198,19 @@ User either recovers and returns to the studio, or pauses and returns later with
 
 | Flow | Screen | Components | Navigation |
 | --- | --- | --- | --- |
-| Landing Page & First Visit | Marketing landing page at `/` | `LandingPage`, `AuthModal`, `Link` (next/link) | Header nav links, "Try Studio Free" CTA buttons, footer links |
+| Landing Page & First Visit | Marketing landing page at `/` | `page.tsx`, `AuthModal`, `Link` (next/link) | Header nav links, "Start Recording — Free" CTA buttons, footer links |
 | First-Time Launch & Permission Setup | Studio screen with `WelcomeModal` + `InitOverlay` | `WelcomeModal`, `InitOverlay`, `Header`, `BottomNav`, `IconRail`, `Toast` | Click `Camera` in `IconRail` or `BottomNav` to trigger browser permission prompt; overlay appears for retry or readiness. |
 | Device Selection | Studio screen with `DeviceSelectorBar` | `DeviceSelectorBar`, `IconRail`, `InspectorPanel`, `Toast` | Open device selectors from the studio interface; choose camera/mic from dropdown; refresh devices if hardware changes. |
 | Teleprompter Setup | Studio screen with `InspectorPanel` + `TeleprompterOverlay` | `InspectorPanel`, `TeleprompterOverlay`, `InspirationLoader`, `IconRail` Teleprompter button, `Toast` | Open teleprompter via `IconRail`; use the inspector drawer for script editing and teleprompter settings. |
 | Studio Recording | Core Studio screen | `CameraPreview`, `TransportBar`, `RecordingBadge`, `Timer`, `FocalGuideway`, `CountdownOverlay`, `Canvas`, `Toast` | Start/stop recording from `TransportBar`; use mic toggle and camera controls in `IconRail`. |
 | Export or Share | `ExportModal` dialog | `ExportModal`, `VideoPlayer`, `DiscordFeedback`, `Toast`, `Modal` | Open from `Header` export/share actions or automatically after recording; download or share within the modal. |
-| Support & Payment | `SupportModal` dialog | `SupportModal`, `Toast`, `Modal` | Open from `IconRail` support card, `BottomNav`, or automatically after every 3rd recording. |
+| Support & Payment | `PricingModal` dialog | `PricingModal`, `Toast`, `Modal` | Open from contextual upgrade prompts (locked platform, daily limit, watermark, teleprompter limit). |
 | Recovery, Retry, and Abandonment | Studio screen with `InitOverlay` / media error state | `InitOverlay`, `useCamera`, `Toast` | Detect camera/mic initialization failures in `useCamera`; prompt retry via `InitOverlay` and preserve script state. |
 
 ### Notes
 - Every screen listed maps directly to a validated user flow.
 - This inventory is grounded in `src/app/studio/page.tsx`: the app uses a single `HomePage` studio screen, with `activePanel` controlling studio/library/insights content.
 - The studio screen renders `DeviceSelectorBar`, `CameraPreview`, `TeleprompterOverlay`, `TransportBar`, `RecordingBadge`, `Timer`, `FocalGuideway`, and `InitOverlay` based on state.
-- `ExportModal`, `WelcomeModal`, `SupportModal`, and `AuthModal` are handled as modal dialogs; `InspectorPanel` functions as a desktop panel or mobile drawer; `Tooltip` is used in `BottomNav` and elsewhere, and supports hover and focus activation with `aria-describedby`.
+- `ExportModal`, `WelcomeModal`, `PricingModal`, and `AuthModal` are handled as modal dialogs; `InspectorPanel` functions as a desktop panel or mobile drawer; `Tooltip` is used in `BottomNav` and elsewhere, and supports hover and focus activation with `aria-describedby`.
 - The landing page at `/` (`src/app/page.tsx`) is a full marketing page separate from the studio.
 - CSS visibility (`hidden` class) is used instead of conditional rendering for `Canvas`/`CameraPreview` to prevent stream unmount on tab switch.

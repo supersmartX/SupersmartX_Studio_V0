@@ -25,10 +25,10 @@ test.describe('Export Modal - Platform Selection', () => {
 });
 
 test.describe('Export Modal - Auth Gates', () => {
-  test('export button shows disabled state without recording', async ({ page }) => {
+  test('export button is hidden without a recording', async ({ page }) => {
     await page.goto('/studio');
     const exportButton = page.getByRole('button', { name: 'Export recording' });
-    await expect(exportButton).toBeDisabled();
+    await expect(exportButton).not.toBeVisible();
   });
 });
 

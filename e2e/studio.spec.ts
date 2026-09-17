@@ -13,15 +13,15 @@ test.describe('Studio - Page Load', () => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
-    const initOverlay = page.getByText(/Studio Ready|Enable Camera|Camera Access Required|Starting Camera/i);
+    const initOverlay = page.getByRole('heading', { name: /Studio Ready|Enable Camera|Camera Access Required|Starting Camera/i });
     await expect(initOverlay).toBeVisible({ timeout: 10000 });
   });
 
-  test('displays export button', async ({ page }) => {
+  test('hides export button before a recording', async ({ page }) => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
-    await expect(page.getByRole('button', { name: 'Export recording' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export recording' })).not.toBeVisible();
   });
 });
 
@@ -65,12 +65,12 @@ test.describe('Studio - Recording Controls', () => {
 });
 
 test.describe('Studio - Export Button', () => {
-  test('export button shows disabled state without recording', async ({ page }) => {
+  test('export button is hidden without a recording', async ({ page }) => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
     const exportButton = page.getByRole('button', { name: 'Export recording' });
-    await expect(exportButton).toBeDisabled();
+    await expect(exportButton).not.toBeVisible();
   });
 });
 

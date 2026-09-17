@@ -196,7 +196,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       const result = await cashfree.checkout({
         paymentSessionId: data.paymentSessionId,
         redirectTarget: '_self',
-        returnUrl: `${baseUrl}/support/success?order_id=${data.orderId}&plan=${selectedPlan}`,
+        returnUrl: `${baseUrl}/studio?payment=success&order_id=${data.orderId}&plan=${selectedPlan}`,
       });
 
       if (result.error) {
@@ -457,8 +457,19 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
 
               {step === 'error' && (
                 <div className="flex flex-col items-center gap-3 py-12">
-                  <p className="text-sm text-recording">{errorMessage}</p>
-                  <Button variant="secondary" onClick={() => setStep('form')}>Try Again</Button>
+                  <div className="w-12 h-12 rounded-full bg-recording/10 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-recording" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                    </svg>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-text-primary">Payment wasn&apos;t completed</p>
+                    <p className="text-xs text-text-secondary mt-1">Your Free plan is still active. You can try again whenever you&apos;re ready.</p>
+                  </div>
+                  <div className="flex flex-col gap-2 w-full max-w-[200px]">
+                    <Button variant="secondary" onClick={() => setStep('form')}>Try again</Button>
+                    <Button variant="ghost" onClick={handleClose}>Continue with Free</Button>
+                  </div>
                 </div>
               )}
             </>

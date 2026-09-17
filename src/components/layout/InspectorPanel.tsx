@@ -12,6 +12,14 @@ import { InspirationLoader } from '@/components/editor/InspirationLoader';
 import { PlatformSelector } from '@/components/studio/PlatformSelector';
 import { CustomFormat } from '@/components/studio/CustomFormat';
 
+// The surrounding app signals which creation phase is active so the Inspector
+// can show only the sections relevant to that phase (progressive disclosure).
+export type InspectorContext = 'preparing' | 'recording' | 'review';
+
+// The contextual right panel adapts its header and content to the current
+// creation phase. This avoids the "control panel" feeling where every tool
+// competes for attention simultaneously.
+
 interface InspectorPanelProps {
   settings: TeleprompterSettings;
   onSettingsChange: (settings: TeleprompterSettings) => void;
@@ -31,7 +39,7 @@ interface InspectorPanelProps {
   onPlatformChange: (id: PlatformId) => void;
   userPlan: string;
   isAuthenticated: boolean;
-  onUpgradeRequired: () => void;
+  onUpgradeRequired: (platformId?: PlatformId) => void;
   teleprompterNotice?: string | null;
   customAspectRatio: AspectRatio;
   onCustomAspectRatioChange: (ratio: AspectRatio) => void;
@@ -49,6 +57,7 @@ interface InspectorPanelProps {
   isMobile?: boolean;
   isOpen?: boolean;
   onClose?: () => void;
+  inspectorContext?: InspectorContext;
 }
 
 export function InspectorPanel({
@@ -88,6 +97,7 @@ export function InspectorPanel({
   isMobile = false,
   isOpen = true,
   onClose,
+  inspectorContext,
 }: InspectorPanelProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -153,8 +163,21 @@ export function InspectorPanel({
       wordCount={wordCount}
       progress={progress}
       onLoadInspiration={onLoadInspiration}
+      inspectorContext={inspectorContext}
     />
   );
+
+  // Contextual panel header based on the creation phase — the header changes
+  // meaning rather than the panel changing position. This is what makes the
+  // UI feel sophisticated rather than "tool-heavy".
+  const headerLabel =
+    inspectorContext === 'recording' ? 'Recording'
+    : inspectorContext === 'review' ? 'Publish'
+    : 'Prepare';
+
+  // While a take is live, the camera canvas is the only surface the user needs —
+  // the disposal panel recedes entirely so it never competes with the recording.
+  if (inspectorContext === 'recording') return null;
 
   // Mobile: full-height slide-in drawer from right
   // Tablet: bottom sheet overlay (60vh)
@@ -167,14 +190,14 @@ export function InspectorPanel({
         )}
         <div
           ref={drawerRef}
-          className={`fixed top-0 right-0 h-full w-[85vw] max-w-[360px] bg-surface border-l border-border-default shadow-2xl z-drawer flex flex-col overflow-hidden transition-transform duration-250 ease-out ${
-            isOpen ? 'translate-x-0 animate-slide-in-right' : 'translate-x-full'
+          className={`fixed top-0 right-0 h-full w-[85vw] max-w-[360px] bg-surface border-l border-border-default shadow-2xl z-drawer flex flex-col overflow-hidden transition-all duration-[180ms] ease-out ${
+            isOpen ? 'translate-x-0' : 'translate-x-full'
           }`}
           role="dialog"
           aria-modal="true"
           aria-label="Inspector panel"
         >
-          <PanelHeader onClose={onClose} />
+          <PanelHeader label={headerLabel} onClose={onClose} />
           <div className="flex-1 min-h-0 overflow-y-auto">
             {content}
           </div>
@@ -185,11 +208,16 @@ export function InspectorPanel({
 
   // Desktop: inline aside panel — respects isOpen so the Settings icon
   // beside Profile (Header) and BottomNav Settings actually open/close it.
-  if (!isOpen) return null;
-
+  // Uses CSS transition for smooth spatial continuity (180ms ease-out).
   return (
-    <aside className="hidden lg:flex w-[280px] xl:w-[300px] h-full border-l border-border-subtle bg-surface flex-col shrink-0 overflow-hidden" aria-label="Inspector panel">
-      <PanelHeader onClose={onClose} />
+    <aside
+      className={`hidden lg:flex h-full border-l border-border-subtle bg-surface flex-col shrink-0 overflow-hidden transition-all duration-[180ms] ease-out ${
+        isOpen ? 'w-[280px] xl:w-[300px] opacity-100' : 'w-0 opacity-0 border-l-0'
+      }`}
+      aria-label="Inspector panel"
+      aria-hidden={!isOpen}
+    >
+      <PanelHeader label={headerLabel} onClose={onClose} />
       <div className="flex-1 min-h-0 overflow-y-auto">
         {content}
       </div>
@@ -197,10 +225,10 @@ export function InspectorPanel({
   );
 }
 
-function PanelHeader({ onClose }: { onClose?: () => void }) {
+function PanelHeader({ label, onClose }: { label: string; onClose?: () => void }) {
   return (
     <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
-      <span className="text-[13px] font-semibold text-text-primary">Inspector</span>
+      <span className="text-[13px] font-semibold text-text-primary">{label}</span>
       {onClose && (
         <button
           onClick={onClose}
@@ -248,6 +276,7 @@ function InspectorContent({
   wordCount,
   progress,
   onLoadInspiration,
+  inspectorContext,
 }: {
   settings: TeleprompterSettings;
   updateSettings: (partial: Partial<TeleprompterSettings>) => void;
@@ -267,7 +296,7 @@ function InspectorContent({
   onPlatformChange: (id: PlatformId) => void;
   userPlan: string;
   isAuthenticated: boolean;
-  onUpgradeRequired: () => void;
+  onUpgradeRequired: (platformId?: PlatformId) => void;
   teleprompterNotice?: string | null;
   customAspectRatio: AspectRatio;
   onCustomAspectRatioChange: (ratio: AspectRatio) => void;
@@ -282,16 +311,50 @@ function InspectorContent({
   wordCount: number;
   progress: number;
   onLoadInspiration: (key: string) => void;
+  inspectorContext?: InspectorContext;
 }) {
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+    // Match the current creation phase immediately (no open-then-collapse flash).
+    switch (inspectorContext) {
+      case 'recording':
+        return { script: true, teleprompter: true, camera: true, platform: true };
+      case 'review':
+        return { script: true, teleprompter: true, camera: true, platform: false };
+      default:
+        return { script: false, teleprompter: false, camera: true, platform: true };
+    }
+  });
 
   const toggleSection = (section: string) => {
     setCollapsedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
+  // Progressive disclosure: each creation phase shows the sections that matter and
+  // collapses the rest. Runs only when the phase CHANGES, so manual toggles within a
+  // phase are preserved.
+  useEffect(() => {
+    if (!inspectorContext) return;
+    const phasePresets: Record<InspectorContext, Record<string, boolean>> = {
+      // Preparing: script + teleprompter are the primary inputs. Camera config stays
+      // available but collapsed (camera/mic switching lives in the DeviceSelectorBar).
+      preparing: { script: false, teleprompter: false, camera: true, platform: true },
+      // Recording: camera is the only surface — everything collapses.
+      recording: { script: true, teleprompter: true, camera: true, platform: true },
+      // Review: the take exists → platform/output config becomes the focus.
+      review: { script: true, teleprompter: true, camera: true, platform: false },
+    };
+    setCollapsedSections((prev) => ({ ...prev, ...phasePresets[inspectorContext] }));
+  }, [inspectorContext]);
+
+  const showScript = inspectorContext === 'preparing';
+  const showTeleprompter = inspectorContext === 'preparing';
+  const showPlatform = inspectorContext === 'review';
+  const showCamera = inspectorContext === 'preparing';
+
   return (
     <div className="p-4 flex flex-col gap-5">
-      {/* SCRIPT Section */}
+      {/* SCRIPT Section — only during preparing */}
+      {showScript && (<>
       <Card>
         <div className="flex flex-col gap-3">
           <button
@@ -299,7 +362,7 @@ function InspectorContent({
             className="flex items-center justify-between w-full text-left"
             aria-expanded={!collapsedSections.script}
           >
-            <h3 className="text-[12px] font-bold uppercase tracking-wider text-text-secondary">Script</h3>
+            <h3 className="text-[12px] font-semibold text-text-secondary">Script</h3>
             <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.script ? '-rotate-90' : ''}`} />
           </button>
 
@@ -352,10 +415,12 @@ function InspectorContent({
           </>)}
         </div>
       </Card>
+      </>)}
 
-      <div className="h-px bg-border-subtle" />
+      {showTeleprompter && showScript && <div className="h-px bg-border-subtle" />}
 
-      {/* TELEPROMPTER Section */}
+      {/* TELEPROMPTER Section — only during preparing */}
+      {showTeleprompter && (
       <Card>
         <div className="flex flex-col gap-3">
           <button
@@ -363,7 +428,7 @@ function InspectorContent({
             className="flex items-center justify-between w-full text-left"
             aria-expanded={!collapsedSections.teleprompter}
           >
-            <h3 className="text-[12px] font-bold uppercase tracking-wider text-text-secondary">Teleprompter</h3>
+            <h3 className="text-[12px] font-semibold text-text-secondary">Teleprompter</h3>
             <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.teleprompter ? '-rotate-90' : ''}`} />
           </button>
 
@@ -374,7 +439,7 @@ function InspectorContent({
               <span className="text-[12px] text-text-secondary leading-snug">{teleprompterNotice}</span>
               {teleprompterNotice.includes('limit reached') && (
                 <button
-                  onClick={onUpgradeRequired}
+                  onClick={() => onUpgradeRequired()}
                   className="shrink-0 ml-auto px-2.5 py-1 rounded-md bg-accent/20 text-accent text-[11px] font-semibold hover:bg-accent/30"
                 >
                   Upgrade
@@ -492,22 +557,24 @@ function InspectorContent({
           </>)}
         </div>
       </Card>
+      )}
 
-      <div className="h-px bg-border-subtle" />
+      {(showPlatform && (showScript || showTeleprompter)) && <div className="h-px bg-border-subtle" />}
 
-      {/* RECORDING Section */}
+      {/* PLATFORM Section — only during review */}
+      {showPlatform && (
       <Card>
         <div className="flex flex-col gap-3">
           <button
-            onClick={() => toggleSection('recording')}
+            onClick={() => toggleSection('platform')}
             className="flex items-center justify-between w-full text-left"
-            aria-expanded={!collapsedSections.recording}
+            aria-expanded={!collapsedSections.platform}
           >
-            <h3 className="text-[12px] font-bold uppercase tracking-wider text-text-secondary">Recording</h3>
-            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.recording ? '-rotate-90' : ''}`} />
+            <h3 className="text-[12px] font-semibold text-text-secondary">Platform</h3>
+            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.platform ? '-rotate-90' : ''}`} />
           </button>
 
-          {!collapsedSections.recording && (<>
+          {!collapsedSections.platform && (<>
           <PlatformSelector
             selectedPlatformId={platformId}
             onSelect={onPlatformChange}
@@ -526,7 +593,27 @@ function InspectorContent({
               onHeightChange={onCustomHeightChange}
             />
           )}
+          </>)}
+        </div>
+      </Card>
+      )}
 
+      {(showCamera && (showScript || showTeleprompter || showPlatform)) && <div className="h-px bg-border-subtle" />}
+
+      {/* CAMERA Section — available during preparing (collapsed by default) */}
+      {showCamera && (
+      <Card>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={() => toggleSection('camera')}
+            className="flex items-center justify-between w-full text-left"
+            aria-expanded={!collapsedSections.camera}
+          >
+            <h3 className="text-[12px] font-semibold text-text-secondary">Camera</h3>
+            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.camera ? '-rotate-90' : ''}`} />
+          </button>
+
+          {!collapsedSections.camera && (<>
           <Select
             label="Camera"
             value={selectedVideoDevice}
@@ -570,6 +657,7 @@ function InspectorContent({
           </>)}
         </div>
       </Card>
+      )}
     </div>
   );
 }

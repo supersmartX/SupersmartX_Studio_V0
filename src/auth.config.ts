@@ -17,6 +17,9 @@ if (isProduction && secret && /^(dev-secret-change-in-production|change-me|secre
 }
 
 export const authConfig = {
+  pages: {
+    signIn: '/studio',
+  },
   session: {
     strategy: 'jwt' as const,
     maxAge: 15 * 60, // 15 minutes

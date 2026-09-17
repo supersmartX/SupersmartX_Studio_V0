@@ -22,7 +22,7 @@ export function DeviceSelectorBar({
   onRefresh,
 }: DeviceSelectorBarProps) {
   return (
-    <div className="h-10 sm:h-10 border-b border-border-subtle bg-surface flex items-center px-3 sm:px-4 gap-2 sm:gap-3 shrink-0">
+    <div className="h-10 border-b border-border-subtle/50 bg-surface/80 backdrop-blur-sm flex items-center px-3 sm:px-4 gap-2 sm:gap-3 shrink-0">
       <div className="relative min-w-0 flex-1 sm:flex-none sm:w-auto">
         <select
           value={selectedVideoDevice}

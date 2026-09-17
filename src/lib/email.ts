@@ -41,10 +41,9 @@ function getPlanFeatures(plan: string): string[] {
   switch (plan) {
     case 'pro_monthly':
     case 'pro_yearly':
-      return ['Everything in Creator', '4K export quality', 'Batch export (multiple platforms)', 'Priority support'];
     case 'creator_monthly':
     case 'creator_yearly':
-      return ['Unlimited recording', 'Unlimited exports & downloads', 'All supported platform formats', '1080p', 'No watermark'];
+      return ['Unlimited recording', 'Unlimited teleprompter', 'Unlimited exports & downloads', 'All supported platform formats', '1080p with no watermark', 'Voice-activated teleprompter', 'Cloud video library'];
     default:
       return [];
   }
@@ -66,8 +65,8 @@ function getPlanDisplayName(plan: string): string {
   switch (plan) {
     case 'creator_monthly': return 'Creator Monthly';
     case 'creator_yearly': return 'Creator Yearly';
-    case 'pro_monthly': return 'Pro Monthly';
-    case 'pro_yearly': return 'Pro Yearly';
+    case 'pro_monthly': return 'Creator Monthly';
+    case 'pro_yearly': return 'Creator Yearly';
     case 'free': return 'Free';
     default: return plan;
   }

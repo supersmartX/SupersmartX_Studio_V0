@@ -54,7 +54,7 @@ export function softwareApplicationSchema() {
     operatingSystem: 'Web',
     url: siteUrl,
     description:
-      'Browser-based teleprompter and video recording studio. Record with eye contact, export 1080p, private by design.',
+      'Creator Content Studio — Record once. Publish everywhere. Turn your script into a camera-ready, platform-ready video without learning video editing.',
     offers: [
       {
         '@type': 'Offer',
@@ -72,10 +72,12 @@ export function softwareApplicationSchema() {
       },
     ],
     featureList: [
-      'Teleprompter',
+      'Built-in teleprompter with voice-activated scrolling',
       'Unlimited video recording for Creator, 10 minutes per day for Free',
       '1080p export for Creator, 720p for Free',
       'Platform presets for YouTube, Instagram, TikTok, LinkedIn',
+      'Preview video on any platform before exporting',
+      'Cloud video library for Creator',
     ],
   };
 }

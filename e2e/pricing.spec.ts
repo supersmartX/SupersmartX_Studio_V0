@@ -7,7 +7,7 @@ test.describe('Pricing Modal - Display', () => {
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
 
-    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|pro/i }).first();
+    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|creator/i }).first();
     const isPricingVisible = await pricingButton.isVisible().catch(() => false);
     if (isPricingVisible) {
       await pricingButton.click();
@@ -24,7 +24,7 @@ test.describe('Pricing Modal - Display', () => {
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
 
-    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|pro/i }).first();
+    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|creator/i }).first();
     const isPricingVisible = await pricingButton.isVisible().catch(() => false);
     if (isPricingVisible) {
       await pricingButton.click();
@@ -33,18 +33,18 @@ test.describe('Pricing Modal - Display', () => {
       const isDialogVisible = await dialog.isVisible().catch(() => false);
       if (isDialogVisible) {
         const hasFree = await dialog.getByText('Free').first().isVisible().catch(() => false);
-        const hasPro = await dialog.getByText('Pro').first().isVisible().catch(() => false);
-        expect(hasFree || hasPro).toBeTruthy();
+        const hasCreator = await dialog.getByText('Creator').first().isVisible().catch(() => false);
+        expect(hasFree || hasCreator).toBeTruthy();
       }
     }
   });
 
-  test('shows "Most Popular" badge on Pro plan', async ({ page }) => {
+  test('shows "Most Popular" badge on Creator plan', async ({ page }) => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
 
-    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|pro/i }).first();
+    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|creator/i }).first();
     if (await pricingButton.isVisible()) {
       await pricingButton.click();
       await page.waitForTimeout(1000);
@@ -57,12 +57,12 @@ test.describe('Pricing Modal - Display', () => {
 });
 
 test.describe('Pricing Modal - Plan Selection', () => {
-  test('selects Pro Monthly plan', async ({ page }) => {
+  test('selects Creator Monthly plan', async ({ page }) => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
 
-    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|pro/i }).first();
+    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|creator/i }).first();
     if (await pricingButton.isVisible()) {
       await pricingButton.click();
       const monthlyButton = page.getByRole('button', { name: /monthly/i }).first();
@@ -73,12 +73,12 @@ test.describe('Pricing Modal - Plan Selection', () => {
     }
   });
 
-  test('selects Pro Yearly plan', async ({ page }) => {
+  test('selects Creator Yearly plan', async ({ page }) => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
 
-    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|pro/i }).first();
+    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|creator/i }).first();
     if (await pricingButton.isVisible()) {
       await pricingButton.click();
       const yearlyButton = page.getByRole('button', { name: /yearly|annual/i }).first();
@@ -96,7 +96,7 @@ test.describe('Pricing Modal - Payment Form', () => {
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
 
-    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|pro/i }).first();
+    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|creator/i }).first();
     if (await pricingButton.isVisible()) {
       await pricingButton.click();
       const monthlyButton = page.getByRole('button', { name: /monthly/i }).first();
@@ -114,7 +114,7 @@ test.describe('Pricing Modal - Payment Form', () => {
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
 
-    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|pro/i }).first();
+    const pricingButton = page.getByRole('button', { name: /pricing|upgrade|creator/i }).first();
     if (await pricingButton.isVisible()) {
       await pricingButton.click();
       const monthlyButton = page.getByRole('button', { name: /monthly/i }).first();

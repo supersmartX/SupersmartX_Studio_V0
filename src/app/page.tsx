@@ -746,9 +746,9 @@ export default function LandingPage() {
           name: 'How to record with SupersmartX Studio',
           totalTime: 'PT5M',
           step: [
-            { '@type': 'HowToStep', name: 'Write your script', text: 'Type, paste, or generate a script. The teleprompter scrolls at your pace.' },
+            { '@type': 'HowToStep', name: 'Write your script', text: 'Type or paste your script. The teleprompter scrolls at your pace.' },
             { '@type': 'HowToStep', name: 'Record yourself', text: 'Use your webcam with teleprompter overlay. Pause and resume until it feels right.' },
-            { '@type': 'HowToStep', name: 'Export and share', text: 'Download in 1080p and share to YouTube, LinkedIn or any platform.' },
+            { '@type': 'HowToStep', name: 'Preview and export', text: 'Preview how your video looks on any platform. Export the one you need.' },
           ],
         }}
       />
@@ -757,8 +757,8 @@ export default function LandingPage() {
           '@context': 'https://schema.org',
           '@type': 'FAQPage',
           mainEntity: [
-            { '@type': 'Question', name: 'What is SupersmartX Studio?', acceptedAnswer: { '@type': 'Answer', text: 'SupersmartX Studio is a browser-based teleprompter and video recording studio for creators.' } },
-            { '@type': 'Question', name: 'How much does SupersmartX Studio cost?', acceptedAnswer: { '@type': 'Answer', text: 'Free $0 and Creator $7.99 per month. Creator includes unlimited recording and unlimited exports.' } },
+            { '@type': 'Question', name: 'What is SupersmartX Studio?', acceptedAnswer: { '@type': 'Answer', text: 'SupersmartX Studio is a Creator Content Studio — a browser-based tool that turns your script into a camera-ready, platform-ready video.' } },
+            { '@type': 'Question', name: 'How much does SupersmartX Studio cost?', acceptedAnswer: { '@type': 'Answer', text: `Free forever and Creator ${format(currentPricing.creatorMonthly)} per month. Creator includes unlimited recording, unlimited teleprompter, unlimited exports, all platform formats, 1080p, no watermark, voice-activated teleprompter, and cloud video library.` } },
             { '@type': 'Question', name: 'Is there a watermark on the free plan?', acceptedAnswer: { '@type': 'Answer', text: 'Yes, free exports include a watermark. Creator has no watermark.' } },
           ],
         }}
@@ -825,20 +825,20 @@ export default function LandingPage() {
               <svg className="lsx-badge-star" width="18" height="20" viewBox="0 0 24 24" fill="white" aria-hidden="true">
                 <path d="M12 2.6C12.55 2.6 12.88 3.15 13.08 4.7c.62 4.7 1.52 5.6 6.22 6.22 1.55.2 2.1.53 2.1 1.08s-.55.88-2.1 1.08c-4.7.62-5.6 1.52-6.22 6.22-.2 1.55-.53 2.1-1.08 2.1s-.88-.55-1.08-2.1c-.62-4.7-1.52-5.6-6.22-6.22C3.15 12.88 2.6 12.55 2.6 12s.55-.88 2.1-1.08c4.7-.62 5.6-1.52 6.22-6.22C11.12 3.15 11.45 2.6 12 2.6Z" />
               </svg>
-              <span>Browser-based Teleprompter Studio</span>
+              <span>Browser-based Creator Content Studio</span>
             </div>
 
             <h1>
               <span className="lsx-headline-line lsx-appear lsx-appear--mask" style={{ '--lsx-d': '0.42s' } as React.CSSProperties}>
-                Record <em>professional videos</em> on
+                Record <em>once</em>. Publish
               </span>
               <span className="lsx-headline-line lsx-appear lsx-appear--mask" style={{ '--lsx-d': '0.62s' } as React.CSSProperties}>
-                your browser in seconds.
+                everywhere.
               </span>
             </h1>
 
             <p className="lsx-lede lsx-appear lsx-appear--soft" style={{ '--lsx-d': '0.82s', animationDuration: '1.25s' } as React.CSSProperties}>
-              A browser-based teleprompter and recording studio that helps you speak naturally, stay on camera, and create better videos.
+              Turn your script into a camera-ready, platform-ready video without learning video editing.
             </p>
 
             <div className="lsx-hero-actions">
@@ -848,15 +848,17 @@ export default function LandingPage() {
                 className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-appear lsx-appear--btn lsx-hero-solid"
                 style={{ '--lsx-d': '0.96s' } as React.CSSProperties}
               >
-                Start Free
+                Start Recording — Free
               </button>
               <button
                 type="button"
-                onClick={() => setIsAuthModalOpen(true)}
+                onClick={() => {
+                  document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' });
+                }}
                 className="lsx-btn lsx-btn-ghost lsx-hero-btn lsx-hero-ghost lsx-appear lsx-appear--btn"
                 style={{ '--lsx-d': '1.06s' } as React.CSSProperties}
               >
-                Log in
+                See how it works
               </button>
             </div>
           </div>
@@ -866,7 +868,7 @@ export default function LandingPage() {
           <div className="lsx-section-inner">
             <div className="lsx-section-header">
               <span className="lsx-section-label">How It Works</span>
-              <h2 className="lsx-section-title">Three steps to better videos</h2>
+              <h2 className="lsx-section-title">Script to screen in three steps</h2>
               <p className="lsx-section-subtitle">No downloads. No complicated software. Just open your browser and start recording.</p>
             </div>
             <div className="lsx-steps">
@@ -879,7 +881,7 @@ export default function LandingPage() {
                   </svg>
                 </div>
                 <h3 className="lsx-step-title">Write your script</h3>
-                <p className="lsx-step-desc">Type, paste, or generate a script. Our built-in teleprompter scrolls at your pace so you never lose your place.</p>
+                <p className="lsx-step-desc">Type or paste your script. The built-in teleprompter scrolls at your pace so you never lose your place.</p>
               </div>
               <div className="lsx-step-connector" />
               <div className="lsx-step">
@@ -898,13 +900,14 @@ export default function LandingPage() {
                 <div className="lsx-step-number">3</div>
                 <div className="lsx-step-icon">
                   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
+                    <path d="M4 12h8"/>
+                    <path d="M4 18V6"/>
+                    <path d="M12 18V6"/>
+                    <path d="m17 12 3-2v8l-3-2"/>
                   </svg>
                 </div>
-                <h3 className="lsx-step-title">Export &amp; share</h3>
-                <p className="lsx-step-desc">Download your video in high quality. Share directly to YouTube, LinkedIn, or any platform.</p>
+                <h3 className="lsx-step-title">Preview &amp; export</h3>
+                <p className="lsx-step-desc">Preview how your video looks on YouTube, Reels, Shorts, or any platform. Export the one you need.</p>
               </div>
             </div>
           </div>
@@ -1001,7 +1004,7 @@ export default function LandingPage() {
               {[
                 {
                   q: 'What is SupersmartX Studio?',
-                  a: 'SupersmartX Studio is a browser-based teleprompter and video recording studio. It helps you read scripts while maintaining eye contact and record professional videos without installs.',
+                  a: 'SupersmartX Studio is a Creator Content Studio — a browser-based tool that turns your script into a camera-ready, platform-ready video. Write your script, record with a teleprompter overlay, preview how it looks on any platform, and export.',
                 },
                 {
                   q: 'Who is SupersmartX Studio for?',
@@ -1009,11 +1012,11 @@ export default function LandingPage() {
                 },
                 {
                   q: 'How does it work?',
-                  a: 'Write or paste your script, open the teleprompter overlay, record with your webcam, then export in 1080p for YouTube, Instagram, TikTok or LinkedIn.',
+                  a: 'Write or paste your script, record with your webcam using the teleprompter overlay, then preview how your video looks on YouTube, Reels, Shorts, or any platform. Export the one you need.',
                 },
                 {
                   q: 'How much does SupersmartX Studio cost?',
-                  a: 'Free $0 forever with standard teleprompter, 10 minutes recording per day, YouTube 16:9, 720p, unlimited local downloads and watermark. Creator $7.99 per month includes unlimited recording, unlimited exports, all platform formats, 1080p and no watermark.',
+                  a: `Free forever with standard teleprompter (3 minutes per recording), 10 minutes recording per day, YouTube 16:9, 720p, unlimited local downloads and watermark. Creator ${format(currentPricing.creatorMonthly)} per month includes unlimited recording, unlimited teleprompter, unlimited exports, all platform formats, 1080p, no watermark, voice-activated teleprompter, and cloud video library.`,
                 },
                 {
                   q: 'Is there a watermark on the free plan?',

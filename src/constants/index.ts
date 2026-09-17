@@ -15,6 +15,7 @@ export const PRICING_PLANS = {
     forLabel: 'For trying the complete workflow',
     features: [
       { text: 'Standard teleprompter', highlight: false },
+      { text: '3 min teleprompter per recording', highlight: false },
       { text: 'Video recording', highlight: false },
       { text: '10 minutes recording per day', highlight: false },
       { text: 'YouTube 16:9', highlight: false },
@@ -25,11 +26,11 @@ export const PRICING_PLANS = {
   },
   creator: {
     name: 'Creator',
-    priceLabel: '$7.99/month',
     forLabel: 'For regular creators',
     features: [
       { text: 'Everything in Free', highlight: false },
       { text: 'Unlimited recording', highlight: true },
+      { text: 'Unlimited teleprompter', highlight: true },
       { text: 'Unlimited exports & downloads', highlight: true },
       { text: 'All supported platform formats', highlight: false },
       { text: '1080p with no watermark', highlight: false },

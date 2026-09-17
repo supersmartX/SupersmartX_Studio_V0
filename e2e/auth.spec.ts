@@ -27,7 +27,8 @@ test.describe('Auth Flow - Registration', () => {
     const switchToLogin = page.getByRole('button', { name: 'Log in' }).last();
     if (await switchToLogin.isVisible().catch(() => false)) {
       await switchToLogin.click();
-      await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible();
+      const submitButton = modal.getByRole('button', { name: 'Log in' });
+      await expect(submitButton).toBeVisible();
     }
   });
 });

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { NUDGE_AMOUNT_KEYBOARD } from '@/constants';
+import { NUDGE_AMOUNT_KEYBOARD, PLATFORM_PRESETS } from '@/constants';
 
 import { useWelcomeModal } from '@/hooks/useWelcomeModal';
 import { useCamera } from '@/hooks/useCamera';
@@ -20,14 +20,10 @@ import { useStudioConfig } from '@/hooks/useStudioConfig';
 import { useStudioCamera } from '@/hooks/useStudioCamera';
 import { useRecordingTimer } from '@/hooks/useRecordingTimer';
 import { useStudioUI } from '@/hooks/useStudioUI';
-import { getEntitlements, isCreatorPlan, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
+import { useHydrated } from '@/hooks/useHydrated';
+import { getEntitlements, isCreatorPlan, isPlatformLockedForUser, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
 import { addDailyRecordingSeconds, canRecordToday, getDailyRecordingRemainingInFlight } from '@/lib/daily-recording';
-import {
-  addDailyTeleprompterSeconds,
-  canUseTeleprompterToday,
-  getDailyTeleprompterRemaining,
-  getDailyTeleprompterRemainingInFlight,
-} from '@/lib/daily-teleprompter';
+import { getTeleprompterSessionCap, getTeleprompterRemainingInSession } from '@/lib/teleprompter-session';
 
 import { Header } from '@/components/layout/Header';
 import { IconRail } from '@/components/layout/IconRail';
@@ -47,11 +43,13 @@ import { FocalGuideway } from '@/components/studio/FocalGuideway';
 import { WelcomeModal } from '@/components/dialogs/WelcomeModal';
 import { ExportModal } from '@/components/dialogs/ExportModal';
 import { PricingModal } from '@/components/dialogs/PricingModal';
+import { UpgradePromptModal } from '@/components/dialogs/UpgradePromptModal';
+import { ActivationModal } from '@/components/dialogs/ActivationModal';
 import { AuthModal } from '@/components/auth/AuthModal';
+import { PlatformPreviewSwitcher } from '@/components/studio/PlatformPreviewSwitcher';
 import { RecordingsPanel } from '@/components/studio/LibraryPanel';
-import { InsightsPlaceholder } from '@/features/insights/InsightsPlaceholder';
 import { Toast } from '@/components/common/Toast';
-import type { TabType } from '@/types';
+import type { TabType, PlatformId, PlatformPreset } from '@/types';
 
 export default function HomePage() {
   // Base hooks (called first, no ordering dependency)
@@ -60,6 +58,7 @@ export default function HomePage() {
   const { share } = useShare(showToast);
   const focusView = useFocusView();
   const scriptStorage = useScriptStorage();
+  const hydrated = useHydrated();
   const { data: session, status: sessionStatus } = useSession();
   const userPlan = (session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free';
   const isCreatorUser = isCreatorPlan(userPlan);
@@ -100,6 +99,58 @@ export default function HomePage() {
     setPricingInitialStep('select');
     ui.setIsPricingModalOpen(true);
   }, [ui]);
+
+  const [lockedPlatform, setLockedPlatform] = useState<PlatformPreset | null>(null);
+
+  // Payment success activation modal
+  const [activationModal, setActivationModal] = useState<{ isOpen: boolean; plan: string; orderId: string | null }>({
+    isOpen: false,
+    plan: '',
+    orderId: null,
+  });
+
+  // Detect ?payment=success query param after Cashfree redirect
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('payment') === 'success') {
+      const plan = params.get('plan') || 'creator_monthly';
+      const orderId = params.get('order_id');
+      setActivationModal({ isOpen: true, plan, orderId });
+      // Clean URL without reload
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  // Contextual upgrade (S12): a Free user clicks a locked platform → show the
+  // "Create for {platform}" prompt instead of a generic pricing modal.
+  const handlePlatformUpgradeRequired = useCallback((platformId?: PlatformId) => {
+    if (platformId) {
+      const preset = PLATFORM_PRESETS.find((p) => p.id === platformId);
+      if (preset) {
+        setLockedPlatform(preset);
+        // Persist intent so we can restore after payment redirect
+        try { window.localStorage.setItem('sxs-upgrade-intent', platformId); } catch {}
+        return;
+      }
+    }
+    setPricingInitialStep('select');
+    ui.setIsPricingModalOpen(true);
+  }, [ui]);
+
+  const handleUpgradeFromPrompt = useCallback(() => {
+    setLockedPlatform(null);
+    if (!session?.user) {
+      // Guest: auth first, then pricing after login
+      setPendingPricingAfterAuth(true);
+      ui.setIsAuthModalOpen(true);
+    } else {
+      // Free logged-in user: go directly to pricing/checkout
+      // Keep upgrade intent in localStorage for closed-loop restoration
+      setPricingInitialStep('select');
+      ui.setIsPricingModalOpen(true);
+    }
+  }, [session?.user, ui]);
 
   const handlePricingAuthRequired = useCallback(() => {
     setPendingPricingAfterAuth(true);
@@ -156,6 +207,24 @@ export default function HomePage() {
       return () => clearTimeout(t);
     }
   }, [sessionStatus]);
+
+  // After Google/GitHub auth redirect (page reload), restore the upgrade intent
+  // so the user doesn't have to click the locked platform again.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (sessionStatus === 'loading' || !session?.user) return;
+    try {
+      const pendingPlatform = window.localStorage.getItem('sxs-upgrade-intent');
+      if (pendingPlatform) {
+        const preset = PLATFORM_PRESETS.find((p) => p.id === pendingPlatform);
+        if (preset) {
+          // User is now authenticated — show the upgrade prompt directly
+          const t = setTimeout(() => setLockedPlatform(preset), 400);
+          return () => clearTimeout(t);
+        }
+      }
+    } catch {}
+  }, [sessionStatus, session?.user]);
   const entitlements = getEntitlements((session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free');
   // Free: a single recording can never exceed the day's remaining budget
   // (e.g. 4 min used → next recording auto-stops at 6 min). Creator: null = unlimited.
@@ -171,27 +240,35 @@ export default function HomePage() {
   });
 
   const isRecordingOrPaused = recorder.recordingState === 'recording' || recorder.recordingState === 'paused';
-  const dailyRemainingDisplay = isCreatorUser
+  // During SSR the server renders the full 10-min allowance (no localStorage access).
+  // Before hydration completes, keep that same value to avoid a mismatch; once
+  // hydrated, switch to the real localStorage-backed remaining budget.
+  const dailyRemainingRaw = isCreatorUser
     ? null
     : getDailyRecordingRemainingInFlight(isRecordingOrPaused ? elapsedSeconds : 0);
+  const dailyRemainingDisplay = isCreatorUser ? null : (hydrated ? dailyRemainingRaw : FREE_DAILY_RECORDING_SECONDS);
 
-  // Free teleprompter budget (3 min/day) — separate from the recording budget.
+  // Free teleprompter: fresh 3 min allowance PER RECORDING SESSION (capped by the remaining
+  // daily recording budget). It hides at the cap but the camera keeps recording, and it never
+  // deducts from the 10 min/day recording budget.
   const prompterScript = scriptStorage.script.trim();
   const teleprompterActive = prompterScript.length > 0;
   const teleprompterActiveRef = useRef(teleprompterActive);
   useEffect(() => {
     teleprompterActiveRef.current = teleprompterActive;
   }, [teleprompterActive]);
-  const teleprompterRemaining = isCreatorUser ? null : getDailyTeleprompterRemaining();
+  const teleprompterSessionCap = getTeleprompterSessionCap({ isCreator: isCreatorUser, recordingCapSeconds: recordingCap });
+  const teleprompterRemaining = getTeleprompterRemainingInSession(
+    teleprompterSessionCap,
+    isRecordingOrPaused && teleprompterActive ? elapsedSeconds : 0,
+  );
   const teleprompterDisabled = teleprompterRemaining !== null && teleprompterActive && teleprompterRemaining <= 0;
-  const teleprompterRemainingDisplay = isCreatorUser
-    ? null
-    : getDailyTeleprompterRemainingInFlight(isRecordingOrPaused && teleprompterActive ? elapsedSeconds : 0);
+  const teleprompterRemainingDisplay = isCreatorUser ? null : teleprompterRemaining;
   const teleprompterNotice = isCreatorUser
     ? null
     : teleprompterDisabled
-      ? `Teleprompter limit reached (3 min/day on Free). Upgrade to Creator for unlimited.`
-      : `Free plan: ${Math.max(1, Math.ceil((teleprompterRemainingDisplay ?? 0) / 60))} min teleprompter left today`;
+      ? `Teleprompter limit reached (3 min per recording on Free). Upgrade to Creator for unlimited.`
+      : `Free plan: ${Math.max(1, Math.ceil((teleprompterRemainingDisplay ?? 0) / 60))} min teleprompter for this recording`;
 
   // Local UI state
   const isMobile = useMediaQuery('(max-width: 640px)');
@@ -228,17 +305,14 @@ export default function HomePage() {
     if (processedRecordingRef.current === resultBlob) return;
     processedRecordingRef.current = resultBlob;
 
-    setDrawerVisible(true);
+    // Don't auto-open ExportModal — let user preview first via "Preview as"
+    // setDrawerVisible(true);
 
       // Free: accumulate finished recording time toward the 10 min/day budget.
-      // Downloads are unlimited and never consume recording time.
+      // Downloads are unlimited and never consume recording time. The teleprompter has a
+      // per-recording allowance and is never banked separately.
       if (!isCreatorUser && recorder.recordingResult?.duration) {
         addDailyRecordingSeconds(recorder.recordingResult.duration);
-        // Free: bank teleprompter time separately (3 min/day) — only when
-        // the prompter was actually in use (a script was loaded on record start).
-        if (teleprompterActiveRef.current) {
-          addDailyTeleprompterSeconds(recorder.recordingResult.duration);
-        }
       }
 
       if (recorder.recordingResult?.blob) {
@@ -287,36 +361,36 @@ export default function HomePage() {
     resetTimer();
   }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height, isCreatorUser, setDrawerVisible, resetTimer]);
 
-  // Free: stop the recording as soon as the 3 min/day teleprompter budget runs out
-  // mid-recording (banked time + this recording's elapsed time).
+  // Free: the teleprompter allowance runs per recording (3 min, capped by the recording
+  // budget). When it runs out mid-take the prompter hides — but the CAMERA KEEPS RECORDING.
   const teleprompterWarnedRef = useRef(false);
+  const teleprompterLimitNotifiedRef = useRef(false);
   useEffect(() => {
     if (isCreatorUser || recorder.recordingState !== 'recording') {
       teleprompterWarnedRef.current = false;
+      teleprompterLimitNotifiedRef.current = false;
       return;
     }
-    if (!teleprompterActiveRef.current) return;
-    const remaining = getDailyTeleprompterRemainingInFlight(elapsedSeconds);
+    if (!teleprompterActiveRef.current || teleprompterSessionCap == null) return;
+    const remaining = getTeleprompterRemainingInSession(teleprompterSessionCap, elapsedSeconds);
+    if (remaining === null) return;
     if (remaining <= 0) {
-      recorder.stopRecording();
-      showToast('Teleprompter limit reached (3 min/day on Free). Upgrade to Creator for unlimited.');
-      ui.setIsPricingModalOpen(true);
+      if (!teleprompterLimitNotifiedRef.current) {
+        teleprompterLimitNotifiedRef.current = true;
+        showToast('Teleprompter limit reached (3 min per recording on Free). Camera recording continues.');
+      }
     } else if (remaining <= 60 && !teleprompterWarnedRef.current) {
       teleprompterWarnedRef.current = true;
-      showToast('1 minute of teleprompter time left today (3 min/day on Free)');
+      showToast('1 minute of teleprompter left (3 min per recording on Free)');
     }
-  }, [elapsedSeconds, recorder, showToast, ui, isCreatorUser]);
+  }, [elapsedSeconds, recorder, showToast, isCreatorUser, teleprompterSessionCap]);
 
   const handleRecordStart = useCallback(() => {
     if (!camera.stream) return;
 
-    // Free: enforce 3 min/day teleprompter budget (separate from recording budget).
-    // A script is loaded → the prompter is in use, so disable it and ask to upgrade.
-    if (!isCreatorUser && teleprompterActiveRef.current && !canUseTeleprompterToday()) {
-      showToast('Teleprompter limit reached (3 min/day on Free). Upgrade to Creator for unlimited teleprompter.');
-      ui.setIsPricingModalOpen(true);
-      return;
-    }
+    // Free: the teleprompter allotment is per-recording (fresh 3 min per take) and only
+    // hides mid-recording — it never blocks or stops a take. The daily recording budget is
+    // the single gate below; teleprompter time never deducts from it.
 
     // Free: enforce 10 min TOTAL recording per day (downloads stay unlimited)
     if (!isCreatorUser && !canRecordToday()) {
@@ -385,6 +459,15 @@ export default function HomePage() {
     setExportConfig(null);
   }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
 
+  const handleOpenLibrary = useCallback(() => {
+    ui.setIsDrawerVisible(false);
+    recorder.resetRecording();
+    clearMasterRecording();
+    clearJobs();
+    setExportConfig(null);
+    setActivePanel('library');
+  }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
+
   const handleNudgeUp = useCallback(() => {
     if (prompterContainerRef.current) {
       prompterContainerRef.current.scrollBy({
@@ -416,12 +499,8 @@ export default function HomePage() {
   }, [camera.stream]);
 
   const handlePanelChange = useCallback((panel: TabType | 'record' | 'share') => {
-    if (panel === 'record') {
-      handleRecordStop();
-    } else {
-      setActivePanel(panel);
-    }
-  }, [handleRecordStop]);
+    setActivePanel(panel);
+  }, []);
 
   const handleToggleInspector = useCallback(() => {
     setIsInspectorOpen((prev) => !prev);
@@ -430,11 +509,6 @@ export default function HomePage() {
   const handleShowShortcuts = useCallback(() => {
     showToast('Space: Start / Stop recording · P: Pause / Resume · M: Mute microphone · ↑ ↓: Move text · Esc: Close');
   }, [showToast]);
-
-  const handleOpenTeleprompter = useCallback(() => {
-    setActivePanel('studio');
-    setIsInspectorOpen(true);
-  }, []);
 
   // (checkout intent effect above handles search cleanup)
 
@@ -472,6 +546,21 @@ export default function HomePage() {
 
   const isStudio = activePanel === 'studio';
 
+  // The active creation phase drives progressive disclosure across the UI.
+  // 'preparing' → script + teleprompter focused; 'recording' → camera only;
+  // 'review' → the take exists, output/platform becomes relevant.
+  const inspectorContext =
+    recorder.recordingState === 'recording' || recorder.recordingState === 'paused' || recorder.recordingState === 'countdown'
+      ? 'recording'
+      : recorder.recordingState === 'completed'
+        ? 'review'
+        : 'preparing';
+
+  // Preview platform for "Preview as" — separate from export platform
+  const [previewPlatformId, setPreviewPlatformId] = useState<PlatformId>('youtube-landscape');
+  const isReview = inspectorContext === 'review';
+  const previewPreset = PLATFORM_PRESETS.find((p) => p.id === previewPlatformId) ?? PLATFORM_PRESETS[0];
+
   const inspectorProps = {
     settings: settings.teleprompter,
     onSettingsChange: settings.setTeleprompter,
@@ -491,7 +580,7 @@ export default function HomePage() {
     onPlatformChange: settings.setPlatformId,
     userPlan: session?.user?.plan || 'free',
     isAuthenticated: !!session?.user,
-    onUpgradeRequired: handleUpgradeClick,
+    onUpgradeRequired: handlePlatformUpgradeRequired,
     teleprompterNotice,
     customAspectRatio: settings.customAspectRatio,
     onCustomAspectRatioChange: settings.setCustomAspectRatio,
@@ -529,40 +618,38 @@ export default function HomePage() {
           onShare={share}
           onToggleInspector={handleToggleInspector}
           onSignIn={ui.handleAuthRequired}
+          userPlan={userPlan}
+          onPricingClick={handlePricingClick}
         />
 
         <div className="flex-1 min-h-0 flex overflow-hidden">
           <IconRail
             activePanel={activePanel}
             onPanelChange={handlePanelChange}
-            isCameraInitialized={camera.isInitialized}
-            isCameraRequesting={camera.status === 'requesting'}
-            onCameraInitialize={handleCameraInitialize}
-            focusViewEnabled={focusView.isEnabled}
-            onFocusViewToggle={focusView.toggle}
-            onOpenTeleprompter={handleOpenTeleprompter}
             onShowShortcuts={handleShowShortcuts}
-            onPricingClick={handlePricingClick}
-            userPlan={session?.user?.plan || 'free'}
           />
 
           <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden" role="main">
             <div className={`flex-1 min-h-0 flex flex-col overflow-hidden ${isStudio ? '' : 'hidden'}`}>
-              <DeviceSelectorBar
-                videoDevices={camera.videoDevices}
-                audioDevices={camera.audioDevices}
-                selectedVideoDevice={settings.selectedVideoDevice}
-                selectedAudioDevice={settings.selectedAudioDevice}
-                onVideoDeviceChange={handleVideoDeviceChange}
-                onAudioDeviceChange={handleAudioDeviceChange}
-                onRefresh={camera.refreshDevices}
-              />
+              {recorder.recordingState !== 'countdown' && recorder.recordingState !== 'recording' && recorder.recordingState !== 'paused' && (
+                <DeviceSelectorBar
+                  videoDevices={camera.videoDevices}
+                  audioDevices={camera.audioDevices}
+                  selectedVideoDevice={settings.selectedVideoDevice}
+                  selectedAudioDevice={settings.selectedAudioDevice}
+                  onVideoDeviceChange={handleVideoDeviceChange}
+                  onAudioDeviceChange={handleAudioDeviceChange}
+                  onRefresh={camera.refreshDevices}
+                />
+              )}
 
               <Canvas
                 focusViewEnabled={focusView.isEnabled}
                 onFocusViewToggle={focusView.toggle}
-                aspectRatio={settings.aspectRatio}
+                aspectRatio={isReview ? previewPreset.aspectRatio : settings.aspectRatio}
                 recordingConfig={recordingConfig}
+                reviewVideoUrl={isReview && masterRecordingData ? masterRecordingData.url : undefined}
+                reviewAspectRatio={isReview ? previewPreset.aspectRatio : undefined}
               >
                 <CameraPreview
                   stream={camera.stream}
@@ -575,7 +662,7 @@ export default function HomePage() {
                     <div className="flex flex-col items-center gap-3 max-w-sm text-center rounded-xl bg-surface/95 border border-border-default p-5 shadow-2xl">
                       <span className="text-[12px] font-bold uppercase tracking-wider text-warning">Teleprompter limit reached</span>
                       <p className="text-[13px] text-text-secondary leading-relaxed">
-                        Free plan includes 3 min of teleprompter time per day. Upgrade to Creator for unlimited teleprompter.
+                        Free plan includes 3 min of teleprompter per recording. Your recording continues — upgrade to Creator for unlimited teleprompter.
                       </p>
                       <button
                         onClick={handleUpgradeClick}
@@ -585,13 +672,13 @@ export default function HomePage() {
                       </button>
                     </div>
                   </div>
-                ) : (
+                ) : prompterScript ? (
                   <TeleprompterOverlay
                     ref={prompterContainerRef}
                     script={scriptStorage.script}
                     settings={settings.teleprompter}
                   />
-                )}
+                ) : null}
 
                 <FocalGuideway position={settings.teleprompter.textStartPosition} />
 
@@ -615,6 +702,35 @@ export default function HomePage() {
                   />
                 )}
               </Canvas>
+
+              {/* "Preview as" platform switcher — only during review */}
+              {isReview && masterRecordingData && (
+                <>
+                  <PlatformPreviewSwitcher
+                    selectedPlatformId={previewPlatformId}
+                    onSelect={setPreviewPlatformId}
+                    isLocked={(id) => !isCreatorUser && isPlatformLockedForUser(id, session?.user?.plan || 'free')}
+                    onLockedClick={(id) => {
+                      handlePlatformUpgradeRequired(id);
+                    }}
+                  />
+                  <div className="flex items-center justify-center gap-3 pb-3">
+                    <span className="text-[12px] text-text-secondary">
+                      {previewPreset.label} · {previewPreset.sublabel}
+                    </span>
+                    <button
+                      onClick={() => {
+                        // Set the export platform to the preview platform, then open ExportModal
+                        settings.setPlatformId(previewPlatformId);
+                        ui.setIsDrawerVisible(true);
+                      }}
+                      className="px-5 py-2 rounded-lg bg-accent text-white text-[13px] font-semibold hover:bg-accent/90 transition-colors"
+                    >
+                      Export
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
 
             {activePanel === 'library' && (
@@ -622,6 +738,7 @@ export default function HomePage() {
                 <RecordingsPanel
                   isMobile={isMobile}
                   isAuthenticated={!!session?.user}
+                  userPlan={userPlan}
                   refreshKey={exportJobs.length}
                   onExportRecording={(recording) => {
                     createMasterRecording(
@@ -637,44 +754,40 @@ export default function HomePage() {
               </div>
             )}
 
-            {activePanel === 'insights' && (
-              <div className="flex-1 min-h-0 overflow-auto">
-                <InsightsPlaceholder />
-              </div>
+            {isStudio && (
+              <TransportBar
+                recordingState={recorder.recordingState}
+                canRecord={!!camera.stream}
+                hasRecording={recorder.recordingState === 'completed'}
+                isMicMuted={isMicMuted}
+                elapsedSeconds={elapsedSeconds}
+                dailyRemainingSeconds={dailyRemainingDisplay}
+                dailyRemainingTotalSeconds={FREE_DAILY_RECORDING_SECONDS}
+                onMicToggle={handleMicToggle}
+                onStart={handleRecordStart}
+                onPause={recorder.pauseRecording}
+                onResume={() =>
+                  recorder.resumeRecording(
+                    () => {
+                      if (!prompterContainerRef.current) return;
+                      const container = prompterContainerRef.current;
+                      const speed = settings.teleprompter.scrollSpeed;
+                      const multiplier = settings.teleprompter.scrollSpeedMultiplier;
+                      container.scrollTop += (speed / 20) * multiplier;
+                    },
+                    () => {
+                      if (!prompterContainerRef.current) return false;
+                      const container = prompterContainerRef.current;
+                      return (
+                        container.scrollTop + container.clientHeight >=
+                        container.scrollHeight - 5
+                      );
+                    }
+                  )
+                }
+                onStop={recorder.stopRecording}
+              />
             )}
-
-            <TransportBar
-              recordingState={recorder.recordingState}
-              canRecord={!!camera.stream}
-              hasRecording={recorder.recordingState === 'completed'}
-              isMicMuted={isMicMuted}
-              elapsedSeconds={elapsedSeconds}
-              dailyRemainingSeconds={dailyRemainingDisplay}
-              dailyRemainingTotalSeconds={FREE_DAILY_RECORDING_SECONDS}
-              onMicToggle={handleMicToggle}
-              onStart={handleRecordStart}
-              onPause={recorder.pauseRecording}
-              onResume={() =>
-                recorder.resumeRecording(
-                  () => {
-                    if (!prompterContainerRef.current) return;
-                    const container = prompterContainerRef.current;
-                    const speed = settings.teleprompter.scrollSpeed;
-                    const multiplier = settings.teleprompter.scrollSpeedMultiplier;
-                    container.scrollTop += (speed / 20) * multiplier;
-                  },
-                  () => {
-                    if (!prompterContainerRef.current) return false;
-                    const container = prompterContainerRef.current;
-                    return (
-                      container.scrollTop + container.clientHeight >=
-                      container.scrollHeight - 5
-                    );
-                  }
-                )
-              }
-              onStop={recorder.stopRecording}
-            />
           </main>
 
           <div className={isStudio ? '' : 'hidden'}>
@@ -683,6 +796,7 @@ export default function HomePage() {
               isMobile={isMobile}
               isOpen={isInspectorOpen}
               onClose={handleToggleInspector}
+              inspectorContext={inspectorContext}
             />
           </div>
         </div>
@@ -690,34 +804,7 @@ export default function HomePage() {
         <BottomNav
           activePanel={activePanel}
           onPanelChange={handlePanelChange}
-          recordingState={recorder.recordingState}
-          onRecordToggle={handleRecordStop}
-          onPause={recorder.pauseRecording}
-          onResume={() =>
-            recorder.resumeRecording(
-              () => {
-                if (!prompterContainerRef.current) return;
-                const container = prompterContainerRef.current;
-                const speed = settings.teleprompter.scrollSpeed;
-                const multiplier = settings.teleprompter.scrollSpeedMultiplier;
-                container.scrollTop += (speed / 20) * multiplier;
-              },
-              () => {
-                if (!prompterContainerRef.current) return false;
-                const container = prompterContainerRef.current;
-                return (
-                  container.scrollTop + container.clientHeight >=
-                  container.scrollHeight - 5
-                );
-              }
-            )
-          }
           onSettingsToggle={handleToggleInspector}
-          onPricingClick={handlePricingClick}
-          isCameraInitialized={camera.isInitialized}
-          isCameraRequesting={camera.status === 'requesting'}
-          onCameraInitialize={handleCameraInitialize}
-          userPlan={session?.user?.plan || 'free'}
         />
 
         <Footer />
@@ -728,12 +815,14 @@ export default function HomePage() {
         masterRecording={masterRecordingData}
         onClose={handleCloseDrawer}
         onPracticeAgain={handlePracticeAgain}
+        onOpenLibrary={handleOpenLibrary}
         onShare={share}
         showToast={showToast}
         isAuthenticated={!!session?.user}
         userPlan={session?.user?.plan || 'free'}
         onAuthRequired={ui.handleAuthRequired}
         onDownloadLimitReached={handleUpgradeClick}
+        onUpgradeRequired={handlePlatformUpgradeRequired}
         exportConfig={exportConfig}
         onSelectPlatform={selectPlatform}
         onUpdateCrop={updateCrop}
@@ -748,6 +837,8 @@ export default function HomePage() {
           ui.setIsPricingModalOpen(false);
           setCheckoutIntent(null);
           setPricingInitialStep('select');
+          // Clear upgrade intent if payment wasn't completed
+          try { window.localStorage.removeItem('sxs-upgrade-intent'); } catch {}
         }}
         showToast={showToast}
         userPlan={session?.user?.plan || 'free'}
@@ -758,6 +849,16 @@ export default function HomePage() {
         initialStep={pricingInitialStep}
       />
 
+      <UpgradePromptModal
+        platform={lockedPlatform}
+        isAuthenticated={!!session?.user}
+        onClose={() => {
+          setLockedPlatform(null);
+          try { window.localStorage.removeItem('sxs-upgrade-intent'); } catch {}
+        }}
+        onUpgrade={handleUpgradeFromPrompt}
+      />
+
       <AuthModal
         isOpen={ui.isAuthModalOpen}
         onClose={() => {
@@ -766,6 +867,25 @@ export default function HomePage() {
         }}
         onSuccess={handleAuthSuccessWithPricing}
         mode="download"
+      />
+
+      <ActivationModal
+        isOpen={activationModal.isOpen}
+        plan={activationModal.plan}
+        orderId={activationModal.orderId}
+        onClose={() => {
+          setActivationModal({ isOpen: false, plan: '', orderId: null });
+          // Closed-loop upgrade: restore the platform the user was trying to use
+          try {
+            const pendingPlatform = window.localStorage.getItem('sxs-upgrade-intent');
+            if (pendingPlatform) {
+              window.localStorage.removeItem('sxs-upgrade-intent');
+              settings.setPlatformId(pendingPlatform as PlatformId);
+              // Open export modal with the newly unlocked platform
+              setTimeout(() => ui.setIsDrawerVisible(true), 300);
+            }
+          } catch {}
+        }}
       />
 
       <Toast message={toast?.message ?? null} queueLength={queueLength} />

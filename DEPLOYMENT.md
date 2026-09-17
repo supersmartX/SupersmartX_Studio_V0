@@ -23,8 +23,6 @@ Build → Validate → Test → Deploy to Staging → Validate → Approval → 
 | `ADMIN_EMAIL` | *(none)* | `admin@example.com` | Admin notifications |
 | `GOOGLE_CLIENT_ID` | *(optional)* | `your-google-id` | Google OAuth |
 | `GOOGLE_CLIENT_SECRET` | *(optional)* | `your-google-secret` | Google OAuth |
-| `GITHUB_CLIENT_ID` | *(optional)* | `your-github-id` | GitHub OAuth |
-| `GITHUB_CLIENT_SECRET` | *(optional)* | `your-github-secret` | GitHub OAuth |
 | `RESEND_API_KEY` | *(optional)* | `your-resend-key` | Email sending |
 | `RESEND_FROM_EMAIL` | *(optional)* | `noreply@yourdomain.com` | Email sender |
 | `R2_ACCOUNT_ID` | *(optional)* | `your-cloudflare-account` | R2 storage |
@@ -100,7 +98,7 @@ npm run build
 **Build validation gates:**
 1. TypeScript compilation: 0 errors
 2. ESLint: 0 errors
-3. Unit tests: 145+ passed, 0 failed
+3. Unit tests: 370+ passed, 0 failed
 4. Next.js build: successful
 
 ---
@@ -138,7 +136,6 @@ TURSO_DATABASE_URL="file:data/test-migration.db" npx vitest run src/__tests__/ex
 | `TURSO_AUTH_TOKEN` | Vercel env | `turso db tokens create` |
 | `CLEANUP_SECRET` | Vercel env | Generate new, redeploy |
 | Google OAuth | Vercel env | Google Cloud Console |
-| GitHub OAuth | Vercel env | GitHub Settings |
 | Resend API Key | Vercel env | Resend dashboard |
 | Cashfree Keys | Vercel env | Cashfree dashboard |
 | R2 Keys | Vercel env | Cloudflare dashboard |

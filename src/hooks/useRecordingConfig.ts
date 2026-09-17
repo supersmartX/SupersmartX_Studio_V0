@@ -38,8 +38,8 @@ function deriveResolution(
 ): { width: number; height: number } {
   if (platformId === 'custom') {
     // Validate custom dimensions
-    const validWidth = Math.max(1, Math.min(3840, Math.floor(customWidth)));
-    const validHeight = Math.max(1, Math.min(2160, Math.floor(customHeight)));
+    const validWidth = Math.max(1, Math.min(1920, Math.floor(customWidth)));
+    const validHeight = Math.max(1, Math.min(1080, Math.floor(customHeight)));
     return { width: validWidth, height: validHeight };
   }
   const preset = getPlatformPreset(platformId);
@@ -96,8 +96,8 @@ export function useRecordingConfig(): UseRecordingConfigReturn {
   // Set custom dimensions with validation
   const setCustomDimensions = useCallback((width: number, height: number) => {
     setIsConfiguring(true);
-    const validWidth = Math.max(1, Math.min(3840, Math.floor(width)));
-    const validHeight = Math.max(1, Math.min(2160, Math.floor(height)));
+    const validWidth = Math.max(1, Math.min(1920, Math.floor(width)));
+    const validHeight = Math.max(1, Math.min(1080, Math.floor(height)));
     setCustomWidth(validWidth);
     setCustomHeight(validHeight);
     setTimeout(() => setIsConfiguring(false), 100);

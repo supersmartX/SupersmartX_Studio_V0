@@ -42,9 +42,9 @@ describe('getEntitlements', () => {
 
   it('pro retained internally but not customer-facing', () => {
     const e = getEntitlements('pro_monthly');
-    expect(e.canBatchExport).toBe(true);
+    expect(e.canBatchExport).toBe(false);
     expect(e.canCrop).toBe(true);
-    expect(e.maxResolution).toEqual({ width: 3840, height: 2160 });
+    expect(e.maxResolution).toEqual({ width: 1920, height: 1080 });
   });
 
   it('falls back to free for unknown plan', () => {

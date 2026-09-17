@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import { ShareIcon, DownloadIcon, SettingsIcon } from '@/components/icons';
+import { isCreatorPlan } from '@/lib/entitlements';
 
 interface HeaderProps {
   isMobile: boolean;
@@ -12,6 +13,8 @@ interface HeaderProps {
   onShare: () => void;
   onToggleInspector?: () => void;
   onSignIn?: () => void;
+  userPlan?: string;
+  onPricingClick?: () => void;
 }
 
 export function Header({
@@ -21,6 +24,8 @@ export function Header({
   onShare,
   onToggleInspector,
   onSignIn,
+  userPlan = 'free',
+  onPricingClick,
 }: HeaderProps) {
   const { data: session } = useSession();
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -39,37 +44,41 @@ export function Header({
   }, []);
 
   const user = session?.user;
+  const isCreator = isCreatorPlan(userPlan);
 
   return (
-    <header className="h-12 border-b border-border-subtle bg-surface flex items-center px-3 sm:px-4 justify-between shrink-0 z-30 safe-area-top">
+    <header className="h-12 border-b border-border-subtle bg-surface flex items-center px-3 sm:px-5 justify-between shrink-0 z-30 safe-area-top">
       {/* Left: Logo */}
       <div className="flex items-center min-w-0">
         <Link href="/" className="text-[14px] font-semibold tracking-tight text-text-primary truncate hover:text-text-secondary transition-colors" aria-label="SupersmartX Studio">
-          SUPERSMARTX<span className="text-accent font-normal">Studio</span>
+          SupersmartX<span className="text-accent font-normal"> Studio</span>
         </Link>
       </div>
 
       {/* Right: Actions */}
-      <div className="flex items-center gap-1">
-        <button
-          onClick={onShare}
-          aria-label="Share recording"
-          className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] justify-center"
-        >
-          <ShareIcon className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Share</span>
-        </button>
+      <div className="flex items-center gap-0.5">
+        {hasRecording && (
+          <button
+            onClick={onShare}
+            aria-label="Share recording"
+            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] justify-center"
+          >
+            <ShareIcon className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Share</span>
+          </button>
+        )}
 
-        <button
-          onClick={onExport}
-          disabled={!hasRecording}
-          title={!hasRecording ? 'Record a video first' : undefined}
-          aria-label="Export recording"
-          className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] justify-center"
-        >
-          <DownloadIcon className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Export</span>
-        </button>
+        {hasRecording && (
+          <button
+            onClick={onExport}
+            title="Export recording"
+            aria-label="Export recording"
+            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] justify-center"
+          >
+            <DownloadIcon className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Export</span>
+          </button>
+        )}
 
         {onToggleInspector && (
           <button
@@ -104,6 +113,30 @@ export function Header({
                   <p className="text-[12px] font-medium text-text-primary truncate">{user.name || 'User'}</p>
                   <p className="text-[11px] text-text-muted truncate">{user.email}</p>
                 </div>
+
+                <div className="px-3 py-2.5 border-b border-border-subtle flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                      isCreator ? 'bg-accent/20 text-accent' : 'bg-elevated text-text-secondary'
+                    }`}>
+                      {isCreator ? 'Creator' : 'Free'}
+                    </span>
+                    <span className="text-[12px] text-text-secondary truncate">
+                      {isCreator ? 'Unlimited recording' : '10 min/day recording'}
+                    </span>
+                  </div>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      onPricingClick?.();
+                    }}
+                    className="w-full text-left px-2.5 py-1.5 rounded-md text-[12px] font-medium bg-accent/15 text-accent hover:bg-accent/25 transition-colors flex items-center gap-2"
+                  >
+                    {isCreator ? 'Manage Plan' : 'Upgrade to Creator'}
+                  </button>
+                </div>
+
                 <button
                   role="menuitem"
                   onClick={async () => {

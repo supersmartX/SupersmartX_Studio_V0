@@ -1,10 +1,8 @@
 export type RecordingState = 'idle' | 'countdown' | 'recording' | 'paused' | 'completed';
 
-export type ExportStep = 'platform' | 'crop' | 'encoding' | 'done';
+export type ExportStep = 'platform' | 'encoding' | 'done';
 
-export type TabType = 'studio' | 'library' | 'insights';
-
-export type HeaderTab = 'studio' | 'script' | 'camera' | 'audio';
+export type TabType = 'studio' | 'library';
 
 export type TextAlignment = 'left' | 'center' | 'right';
 
