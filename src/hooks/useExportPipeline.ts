@@ -601,7 +601,7 @@ async function encodeExport(
   let audioCtx: AudioContext | null = null;
   let audioSrc: MediaElementAudioSourceNode | null = null;
   let workletNode: AudioWorkletNode | null = null;
-  let encoderError: Error | null = null;
+  let encoderError: unknown = null;
   let videoEncoder: VideoEncoder | null = null;
   let audioEncoder: AudioEncoder | null = null;
 
@@ -621,7 +621,7 @@ async function encodeExport(
     const canvas = document.createElement('canvas');
     canvas.width = outputWidth;
     canvas.height = outputHeight;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvas.getContext('2d', { colorSpace: 'srgb', willReadFrequently: true });
     if (!ctx) throw new Error('Canvas context not available');
 
     const fps = 30;
@@ -678,6 +678,7 @@ async function encodeExport(
       height: outputHeight,
       bitrate: 10_000_000,
       bitrateMode: 'constant',
+      framerate: fps,
     });
 
     if (effectiveHasAudio && audioCtx) {
@@ -810,15 +811,19 @@ async function encodeExport(
 
     onProgress?.(1);
 
-    if (encoderError) {
-      throw encoderError;
-    }
-
     if (videoEncoder.state === 'configured') {
       await videoEncoder.flush();
     }
     if (audioEncoder && audioEncoder.state === 'configured') {
       await audioEncoder.flush();
+    }
+
+    if (encoderError) {
+      const msg = encoderError instanceof Error ? encoderError.message : String(encoderError);
+      if (msg.includes('colorSpace') || msg.includes('null')) {
+        throw new Error('Video encoding failed — your browser may not support this format. Try Chrome or Edge.');
+      }
+      throw encoderError instanceof Error ? encoderError : new Error(msg);
     }
 
     muxer.finalize();
