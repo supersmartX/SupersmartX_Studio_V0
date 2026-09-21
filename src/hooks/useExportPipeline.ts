@@ -750,7 +750,8 @@ async function encodeExport(
     }
 
     let frameCount = 0;
-    const maxQueueSize = 5;
+    let framesInFlight = 0;
+    const maxConcurrentFrames = 2;
     const totalFrames = Math.ceil((videoEl.duration || 30) * fps);
 
     const ENCODE_TIMEOUT_MS = Math.max((videoEl.duration || 30) * 1000 * 2, 60000);
@@ -758,44 +759,54 @@ async function encodeExport(
       videoEl.pause();
     }, ENCODE_TIMEOUT_MS);
 
+    const encodeFrame = async () => {
+      const { sx, sy, sw, sh } = computeCanvasSourceRect(crop, sourceW, sourceH, master.sourceWidth || 1920, master.sourceHeight || 1080);
+
+      ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
+      if (watermarkRequired) {
+        drawWatermark(ctx, outputWidth, outputHeight);
+      }
+
+      const imageData = ctx.getImageData(0, 0, outputWidth, outputHeight);
+      const bitmap = await createImageBitmap(new ImageData(imageData.data, outputWidth, outputHeight));
+      const frame = new VideoFrame(bitmap, { timestamp: frameCount * frameDuration });
+      bitmap.close();
+
+      if (videoEncoder && videoEncoder.state === 'configured') {
+        videoEncoder.encode(frame, { keyFrame: frameCount % (fps * 2) === 0 });
+      }
+      frame.close();
+    };
+
     await new Promise<void>((resolve) => {
       const intervalId = setInterval(() => {
         if (signal?.aborted || videoEl.ended || videoEl.paused) {
           clearInterval(intervalId);
           clearTimeout(encodeTimeout);
-          resolve();
+          if (framesInFlight === 0) resolve();
           return;
         }
 
-        if (!videoEncoder || videoEncoder.encodeQueueSize > maxQueueSize) {
+        if (!videoEncoder || videoEncoder.encodeQueueSize > maxConcurrentFrames || framesInFlight >= maxConcurrentFrames) {
           return;
         }
 
-        const { sx, sy, sw, sh } = computeCanvasSourceRect(crop, sourceW, sourceH, master.sourceWidth || 1920, master.sourceHeight || 1080);
-
-        try {
-          if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0 && sw > 0 && sh > 0) {
-            ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
-            if (watermarkRequired) {
-              drawWatermark(ctx, outputWidth, outputHeight);
-            }
-
-            const imageData = ctx.getImageData(0, 0, outputWidth, outputHeight);
-            const frame = new VideoFrame(imageData.data.buffer, {
-              format: 'RGBA',
-              codedWidth: outputWidth,
-              codedHeight: outputHeight,
-              timestamp: frameCount * frameDuration,
-            } as VideoFrameBufferInit);
-            if (videoEncoder && videoEncoder.state === 'configured') {
-              videoEncoder.encode(frame, { keyFrame: frameCount % (fps * 2) === 0 });
-            }
-            frame.close();
-          }
-        } catch (frameErr) {
-          console.warn('[Export] Frame encode failed, skipping:', frameErr);
-        }
+        framesInFlight++;
+        const currentFrame = frameCount;
         frameCount++;
+
+        encodeFrame()
+          .catch((frameErr) => {
+            console.warn(`[Export] Frame ${currentFrame} encode failed, skipping:`, frameErr);
+          })
+          .finally(() => {
+            framesInFlight--;
+            if ((signal?.aborted || videoEl.ended || videoEl.paused) && framesInFlight === 0) {
+              clearInterval(intervalId);
+              clearTimeout(encodeTimeout);
+              resolve();
+            }
+          });
 
         if (frameCount % 10 === 0) {
           onProgress?.(Math.min(frameCount / totalFrames, 0.99));
@@ -805,7 +816,7 @@ async function encodeExport(
       videoEl.onended = () => {
         clearInterval(intervalId);
         clearTimeout(encodeTimeout);
-        resolve();
+        if (framesInFlight === 0) resolve();
       };
     });
 
