@@ -579,7 +579,6 @@ function InspectorContent({
             selectedPlatformId={platformId}
             onSelect={onPlatformChange}
             userPlan={userPlan}
-            isAuthenticated={isAuthenticated}
             onUpgradeRequired={onUpgradeRequired}
           />
 

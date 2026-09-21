@@ -147,6 +147,13 @@ const fullAuthConfig = {
         }
         token.sessionVersion = fullUser.sessionVersion;
       }
+      // Sliding window: extend token expiry if more than 7 days remain
+      if (token.exp && typeof token.exp === 'number') {
+        const expiresIn = token.exp - Math.floor(Date.now() / 1000);
+        if (expiresIn > 7 * 24 * 60 * 60) {
+          token.exp = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+        }
+      }
       return token;
     },
   },

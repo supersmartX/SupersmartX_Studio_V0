@@ -33,7 +33,7 @@ export function createWatermarkOverlay(
   const canvas = document.createElement('canvas');
   canvas.width = 1;
   canvas.height = 1;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
   if (!ctx) return '';
 
   ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';

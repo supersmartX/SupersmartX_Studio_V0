@@ -6,7 +6,6 @@ import type { PlatformId } from '@/types';
 
 interface Overrides {
   selectedPlatformId?: PlatformId;
-  isAuthenticated?: boolean;
   userPlan?: string;
 }
 
@@ -15,7 +14,6 @@ function renderSelector(overrides: Overrides = {}) {
     onSelect: vi.fn(),
     onUpgradeRequired: vi.fn(),
     selectedPlatformId: 'youtube-landscape' as PlatformId,
-    isAuthenticated: true,
     userPlan: 'free',
     ...overrides,
   };
@@ -72,6 +70,48 @@ describe('PlatformSelector — Creator-only platform availability', () => {
       expect(onUpgradeRequired).toHaveBeenCalledTimes(1);
     });
 
+    it.each([
+      ['YouTube Shorts, Creator plan required'],
+      ['Reels, Creator plan required'],
+      ['Instagram Square, Creator plan required'],
+      ['Instagram Portrait, Creator plan required'],
+      ['TikTok, Creator plan required'],
+      ['LinkedIn, Creator plan required'],
+      ['Custom, Creator plan required'],
+    ])('%s cannot be selected by Free users — locked click does not mutate selected platform', (ariaLabel) => {
+      renderSelector({ userPlan: 'free', selectedPlatformId: 'youtube-landscape' });
+
+      const radio = screen.getByRole('radio', { name: ariaLabel });
+      expect(radio).toHaveAttribute('aria-disabled', 'true');
+      expect(radio).toHaveAttribute('aria-checked', 'false');
+
+      fireEvent.click(radio);
+
+      expect(radio).toHaveAttribute('aria-checked', 'false');
+      expect(screen.getByRole('radio', { name: 'YouTube' })).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('locked click triggers upgrade prompt for every locked platform', () => {
+      const { onSelect, onUpgradeRequired } = renderSelector({ userPlan: 'free' });
+
+      const lockedAriaLabels = [
+        'YouTube Shorts, Creator plan required',
+        'Reels, Creator plan required',
+        'Instagram Square, Creator plan required',
+        'Instagram Portrait, Creator plan required',
+        'TikTok, Creator plan required',
+        'LinkedIn, Creator plan required',
+        'Custom, Creator plan required',
+      ];
+
+      for (const name of lockedAriaLabels) {
+        fireEvent.click(screen.getByRole('radio', { name }));
+      }
+
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(onUpgradeRequired).toHaveBeenCalledTimes(lockedAriaLabels.length);
+    });
+
     it('treats Custom as Creator-locked for Free users', () => {
       const { onSelect, onUpgradeRequired } = renderSelector({ userPlan: 'free' });
 
@@ -116,18 +156,30 @@ describe('PlatformSelector — Creator-only platform availability', () => {
   });
 
   describe('Guests (not signed in)', () => {
-    it('shows no lock state and allows any platform selection (mirrors export flow)', () => {
-      const { onSelect, onUpgradeRequired } = renderSelector({ isAuthenticated: false });
+    it('locks all platforms except YouTube Landscape and shows upgrade on click', () => {
+      const { onSelect, onUpgradeRequired } = renderSelector();
 
       const lockedButtons = screen.getAllByRole('radio').filter(
         (el) => el.getAttribute('aria-disabled') === 'true'
       );
-      expect(lockedButtons).toHaveLength(0);
+      expect(lockedButtons).toHaveLength(TOTAL_PRESETS - 1);
       expect(screen.getAllByRole('radio')).toHaveLength(TOTAL_PRESETS);
 
-      fireEvent.click(screen.getByRole('radio', { name: 'TikTok' }));
+      const tiktok = screen.getByRole('radio', { name: 'TikTok, Creator plan required' });
+      expect(tiktok).toHaveAttribute('aria-disabled', 'true');
 
-      expect(onSelect).toHaveBeenCalledWith('tiktok');
+      fireEvent.click(tiktok);
+
+      expect(onUpgradeRequired).toHaveBeenCalledWith('tiktok');
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('allows selecting YouTube Landscape without upgrade prompt', () => {
+      const { onSelect, onUpgradeRequired } = renderSelector();
+
+      fireEvent.click(screen.getByRole('radio', { name: 'YouTube' }));
+
+      expect(onSelect).toHaveBeenCalledWith('youtube-landscape');
       expect(onUpgradeRequired).not.toHaveBeenCalled();
     });
   });

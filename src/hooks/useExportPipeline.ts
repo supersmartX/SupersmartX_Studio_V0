@@ -516,7 +516,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
         const thumbHeight = Math.round((video.videoHeight / video.videoWidth) * thumbWidth) || 180;
         canvas.width = thumbWidth;
         canvas.height = thumbHeight;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
         if (!ctx) throw new Error('Canvas context not available');
 
         ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight);
@@ -621,7 +621,7 @@ async function encodeExport(
     const canvas = document.createElement('canvas');
     canvas.width = outputWidth;
     canvas.height = outputHeight;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) throw new Error('Canvas context not available');
 
     const fps = 30;
@@ -772,16 +772,28 @@ async function encodeExport(
 
         const { sx, sy, sw, sh } = computeCanvasSourceRect(crop, sourceW, sourceH, master.sourceWidth || 1920, master.sourceHeight || 1080);
 
-        ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
-        if (watermarkRequired) {
-          drawWatermark(ctx, outputWidth, outputHeight);
-        }
+        try {
+          if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0 && sw > 0 && sh > 0) {
+            ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
+            if (watermarkRequired) {
+              drawWatermark(ctx, outputWidth, outputHeight);
+            }
 
-        const frame = new VideoFrame(canvas, { timestamp: frameCount * frameDuration });
-        if (videoEncoder && videoEncoder.state === 'configured') {
-          videoEncoder.encode(frame, { keyFrame: frameCount % (fps * 2) === 0 });
+            const imageData = ctx.getImageData(0, 0, outputWidth, outputHeight);
+            const frame = new VideoFrame(imageData.data.buffer, {
+              format: 'RGBA',
+              codedWidth: outputWidth,
+              codedHeight: outputHeight,
+              timestamp: frameCount * frameDuration,
+            } as VideoFrameBufferInit);
+            if (videoEncoder && videoEncoder.state === 'configured') {
+              videoEncoder.encode(frame, { keyFrame: frameCount % (fps * 2) === 0 });
+            }
+            frame.close();
+          }
+        } catch (frameErr) {
+          console.warn('[Export] Frame encode failed, skipping:', frameErr);
         }
-        frame.close();
         frameCount++;
 
         if (frameCount % 10 === 0) {

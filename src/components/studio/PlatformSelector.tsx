@@ -8,7 +8,6 @@ interface PlatformSelectorProps {
   selectedPlatformId: PlatformId;
   onSelect: (id: PlatformId) => void;
   layout?: 'inspector' | 'modal';
-  isAuthenticated?: boolean;
   userPlan?: string;
   onUpgradeRequired?: (platformId: PlatformId) => void;
 }
@@ -17,7 +16,6 @@ export function PlatformSelector({
   selectedPlatformId,
   onSelect,
   layout = 'inspector',
-  isAuthenticated = true,
   userPlan = 'free',
   onUpgradeRequired,
 }: PlatformSelectorProps) {
@@ -25,7 +23,7 @@ export function PlatformSelector({
     ? 'grid grid-cols-2 sm:grid-cols-3 gap-2'
     : 'grid grid-cols-2 gap-1.5';
 
-  const isLocked = (id: PlatformId) => isAuthenticated && isPlatformLockedForUser(id, userPlan);
+  const isLocked = (id: PlatformId) => isPlatformLockedForUser(id, userPlan);
 
   const handlePress = (id: PlatformId) => {
     if (isLocked(id)) {

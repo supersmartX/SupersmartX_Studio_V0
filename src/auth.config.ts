@@ -22,7 +22,7 @@ export const authConfig = {
   },
   session: {
     strategy: 'jwt' as const,
-    maxAge: 15 * 60, // 15 minutes
+    maxAge: 30 * 24 * 60 * 60, // 30 days — sliding window refreshed in jwt callback
   },
   trustHost: true,
   ...(secret ? { secret } : {}),
