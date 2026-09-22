@@ -48,6 +48,12 @@ export function VideoPlayer({
   }, [videoUrl]);
 
   useEffect(() => {
+    return () => {
+      if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!showSpeedMenu) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (speedMenuRef.current && !speedMenuRef.current.contains(e.target as Node)) {

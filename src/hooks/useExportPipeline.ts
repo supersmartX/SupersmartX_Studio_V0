@@ -1,11 +1,19 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import type { ExportConfig, ExportJob, CropConfig, PlatformId, MasterRecording } from '@/types';
-import { PLATFORM_PRESETS } from '@/constants';
 import { saveLocalExport } from '@/lib/local-exports-store';
-import { computeCanvasSourceRect, verifyExportBlob } from '@/lib/composition';
+import { createExportConfig, getDefaultCrop } from '@/lib/export/export-config';
+import { encodeExport } from '@/lib/export/export-engine';
+import { uploadCreatorExportToR2 } from '@/lib/export/export-upload';
+import { generateExportThumbnail } from '@/lib/export/export-thumbnail';
+
+export { drawWatermark } from '@/lib/export/export-watermark';
+
+function newJobId(): string {
+  const rand = globalThis.crypto?.randomUUID?.().slice(0, 8) ?? Math.random().toString(36).slice(2, 8);
+  return `export-${Date.now()}-${rand}`;
+}
 
 interface UseExportPipelineReturn {
   exportConfig: ExportConfig | null;
@@ -21,41 +29,15 @@ interface UseExportPipelineReturn {
   generateThumbnail: (master: MasterRecording, timeSeconds?: number) => Promise<string>;
 }
 
-function getDefaultCrop(
-  sourceWidth: number,
-  sourceHeight: number,
-  targetWidth: number,
-  targetHeight: number
-): CropConfig {
-  const targetRatio = targetWidth / targetHeight;
-  const sourceRatio = sourceWidth / sourceHeight;
-
-  let cropWidth: number;
-  let cropHeight: number;
-
-  if (targetRatio > sourceRatio) {
-    cropWidth = sourceWidth;
-    cropHeight = sourceWidth / targetRatio;
-  } else {
-    cropHeight = sourceHeight;
-    cropWidth = sourceHeight * targetRatio;
-  }
-
-  return {
-    x: (sourceWidth - cropWidth) / 2,
-    y: (sourceHeight - cropHeight) / 2,
-    width: cropWidth,
-    height: cropHeight,
-    zoom: 1,
-  };
-}
-
 export function useExportPipeline(): UseExportPipelineReturn {
   const [exportConfig, setExportConfig] = useState<ExportConfig | null>(null);
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([]);
   const abortControllerRef = useRef<Map<string, AbortController>>(new Map());
   const sourceDimensionsRef = useRef<{ width: number; height: number }>({ width: 1920, height: 1080 });
   const mountedRef = useRef(true);
+  const jobsRef = useRef<ExportJob[]>([]);
+
+  useEffect(() => { jobsRef.current = exportJobs; }, [exportJobs]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -63,813 +45,142 @@ export function useExportPipeline(): UseExportPipelineReturn {
       mountedRef.current = false;
       abortControllerRef.current.forEach((controller) => controller.abort());
       abortControllerRef.current.clear();
+      jobsRef.current.forEach((job) => { if (job.previewUrl) URL.revokeObjectURL(job.previewUrl); });
     };
   }, []);
 
-  const selectPlatform = useCallback(
-    (platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }): ExportConfig => {
-      sourceDimensionsRef.current = { width: sourceWidth, height: sourceHeight };
+  const selectPlatform = useCallback((platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }): ExportConfig => {
+    sourceDimensionsRef.current = { width: sourceWidth, height: sourceHeight };
+    const config = createExportConfig(platformId, sourceWidth, sourceHeight, maxResolution);
+    setExportConfig(config);
+    return config;
+  }, []);
 
-      const clamp = (w: number, h: number) => {
-        if (!maxResolution) return { width: w, height: h };
-        if (w <= maxResolution.width && h <= maxResolution.height) return { width: w, height: h };
-        const scale = Math.min(maxResolution.width / w, maxResolution.height / h);
-        return { width: Math.round(w * scale), height: Math.round(h * scale) };
-      };
-
-      const preset = PLATFORM_PRESETS.find((p) => p.id === platformId);
-      if (!preset) {
-        const outW = sourceWidth;
-        const outH = Math.round(sourceWidth / (16 / 9));
-        const clamped = clamp(outW, outH);
-        const config: ExportConfig = {
-          platformId: 'custom',
-          aspectRatio: '16:9',
-          outputWidth: clamped.width,
-          outputHeight: clamped.height,
-          crop: getDefaultCrop(sourceWidth, sourceHeight, clamped.width, clamped.height),
-        };
-        setExportConfig(config);
-        return config;
-      }
-
-      const clamped = clamp(preset.width, preset.height);
-      const config: ExportConfig = {
-        platformId,
-        aspectRatio: preset.aspectRatio,
-        outputWidth: clamped.width,
-        outputHeight: clamped.height,
-        crop: getDefaultCrop(sourceWidth, sourceHeight, clamped.width, clamped.height),
-      };
-
-      setExportConfig(config);
-      return config;
-    },
-    []
-  );
-
-  const updateCrop = useCallback(
-    (updates: Partial<CropConfig>) => {
-      setExportConfig((prev) => {
-        if (!prev) return prev;
-        return { ...prev, crop: { ...prev.crop, ...updates } };
-      });
-    },
-    []
-  );
+  const updateCrop = useCallback((updates: Partial<CropConfig>) => {
+    setExportConfig((prev) => prev ? { ...prev, crop: { ...prev.crop, ...updates } } : prev);
+  }, []);
 
   const resetCrop = useCallback(() => {
     setExportConfig((prev) => {
       if (!prev) return prev;
-      const sd = sourceDimensionsRef.current;
-      return {
-        ...prev,
-        crop: getDefaultCrop(sd.width, sd.height, prev.outputWidth, prev.outputHeight),
-      };
+      const dimensions = sourceDimensionsRef.current;
+      return { ...prev, crop: getDefaultCrop(dimensions.width, dimensions.height, prev.outputWidth, prev.outputHeight) };
     });
   }, []);
 
-  const startExport = useCallback(
-    async (master: MasterRecording, onProgress?: (progress: number) => void, watermarkRequired?: boolean): Promise<ExportJob> => {
-      if (!exportConfig) {
-        throw new Error('No export config');
+  const startExport = useCallback(async (master: MasterRecording, onProgress?: (progress: number) => void, watermarkRequired?: boolean): Promise<ExportJob> => {
+    if (!exportConfig) throw new Error('No export config');
+    const jobId = newJobId();
+    const abortController = new AbortController();
+    abortControllerRef.current.set(jobId, abortController);
+    const job: ExportJob = { id: jobId, masterId: master.id, config: exportConfig, status: 'pending', progress: 0 };
+    setExportJobs((prev) => [...prev, job]);
+
+    try {
+      let serverJobId: string | undefined;
+      if (!watermarkRequired) {
+        try {
+          const response = await fetch('/api/export-jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: exportConfig }), signal: abortController.signal });
+          if (response.ok) { const data = await response.json(); if (typeof data.jobId === 'string' && data.jobId.length > 0) serverJobId = data.jobId; }
+        } catch {}
       }
+      if (serverJobId) await fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding' }), signal: abortController.signal }).catch(() => {});
+      setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'encoding', serverJobId, progress: 0 } : item));
 
-      const jobId = `export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const abortController = new AbortController();
-      abortControllerRef.current.set(jobId, abortController);
+      const resultBlob = await encodeExport({ master, config: exportConfig, signal: abortController.signal, watermarkRequired: watermarkRequired || false, onProgress: (progress) => {
+        onProgress?.(progress);
+        if (serverJobId && Math.round(progress * 100) % 10 === 0) fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding', progress: Math.round(progress * 100) }), signal: abortController.signal }).catch(() => {});
+      }});
 
-      const job: ExportJob = {
-        id: jobId,
-        masterId: master.id,
-        config: exportConfig,
-        status: 'pending',
-        progress: 0,
-      };
-
-      setExportJobs((prev) => [...prev, job]);
-
-      try {
-        // 1. Create server job for Creator only (Free is local-only, no server job needed)
-        let serverJobId: string | undefined;
-        if (!watermarkRequired) {
-          try {
-            const createRes = await fetch('/api/export-jobs', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ config: exportConfig }),
-              signal: abortController.signal,
-            });
-            if (createRes.ok) {
-              const data = await createRes.json();
-              serverJobId = data.jobId;
-            }
-          } catch {
-            // Server job creation failed — continue with client-side encoding only
-          }
-        }
-
-        if (serverJobId) {
-          // 2. Update status to encoding
-          await fetch(`/api/export-jobs/${serverJobId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'encoding' }),
-            signal: abortController.signal,
-          }).catch(() => {});
-        }
-
-        setExportJobs((prev) => prev.map((j) =>
-          j.id === jobId ? { ...j, status: 'encoding', serverJobId, progress: 0 } : j,
-        ));
-
-        // 3. Client-side WebCodecs encoding
-        const resultBlob = await encodeExport(master, exportConfig, abortController.signal, (p) => {
-          onProgress?.(p);
-          // Report progress to server every 10%
-          if (serverJobId && Math.round(p * 100) % 10 === 0) {
-            fetch(`/api/export-jobs/${serverJobId}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ status: 'encoding', progress: Math.round(p * 100) }),
-            }).catch(() => {});
-          }
-        }, watermarkRequired || false);
-
-        if (!mountedRef.current) return job;
-
-        if (resultBlob.size < 100) {
-          const failedJob: ExportJob = { ...job, status: 'error', error: 'Empty file produced', serverJobId };
-          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
-          fetch(`/api/export-jobs/${serverJobId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'failed', errorMessage: 'Empty file produced' }),
-          }).catch(() => {});
-          abortControllerRef.current.delete(jobId);
-          return failedJob;
-        }
-
-        // 4. Upload with jobId
-        setExportJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, status: 'uploading' } : j)));
-
-        let exportId: string | undefined;
-        let r2Key: string | undefined;
-
-        // Branch: Free = local-only (no R2), Creator = direct R2 via presigned PUT
-        if (watermarkRequired) {
-          // FREE: unlimited local downloads — no quota consumed, no R2 PutObject.
-          // Re-downloading the same local export must not count as a new export.
-          // Save to IndexedDB local export store (7-day, best-effort)
-          try {
-            await saveLocalExport({
-              id: `local-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
-              blob: resultBlob,
-              platform: exportConfig.platformId,
-              outputWidth: exportConfig.outputWidth,
-              outputHeight: exportConfig.outputHeight,
-              fileSize: resultBlob.size,
-            });
-          } catch {}
-          if (!mountedRef.current) return job;
-          const previewUrl = URL.createObjectURL(resultBlob);
-          const partialJob: ExportJob = {
-            ...job,
-            status: 'done',
-            previewUrl,
-            resultBlob,
-            serverJobId,
-            progress: 100,
-          };
-          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? partialJob : j)));
-          abortControllerRef.current.delete(jobId);
-          return partialJob;
-        } else {
-          // CREATOR: direct browser → R2 via presigned PUT
-          try {
-            const presignedRes = await fetch('/api/exports/presigned-put', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                platformId: exportConfig.platformId,
-                outputWidth: exportConfig.outputWidth,
-                outputHeight: exportConfig.outputHeight,
-                duration: master.duration,
-                crop: exportConfig.crop,
-                jobId: serverJobId,
-              }),
-              signal: abortController.signal,
-            });
-            if (!presignedRes.ok) {
-              const err = await presignedRes.json().catch(() => ({ error: 'Failed to get upload URL' }));
-              throw new Error(err.error || 'Failed to get upload URL');
-            }
-            const presignedData = await presignedRes.json();
-            const presignedKey: string = presignedData.key;
-            const presignedUrl: string = presignedData.uploadUrl;
-            const presignedJobId: string | undefined = presignedData.jobId;
-            if (presignedJobId) serverJobId = presignedJobId;
-            r2Key = presignedKey;
-
-            const putRes = await fetch(presignedUrl, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'video/mp4' },
-              body: resultBlob,
-              signal: abortController.signal,
-            });
-            if (!putRes.ok) throw new Error('Direct upload to storage failed');
-
-            const completeRes = await fetch('/api/exports/complete', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                jobId: serverJobId,
-                key: presignedKey,
-                fileSize: resultBlob.size,
-                mimeType: 'video/mp4',
-                platformId: exportConfig.platformId,
-                outputWidth: exportConfig.outputWidth,
-                outputHeight: exportConfig.outputHeight,
-              }),
-              signal: abortController.signal,
-            });
-            if (!completeRes.ok) {
-              const err = await completeRes.json().catch(() => ({ error: 'Completion failed' }));
-              throw new Error(err.error || 'Completion failed');
-            }
-            const data = await completeRes.json();
-            exportId = data.exportId;
-            r2Key = data.r2Key;
-          } catch (uploadError) {
-            const msg = uploadError instanceof Error ? uploadError.message : '';
-            if (msg.includes('Monthly export limit') || msg.includes('Upgrade required') || msg.includes('Crop & reframe')) {
-              throw uploadError;
-            }
-            throw uploadError;
-          }
-        }
-
-        if (!mountedRef.current) return job;
-
-        const previewUrl = URL.createObjectURL(resultBlob);
-
-        const completedJob: ExportJob = {
-          ...job,
-          status: 'done',
-          exportId,
-          r2Key,
-          previewUrl,
-          resultBlob,
-          serverJobId,
-          progress: 100,
-        };
-
-        setExportJobs((prev) => prev.map((j) => (j.id === jobId ? completedJob : j)));
+      if (!mountedRef.current) { abortControllerRef.current.delete(jobId); return job; }
+      if (resultBlob.size < 100) {
+        const failedJob: ExportJob = { ...job, status: 'error', error: 'Empty file produced', serverJobId };
+        setExportJobs((prev) => prev.map((item) => item.id === jobId ? failedJob : item));
+        fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'failed', errorMessage: 'Empty file produced' }), signal: abortController.signal }).catch(() => {});
         abortControllerRef.current.delete(jobId);
-
-        return completedJob;
-      } catch (error) {
-        const isAbort = error instanceof DOMException && error.name === 'AbortError';
-        const failedJob: ExportJob = {
-          ...job,
-          status: isAbort ? 'pending' : 'error',
-          error: isAbort ? undefined : error instanceof Error ? error.message : 'Export failed',
-        };
-
-        if (mountedRef.current) {
-          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
-        }
-        abortControllerRef.current.delete(jobId);
-
         return failedJob;
       }
-    },
-    [exportConfig],
-  );
+      setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'uploading' } : item));
 
-  const startBatchExport = useCallback(
-    async (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void, watermarkRequired?: boolean): Promise<ExportJob[]> => {
-      const results: ExportJob[] = [];
-      for (let i = 0; i < configs.length; i++) {
-        if (!mountedRef.current) break;
-
-        const config = configs[i];
-        sourceDimensionsRef.current = { width: master.sourceWidth || 1920, height: master.sourceHeight || 1080 };
-        setExportConfig(config);
-
-        const jobId = `export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const abortController = new AbortController();
-        abortControllerRef.current.set(jobId, abortController);
-
-        const job: ExportJob = { id: jobId, masterId: master.id, config, status: 'pending', progress: 0 };
-        setExportJobs((prev) => [...prev, job]);
-
-        try {
-          // 1. Create server job
-          const createRes = await fetch('/api/export-jobs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ config }),
-            signal: abortController.signal,
-          });
-
-          let serverJobId: string | undefined;
-          if (createRes.ok) {
-            const data = await createRes.json();
-            serverJobId = data.jobId;
-          }
-
-          // 2. Update status to encoding
-          if (serverJobId) {
-            await fetch(`/api/export-jobs/${serverJobId}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ status: 'encoding' }),
-              signal: abortController.signal,
-            }).catch(() => {});
-          }
-
-          setExportJobs((prev) => prev.map((j) =>
-            j.id === jobId ? { ...j, status: 'encoding', serverJobId, progress: 0 } : j,
-          ));
-
-          // 3. Client-side encoding
-          const resultBlob = await encodeExport(master, config, abortController.signal, (p) => {
-            onProgress?.(i, p);
-            if (serverJobId && Math.round(p * 100) % 10 === 0) {
-              fetch(`/api/export-jobs/${serverJobId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'encoding', progress: Math.round(p * 100) }),
-              }).catch(() => {});
-            }
-          }, watermarkRequired || false);
-
-          if (!mountedRef.current) break;
-
-          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, status: 'uploading' } : j)));
-
-          let exportId: string | undefined;
-          let r2Key: string | undefined;
-
-          try {
-            const formData = new FormData();
-            formData.append('file', resultBlob, 'export.mp4');
-            formData.append('platformId', config.platformId);
-            if (serverJobId) {
-              formData.append('jobId', serverJobId);
-            }
-
-            const response = await fetch('/api/export-upload', {
-              method: 'POST',
-              body: formData,
-              signal: abortController.signal,
-            });
-
-            if (!response.ok) {
-              const errorData = await response.json().catch(() => ({ error: 'Upload failed' }));
-              throw new Error(errorData.error || 'Cloud upload failed');
-            }
-
-            const data = await response.json();
-            exportId = data.exportId;
-            r2Key = data.r2Key;
-          } catch (uploadError) {
-            if (!mountedRef.current) break;
-            const failedJob: ExportJob = { ...job, status: 'error', error: uploadError instanceof Error ? uploadError.message : 'Cloud upload failed', serverJobId };
-            setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
-            results.push(failedJob);
-            abortControllerRef.current.delete(jobId);
-            continue;
-          }
-
-          if (!mountedRef.current) break;
-
-          const previewUrl = URL.createObjectURL(resultBlob);
-          const completedJob: ExportJob = { ...job, status: 'done', exportId, r2Key, previewUrl, resultBlob, serverJobId, progress: 100 };
-          setExportJobs((prev) => prev.map((j) => (j.id === jobId ? completedJob : j)));
-          results.push(completedJob);
-        } catch (error) {
-          const failedJob: ExportJob = { ...job, status: 'error', error: error instanceof Error ? error.message : 'Failed' };
-          if (mountedRef.current) {
-            setExportJobs((prev) => prev.map((j) => (j.id === jobId ? failedJob : j)));
-          }
-          results.push(failedJob);
-        }
-        abortControllerRef.current.delete(jobId);
+      let exportId: string | undefined;
+      let r2Key: string | undefined;
+      if (watermarkRequired) {
+        try { await saveLocalExport({ id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, blob: resultBlob, platform: exportConfig.platformId, outputWidth: exportConfig.outputWidth, outputHeight: exportConfig.outputHeight, fileSize: resultBlob.size }); } catch {}
+      } else {
+        const uploaded = await uploadCreatorExportToR2(resultBlob, exportConfig, master.duration, abortController.signal, serverJobId);
+        exportId = uploaded.exportId;
+        r2Key = uploaded.r2Key;
+        if (uploaded.serverJobId) serverJobId = uploaded.serverJobId;
       }
-      return results;
-    },
-    [],
-  );
+      if (!mountedRef.current) { abortControllerRef.current.delete(jobId); return job; }
+      const completedJob: ExportJob = { ...job, status: 'done', exportId, r2Key, previewUrl: URL.createObjectURL(resultBlob), resultBlob, serverJobId, progress: 100 };
+      setExportJobs((prev) => prev.map((item) => item.id === jobId ? completedJob : item));
+      abortControllerRef.current.delete(jobId);
+      return completedJob;
+    } catch (error) {
+      const isAbort = error instanceof DOMException && error.name === 'AbortError';
+      const failedJob: ExportJob = { ...job, status: isAbort ? 'pending' : 'error', error: isAbort ? undefined : error instanceof Error ? error.message : 'Export failed' };
+      if (mountedRef.current) setExportJobs((prev) => prev.map((item) => item.id === jobId ? failedJob : item));
+      abortControllerRef.current.delete(jobId);
+      return failedJob;
+    }
+  }, [exportConfig]);
+
+  const startBatchExport = useCallback(async (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void, watermarkRequired?: boolean): Promise<ExportJob[]> => {
+    const results: ExportJob[] = [];
+    for (let index = 0; index < configs.length; index++) {
+      if (!mountedRef.current) break;
+      const config = configs[index];
+      sourceDimensionsRef.current = { width: master.sourceWidth || 1920, height: master.sourceHeight || 1080 };
+      setExportConfig(config);
+      const jobId = newJobId();
+      const abortController = new AbortController();
+      abortControllerRef.current.set(jobId, abortController);
+      const job: ExportJob = { id: jobId, masterId: master.id, config, status: 'pending', progress: 0 };
+      setExportJobs((prev) => [...prev, job]);
+      try {
+        let serverJobId: string | undefined;
+        const createResponse = await fetch('/api/export-jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config }), signal: abortController.signal });
+        if (createResponse.ok) { const data = await createResponse.json(); if (typeof data.jobId === 'string' && data.jobId.length > 0) serverJobId = data.jobId; }
+        if (serverJobId) await fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding' }), signal: abortController.signal }).catch(() => {});
+        setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'encoding', serverJobId, progress: 0 } : item));
+        const resultBlob = await encodeExport({ master, config, signal: abortController.signal, watermarkRequired: watermarkRequired || false, onProgress: (progress) => { onProgress?.(index, progress); if (serverJobId && Math.round(progress * 100) % 10 === 0) fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding', progress: Math.round(progress * 100) }), signal: abortController.signal }).catch(() => {}); } });
+        if (!mountedRef.current) break;
+        setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'uploading' } : item));
+        let exportId: string | undefined;
+        let r2Key: string | undefined;
+        if (watermarkRequired) {
+          try { await saveLocalExport({ id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, blob: resultBlob, platform: config.platformId, outputWidth: config.outputWidth, outputHeight: config.outputHeight, fileSize: resultBlob.size }); } catch {}
+        } else {
+          const uploaded = await uploadCreatorExportToR2(resultBlob, config, master.duration, abortController.signal, serverJobId);
+          exportId = uploaded.exportId; r2Key = uploaded.r2Key; if (uploaded.serverJobId) serverJobId = uploaded.serverJobId;
+        }
+        if (!mountedRef.current) break;
+        const completedJob: ExportJob = { ...job, status: 'done', exportId, r2Key, previewUrl: URL.createObjectURL(resultBlob), resultBlob, serverJobId, progress: 100 };
+        setExportJobs((prev) => prev.map((item) => item.id === jobId ? completedJob : item));
+        results.push(completedJob);
+      } catch (error) {
+        const failedJob: ExportJob = { ...job, status: 'error', error: error instanceof Error ? error.message : 'Failed' };
+        if (mountedRef.current) setExportJobs((prev) => prev.map((item) => item.id === jobId ? failedJob : item));
+        results.push(failedJob);
+      } finally { abortControllerRef.current.delete(jobId); }
+    }
+    return results;
+  }, []);
 
   const cancelExport = useCallback((jobId: string) => {
     const controller = abortControllerRef.current.get(jobId);
-    if (controller) {
-      controller.abort();
-      abortControllerRef.current.delete(jobId);
-    }
-    setExportJobs((prev) => {
-      const job = prev.find(j => j.id === jobId);
-      if (job) {
-        if (job.previewUrl) URL.revokeObjectURL(job.previewUrl);
-      }
-      return prev.filter((j) => j.id !== jobId);
-    });
+    if (controller) { controller.abort(); abortControllerRef.current.delete(jobId); }
+    setExportJobs((prev) => { const job = prev.find((item) => item.id === jobId); if (job?.previewUrl) URL.revokeObjectURL(job.previewUrl); return prev.filter((item) => item.id !== jobId); });
   }, []);
 
   const clearJobs = useCallback(() => {
     abortControllerRef.current.forEach((controller) => controller.abort());
     abortControllerRef.current.clear();
-    setExportJobs((prev) => {
-      prev.forEach((job) => {
-        if (job.previewUrl) URL.revokeObjectURL(job.previewUrl);
-      });
-      return [];
-    });
+    setExportJobs((prev) => { prev.forEach((job) => { if (job.previewUrl) URL.revokeObjectURL(job.previewUrl); }); return []; });
   }, []);
 
-  const generateThumbnail = useCallback(
-    async (master: MasterRecording, timeSeconds = 1): Promise<string> => {
-      const video = document.createElement('video');
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = 'auto';
-      video.crossOrigin = 'anonymous';
-      document.body.appendChild(video);
+  const generateThumbnail = useCallback(generateExportThumbnail, []);
 
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => reject(new Error('Thumbnail load timeout')), 10000);
-          video.onloadeddata = () => { clearTimeout(timeout); resolve(); };
-          video.onerror = () => { clearTimeout(timeout); reject(new Error('Failed to load video for thumbnail')); };
-          video.src = master.url;
-        });
-
-        video.currentTime = Math.min(timeSeconds, video.duration || 1);
-        await new Promise<void>((resolve) => {
-          video.onseeked = () => resolve();
-        });
-
-        const canvas = document.createElement('canvas');
-        const thumbWidth = 320;
-        const thumbHeight = Math.round((video.videoHeight / video.videoWidth) * thumbWidth) || 180;
-        canvas.width = thumbWidth;
-        canvas.height = thumbHeight;
-        const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
-        if (!ctx) throw new Error('Canvas context not available');
-
-        ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight);
-
-        return canvas.toDataURL('image/jpeg', 0.7);
-      } finally {
-        video.src = '';
-        video.load();
-        if (video.parentNode) {
-          video.parentNode.removeChild(video);
-        }
-      }
-    },
-    []
-  );
-
-  return {
-    exportConfig,
-    exportJobs,
-    setExportConfig,
-    selectPlatform,
-    updateCrop,
-    resetCrop,
-    startExport,
-    startBatchExport,
-    cancelExport,
-    clearJobs,
-    generateThumbnail,
-  };
-}
-
-function getAvcCodec(width: number, height: number): string {
-  const pixels = width * height;
-  // Level 4.0 (0x28): max 2,073,600 pixels — covers 1920x1080, 1080x1080, 1080x1920
-  // Level 4.1 (0x2a): same max, better tooling support
-  // Level 5.1 (0x34): max 8,294,400 pixels — covers 4K (3840x2160)
-  // High Profile (0x64) for best compression efficiency
-  if (pixels > 2_073_600) {
-    return 'avc1.640034'; // High Profile, Level 5.1 (4K)
-  }
-  return 'avc1.640028'; // High Profile, Level 4.0 (up to 1080p)
-}
-
-export function drawWatermark(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-  ctx.save();
-  ctx.globalAlpha = 0.7;
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  const fontSize = Math.max(14, Math.round(width * 0.035));
-  ctx.font = `bold ${fontSize}px Inter, sans-serif`;
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'bottom';
-  // Semi-transparent background for readability
-  const text = 'SupersmartX';
-  const metrics = ctx.measureText(text);
-  const padding = 8;
-  const bgWidth = metrics.width + padding * 2;
-  const bgHeight = fontSize + padding;
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.fillRect(width - bgWidth - 12, height - bgHeight - 12, bgWidth, bgHeight);
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
-  ctx.fillText(text, width - 12 - padding, height - 12 - padding/2);
-  ctx.restore();
-}
-
-async function encodeExport(
-  master: MasterRecording,
-  config: ExportConfig,
-  signal?: AbortSignal,
-  onProgress?: (progress: number) => void,
-  watermarkRequired = false
-): Promise<Blob> {
-  const { crop, outputWidth, outputHeight } = config;
-
-  const videoEl = document.createElement('video');
-  videoEl.playsInline = true;
-  videoEl.muted = true;
-  videoEl.preload = 'auto';
-  videoEl.crossOrigin = 'anonymous';
-  videoEl.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none';
-  document.body.appendChild(videoEl);
-
-  let audioCtx: AudioContext | null = null;
-  let audioSrc: MediaElementAudioSourceNode | null = null;
-  let workletNode: AudioWorkletNode | null = null;
-  let encoderError: unknown = null;
-  let videoEncoder: VideoEncoder | null = null;
-  let audioEncoder: AudioEncoder | null = null;
-
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Video load timeout')), 30000);
-      videoEl.onloadeddata = () => { clearTimeout(timeout); resolve(); };
-      videoEl.onerror = () => { clearTimeout(timeout); reject(new Error('Failed to load video for export')); };
-      videoEl.src = master.url;
-    });
-
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-
-    const sourceW = videoEl.videoWidth || 1920;
-    const sourceH = videoEl.videoHeight || 1080;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = outputWidth;
-    canvas.height = outputHeight;
-    const ctx = canvas.getContext('2d', { colorSpace: 'srgb', willReadFrequently: true });
-    if (!ctx) throw new Error('Canvas context not available');
-
-    const fps = 30;
-    const frameDuration = 1_000_000 / fps;
-    const frameIntervalMs = 1000 / fps;
-
-    // Attempt audio worklet setup before muxer so we don't declare an empty audio track on 404
-    let effectiveHasAudio = false;
-    if (master.hasAudio) {
-      try {
-        audioCtx = new AudioContext({ sampleRate: 48000 });
-        // Pre-load worklet to verify asset exists (fixes 404)
-        await audioCtx.audioWorklet.addModule('/audio-encoder-processor.js');
-        effectiveHasAudio = true;
-      } catch (e) {
-        console.warn('[Export] AudioWorklet failed, continuing without audio:', e);
-        effectiveHasAudio = false;
-        if (audioCtx) {
-          try { await audioCtx.close(); } catch {}
-          audioCtx = null;
-        }
-      }
-    }
-
-    const muxer = new Muxer({
-      target: new ArrayBufferTarget(),
-      video: {
-        codec: 'avc',
-        width: outputWidth,
-        height: outputHeight,
-        frameRate: fps,
-      },
-      audio: effectiveHasAudio ? {
-        codec: 'aac',
-        numberOfChannels: 2,
-        sampleRate: 48000,
-      } : undefined,
-      fastStart: 'in-memory',
-      firstTimestampBehavior: 'offset',
-    });
-
-    videoEncoder = new VideoEncoder({
-      output: (chunk, metadata) => {
-        muxer.addVideoChunk(chunk, metadata);
-      },
-      error: (e) => {
-        console.error('VideoEncoder error:', e);
-        encoderError = e;
-      },
-    });
-    videoEncoder.configure({
-      codec: getAvcCodec(outputWidth, outputHeight),
-      width: outputWidth,
-      height: outputHeight,
-      bitrate: 10_000_000,
-      bitrateMode: 'constant',
-      framerate: fps,
-    });
-
-    if (effectiveHasAudio && audioCtx) {
-      try {
-        audioSrc = audioCtx.createMediaElementSource(videoEl);
-
-        audioEncoder = new AudioEncoder({
-          output: (chunk, metadata) => {
-            muxer.addAudioChunk(chunk, metadata);
-          },
-          error: (e) => {
-            console.warn('[Export] AudioEncoder error, disabling audio track:', e);
-            // Don't fail export on audio errors
-          },
-        });
-        audioEncoder.configure({
-          codec: 'mp4a.40.2',
-          numberOfChannels: 2,
-          sampleRate: 48000,
-          bitrate: 192_000,
-        });
-
-        workletNode = new AudioWorkletNode(audioCtx, 'audio-encoder-processor');
-        audioSrc.connect(workletNode);
-        workletNode.connect(audioCtx.destination);
-
-        let audioTimestamp = 0;
-        workletNode.port.onmessage = (e) => {
-          if (!audioEncoder || audioEncoder.state !== 'configured') return;
-          const { left, right } = e.data;
-          const samples = new Float32Array(left.length * 2);
-          for (let i = 0; i < left.length; i++) {
-            samples[i * 2] = left[i];
-            samples[i * 2 + 1] = right[i];
-          }
-          const audioData = new AudioData({
-            format: 'f32-planar',
-            numberOfChannels: 2,
-            numberOfFrames: left.length,
-            sampleRate: 48000,
-            timestamp: audioTimestamp,
-            data: samples,
-          });
-          audioTimestamp += Math.round((left.length / 48000) * 1_000_000);
-          audioEncoder.encode(audioData);
-          audioData.close();
-        };
-      } catch (e) {
-        console.warn('[Export] Audio setup failed, exporting video-only:', e);
-        effectiveHasAudio = false;
-        audioEncoder = null;
-        if (workletNode) { try { workletNode.disconnect(); } catch {} workletNode = null; }
-        if (audioSrc) { try { audioSrc.disconnect(); } catch {} audioSrc = null; }
-      }
-    }
-
-    if (audioCtx?.state === 'suspended') {
-      await audioCtx.resume();
-    }
-
-    try {
-      await videoEl.play();
-    } catch {
-      throw new Error('Video playback blocked. Please try again.');
-    }
-
-    if (videoEl.paused) {
-      throw new Error('Video failed to start playing.');
-    }
-
-    let frameCount = 0;
-    let framesInFlight = 0;
-    const maxConcurrentFrames = 2;
-    const totalFrames = Math.ceil((videoEl.duration || 30) * fps);
-
-    const ENCODE_TIMEOUT_MS = Math.max((videoEl.duration || 30) * 1000 * 2, 60000);
-    const encodeTimeout = setTimeout(() => {
-      videoEl.pause();
-    }, ENCODE_TIMEOUT_MS);
-
-    const encodeFrame = async () => {
-      const { sx, sy, sw, sh } = computeCanvasSourceRect(crop, sourceW, sourceH, master.sourceWidth || 1920, master.sourceHeight || 1080);
-
-      ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
-      if (watermarkRequired) {
-        drawWatermark(ctx, outputWidth, outputHeight);
-      }
-
-      const imageData = ctx.getImageData(0, 0, outputWidth, outputHeight);
-      const bitmap = await createImageBitmap(new ImageData(imageData.data, outputWidth, outputHeight));
-      const frame = new VideoFrame(bitmap, { timestamp: frameCount * frameDuration });
-      bitmap.close();
-
-      if (videoEncoder && videoEncoder.state === 'configured') {
-        videoEncoder.encode(frame, { keyFrame: frameCount % (fps * 2) === 0 });
-      }
-      frame.close();
-    };
-
-    await new Promise<void>((resolve) => {
-      const intervalId = setInterval(() => {
-        if (signal?.aborted || videoEl.ended || videoEl.paused) {
-          clearInterval(intervalId);
-          clearTimeout(encodeTimeout);
-          if (framesInFlight === 0) resolve();
-          return;
-        }
-
-        if (!videoEncoder || videoEncoder.encodeQueueSize > maxConcurrentFrames || framesInFlight >= maxConcurrentFrames) {
-          return;
-        }
-
-        framesInFlight++;
-        const currentFrame = frameCount;
-        frameCount++;
-
-        encodeFrame()
-          .catch((frameErr) => {
-            console.warn(`[Export] Frame ${currentFrame} encode failed, skipping:`, frameErr);
-          })
-          .finally(() => {
-            framesInFlight--;
-            if ((signal?.aborted || videoEl.ended || videoEl.paused) && framesInFlight === 0) {
-              clearInterval(intervalId);
-              clearTimeout(encodeTimeout);
-              resolve();
-            }
-          });
-
-        if (frameCount % 10 === 0) {
-          onProgress?.(Math.min(frameCount / totalFrames, 0.99));
-        }
-      }, frameIntervalMs);
-
-      videoEl.onended = () => {
-        clearInterval(intervalId);
-        clearTimeout(encodeTimeout);
-        if (framesInFlight === 0) resolve();
-      };
-    });
-
-    onProgress?.(1);
-
-    if (videoEncoder.state === 'configured') {
-      await videoEncoder.flush();
-    }
-    if (audioEncoder && audioEncoder.state === 'configured') {
-      await audioEncoder.flush();
-    }
-
-    if (encoderError) {
-      const msg = encoderError instanceof Error ? encoderError.message : String(encoderError);
-      if (msg.includes('colorSpace') || msg.includes('null')) {
-        throw new Error('Video encoding failed — your browser may not support this format. Try Chrome or Edge.');
-      }
-      throw encoderError instanceof Error ? encoderError : new Error(msg);
-    }
-
-    muxer.finalize();
-
-    const buffer = muxer.target.buffer;
-    if (!buffer || buffer.byteLength < 100) {
-      throw new Error('Muxer produced empty buffer — encode failed');
-    }
-    const blob = new Blob([buffer], { type: 'video/mp4' });
-
-    // Exact output dimension verification — fail fast if mismatch (task 7)
-    const verify = await verifyExportBlob(blob, outputWidth, outputHeight);
-    if (!verify.ok) {
-      throw new Error(`Export verification failed: ${verify.error} — preview would show "Video format not supported"`);
-    }
-    // Audio presence check: if effectiveHasAudio but no audio samples muxed, warn but don't fail (video-only fallback)
-    return blob;
-  } finally {
-    // Close encoders to release resources
-    try { if (videoEncoder && videoEncoder.state !== 'closed') videoEncoder.close(); } catch {}
-    try { if (audioEncoder && audioEncoder.state !== 'closed') audioEncoder.close(); } catch {}
-
-    if (workletNode) {
-      try { workletNode.disconnect(); } catch {}
-    }
-    if (audioSrc) {
-      try { audioSrc.disconnect(); } catch {}
-    }
-    if (audioCtx) {
-      try { await audioCtx.close(); } catch {}
-    }
-    videoEl.src = '';
-    videoEl.load();
-    if (videoEl.parentNode) {
-      videoEl.parentNode.removeChild(videoEl);
-    }
-  }
+  return { exportConfig, exportJobs, setExportConfig, selectPlatform, updateCrop, resetCrop, startExport, startBatchExport, cancelExport, clearJobs, generateThumbnail };
 }

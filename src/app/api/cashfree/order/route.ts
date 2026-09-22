@@ -236,18 +236,21 @@ export async function POST(request: NextRequest) {
         amount: serverAmount,
         currency: finalCurrency,
       });
-    } catch (e: any) {
-      const msg = String(e?.message || '');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? String(e.message) : String(e);
       if (msg.includes('FOREIGN KEY') || msg.includes('SQLITE_CONSTRAINT')) {
         // Last-resort: disable FK enforcement for this insert (isolated serverless conn)
         try {
           const db = getDb();
           await db.execute('PRAGMA foreign_keys = OFF');
-          await db.execute({
-            sql: `INSERT OR IGNORE INTO pending_orders (order_id, user_id, plan, amount, currency) VALUES (?, ?, ?, ?, ?)`,
-            args: [order.order_id, effectiveUserId, plan, serverAmount, finalCurrency],
-          });
-          await db.execute('PRAGMA foreign_keys = ON');
+          try {
+            await db.execute({
+              sql: `INSERT OR IGNORE INTO pending_orders (order_id, user_id, plan, amount, currency) VALUES (?, ?, ?, ?, ?)`,
+              args: [order.order_id, effectiveUserId, plan, serverAmount, finalCurrency],
+            });
+          } finally {
+            await db.execute('PRAGMA foreign_keys = ON');
+          }
         } catch {
           throw e;
         }

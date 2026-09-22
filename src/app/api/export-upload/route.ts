@@ -138,11 +138,12 @@ export async function POST(request: NextRequest) {
       if (cropRaw) {
         try {
           const crop = JSON.parse(cropRaw);
-          // Any non-default crop (x!=0, y!=0, zoom!=1) is considered manipulation
-          if (crop && (crop.x !== 0 || crop.y !== 0 || crop.zoom !== 1)) {
+          if (crop && typeof crop === 'object' && (crop.x !== 0 || crop.y !== 0 || crop.zoom !== 1)) {
             return NextResponse.json({ error: 'Crop & reframe requires Creator plan' }, { status: 403 });
           }
-        } catch {}
+        } catch {
+          return NextResponse.json({ error: 'Invalid crop data' }, { status: 400 });
+        }
       }
       // Also check explicit crop fields if provided via separate params
       const cropX = formData.get('cropX') as string | null;

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { MasterRecording } from '@/types';
-import { getRecording, getLatestRecording, saveRecording, cleanupExpired } from '@/lib/recording-store';
+import { getLatestRecording, saveRecording, cleanupExpired } from '@/lib/recording-store';
 
 interface UseMasterRecordingReturn {
   masterRecording: MasterRecording | null;

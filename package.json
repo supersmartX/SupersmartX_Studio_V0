@@ -22,7 +22,7 @@
     "@cashfreepayments/cashfree-js": "^1.0.7",
     "@libsql/client": "^0.17.4",
     "bcryptjs": "^2.4.3",
-    "mp4-muxer": "^5.2.2",
+    "mediabunny": "1.59.0",
     "next": "^16.3.0",
     "next-auth": "^5.0.0-beta.32",
     "react": "^19.0.0",

@@ -10,7 +10,10 @@ export async function ensureMigrated(): Promise<void> {
   migrationPromise = (async () => {
     const db = getDb();
     await migrate(db);
-  })();
+  })().catch((err) => {
+    migrationPromise = null;
+    throw err;
+  });
   return migrationPromise;
 }
 
@@ -701,17 +704,20 @@ export async function createPendingOrder(order: {
       sql: `INSERT OR IGNORE INTO pending_orders (order_id, user_id, plan, amount, currency) VALUES (?, ?, ?, ?, ?)`,
       args: [order.orderId, order.userId, order.plan, order.amount, order.currency],
     });
-  } catch (e: any) {
-    const msg = String(e?.message || '');
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? String(e.message) : String(e);
     if (msg.includes('FOREIGN KEY') || msg.includes('SQLITE_CONSTRAINT')) {
       // Fallback: temporarily disable FK to allow ephemeral/OAuth stub inserts
       try {
         await db.execute('PRAGMA foreign_keys = OFF');
-        await db.execute({
-          sql: `INSERT OR IGNORE INTO pending_orders (order_id, user_id, plan, amount, currency) VALUES (?, ?, ?, ?, ?)`,
-          args: [order.orderId, order.userId, order.plan, order.amount, order.currency],
-        });
-        await db.execute('PRAGMA foreign_keys = ON');
+        try {
+          await db.execute({
+            sql: `INSERT OR IGNORE INTO pending_orders (order_id, user_id, plan, amount, currency) VALUES (?, ?, ?, ?, ?)`,
+            args: [order.orderId, order.userId, order.plan, order.amount, order.currency],
+          });
+        } finally {
+          await db.execute('PRAGMA foreign_keys = ON');
+        }
         return;
       } catch {}
     }

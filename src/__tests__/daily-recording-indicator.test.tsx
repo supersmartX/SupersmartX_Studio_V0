@@ -70,9 +70,13 @@ describe('DailyRecordingIndicator', () => {
 
   describe('In-flight remaining computation + indicator wiring', () => {
     it('accounts for in-flight elapsed time via getDailyRecordingRemainingInFlight', async () => {
-      const { getDailyRecordingRemainingInFlight } = await import('@/lib/daily-recording');
-      localStorage.setItem('sxs-record-day', new Date().toISOString().split('T')[0]);
-      localStorage.setItem('sxs-record-secs', '300');
+      const { getDailyRecordingRemainingInFlight, addDailyRecordingSeconds } = await import('@/lib/daily-recording');
+      // Seed through the real write path so the stored day key always matches
+      // the implementation's local-day logic regardless of machine timezone
+      // (a raw UTC-date string would mismatch on UTC+/-offset day boundaries).
+      localStorage.removeItem('sxs-record-day');
+      localStorage.removeItem('sxs-record-secs');
+      addDailyRecordingSeconds(300);
 
       const display = getDailyRecordingRemainingInFlight(120);
       expect(display).toBe(180);

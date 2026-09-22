@@ -23,7 +23,7 @@ let cashfreePromise: Promise<CashfreeInstance> | null = null;
 export function loadCashfreeSDK(): Promise<CashfreeInstance> {
   if (cashfreePromise) return cashfreePromise;
 
-  cashfreePromise = new Promise((resolve, reject) => {
+  cashfreePromise = new Promise<CashfreeInstance>((resolve, reject) => {
     if (window.Cashfree) {
       const cf = window.Cashfree({ mode: getCashfreeMode() });
       resolve(cf);
@@ -43,6 +43,9 @@ export function loadCashfreeSDK(): Promise<CashfreeInstance> {
     };
     script.onerror = () => reject(new Error('Failed to load Cashfree SDK'));
     document.head.appendChild(script);
+  }).catch((err) => {
+    cashfreePromise = null;
+    throw err;
   });
 
   return cashfreePromise;

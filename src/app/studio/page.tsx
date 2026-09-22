@@ -275,6 +275,10 @@ export default function HomePage() {
   const [activePanel, setActivePanel] = useState<TabType | 'record' | 'share'>('studio');
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+
+  useEffect(() => {
+    if (isMobile) setIsInspectorOpen(false);
+  }, [isMobile]);
   const prompterContainerRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -807,7 +811,7 @@ export default function HomePage() {
           onSettingsToggle={handleToggleInspector}
         />
 
-        <Footer />
+        <Footer showShortcuts={isStudio} />
       </div>
 
       <ExportModal

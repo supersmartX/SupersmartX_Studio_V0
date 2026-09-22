@@ -6,6 +6,8 @@ const PUBLIC_API_ROUTES = [
   '/api/auth/forgot-password',
   '/api/auth/reset-password',
   '/api/cashfree/webhook',
+  '/api/health',
+  '/api/observe/client-error',
 ];
 
 function isPublicRoute(pathname: string): boolean {

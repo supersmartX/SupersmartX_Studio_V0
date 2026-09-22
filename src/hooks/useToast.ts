@@ -14,6 +14,7 @@ export function useToast() {
   const [currentToast, setCurrentToast] = useState<ToastState | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueRef = useRef<ToastState[]>([]);
+  const hasActiveToast = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -23,10 +24,12 @@ export function useToast() {
 
   const processQueue = useCallback(() => {
     if (queueRef.current.length === 0) {
+      hasActiveToast.current = false;
       setCurrentToast(null);
       return;
     }
     const next = queueRef.current.shift()!;
+    hasActiveToast.current = true;
     setCurrentToast(next);
     setToastQueue([...queueRef.current]);
 
@@ -40,17 +43,18 @@ export function useToast() {
     const id = ++toastId;
     const entry: ToastState = { message, id };
 
-    if (currentToast) {
+    if (hasActiveToast.current) {
       queueRef.current.push(entry);
       setToastQueue([...queueRef.current]);
     } else {
+      hasActiveToast.current = true;
       setCurrentToast(entry);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
         processQueue();
       }, 2700);
     }
-  }, [currentToast, processQueue]);
+  }, [processQueue]);
 
   return {
     toast: currentToast,

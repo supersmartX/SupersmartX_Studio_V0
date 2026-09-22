@@ -11,11 +11,13 @@ interface InputGroupProps {
 }
 
 export function InputGroup({ label, placeholder, type = 'text', value, onChange, rightElement, helperText }: InputGroupProps) {
+  const inputId = `input-${label.replace(/\s+/g, '-').toLowerCase()}`;
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-sm font-medium text-text-primary">{label}</label>
+      <label htmlFor={inputId} className="text-sm font-medium text-text-primary">{label}</label>
       <div className="relative">
         <input
+          id={inputId}
           type={type}
           placeholder={placeholder}
           value={value}

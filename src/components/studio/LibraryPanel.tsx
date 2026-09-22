@@ -6,9 +6,9 @@ import { getAllLocalExports, deleteLocalExport, type LocalExport } from '@/lib/l
 import { formatTime, formatRelativeTime } from '@/utils/format';
 import { isCreatorPlan } from '@/lib/entitlements';
 import type { PlanType } from '@/types/db';
+import { PlayIcon, SettingsIcon } from '@/components/icons';
 
 interface RecordingsPanelProps {
-  onLoadRecording?: (recording: StoredRecording) => void;
   onExportRecording?: (recording: StoredRecording) => void;
   isMobile?: boolean;
   isAuthenticated?: boolean;
@@ -16,7 +16,74 @@ interface RecordingsPanelProps {
   refreshKey?: number;
 }
 
-export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile, isAuthenticated, userPlan = 'free', refreshKey }: RecordingsPanelProps) {
+function RecordingThumbnail({ recording }: { recording: StoredRecording }) {
+  const [hasError, setHasError] = useState(false);
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const url = URL.createObjectURL(recording.blob);
+    setSourceUrl(url);
+    setHasError(false);
+    return () => {
+      URL.revokeObjectURL(url);
+      setSourceUrl(null);
+    };
+  }, [recording.blob]);
+
+  return (
+    <div className="relative aspect-video overflow-hidden rounded-lg bg-[#111217] border border-border-subtle">
+      {!hasError ? (
+        <video
+          src={sourceUrl || undefined}
+          muted
+          playsInline
+          preload="metadata"
+          onError={() => setHasError(true)}
+          className="h-full w-full object-cover"
+          aria-label={`Preview thumbnail for ${recording.name || 'video recording'}`}
+        />
+      ) : (
+        <div className="flex h-full items-center justify-center text-text-muted" aria-label="Video thumbnail unavailable">
+          <PlayIcon className="h-8 w-8 opacity-50" />
+        </div>
+      )}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent" />
+      <span className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white">
+        {formatTime(recording.duration)}
+      </span>
+      <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white ring-1 ring-white/20">
+          <PlayIcon className="h-5 w-5" />
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function RecordingPreview({ recording, onClose }: { recording: StoredRecording; onClose: () => void }) {
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const url = URL.createObjectURL(recording.blob);
+    setSourceUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+      setSourceUrl(null);
+    };
+  }, [recording.blob]);
+
+  return (
+    <div className="mb-5 rounded-xl border border-border-default bg-black p-2 shadow-xl">
+      <div className="flex items-center justify-between px-2 pb-2">
+        <span className="truncate text-sm font-medium text-text-primary">{recording.name || 'Video recording'}</span>
+        <button onClick={onClose} className="rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-elevated hover:text-text-primary" aria-label="Close preview">Close</button>
+      </div>
+      <video src={sourceUrl || undefined} controls autoPlay playsInline className="max-h-[58vh] w-full rounded-lg bg-black" />
+    </div>
+  );
+}
+
+export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, userPlan = 'free', refreshKey }: RecordingsPanelProps) {
   // Cloud library is a Creator entitlement — Free is local-first.
   const canUseCloudLibrary = isCreatorPlan(userPlan);
   const [recordings, setRecordings] = useState<StoredRecording[]>([]);
@@ -33,6 +100,9 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile, 
   const [cloudError, setCloudError] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [detailsId, setDetailsId] = useState<string | null>(null);
+  const [previewRecording, setPreviewRecording] = useState<StoredRecording | null>(null);
 
   const loadRecordings = useCallback(async () => {
     const all = await getAllRecordings();
@@ -57,10 +127,6 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile, 
     setConfirmDeleteId(null);
   }, []);
 
-  const handleLoad = useCallback((recording: StoredRecording) => {
-    onLoadRecording?.(recording);
-  }, [onLoadRecording]);
-
   const handleStartRename = useCallback((recording: StoredRecording, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingId(recording.id);
@@ -83,7 +149,7 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile, 
   }, []);
 
   const getDisplayName = useCallback((recording: StoredRecording) => {
-    return recording.name || `${recording.extension.toUpperCase()} Recording`;
+    return recording.name || 'Video recording';
   }, []);
 
   const loadCloudExports = useCallback(async () => {
@@ -161,14 +227,20 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile, 
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-4 pt-4 pb-3">
-        <h2 className="text-sm font-semibold text-text-primary">Recordings</h2>
-        <p className="text-[12px] text-text-secondary mt-0.5">Stored locally for 24 hours</p>
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-text-primary">Recordings</h2>
+            <p className="mt-1 text-xs text-text-secondary">Your original recordings · Available for 24 hours</p>
+          </div>
+          <span className="shrink-0 text-xs text-text-muted">{recordings.length} {recordings.length === 1 ? 'recording' : 'recordings'}</span>
+        </div>
       </div>
 
       <div className="h-px bg-border-subtle" />
 
       {/* Recording List */}
-      <div className="flex-1 overflow-y-auto px-4 py-2">
+      <div className="overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
+        {previewRecording && <RecordingPreview recording={previewRecording} onClose={() => setPreviewRecording(null)} />}
         {!isLoaded ? (
           <div className="flex flex-col gap-2 py-4">
             {[1, 2, 3].map((i) => (
@@ -195,41 +267,41 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile, 
                 <line x1="8" y1="23" x2="16" y2="23" />
               </svg>
             </div>
-            <p className="text-[13px] text-text-secondary">No recordings yet.</p>
-            <p className="text-[12px] text-text-secondary mt-1">Record a video to see it here.</p>
+            <p className="text-sm font-medium text-text-primary">No recordings yet</p>
+            <p className="mt-1 max-w-xs text-xs text-text-secondary">Record a video and it will appear here for 24 hours.</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-1">
+          <div className={`grid gap-5 ${recordings.length > 1 ? 'sm:grid-cols-2 xl:grid-cols-3' : 'max-w-2xl'}`}>
             {recordings.map((recording) => (
               <div
                 key={recording.id}
-                role="button"
-                tabIndex={0}
-                className="group relative p-3 rounded-lg hover:bg-elevated transition-colors cursor-pointer"
-                onClick={() => { if (editingId !== recording.id) handleLoad(recording); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (editingId !== recording.id) handleLoad(recording); } }}
+                className="group relative overflow-visible rounded-xl border border-border-subtle bg-surface shadow-sm transition-colors hover:border-border-strong"
               >
                 {confirmDeleteId === recording.id ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-recording">Delete?</span>
+                  <div className="flex min-h-[180px] flex-col items-center justify-center gap-3 p-5 text-center">
+                    <span className="text-sm font-medium text-text-primary">Delete this recording?</span>
+                    <span className="text-xs text-text-secondary">This removes it from local storage.</span>
+                    <div className="flex items-center gap-2">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(recording.id); }}
-                      className="text-[10px] font-medium text-recording hover:text-red-300 px-2 py-0.5 rounded bg-red-500/10"
+                      className="rounded-md bg-red-500/10 px-3 py-1.5 text-xs font-medium text-recording hover:bg-red-500/20"
                     >
-                      Yes
+                      Delete
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
-                      className="text-[10px] font-medium text-text-muted hover:text-text-secondary px-2 py-0.5 rounded bg-elevated"
+                      className="rounded-md bg-elevated px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary"
                     >
-                      No
+                      Keep recording
                     </button>
+                    </div>
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                    <RecordingThumbnail recording={recording} />
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
                           {editingId === recording.id ? (
                             <input
                               ref={editInputRef}
@@ -242,64 +314,51 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile, 
                                 if (e.key === 'Escape') handleCancelRename();
                               }}
                               onClick={(e) => e.stopPropagation()}
-                              className="text-xs font-medium text-text-primary bg-canvas border border-accent rounded px-1.5 py-0.5 outline-none w-full max-w-[200px]"
+                              className="w-full max-w-[220px] rounded-md border border-accent bg-canvas px-2 py-1 text-sm font-medium text-text-primary outline-none"
                               maxLength={50}
                             />
                           ) : (
-                            <h4 className="text-xs font-medium text-text-primary truncate">
+                            <h3 className="truncate text-sm font-semibold text-text-primary">
                               {getDisplayName(recording)}
-                            </h4>
+                            </h3>
                           )}
-                          <span className="text-[11px] px-1.5 py-0.5 rounded bg-elevated text-text-secondary border border-border-subtle">
-                            {recording.aspectRatio}
-                          </span>
                         </div>
-                        <p className="text-[12px] text-text-secondary mt-0.5">
-                          {formatTime(recording.duration)} · {recording.width}×{recording.height} · {formatRelativeTime(recording.createdAt)}
-                        </p>
+                        <div className="relative shrink-0">
+                          <button
+                            onClick={() => setOpenMenuId((current) => current === recording.id ? null : recording.id)}
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-lg leading-none text-text-muted hover:bg-elevated hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                            aria-label={`More actions for ${getDisplayName(recording)}`}
+                            aria-expanded={openMenuId === recording.id}
+                          >
+                            <span aria-hidden="true">•••</span>
+                          </button>
+                          {openMenuId === recording.id && (
+                            <div className="absolute right-0 top-9 z-20 min-w-40 rounded-lg border border-border-default bg-surface p-1 shadow-xl" role="menu">
+                              <button onClick={() => { onExportRecording?.(recording); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-text-secondary hover:bg-elevated hover:text-text-primary" role="menuitem">Export recording</button>
+                              <button onClick={(event) => { handleStartRename(recording, event); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-text-secondary hover:bg-elevated hover:text-text-primary" role="menuitem">Rename</button>
+                              <button onClick={() => { setDetailsId((current) => current === recording.id ? null : recording.id); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-text-secondary hover:bg-elevated hover:text-text-primary" role="menuitem">Details</button>
+                              <button onClick={() => { setConfirmDeleteId(recording.id); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-recording hover:bg-red-500/10" role="menuitem">Delete</button>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onExportRecording?.(recording); }}
-                          className="p-1 rounded hover:bg-accent/10 transition-colors"
-                          aria-label="Export recording"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-accent" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" y1="15" x2="12" y2="3" />
-                          </svg>
+                      <p className="mt-1 text-xs text-text-secondary">
+                        {formatTime(recording.duration)} · {recording.height}p · {recording.aspectRatio} · {formatRelativeTime(recording.createdAt)}
+                      </p>
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <button onClick={() => setPreviewRecording(recording)} className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label={`Preview ${getDisplayName(recording)}`}>
+                          <PlayIcon className="h-3.5 w-3.5" /> Preview
                         </button>
-                        <button
-                          onClick={(e) => handleStartRename(recording, e)}
-                          className="p-1 rounded hover:bg-accent/10 transition-colors"
-                          aria-label="Rename recording"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-text-muted" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(recording.id); }}
-                          className="p-1 rounded hover:bg-red-500/10 transition-colors"
-                          aria-label="Delete recording"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-recording" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                          </svg>
+                        <button onClick={() => onExportRecording?.(recording)} className="min-h-9 rounded-md border border-border-subtle px-3 py-2 text-xs font-medium text-text-secondary hover:border-border-strong hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+                          Export
                         </button>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 mt-1.5">
-                      {recording.hasAudio && (
-                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">
-                          Audio
-                        </span>
+                      {detailsId === recording.id && (
+                        <div className="mt-3 rounded-md border border-border-subtle bg-elevated/50 p-3 text-[11px] text-text-secondary">
+                          <div className="flex items-center gap-1.5 font-medium text-text-primary"><SettingsIcon className="h-3 w-3" /> Recording details</div>
+                          <p className="mt-1">{recording.width}×{recording.height} · {recording.mimeType} · {recording.hasAudio ? 'Audio included' : 'Video only'}</p>
+                        </div>
                       )}
-                      <span className="text-[11px] text-text-secondary">
-                        {recording.mimeType}
-                      </span>
                     </div>
                   </>
                 )}
@@ -310,13 +369,13 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile, 
       </div>
 
       {/* Saved Exports */}
-      <div className="px-4 pt-4 pb-2 border-t border-border-subtle mt-2">
-        <h3 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary">Saved Exports</h3>
-        <p className="text-[11px] text-text-secondary mt-0.5">
-          {isAuthenticated && canUseCloudLibrary ? 'Cloud exports (Creator) persist securely' : 'Local exports — 7 days'}
+      <div className="px-4 pb-2 pt-6 sm:px-6 lg:px-8">
+        <h3 className="text-base font-semibold text-text-primary">Saved exports</h3>
+        <p className="mt-1 text-xs text-text-secondary">
+          {isAuthenticated && canUseCloudLibrary ? 'Videos you\'ve exported · Saved in your Creator library' : 'Videos you\'ve exported · Saved for 7 days on this device'}
         </p>
       </div>
-      <div className="px-4 py-2 space-y-2 max-h-[40vh] overflow-y-auto">
+      <div className="max-h-[45vh] space-y-2 overflow-y-auto px-4 py-2 sm:px-6 lg:px-8">
         {previewUrl && (
           <div className="rounded-lg overflow-hidden bg-black border border-border-subtle">
             <video src={previewUrl} controls className="w-full max-h-[200px]" />
@@ -377,7 +436,11 @@ export function RecordingsPanel({ onLoadRecording, onExportRecording, isMobile, 
           ) : null
         ) : (
           localExports.length === 0 ? (
-            <p className="text-[12px] text-text-secondary">No exports yet. Free exports are saved locally on this device.</p>
+            <div className="rounded-lg border border-border-subtle bg-elevated/40 p-4">
+              <p className="text-sm font-medium text-text-primary">No saved exports yet</p>
+              <p className="mt-1 text-xs leading-relaxed text-text-secondary">Videos you&apos;ve exported will appear here.</p>
+              <p className="mt-1 text-xs leading-relaxed text-text-secondary">Your exported videos are saved locally on this device for 7 days.</p>
+            </div>
           ) : (
             localExports.map(exp => (
               <div key={exp.id} className="p-2.5 rounded-lg bg-elevated border border-border-subtle flex flex-col gap-1.5">

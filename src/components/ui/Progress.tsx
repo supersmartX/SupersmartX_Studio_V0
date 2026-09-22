@@ -10,6 +10,10 @@ export function Progress({ value, max = 100, size = 'sm', className = '' }: Prog
 
   return (
     <div
+      role="progressbar"
+      aria-valuenow={percentage}
+      aria-valuemin={0}
+      aria-valuemax={100}
       className={`
         w-full bg-border-default rounded-full overflow-hidden
         ${size === 'sm' ? 'h-1' : 'h-1.5'}

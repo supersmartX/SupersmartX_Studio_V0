@@ -121,6 +121,17 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     return digits.length >= 8 && digits.length <= 15;
   };
 
+  const handleClose = useCallback(() => {
+    setStep('select');
+    setSelectedTier('creator');
+    setBillingPeriod('monthly');
+    setName('');
+    setEmail('');
+    setPhone('');
+    setErrorMessage('');
+    closeModal();
+  }, [closeModal]);
+
   const handleSubscribe = useCallback(async () => {
     if (!isAuthenticated) {
       handleClose();
@@ -211,18 +222,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       setStep('error');
       setErrorMessage(err instanceof Error ? err.message : 'Something went wrong');
     }
-  }, [selectedPlan, selectedTier, billingPeriod, currentPricing, name, email, phone, step, showToast, isAuthenticated, onAuthRequired, session]);
-
-  const handleClose = useCallback(() => {
-    setStep('select');
-    setSelectedTier('creator');
-    setBillingPeriod('monthly');
-    setName('');
-    setEmail('');
-    setPhone('');
-    setErrorMessage('');
-    closeModal();
-  }, [closeModal]);
+  }, [selectedPlan, selectedTier, billingPeriod, currentPricing, name, email, phone, step, showToast, isAuthenticated, onAuthRequired, session, handleClose]);
 
   if (!shouldRender) return null;
 

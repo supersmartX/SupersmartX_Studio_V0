@@ -104,7 +104,7 @@ Organization: SupersmartX
 
 ## Performance Audit
 
-- Hero video `https://d8j0ntlcm91z4.cloudfront.net/...mp4` 1080p autoPlay, no `poster`, no lazy, `preload: auto`. Font `Inter` via `next/font` OK (self-hosted). No image optimization needed (no `next/image` hero). JS bundle includes `mp4-muxer` + `Cashfree SDK` lazy (good). **P2: Add poster, preload metadata, lazy video.**
+- Hero video `https://d8j0ntlcm91z4.cloudfront.net/...mp4` 1080p autoPlay, no `poster`, no lazy, `preload: auto`. Font `Inter` via `next/font` OK (self-hosted). No image optimization needed (no `next/image` hero). JS bundle includes `mediabunny` (code-split, export path only) + `Cashfree SDK` lazy (good). **P2: Add poster, preload metadata, lazy video.**
 
 ## Accessibility Audit
 

@@ -20,6 +20,12 @@ function getR2Client(): S3Client | null {
   });
 }
 
+function getBucketName(): string {
+  const bucket = process.env.R2_BUCKET_NAME;
+  if (!bucket) throw new Error('R2_BUCKET_NAME is not configured');
+  return bucket;
+}
+
 export function isR2Configured(): boolean {
   return !!(
     process.env.R2_ACCOUNT_ID &&
@@ -37,7 +43,7 @@ export async function uploadRecording(
   const client = getR2Client();
   if (!client) throw new Error('R2 not configured');
 
-  const bucket = process.env.R2_BUCKET_NAME!;
+  const bucket = getBucketName();
   const arrayBuffer = await blob.arrayBuffer();
   const body = new Uint8Array(arrayBuffer);
 
@@ -59,7 +65,7 @@ export async function getSignedDownloadUrl(
   const client = getR2Client();
   if (!client) throw new Error('R2 not configured');
 
-  const bucket = process.env.R2_BUCKET_NAME!;
+  const bucket = getBucketName();
 
   const command = new GetObjectCommand({
     Bucket: bucket,
@@ -73,7 +79,7 @@ export async function deleteRecording(key: string): Promise<void> {
   const client = getR2Client();
   if (!client) throw new Error('R2 not configured');
 
-  const bucket = process.env.R2_BUCKET_NAME!;
+  const bucket = getBucketName();
 
   const command = new DeleteObjectCommand({
     Bucket: bucket,
@@ -90,7 +96,7 @@ export async function getSignedUploadUrl(
 ): Promise<string> {
   const client = getR2Client();
   if (!client) throw new Error('R2 not configured');
-  const bucket = process.env.R2_BUCKET_NAME!;
+  const bucket = getBucketName();
   const command = new PutObjectCommand({
     Bucket: bucket,
     Key: key,
@@ -102,13 +108,13 @@ export async function getSignedUploadUrl(
 export async function headObject(key: string): Promise<{ size: number; contentType?: string } | null> {
   const client = getR2Client();
   if (!client) throw new Error('R2 not configured');
-  const bucket = process.env.R2_BUCKET_NAME!;
+  const bucket = getBucketName();
   try {
     const command = new HeadObjectCommand({ Bucket: bucket, Key: key });
     const result = await client.send(command);
     return { size: result.ContentLength || 0, contentType: result.ContentType };
-  } catch (e: any) {
-    if (e?.name === 'NotFound' || e?.$metadata?.httpStatusCode === 404) return null;
+  } catch (e: unknown) {
+    if (e instanceof Error && (e.name === 'NotFound' || (e as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404)) return null;
     throw e;
   }
 }
@@ -124,7 +130,7 @@ export async function listUserRecordings(
   const client = getR2Client();
   if (!client) throw new Error('R2 not configured');
 
-  const bucket = process.env.R2_BUCKET_NAME!;
+  const bucket = getBucketName();
 
   const command = new ListObjectsV2Command({
     Bucket: bucket,

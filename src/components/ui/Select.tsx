@@ -18,13 +18,15 @@ interface SelectProps {
 }
 
 export function Select({ label, value, defaultValue, onChange, options, disabled }: SelectProps) {
+  const selectId = label ? `select-${label.replace(/\s+/g, '-').toLowerCase()}` : undefined;
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label className="text-[13px] text-text-secondary">{label}</label>
+        <label htmlFor={selectId} className="text-[13px] text-text-secondary">{label}</label>
       )}
       <div className="relative">
         <select
+          id={selectId}
           {...(value !== undefined ? { value } : { defaultValue })}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}

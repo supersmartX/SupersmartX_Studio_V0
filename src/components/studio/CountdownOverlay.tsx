@@ -9,13 +9,21 @@ interface CountdownOverlayProps {
 
 export function CountdownOverlay({ countdownText, isVisible }: CountdownOverlayProps) {
   const prevTextRef = useRef('');
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isVisible || !countdownText || countdownText === prevTextRef.current) return;
     prevTextRef.current = countdownText;
 
+    let ctx: AudioContext | null = null;
     try {
-      const ctx = new AudioContext();
+      ctx = new AudioContext();
       const oscillator = ctx.createOscillator();
       const gain = ctx.createGain();
       oscillator.connect(gain);
@@ -26,7 +34,11 @@ export function CountdownOverlay({ countdownText, isVisible }: CountdownOverlayP
       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
       oscillator.start(ctx.currentTime);
       oscillator.stop(ctx.currentTime + 0.15);
-      setTimeout(() => ctx.close(), 200);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = setTimeout(() => {
+        ctx?.close();
+        ctx = null;
+      }, 200);
     } catch { /* AudioContext not available */ }
   }, [countdownText, isVisible]);
 

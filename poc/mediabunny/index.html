@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mediabunny export POC</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; max-width: 860px; margin: 32px auto; padding: 0 16px; }
+    button { padding: 8px 12px; }
+    pre { white-space: pre-wrap; background: #f4f4f4; padding: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Mediabunny export POC</h1>
+  <button id="run">Run 10-second H.264 + AAC exports</button>
+  <pre id="log">Ready.</pre>
+  <script type="module">
+    import {
+      ALL_FORMATS,
+      AudioBufferSource,
+      BlobSource,
+      BufferTarget,
+      CanvasSource,
+      Input,
+      Mp4OutputFormat,
+      Output,
+      Quality,
+    } from 'https://cdn.jsdelivr.net/npm/mediabunny@1.59.0/+esm';
+
+    const logNode = document.querySelector('#log');
+    const log = (message) => {
+      logNode.textContent += `${message}\n`;
+    };
+
+    function makeAudioBuffer(sampleRate = 48000, seconds = 10) {
+      const context = new OfflineAudioContext(2, sampleRate * seconds, sampleRate);
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.frequency.value = 440;
+      gain.gain.value = 0.08;
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start(0);
+      oscillator.stop(seconds);
+      return context.startRendering();
+    }
+
+    function drawFrame(canvas, context, width, height, timestamp, watermark) {
+      context.fillStyle = '#14202b';
+      context.fillRect(0, 0, width, height);
+      context.fillStyle = '#2dd4bf';
+      context.fillRect(0, 0, Math.round(width * (timestamp / 10)), 18);
+      context.fillStyle = '#f8fafc';
+      context.font = `${Math.max(28, Math.round(width / 28))}px sans-serif`;
+      context.fillText(`${width}x${height} | ${timestamp.toFixed(2)}s`, 48, Math.round(height / 2));
+      if (watermark) {
+        context.font = '24px sans-serif';
+        context.fillStyle = 'rgba(255,255,255,.7)';
+        context.fillText('FREE WATERMARK', 48, height - 48);
+      }
+    }
+
+    async function exportOne(width, height, audioBuffer, signal, watermark = false) {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      const output = new Output({
+        format: new Mp4OutputFormat(),
+        target: new BufferTarget(),
+      });
+      const video = new CanvasSource(canvas, { codec: 'avc', quality: new Quality('medium') });
+      const audio = new AudioBufferSource({ codec: 'aac', quality: new Quality('medium') });
+      output.addVideoTrack(video);
+      output.addAudioTrack(audio);
+      await output.start();
+      const duration = 10;
+      const frameCount = duration * 30;
+      for (let frame = 0; frame < frameCount; frame++) {
+        if (signal.aborted) {
+          await output.cancel();
+          throw new DOMException('Aborted', 'AbortError');
+        }
+        const timestamp = frame / 30;
+        drawFrame(canvas, context, width, height, timestamp, watermark);
+        await video.add(timestamp, 1 / 30, { keyFrame: frame % 60 === 0 });
+        if (frame % 15 === 0) log(`${width}x${height}: ${(frame / frameCount * 50).toFixed(0)}% video`);
+      }
+      await audio.add(audioBuffer);
+      log(`${width}x${height}: audio queued`);
+      await output.finalize();
+      const buffer = output.target.buffer;
+      if (!buffer) throw new Error('Mediabunny returned no output buffer');
+      return new Blob([buffer], { type: 'video/mp4' });
+    }
+
+    async function inspect(blob) {
+      const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+      const tracks = await input.getTracks();
+      const video = await input.getPrimaryVideoTrack();
+      const audio = await input.getPrimaryAudioTrack();
+      return {
+        bytes: blob.size,
+        tracks: tracks.length,
+        video: video ? { width: await video.getDisplayWidth(), height: await video.getDisplayHeight() } : null,
+        audio: audio ? { channels: await audio.getNumberOfChannels(), sampleRate: await audio.getSampleRate() } : null,
+        duration: await input.computeDuration(),
+      };
+    }
+
+    async function run() {
+      document.querySelector('#run').disabled = true;
+      logNode.textContent = '';
+      const controller = new AbortController();
+      try {
+        const audio = await makeAudioBuffer();
+        const results = [];
+        for (const [width, height] of [[1920, 1080], [1080, 1920]]) {
+          log(`Starting ${width}x${height}`);
+          const blob = await exportOne(width, height, audio, controller.signal);
+          const report = await inspect(blob);
+          results.push({ width, height, report });
+          log(`Verified ${JSON.stringify(report)}`);
+        }
+        window.pocResult = { ok: true, results };
+        log('POC PASS: both MP4 files contain video and audio.');
+      } catch (error) {
+        window.pocResult = { ok: false, error: String(error), stack: error?.stack };
+        log(`POC FAIL: ${String(error)}`);
+        console.error(error);
+      } finally {
+        document.querySelector('#run').disabled = false;
+      }
+    }
+
+    window.runPoc = run;
+    document.querySelector('#run').addEventListener('click', run);
+  </script>
+</body>
+</html>

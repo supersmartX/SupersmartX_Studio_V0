@@ -78,5 +78,5 @@ export function useKeyboardShortcuts({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onRecordStop, onRecordPause, onRecordResume, onMicToggle, onNudgeUp, onNudgeDown, onCloseDrawer, isRecording, isPaused, canRecord, isDrawerVisible, showNudgeToast]);
+  }, [onRecordStop, onRecordPause, onRecordResume, onMicToggle, onNudgeUp, onNudgeDown, onCloseDrawer, isRecording, isPaused, canRecord, isDrawerVisible]);
 }
