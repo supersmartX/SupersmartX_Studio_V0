@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { findUserById, createExportJob, updateExportJobStatus, getActiveExportJobCount, getMonthlyExportCount, getCurrentPeriod } from '@/lib/db';
+import { findUserById, createExportJob, updateExportJobStatus, getActiveExportJobCount, getMonthlyExportCount } from '@/lib/db';
 import { getEntitlements, isPlanActive, clampResolution } from '@/lib/entitlements';
 import { getSignedUploadUrl, generateExportKey, isR2Configured } from '@/lib/r2';
 import { rateLimit } from '@/lib/rate-limit';
@@ -10,7 +10,6 @@ import type { PlatformId } from '@/types';
 
 const PRESIGNED_RATE_LIMIT_MAX = 10;
 const PRESIGNED_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
-const MAX_EXPORT_SIZE_MB = 200;
 
 export async function POST(request: NextRequest) {
   try {

@@ -42,6 +42,19 @@ export async function PATCH(
     if (resultFileSize !== undefined && (typeof resultFileSize !== 'number' || resultFileSize < 0)) {
       return NextResponse.json({ error: 'Invalid file size' }, { status: 400 });
     }
+    // resultR2Key is owner-namespaced storage state: clients must not point a
+    // job at another user's object or an arbitrary key. The authoritative key
+    // binding happens in /api/exports/complete (key-match check); this prefix
+    // check is defense-in-depth at the earliest write.
+    if (resultR2Key !== undefined) {
+      const expectedPrefix = `exports/${session.user.id}/`;
+      if (typeof resultR2Key !== 'string' || !resultR2Key.startsWith(expectedPrefix)) {
+        return NextResponse.json({ error: 'Invalid result key' }, { status: 400 });
+      }
+    }
+    if (resultExportId !== undefined && (typeof resultExportId !== 'string' || resultExportId.length > 200)) {
+      return NextResponse.json({ error: 'Invalid export id' }, { status: 400 });
+    }
 
     // Sanitize errorMessage
     const sanitizedError = typeof errorMessage === 'string'

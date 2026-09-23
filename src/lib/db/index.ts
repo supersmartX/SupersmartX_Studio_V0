@@ -6,15 +6,25 @@ import type { StoredUser, ResetToken, PlanType, ExportRecord, ExportJobRecord, E
 let migrationPromise: Promise<void> | null = null;
 
 export async function ensureMigrated(): Promise<void> {
-  if (migrationPromise) return migrationPromise;
-  migrationPromise = (async () => {
-    const db = getDb();
-    await migrate(db);
-  })().catch((err) => {
-    migrationPromise = null;
-    throw err;
-  });
-  return migrationPromise;
+  if (!migrationPromise) {
+    migrationPromise = (async () => {
+      const db = getDb();
+      await migrate(db);
+    })().catch((err) => {
+      migrationPromise = null;
+      throw err;
+    });
+  }
+  await migrationPromise;
+  // SQLite/libSQL leaves foreign-key enforcement OFF per connection by default,
+  // while schema.ts relies on ON DELETE CASCADE. Enforce explicitly so critical
+  // state cannot silently orphan. Cheap and idempotent; ignored when the
+  // backing store enforces constraints server-side (e.g. Turso).
+  try {
+    await getDb().execute('PRAGMA foreign_keys = ON');
+  } catch {
+    // Pragma unsupported by this backend — constraints enforced server-side.
+  }
 }
 
 export function setMigrated(value: boolean): void {
@@ -474,6 +484,65 @@ export async function atomicRevertMonthlyExport(userId: string, now = new Date()
   await db.execute({
     sql: `UPDATE monthly_export_counts SET count = MAX(0, count - 1) WHERE user_id = ? AND period = ?`,
     args: [userId, period],
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Daily recording ledger (BUS-001). Same atomic pattern as the monthly
+// counter: INSERT-OR-IGNORE the day row, then a single conditional UPDATE.
+// Concurrent requests cannot overspend the budget; failures revert.
+// ---------------------------------------------------------------------------
+
+export function getCurrentDay(now = new Date()): string {
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+}
+
+export async function getDailyRecordedSeconds(userId: string, now = new Date()): Promise<number> {
+  await ensureMigrated();
+  const db = getDb();
+  const day = getCurrentDay(now);
+  const result = await db.execute({
+    sql: `SELECT seconds FROM daily_recording_seconds WHERE user_id = ? AND day = ?`,
+    args: [userId, day],
+  });
+  if (result.rows.length === 0) return 0;
+  return Number(result.rows[0]?.seconds) || 0;
+}
+
+export async function atomicTryConsumeRecordingSeconds(
+  userId: string,
+  secondsToCharge: number,
+  limit: number,
+  now = new Date(),
+): Promise<{ allowed: boolean; seconds: number }> {
+  await ensureMigrated();
+  const db = getDb();
+  const day = getCurrentDay(now);
+  const charge = Number.isFinite(secondsToCharge) && secondsToCharge > 0 ? secondsToCharge : 0;
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO daily_recording_seconds (user_id, day, seconds) VALUES (?, ?, 0)`,
+    args: [userId, day],
+  });
+  const updateResult = await db.execute({
+    sql: `UPDATE daily_recording_seconds SET seconds = seconds + ? WHERE user_id = ? AND day = ? AND seconds + ? <= ?`,
+    args: [charge, userId, day, charge, limit],
+  });
+  const allowed = updateResult.rowsAffected > 0;
+  return { allowed, seconds: await getDailyRecordedSeconds(userId, now) };
+}
+
+export async function atomicRevertRecordingSeconds(
+  userId: string,
+  secondsToRevert: number,
+  now = new Date(),
+): Promise<void> {
+  await ensureMigrated();
+  const db = getDb();
+  const day = getCurrentDay(now);
+  const revert = Number.isFinite(secondsToRevert) && secondsToRevert > 0 ? secondsToRevert : 0;
+  await db.execute({
+    sql: `UPDATE daily_recording_seconds SET seconds = MAX(0, seconds - ?) WHERE user_id = ? AND day = ?`,
+    args: [revert, userId, day],
   });
 }
 

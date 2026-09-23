@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { findUserById, findExportJobByIdAndUser, updateExportJobStatus, createExport, ensureUserStatsRow, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, getCurrentPeriod } from '@/lib/db';
-import { getEntitlements, isPlanActive, isPlatformLockedForUser } from '@/lib/entitlements';
+import { findUserById, findExportJobByIdAndUser, updateExportJobStatus, createExport, ensureUserStatsRow, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, atomicTryConsumeRecordingSeconds, atomicRevertRecordingSeconds } from '@/lib/db';
+import { getEntitlements, isPlanActive, isPlatformLockedForUser, getDailyRecordingAllowanceSeconds, computeRecordingChargeSeconds } from '@/lib/entitlements';
 import { headObject, deleteRecording, isR2Configured } from '@/lib/r2';
 import { PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
@@ -9,6 +9,19 @@ import type { PlatformId } from '@/types';
 
 const MAX_EXPORT_SIZE_MB = 200;
 const MAX_EXPORT_SIZE_BYTES = MAX_EXPORT_SIZE_MB * 1024 * 1024;
+
+// Duration previously reported by the client at presigned-PUT time is stored
+// on the job config. It is only a claim (the byte floor still applies); a
+// missing or corrupt config simply contributes no claim.
+function jobClaimedDurationSeconds(configJson: string | null | undefined): unknown {
+  if (!configJson) return undefined;
+  try {
+    const parsed = JSON.parse(configJson) as { duration?: unknown };
+    return parsed?.duration;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,7 +36,7 @@ export async function POST(request: NextRequest) {
     if (!entitlements.canExport) return NextResponse.json({ error: 'Upgrade required' }, { status: 403 });
 
     const body = await request.json();
-    const { jobId, key, fileSize, mimeType, platformId, outputWidth, outputHeight } = body as {
+    const { jobId, key, fileSize, mimeType, platformId, outputWidth, outputHeight, duration } = body as {
       jobId: string;
       key: string;
       fileSize: number;
@@ -31,6 +44,7 @@ export async function POST(request: NextRequest) {
       platformId: PlatformId;
       outputWidth: number;
       outputHeight: number;
+      duration?: unknown;
     };
 
     if (!jobId || !key || !fileSize || !platformId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
@@ -58,23 +72,49 @@ export async function POST(request: NextRequest) {
 
     // Verify object exists via Head
     const head = await headObject(key);
-    if (!head) return NextResponse.json({ error: 'Object not found, upload first' }, { status: 400 });
-    // Use server-verified size, not client claimed (but check consistency)
+    if (!head || head.size <= 0) return NextResponse.json({ error: 'Object not found, upload first' }, { status: 400 });
+    // SEC-001: the cap is enforced against the SERVER-VERIFIED size, never
+    // the client claim. A lying fileSize cannot smuggle an oversized object.
     const verifiedSize = head.size;
-    if (Math.abs(verifiedSize - fileSize) > 1024) {
-      // Allow small delta, but if large mismatch, use verified
+    if (verifiedSize > MAX_EXPORT_SIZE_BYTES) {
+      try { await deleteRecording(key); } catch {}
+      return NextResponse.json({ error: `File too large (max ${MAX_EXPORT_SIZE_MB}MB)` }, { status: 413 });
     }
-    const sizeToStore = verifiedSize || fileSize;
+    if (Math.abs(verifiedSize - fileSize) > 1024) {
+      console.warn('complete: client fileSize disagrees with verified size; server wins');
+    }
+    const sizeToStore = verifiedSize;
     if (head.contentType && head.contentType !== 'video/mp4' && !head.contentType.includes('mp4')) {
       // Allow video/mp4 only
     }
 
     await ensureUserStatsRow(session.user.id);
+
+    // BUS-001: server-side daily recording budget. The charge is
+    // max(client claim, floor from verified bytes), so under-reporting the
+    // duration (0, negative, short, missing) cannot reduce it. Unlimited
+    // plans skip the ledger entirely (no rows = unlimited).
+    let recordingConsumedSeconds = 0;
+    const dailyAllowance = getDailyRecordingAllowanceSeconds(user.plan);
+    if (dailyAllowance !== null) {
+      const charge = computeRecordingChargeSeconds(
+        duration ?? jobClaimedDurationSeconds(job.configJson),
+        verifiedSize,
+      );
+      const res = await atomicTryConsumeRecordingSeconds(session.user.id, charge, dailyAllowance);
+      if (!res.allowed) {
+        try { await deleteRecording(key); } catch {}
+        return NextResponse.json({ error: 'Daily recording limit reached. Upgrade to Creator for unlimited recording.' }, { status: 403 });
+      }
+      recordingConsumedSeconds = charge;
+    }
+
     let quotaConsumed = false;
     if (entitlements.maxExportsPerMonth !== null) {
       const res = await atomicTryConsumeMonthlyExport(session.user.id, entitlements.maxExportsPerMonth);
       if (!res.allowed) {
         // Attempt cleanup of uploaded object since quota exceeded
+        if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
         try { await deleteRecording(key); } catch {}
         return NextResponse.json({ error: `Monthly limit reached` }, { status: 403 });
       }
@@ -85,6 +125,7 @@ export async function POST(request: NextRequest) {
     const quotaResult = await atomicIncrementUploadCount(session.user.id, sizeToStore, entitlements.maxUploads, maxStorageBytes);
     if (!quotaResult.allowed) {
       if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
+      if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
       try { await deleteRecording(key); } catch {}
       return NextResponse.json({ error: quotaResult.reason }, { status: 403 });
     }
@@ -104,6 +145,7 @@ export async function POST(request: NextRequest) {
       });
     } catch (e) {
       if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
+      if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
       try { await deleteRecording(key); } catch {}
       throw e;
     }

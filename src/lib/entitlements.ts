@@ -138,3 +138,47 @@ export function clampResolution(
     height: Math.round(height * scale),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Server-side daily recording budget (BUS-001 remediation).
+// The client (localStorage ledger, duration form field) is a UX hint only.
+// The server charges a ledger at export-creation time. Because the server
+// cannot parse exact media duration in a serverless function, the charge is
+// max(client claim, floor from verified bytes): under-reporting (0,
+// negative, short, missing) can never reduce the charge below what the
+// verified bytes imply at a generous reference ceiling bitrate.
+// ---------------------------------------------------------------------------
+
+// Generous ceiling for 720p H.264 output: the floor only ever charges for
+// duration the bytes MUST contain even at implausibly efficient encoding.
+// Legitimate encodes (lower bitrate) are charged at or below their claim.
+export const RECORDING_FLOOR_BYTES_PER_SECOND = 12_000_000 / 8;
+
+// Daily recording allowance in seconds, or null for unlimited plans.
+// Unknown plans fail closed to the free budget.
+export function getDailyRecordingAllowanceSeconds(plan: PlanType | string | null | undefined): number | null {
+  if (!plan || plan === 'free') return FREE_DAILY_RECORDING_SECONDS;
+  if (isCreatorPlan(plan)) return null;
+  return FREE_DAILY_RECORDING_SECONDS;
+}
+
+// Any non-finite, missing, zero, or negative claim charges nothing by
+// itself — the byte floor below still applies. Over-claiming only debits
+// the liar's own budget.
+export function sanitizeClaimedDuration(duration: unknown): number {
+  const n = typeof duration === 'string' ? Number(duration) : (duration as number);
+  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return 0;
+  return n;
+}
+
+export function computeRecordingChargeSeconds(
+  claimedDuration: unknown,
+  verifiedBytes: number,
+): number {
+  const claim = sanitizeClaimedDuration(claimedDuration);
+  const floor =
+    Number.isFinite(verifiedBytes) && verifiedBytes > 0
+      ? verifiedBytes / RECORDING_FLOOR_BYTES_PER_SECOND
+      : 0;
+  return Math.max(claim, floor);
+}

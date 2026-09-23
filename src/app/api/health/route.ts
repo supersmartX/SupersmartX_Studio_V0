@@ -24,6 +24,10 @@ export async function GET() {
     status: healthy ? 'healthy' : 'degraded',
     timestamp: new Date().toISOString(),
     version: process.env.npm_package_version || 'unknown',
+    // Non-sensitive deploy traceability: short commit SHA when the host
+    // provides it (Vercel sets VERCEL_GIT_COMMIT_SHA at build time).
+    // Never a secret; reveals no infrastructure, data, or configuration.
+    commit: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || 'unknown',
   };
 
   // Only expose detailed checks to authenticated users

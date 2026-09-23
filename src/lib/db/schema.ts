@@ -1,6 +1,6 @@
 import type { Client } from '@libsql/client';
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 11;
 
 const MIGRATIONS = [
   // Version 1
@@ -100,6 +100,64 @@ const MIGRATIONS = [
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   )`,
   `CREATE INDEX IF NOT EXISTS idx_monthly_counts_user_period ON monthly_export_counts(user_id, period)`,
+  // Version 10 — enforce referential actions that earlier versions declared
+  // without an action. Previously: deleting an export_job (nightly cleanup) or
+  // a user (raw DELETE) failed once FK enforcement was enabled, because
+  // exports.job_id and user_stats.user_id defaulted to NO ACTION.
+  // exports.job_id uses SET NULL (a completed export must survive job cleanup);
+  // user_stats.user_id uses CASCADE (stats are owned 1:1 by the user).
+  // SQLite cannot ALTER a foreign key, so both tables are rebuilt. The copy
+  // filters pre-existing orphans (possible because FKs were historically
+  // unenforced): exports of deleted users are dropped (unreachable via
+  // ownership-scoped queries), dangling job_id values become NULL, and
+  // user_stats of deleted users are dropped.
+  `DROP TABLE IF EXISTS exports_new`,
+  `CREATE TABLE IF NOT EXISTS exports_new (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    r2_key TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    output_width INTEGER NOT NULL,
+    output_height INTEGER NOT NULL,
+    file_size INTEGER NOT NULL DEFAULT 0,
+    mime_type TEXT NOT NULL DEFAULT 'video/mp4',
+    status TEXT NOT NULL DEFAULT 'completed',
+    created_at TEXT NOT NULL,
+    job_id TEXT REFERENCES export_jobs(id) ON DELETE SET NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`,
+  `INSERT OR IGNORE INTO exports_new (id, user_id, r2_key, platform, output_width, output_height, file_size, mime_type, status, created_at, job_id)
+   SELECT id, user_id, r2_key, platform, output_width, output_height, file_size, mime_type, status, created_at,
+     CASE WHEN job_id IS NULL OR job_id IN (SELECT id FROM export_jobs) THEN job_id ELSE NULL END
+   FROM exports WHERE user_id IN (SELECT id FROM users)`,
+  `DROP TABLE IF EXISTS exports`,
+  `ALTER TABLE exports_new RENAME TO exports`,
+  `CREATE INDEX IF NOT EXISTS idx_exports_user_id ON exports(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_exports_user_created ON exports(user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_exports_job_id ON exports(job_id)`,
+  `DROP TABLE IF EXISTS user_stats_new`,
+  `CREATE TABLE IF NOT EXISTS user_stats_new (
+    user_id TEXT PRIMARY KEY,
+    download_count INTEGER NOT NULL DEFAULT 0,
+    upload_count INTEGER NOT NULL DEFAULT 0,
+    storage_bytes INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`,
+  `INSERT OR IGNORE INTO user_stats_new (user_id, download_count, upload_count, storage_bytes)
+   SELECT user_id, download_count, upload_count, storage_bytes FROM user_stats WHERE user_id IN (SELECT id FROM users)`,
+  `DROP TABLE IF EXISTS user_stats`,
+  `ALTER TABLE user_stats_new RENAME TO user_stats`,
+  // Version 11 — server-side daily recording ledger (BUS-001 remediation).
+  // One row per (user, UTC day); charged atomically at export-creation time.
+  // Creator/unlimited plans never write here (no rows = unlimited).
+  `CREATE TABLE IF NOT EXISTS daily_recording_seconds (
+    user_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    seconds REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_daily_recording_user_day ON daily_recording_seconds(user_id, day)`,
 ];
 
 async function getSchemaVersion(db: Client): Promise<number> {

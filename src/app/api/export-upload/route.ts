@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { auth } from '@/auth';
 import { uploadRecording, isR2Configured } from '@/lib/r2';
-import { createExport, findUserById, ensureUserStatsRow, findExportJobByIdAndUser, updateExportJobStatus, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, getCurrentPeriod } from '@/lib/db';
-import { getEntitlements, isPlanActive, clampResolution, isPlatformLockedForUser } from '@/lib/entitlements';
+import { createExport, findUserById, ensureUserStatsRow, findExportJobByIdAndUser, updateExportJobStatus, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, atomicTryConsumeRecordingSeconds, atomicRevertRecordingSeconds, getCurrentPeriod } from '@/lib/db';
+import { getEntitlements, isPlanActive, clampResolution, isPlatformLockedForUser, getDailyRecordingAllowanceSeconds, computeRecordingChargeSeconds } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
 import { PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
@@ -170,6 +170,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // BUS-001: server-side daily recording budget, charged from VERIFIED
+    // file bytes (floor) and the client claim, whichever is larger.
+    // A missing/zero/negative duration still charges the byte floor.
+    let recordingConsumedSeconds = 0;
+    const dailyAllowance = getDailyRecordingAllowanceSeconds(userPlan);
+    if (dailyAllowance !== null) {
+      const charge = computeRecordingChargeSeconds(
+        durationParam ? parseFloat(durationParam) : undefined,
+        file.size,
+      );
+      const budget = await atomicTryConsumeRecordingSeconds(session.user.id, charge, dailyAllowance);
+      if (!budget.allowed) {
+        if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
+        return NextResponse.json(
+          { error: 'Daily recording limit reached. Upgrade to Creator for unlimited recording.' },
+          { status: 403 },
+        );
+      }
+      recordingConsumedSeconds = charge;
+    }
+
     const maxStorageBytes = entitlements.maxStorageMB ? entitlements.maxStorageMB * 1024 * 1024 : null;
     const quotaResult = await atomicIncrementUploadCount(
       session.user.id,
@@ -179,6 +200,7 @@ export async function POST(request: NextRequest) {
     );
     if (!quotaResult.allowed) {
       if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
+      if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
       return NextResponse.json({ error: quotaResult.reason }, { status: 403 });
     }
 
@@ -196,6 +218,7 @@ export async function POST(request: NextRequest) {
       }
     } catch (uploadErr) {
       if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
+      if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
       throw uploadErr;
     }
 
@@ -214,6 +237,7 @@ export async function POST(request: NextRequest) {
       });
     } catch (e) {
       if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
+      if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
       throw e;
     }
 
