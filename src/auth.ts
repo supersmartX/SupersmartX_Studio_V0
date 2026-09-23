@@ -10,6 +10,7 @@ import {
   getGravatarUrl,
 } from './lib/user-store';
 import { isAccountLocked, recordFailedLogin, resetFailedLogins } from './lib/db';
+import { resolveSessionUser } from './lib/auth-identity';
 import { isPlanActive } from './lib/entitlements';
 import { validatePassword } from './lib/validation';
 
@@ -131,10 +132,19 @@ const fullAuthConfig = {
       }
       if (token.email) {
         await ensureMigration();
-        const fullUser = await findUserByEmail(token.email as string);
+        const fullUser = await resolveSessionUser(token.id as string | undefined, token.email as string);
         if (!fullUser) {
-          token.plan = 'free';
-          return token;
+          // Orphaned session: the signature is valid but no user row exists
+          // by id or email. End the session so the user re-authenticates
+          // instead of failing every API call with "User not found".
+          return null;
+        }
+        if (fullUser.id !== token.id) {
+          // Session id diverged from the durable row (e.g. OAuth subject vs
+          // stored id across an upgrade flow): realign permanently so all
+          // id-scoped export/download endpoints resolve again.
+          console.warn('[Auth] Realigning diverged session id to DB user');
+          token.id = fullUser.id;
         }
         if (!isPlanActive(fullUser.planExpiresAt, fullUser.plan)) {
           token.plan = 'free';
