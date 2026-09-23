@@ -14,6 +14,28 @@ interface RecordingsPanelProps {
   isAuthenticated?: boolean;
   userPlan?: PlanType | 'free';
   refreshKey?: number;
+  onAuthRequired?: () => void;
+}
+
+export type DownloadOutcome =
+  | { kind: 'download'; url: string }
+  | { kind: 'reauth' }
+  | { kind: 'error'; message: string };
+
+const GENERIC_DOWNLOAD_ERROR = 'Download failed. Please try again.';
+
+// Maps a /api/download response to a UI action. 401 (missing, expired, or
+// revoked session) always becomes an explicit re-auth action — never silent,
+// never a raw server string.
+export function classifyDownloadResponse(status: number, body: { url?: unknown; error?: unknown }): DownloadOutcome {
+  if (status === 200 && typeof body.url === 'string' && body.url.length > 0) {
+    return { kind: 'download', url: body.url };
+  }
+  if (status === 401) {
+    return { kind: 'reauth' };
+  }
+  const message = typeof body.error === 'string' && body.error.length > 0 ? body.error : GENERIC_DOWNLOAD_ERROR;
+  return { kind: 'error', message };
 }
 
 function RecordingThumbnail({ recording }: { recording: StoredRecording }) {
@@ -83,7 +105,7 @@ function RecordingPreview({ recording, onClose }: { recording: StoredRecording; 
   );
 }
 
-export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, userPlan = 'free', refreshKey }: RecordingsPanelProps) {
+export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, userPlan = 'free', refreshKey, onAuthRequired }: RecordingsPanelProps) {
   // Cloud library is a Creator entitlement — Free is local-first.
   const canUseCloudLibrary = isCreatorPlan(userPlan);
   const [recordings, setRecordings] = useState<StoredRecording[]>([]);
@@ -197,18 +219,30 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
   }, []);
 
   const handleDownloadCloud = useCallback(async (id: string) => {
+    setCloudError('');
     try {
       const res = await fetch(`/api/download?exportId=${encodeURIComponent(id)}`);
-      if (!res.ok) throw new Error('Download failed');
-      const data = await res.json();
-      const a = document.createElement('a');
-      a.href = data.url;
-      a.download = '';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch {}
-  }, []);
+      const data = await res.json().catch(() => ({}));
+      const outcome = classifyDownloadResponse(res.status, data);
+      if (outcome.kind === 'download') {
+        const a = document.createElement('a');
+        a.href = outcome.url;
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      }
+      if (outcome.kind === 'reauth') {
+        setCloudError('Your session expired. Sign in again to download.');
+        onAuthRequired?.();
+        return;
+      }
+      setCloudError(outcome.message);
+    } catch {
+      setCloudError('Download failed. Please try again.');
+    }
+  }, [onAuthRequired]);
 
   const handleDownloadLocal = useCallback((exp: LocalExport) => {
     const url = URL.createObjectURL(exp.blob);

@@ -287,6 +287,11 @@ export function ExportModal({
         const response = await fetch(`/api/download?exportId=${encodeURIComponent(exportResult.exportId)}`);
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Download failed' }));
+          if (response.status === 401) {
+            showToast('Your session expired. Sign in again to download.');
+            onAuthRequired();
+            return;
+          }
           showToast(errorData.error || 'Download failed. Please try again.');
           return;
         }

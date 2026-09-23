@@ -744,6 +744,7 @@ export default function HomePage() {
                   isAuthenticated={!!session?.user}
                   userPlan={userPlan}
                   refreshKey={exportJobs.length}
+                  onAuthRequired={ui.handleAuthRequired}
                   onExportRecording={(recording) => {
                     createMasterRecording(
                       recording.blob,
