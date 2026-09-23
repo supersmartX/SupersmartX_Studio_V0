@@ -15,6 +15,36 @@ function newJobId(): string {
   return `export-${Date.now()}-${rand}`;
 }
 
+// Terminal server-job reporting uses a FRESH signal: the export's own
+// AbortController is already aborted (or aborting) on these paths, so reusing
+// it would kill the PATCH before it lands and leak another stuck job.
+function reportServerJob(serverJobId: string | undefined, body: { status: 'failed'; errorMessage?: string }): void {
+  if (!serverJobId) return;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    fetch(`/api/export-jobs/${serverJobId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    }).catch(() => {}).finally(() => clearTimeout(timeout));
+  } catch {}
+}
+
+// fetch() network failures reject with TypeError (Chromium 'Failed to fetch',
+// Safari 'Load failed', Firefox 'NetworkError...'). Map only that signature to
+// a connection message — engine bugs (e.g. null dereferences, also TypeErrors)
+// must keep their original text. Returns undefined for cancellations so the
+// caller can keep them silent.
+export function toExportErrorMessage(error: unknown, aborted: boolean): string | undefined {
+  if (aborted) return undefined;
+  if (error instanceof TypeError && /^(Failed to fetch|Load failed|NetworkError)/.test(error.message)) {
+    return 'Connection error. Check your connection and try again.';
+  }
+  return error instanceof Error ? error.message : 'Export failed';
+}
+
 interface UseExportPipelineReturn {
   exportConfig: ExportConfig | null;
   exportJobs: ExportJob[];
@@ -43,6 +73,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      jobsRef.current.forEach((job) => { if (job.serverJobId) reportServerJob(job.serverJobId, { status: 'failed', errorMessage: 'Export interrupted' }); });
       abortControllerRef.current.forEach((controller) => controller.abort());
       abortControllerRef.current.clear();
       jobsRef.current.forEach((job) => { if (job.previewUrl) URL.revokeObjectURL(job.previewUrl); });
@@ -76,8 +107,8 @@ export function useExportPipeline(): UseExportPipelineReturn {
     const job: ExportJob = { id: jobId, masterId: master.id, config: exportConfig, status: 'pending', progress: 0 };
     setExportJobs((prev) => [...prev, job]);
 
+    let serverJobId: string | undefined;
     try {
-      let serverJobId: string | undefined;
       if (!watermarkRequired) {
         try {
           const response = await fetch('/api/export-jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: exportConfig }), signal: abortController.signal });
@@ -118,8 +149,9 @@ export function useExportPipeline(): UseExportPipelineReturn {
       abortControllerRef.current.delete(jobId);
       return completedJob;
     } catch (error) {
-      const isAbort = error instanceof DOMException && error.name === 'AbortError';
-      const failedJob: ExportJob = { ...job, status: isAbort ? 'pending' : 'error', error: isAbort ? undefined : error instanceof Error ? error.message : 'Export failed' };
+      const aborted = abortController.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
+      reportServerJob(serverJobId, { status: 'failed', errorMessage: aborted ? 'Cancelled by user' : error instanceof Error ? error.message : 'Export failed' });
+      const failedJob: ExportJob = { ...job, status: aborted ? 'pending' : 'error', error: toExportErrorMessage(error, aborted) };
       if (mountedRef.current) setExportJobs((prev) => prev.map((item) => item.id === jobId ? failedJob : item));
       abortControllerRef.current.delete(jobId);
       return failedJob;
@@ -138,8 +170,8 @@ export function useExportPipeline(): UseExportPipelineReturn {
       abortControllerRef.current.set(jobId, abortController);
       const job: ExportJob = { id: jobId, masterId: master.id, config, status: 'pending', progress: 0 };
       setExportJobs((prev) => [...prev, job]);
+      let serverJobId: string | undefined;
       try {
-        let serverJobId: string | undefined;
         const createResponse = await fetch('/api/export-jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config }), signal: abortController.signal });
         if (createResponse.ok) { const data = await createResponse.json(); if (typeof data.jobId === 'string' && data.jobId.length > 0) serverJobId = data.jobId; }
         if (serverJobId) await fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding' }), signal: abortController.signal }).catch(() => {});
@@ -160,7 +192,8 @@ export function useExportPipeline(): UseExportPipelineReturn {
         setExportJobs((prev) => prev.map((item) => item.id === jobId ? completedJob : item));
         results.push(completedJob);
       } catch (error) {
-        const failedJob: ExportJob = { ...job, status: 'error', error: error instanceof Error ? error.message : 'Failed' };
+        reportServerJob(serverJobId, { status: 'failed', errorMessage: error instanceof Error ? error.message : 'Export failed' });
+        const failedJob: ExportJob = { ...job, status: 'error', error: toExportErrorMessage(error, abortController.signal.aborted) ?? 'Failed' };
         if (mountedRef.current) setExportJobs((prev) => prev.map((item) => item.id === jobId ? failedJob : item));
         results.push(failedJob);
       } finally { abortControllerRef.current.delete(jobId); }
@@ -171,10 +204,13 @@ export function useExportPipeline(): UseExportPipelineReturn {
   const cancelExport = useCallback((jobId: string) => {
     const controller = abortControllerRef.current.get(jobId);
     if (controller) { controller.abort(); abortControllerRef.current.delete(jobId); }
-    setExportJobs((prev) => { const job = prev.find((item) => item.id === jobId); if (job?.previewUrl) URL.revokeObjectURL(job.previewUrl); return prev.filter((item) => item.id !== jobId); });
+    const job = jobsRef.current.find((item) => item.id === jobId);
+    if (job?.serverJobId) reportServerJob(job.serverJobId, { status: 'failed', errorMessage: 'Cancelled by user' });
+    setExportJobs((prev) => { const found = prev.find((item) => item.id === jobId); if (found?.previewUrl) URL.revokeObjectURL(found.previewUrl); return prev.filter((item) => item.id !== jobId); });
   }, []);
 
   const clearJobs = useCallback(() => {
+    jobsRef.current.forEach((job) => { if (job.serverJobId) reportServerJob(job.serverJobId, { status: 'failed', errorMessage: 'Cancelled by user' }); });
     abortControllerRef.current.forEach((controller) => controller.abort());
     abortControllerRef.current.clear();
     setExportJobs((prev) => { prev.forEach((job) => { if (job.previewUrl) URL.revokeObjectURL(job.previewUrl); }); return []; });

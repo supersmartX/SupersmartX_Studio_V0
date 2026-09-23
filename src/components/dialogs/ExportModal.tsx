@@ -34,6 +34,12 @@ interface ExportModalProps {
   onCancelExport?: () => void;
 }
 
+// Matches server auth failures (expired/revoked session, rowless identity)
+// so the modal can route them to sign-in instead of a dead-end toast.
+export function isAuthFailureMessage(message: string): boolean {
+  return /unauthorized|user not found|session expired|sign in/i.test(message);
+}
+
 export function ExportModal({
   isVisible,
   masterRecording,
@@ -183,7 +189,13 @@ export function ExportModal({
       }
     } catch (err) {
       setStep('platform');
-      showToast(err instanceof Error ? err.message : 'Export failed. Please try again.');
+      const message = err instanceof Error ? err.message : 'Export failed. Please try again.';
+      if (isAuthFailureMessage(message)) {
+        showToast('Your session expired. Sign in again to export.');
+        onAuthRequired();
+        return;
+      }
+      showToast(message);
     } finally {
       setIsExporting(false);
       setBatchProgress(null);
@@ -223,7 +235,13 @@ export function ExportModal({
       }
     } catch (err) {
       setStep('platform');
-      showToast(err instanceof Error ? err.message : 'Export failed. Please try again.');
+      const message = err instanceof Error ? err.message : 'Export failed. Please try again.';
+      if (isAuthFailureMessage(message)) {
+        showToast('Your session expired. Sign in again to export.');
+        onAuthRequired();
+        return;
+      }
+      showToast(message);
     } finally {
       setIsExporting(false);
       setExportProgress(0);

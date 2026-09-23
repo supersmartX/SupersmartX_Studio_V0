@@ -328,13 +328,21 @@ export async function atomicIncrementUploadCount(
   return { allowed: true, stats: finalStats };
 }
 
+// Jobs stuck in a non-terminal state longer than this are abandoned clients
+// (cancelled, crashed, or failed exports that never reported back) — not
+// running exports. Bounded far above any legitimate single export so normal
+// flows never trip the concurrency guard because of stale rows.
+export const STUCK_JOB_CUTOFF_MS = 6 * 60 * 60 * 1000;
+
 export async function getActiveExportJobCount(userId: string): Promise<number> {
   await ensureMigrated();
   const db = getDb();
+  const cutoff = new Date(Date.now() - STUCK_JOB_CUTOFF_MS).toISOString();
   const result = await db.execute({
     sql: `SELECT COUNT(*) as cnt FROM export_jobs
-          WHERE user_id = ? AND status IN ('pending', 'encoding', 'uploading')`,
-    args: [userId],
+          WHERE user_id = ? AND status IN ('pending', 'encoding', 'uploading')
+          AND created_at > ?`,
+    args: [userId, cutoff],
   });
   return Number(result.rows[0]?.cnt) || 0;
 }
