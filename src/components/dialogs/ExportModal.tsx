@@ -10,7 +10,8 @@ import { setPendingDownload, stashPendingDownloadExportId } from '@/lib/auth-gua
 import { getEntitlements, isCreatorPlan, isPlatformLockedForUser } from '@/lib/entitlements';
 import type { ExportStep, PlatformId, ExportConfig, MasterRecording, ExportJob } from '@/types';
 import { PLATFORM_PRESETS } from '@/constants';
-import { formatTime } from '@/utils/format';
+import { formatTime, platformDisplayName, formatQualityLabel } from '@/utils/format';
+import { getPreviewCropGeometry } from '@/lib/composition';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 
 interface ExportModalProps {
@@ -28,6 +29,10 @@ interface ExportModalProps {
   onUpgradeRequired?: (platformId: PlatformId) => void;
   exportConfig: ExportConfig | null;
   onSelectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }) => ExportConfig;
+  /** Last previewed platform — retained when the modal opens so a header or
+      repeat open doesn't reset to YouTube. Falls back to YouTube when unset
+      or not available to the current user. */
+  initialPlatformId?: PlatformId;
   onUpdateCrop: (updates: { x?: number; y?: number; zoom?: number }) => void;
   onStartExport: (master: MasterRecording, onProgress?: (progress: number) => void, watermarkRequired?: boolean) => Promise<ExportJob>;
   onStartBatchExport?: (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void, watermarkRequired?: boolean) => Promise<ExportJob[]>;
@@ -55,6 +60,7 @@ export function ExportModal({
   onUpgradeRequired,
   exportConfig,
   onSelectPlatform,
+  initialPlatformId,
   onUpdateCrop,
   onStartExport,
   onStartBatchExport,
@@ -126,6 +132,9 @@ export function ExportModal({
 
   // YouTube 16:9 is the default/free format — preselect it so Free users never
   // have to pick a platform before a basic export. Runs on open and after login.
+  // A retained preview choice (initialPlatformId) wins over the default so a
+  // header/repeat open doesn't reset a deliberate Shorts/Reels/Square pick —
+  // but only when that format is actually available to the current user.
   const autoSelectedRef = useRef(false);
   useEffect(() => {
     if (!isVisible) {
@@ -135,14 +144,19 @@ export function ExportModal({
     if (!masterRecording || exportConfig || autoSelectedRef.current) return;
     const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
     if (!entitlements.canExport) return;
+    const requested = initialPlatformId && PLATFORM_PRESETS.some((p) => p.id === initialPlatformId)
+      ? initialPlatformId
+      : 'youtube-landscape';
+    const locked = requested !== 'youtube-landscape' && (isGuest || isPlatformLockedForUser(requested, userPlan));
+    const chosen: PlatformId = locked ? 'youtube-landscape' : requested;
     autoSelectedRef.current = true;
     onSelectPlatform(
-      'youtube-landscape',
+      chosen,
       masterRecording.sourceWidth || 1920,
       masterRecording.sourceHeight || 1080,
       entitlements.maxResolution,
     );
-  }, [isVisible, masterRecording, exportConfig, isGuest, userPlan, onSelectPlatform]);
+  }, [isVisible, masterRecording, exportConfig, isGuest, userPlan, initialPlatformId, onSelectPlatform]);
 
   const handleToggleBatchPlatform = useCallback((platformId: PlatformId) => {
     setBatchPlatforms((prev) =>
@@ -405,7 +419,22 @@ export function ExportModal({
                 recordedDuration={masterRecording.duration}
                 onError={() => {}}
                 aspectRatio={exportConfig ? (PLATFORM_PRESETS.find((p) => p.id === exportConfig.platformId)?.aspectRatio ?? '16:9') : '16:9'}
+                videoStyle={
+                  exportConfig
+                    ? getPreviewCropGeometry(
+                        masterRecording.sourceWidth || 1920,
+                        masterRecording.sourceHeight || 1080,
+                        exportConfig.outputWidth,
+                        exportConfig.outputHeight,
+                      ).style
+                    : undefined
+                }
               />
+              {exportConfig && (
+                <p className="text-[12px] text-text-secondary">
+                  Previewing {platformDisplayName(exportConfig.platformId)} · {exportConfig.outputWidth} × {exportConfig.outputHeight}
+                </p>
+              )}
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {PLATFORM_PRESETS.filter((p) => p.id !== 'custom').map((preset) => {
@@ -574,6 +603,18 @@ export function ExportModal({
                   onError={() => {}}
                   aspectRatio={exportResult.config?.aspectRatio || exportConfig?.aspectRatio || '16:9'}
                 />
+              )}
+              {/* Final composition, stated plainly: the file itself already
+                  carries these exact dimensions — this caption names them so
+                  the user knows what they are downloading. */}
+              {(exportResult.config || exportConfig) && (
+                <p className="text-[12px] text-text-secondary">
+                  {platformDisplayName((exportResult.config || exportConfig)!.platformId)}
+                  {' · '}{(exportResult.config || exportConfig)!.outputWidth} × {(exportResult.config || exportConfig)!.outputHeight}
+                  {formatQualityLabel((exportResult.config || exportConfig)!.outputHeight)
+                    ? ` · ${formatQualityLabel((exportResult.config || exportConfig)!.outputHeight)}`
+                    : ''}
+                </p>
               )}
 
               <div className="flex flex-col gap-2">

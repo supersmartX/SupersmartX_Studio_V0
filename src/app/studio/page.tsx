@@ -22,6 +22,7 @@ import { useRecordingTimer } from '@/hooks/useRecordingTimer';
 import { useStudioUI } from '@/hooks/useStudioUI';
 import { useHydrated } from '@/hooks/useHydrated';
 import { getEntitlements, isCreatorPlan, isPlatformLockedForUser, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
+import { getPreviewCropGeometry } from '@/lib/composition';
 import { consumePendingDownloadExportId, hasPendingDownload } from '@/lib/auth-guard';
 import { addDailyRecordingSeconds, canRecordToday, getDailyRecordingRemainingInFlight } from '@/lib/daily-recording';
 import { getTeleprompterSessionCap, getTeleprompterRemainingInSession } from '@/lib/teleprompter-session';
@@ -587,10 +588,20 @@ export default function HomePage() {
         ? 'review'
         : 'preparing';
 
-  // Preview platform for "Preview as" — separate from export platform
+  // Preview as — separate from export platform
   const [previewPlatformId, setPreviewPlatformId] = useState<PlatformId>('youtube-landscape');
   const isReview = inspectorContext === 'review';
   const previewPreset = PLATFORM_PRESETS.find((p) => p.id === previewPlatformId) ?? PLATFORM_PRESETS[0];
+  // Review crop geometry from the SAME production math the export uses
+  // (getDefaultCrop → cover). Shape (Canvas box) and crop move together.
+  const reviewCropStyle = isReview && masterRecordingData
+    ? getPreviewCropGeometry(
+        masterRecordingData.sourceWidth || 1920,
+        masterRecordingData.sourceHeight || 1080,
+        previewPreset.width,
+        previewPreset.height,
+      ).style
+    : undefined;
 
   const inspectorProps = {
     settings: settings.teleprompter,
@@ -681,6 +692,7 @@ export default function HomePage() {
                 recordingConfig={recordingConfig}
                 reviewVideoUrl={isReview && masterRecordingData ? masterRecordingData.url : undefined}
                 reviewAspectRatio={isReview ? previewPreset.aspectRatio : undefined}
+                reviewVideoStyle={reviewCropStyle}
               >
                 <CameraPreview
                   stream={camera.stream}
@@ -862,6 +874,7 @@ export default function HomePage() {
         isVisible={ui.isDrawerVisible}
         masterRecording={masterRecordingData}
         onClose={handleCloseDrawer}
+        initialPlatformId={previewPlatformId}
         onPracticeAgain={handlePracticeAgain}
         onOpenLibrary={handleOpenLibrary}
         onShare={share}

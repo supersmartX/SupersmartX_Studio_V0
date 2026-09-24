@@ -1,6 +1,7 @@
 'use client';
 
 import type { CropConfig } from '@/types';
+import { getDefaultCrop } from './export/export-config';
 
 // Authoritative composition model — single source for preview + export
 // source → target canvas → scale (cover) → crop → focal → zoom → output
@@ -39,22 +40,43 @@ export function computeCanvasSourceRect(
   };
 }
 
-// CSS for preview video element to match canvas composition exactly
-// Uses objectPosition with effective crop — no separate transform scale
+// CSS for a preview video element to reproduce an export crop window inside
+// a matching-aspect box with object-fit: cover. With cover, the source is
+// scaled to sW×sH and object-position p% aligns p% of the image with p% of
+// the box, i.e. offset = p·(box−image). Solving offset = −x·s for the crop
+// origin (x,y) gives p = x/(W−cropW): 0% = left/top aligned, 50% = centered,
+// 100% = right/bottom aligned. Degenerate (full-bleed) spans fall back to 50%.
 export function computePreviewStyle(
   crop: CropConfig,
   sourceW: number,
   sourceH: number
 ): React.CSSProperties {
   const eff = getEffectiveCrop(crop);
-  // Negative percentage positions the visible window over the source
-  const xPct = (eff.x / sourceW) * 100;
-  const yPct = (eff.y / sourceH) * 100;
+  const spanX = sourceW - eff.width;
+  const spanY = sourceH - eff.height;
+  const xPct = spanX > 0 ? (eff.x / spanX) * 100 : 50;
+  const yPct = spanY > 0 ? (eff.y / spanY) * 100 : 50;
   return {
     objectFit: 'cover' as const,
-    objectPosition: `${-xPct}% ${-yPct}%`,
+    objectPosition: `${xPct}% ${yPct}%`,
     // Zoom is already baked into effective crop; no transform needed
   };
+}
+
+// Preview geometry derived from the SAME production crop the export uses.
+// getDefaultCrop centers, so every platform today yields 50%/50% — but the
+// value is computed from the real rect, not assumed. If a positioned crop
+// ever becomes producible, preview follows it with no separate algorithm.
+export function getPreviewCropGeometry(
+  sourceW: number,
+  sourceH: number,
+  targetW: number,
+  targetH: number
+): { crop: CropConfig; style: React.CSSProperties } {
+  const sW = sourceW > 0 ? sourceW : 1920;
+  const sH = sourceH > 0 ? sourceH : 1080;
+  const crop = getDefaultCrop(sW, sH, targetW, targetH);
+  return { crop, style: computePreviewStyle(crop, sW, sH) };
 }
 
 // Focal helpers — map presets to crop positions

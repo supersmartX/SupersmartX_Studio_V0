@@ -1,33 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { getDefaultCrop } from '@/lib/export/export-config';
 
-function getDefaultCrop(
-  sourceWidth: number,
-  sourceHeight: number,
-  targetWidth: number,
-  targetHeight: number
-): { x: number; y: number; width: number; height: number; zoom: number } {
-  const targetRatio = targetWidth / targetHeight;
-  const sourceRatio = sourceWidth / sourceHeight;
-
-  let cropWidth: number;
-  let cropHeight: number;
-
-  if (targetRatio > sourceRatio) {
-    cropWidth = sourceWidth;
-    cropHeight = sourceWidth / targetRatio;
-  } else {
-    cropHeight = sourceHeight;
-    cropWidth = sourceHeight * targetRatio;
-  }
-
-  return {
-    x: (sourceWidth - cropWidth) / 2,
-    y: (sourceHeight - cropHeight) / 2,
-    width: cropWidth,
-    height: cropHeight,
-    zoom: 1,
-  };
-}
+// These tests exercise the REAL shipped crop function used by export
+// (createExportConfig). A local reimplementation here would pass even if
+// production broke — never duplicate the algorithm in tests.
 
 describe('getDefaultCrop', () => {
   it('returns full source when aspect ratios match', () => {

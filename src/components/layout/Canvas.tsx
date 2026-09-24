@@ -15,6 +15,8 @@ interface CanvasProps {
   /** When provided, Canvas shows this recorded video instead of children (review mode) */
   reviewVideoUrl?: string;
   reviewAspectRatio?: AspectRatio;
+  /** Shared-geometry crop style for the review video (same math as export) */
+  reviewVideoStyle?: React.CSSProperties;
 }
 
 export function Canvas({
@@ -26,6 +28,7 @@ export function Canvas({
   onCanvasReady,
   reviewVideoUrl,
   reviewAspectRatio,
+  reviewVideoStyle,
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -71,10 +74,13 @@ export function Canvas({
         />
 
         {isReview ? (
-          /* Review mode: show recorded video with platform aspect ratio */
+          /* Review mode: show recorded video with platform aspect ratio.
+             The style carries the shared export crop geometry (centered
+             cover today); the box shape + video crop change together. */
           <video
             ref={videoRef}
             src={reviewVideoUrl}
+            style={reviewVideoStyle}
             className="absolute inset-0 w-full h-full object-cover"
             playsInline
             loop

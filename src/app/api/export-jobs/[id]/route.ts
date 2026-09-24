@@ -28,7 +28,12 @@ export async function PATCH(
     const body = await request.json();
     const { status, progress, resultR2Key, resultExportId, resultFileSize, errorMessage } = body;
 
-    if (status && !VALID_TRANSITIONS[job.status]?.includes(status)) {
+    // Progress reporting re-sends the CURRENT status (e.g. encoding +
+    // progress 10/20/30). Same-state updates are progress writes, not state
+    // transitions, so they are always allowed. Genuine transitions still
+    // require the map — and terminal states (completed/failed) have no
+    // outgoing entries, so they can never leave their state.
+    if (status && status !== job.status && !VALID_TRANSITIONS[job.status]?.includes(status)) {
       return NextResponse.json(
         { error: `Invalid transition: ${job.status} → ${status}` },
         { status: 400 },

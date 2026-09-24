@@ -14,6 +14,9 @@ interface VideoPlayerProps {
   aspectRatio: AspectRatio;
   isPreview?: boolean;
   maxPreviewSeconds?: number;
+  /** Optional shared-geometry crop style (same math as export). The file
+      itself is never altered — this only aligns the rendered crop. */
+  videoStyle?: React.CSSProperties;
 }
 
 export function VideoPlayer({
@@ -23,6 +26,7 @@ export function VideoPlayer({
   aspectRatio,
   isPreview = false,
   maxPreviewSeconds = GUEST_PREVIEW_MAX_SECONDS,
+  videoStyle,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -230,6 +234,7 @@ export function VideoPlayer({
       <video
         ref={videoRef}
         src={videoUrl}
+        style={videoStyle}
         className={`w-full ${ASPECT_RATIO_PRESETS[aspectRatio].cssClass} object-contain`}
         onClick={showControls}
         playsInline
