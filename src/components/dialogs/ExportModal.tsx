@@ -6,7 +6,7 @@ import { DownloadIcon, CloseIcon, ShareIcon, ArrowLeftIcon } from '@/components/
 import { DiscordFeedback } from './DiscordFeedback';
 import { VideoPlayer } from '@/components/studio/VideoPlayer';
 import { generateFilename } from '@/services/download.service';
-import { setPendingDownload } from '@/lib/auth-guard';
+import { setPendingDownload, stashPendingDownloadExportId } from '@/lib/auth-guard';
 import { getEntitlements, isCreatorPlan, isPlatformLockedForUser } from '@/lib/entitlements';
 import type { ExportStep, PlatformId, ExportConfig, MasterRecording, ExportJob } from '@/types';
 import { PLATFORM_PRESETS } from '@/constants';
@@ -287,6 +287,9 @@ export function ExportModal({
 
     if (!isAuthenticated) {
       setPendingDownload(() => doDownload());
+      // OAuth reloads wipe the closure above — stash the intent so the
+      // studio page can resume it after login.
+      if (exportResult?.exportId) stashPendingDownloadExportId(exportResult.exportId);
       onAuthRequired();
       return;
     }

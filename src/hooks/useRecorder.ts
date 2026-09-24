@@ -61,9 +61,15 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
     streamRef.current = stream;
   }, [stream]);
 
-  // Stop recording when stream changes (format switch)
+  // Stop an ACTIVE take when the stream changes (format/device switch).
+  // Review ('completed') and idle states are immune: a camera re-acquire for
+  // the NEXT take must not kill the countdown the new take just started,
+  // and device/platform switches must not discard a finished review.
+  // Proven by live probe: re-init during review cleared the countdown
+  // interval and reset state, so the second take silently never started.
   useEffect(() => {
-    if (stream && recordingStateRef.current !== 'idle') {
+    const active = recordingStateRef.current === 'recording' || recordingStateRef.current === 'paused' || recordingStateRef.current === 'countdown';
+    if (stream && active) {
       try {
         if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') {
           mediaRecorderRef.current.stop();
@@ -145,8 +151,10 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
   }, []);
 
   const startRecording = useCallback(
-    (scrollCallback: () => void, checkEndCallback: () => boolean) => {
-      const currentStream = streamRef.current;
+    (scrollCallback: () => void, checkEndCallback: () => boolean, liveStream?: MediaStream | null) => {
+      // Prefer an explicitly passed fresh stream (e.g. right after camera
+      // re-initialization) — the synced ref may lag by a render.
+      const currentStream = liveStream ?? streamRef.current;
       if (!currentStream) return;
       if (recordingStateRef.current !== 'idle' && recordingStateRef.current !== 'completed') return;
 
@@ -172,11 +180,11 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
           setCountdownText('');
 
           try {
-            if (!streamRef.current || streamRef.current.getTracks().length === 0) {
+            const activeStream = currentStream;
+            if (!activeStream || activeStream.getTracks().length === 0) {
               setRecordingState('idle');
               return;
             }
-            const activeStream = streamRef.current;
             const supported = getSupportedMimeType();
             selectedMimeRef.current = supported;
 
@@ -234,37 +242,49 @@ export function useRecorder(stream: MediaStream | null, _config?: RecordingConfi
               setVideoUrl(newVideoUrl);
 
               if (hasAudio) {
-                const audioOnlyChunks: Blob[] = [];
-                const audioTracks = activeStream.getAudioTracks().map(track => track.clone());
-                const audioStream = new MediaStream(audioTracks);
-                const audioMimeType = 'audio/webm;codecs=opus';
-                const audioRecorder = new MediaRecorder(audioStream, {
-                  mimeType: audioMimeType,
-                });
-
-                audioRecorderRef.current = audioRecorder;
-
-                audioRecorder.ondataavailable = (e) => {
-                  if (e.data.size > 0) audioOnlyChunks.push(e.data);
-                };
-
-                audioRecorder.onerror = () => {
-                  audioRecorderRef.current = null;
-                };
-
-                audioRecorder.onstop = () => {
-                  if (audioOnlyChunks.length > 0) {
-                    const audioBlob = new Blob(audioOnlyChunks, {
-                      type: audioMimeType,
-                    });
-                    const newAudioUrl = URL.createObjectURL(audioBlob);
-                    audioUrlRef.current = newAudioUrl;
-                    setAudioUrl(newAudioUrl);
+                // Audio-only extra is best-effort: if the audio re-encode
+                // cannot start (device/encoder quirk), the take itself must
+                // still complete — never strand the UI in "recording" with
+                // no review. Proven by live probe: a throwing start() here
+                // skipped setRecordingState('completed') below.
+                try {
+                  const audioMimeType = 'audio/webm;codecs=opus';
+                  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported(audioMimeType)) {
+                    throw new Error('audio extra unsupported');
                   }
-                  audioRecorderRef.current = null;
-                };
+                  const audioOnlyChunks: Blob[] = [];
+                  const audioTracks = activeStream.getAudioTracks().map(track => track.clone());
+                  const audioStream = new MediaStream(audioTracks);
+                  const audioRecorder = new MediaRecorder(audioStream, {
+                    mimeType: audioMimeType,
+                  });
 
-                audioRecorder.start();
+                  audioRecorderRef.current = audioRecorder;
+
+                  audioRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) audioOnlyChunks.push(e.data);
+                  };
+
+                  audioRecorder.onerror = () => {
+                    audioRecorderRef.current = null;
+                  };
+
+                  audioRecorder.onstop = () => {
+                    if (audioOnlyChunks.length > 0) {
+                      const audioBlob = new Blob(audioOnlyChunks, {
+                        type: audioMimeType,
+                      });
+                      const newAudioUrl = URL.createObjectURL(audioBlob);
+                      audioUrlRef.current = newAudioUrl;
+                      setAudioUrl(newAudioUrl);
+                    }
+                    audioRecorderRef.current = null;
+                  };
+
+                  audioRecorder.start();
+                } catch {
+                  audioRecorderRef.current = null;
+                }
               }
 
               setRecordingState('completed');

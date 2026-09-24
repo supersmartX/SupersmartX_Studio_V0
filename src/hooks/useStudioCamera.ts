@@ -35,8 +35,10 @@ export function useStudioCamera({ recordingState, settings, camera }: UseStudioC
     }
   }, [camera.videoDevices, camera.audioDevices, settings.selectedVideoDevice, settings.selectedAudioDevice, settings.setSelectedVideoDevice, settings.setSelectedAudioDevice]);
 
-  // Initialize camera with platform-specific constraints
-  const handleCameraInitialize = useCallback(async () => {
+  // Initialize camera with platform-specific constraints.
+  // Returns the live stream (or null) so callers can act on it synchronously
+  // without waiting for state/effect round-trips.
+  const handleCameraInitialize = useCallback(async (): Promise<MediaStream | null> => {
     const platformPreset = PLATFORM_PRESETS.find((p) => p.id === settings.platformId) ?? PLATFORM_PRESETS[0];
     const constraints: MediaStreamConstraints = {
       video: settings.selectedVideoDevice
@@ -48,9 +50,9 @@ export function useStudioCamera({ recordingState, settings, camera }: UseStudioC
     };
 
     try {
-      await camera.initialize(constraints);
+      return await camera.initialize(constraints);
     } catch {
-      await camera.initialize();
+      return await camera.initialize();
     }
   }, [camera, settings.selectedAudioDevice, settings.selectedVideoDevice, settings.platformId]);
 

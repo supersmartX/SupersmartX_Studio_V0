@@ -7,9 +7,11 @@ type CameraStatus = 'idle' | 'requesting' | 'ready' | 'error';
 interface UseCameraReturn {
   stream: MediaStream | null;
   isInitialized: boolean;
+  hasInitialized: boolean;
   status: CameraStatus;
   errorMessage: string | null;
-  initialize: (constraints?: MediaStreamConstraints) => Promise<void>;
+  initialize: (constraints?: MediaStreamConstraints) => Promise<MediaStream | null>;
+  stop: () => void;
   videoDevices: MediaDeviceInfo[];
   audioDevices: MediaDeviceInfo[];
   refreshDevices: () => Promise<void>;
@@ -50,7 +52,11 @@ export function useCamera(): UseCameraReturn {
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const statusRef = useRef<CameraStatus>('idle');
-  const initializeRef = useRef<((constraints?: MediaStreamConstraints) => Promise<void>) | null>(null);
+  const initializeRef = useRef<((constraints?: MediaStreamConstraints) => Promise<MediaStream | null>) | null>(null);
+  // True once a stream has ever been acquired. Unlike isInitialized (which
+  // stop() resets), this stays true so the UI can tell "camera released
+  // after a take" apart from "camera never enabled".
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -83,7 +89,7 @@ export function useCamera(): UseCameraReturn {
   }, []);
 
   const initialize = useCallback(async (constraints?: MediaStreamConstraints) => {
-    if (statusRef.current === 'requesting') return;
+    if (statusRef.current === 'requesting') return streamRef.current;
     
     setStatus('requesting');
     statusRef.current = 'requesting';
@@ -124,9 +130,11 @@ export function useCamera(): UseCameraReturn {
       streamRef.current = newStream;
       setStream(newStream);
       setIsInitialized(true);
+      setHasInitialized(true);
       setStatus('ready');
       statusRef.current = 'ready';
       await refreshDevices();
+      return newStream;
     } catch (err) {
       if (newStream) {
         newStream.getTracks().forEach((track) => track.stop());
@@ -135,17 +143,42 @@ export function useCamera(): UseCameraReturn {
       statusRef.current = 'error';
       setErrorMessage(getErrorMessage(err));
       setIsInitialized(false);
+      return null;
     }
   }, [refreshDevices, handleTrackEnded]);
 
   initializeRef.current = initialize;
 
+  // Release the camera immediately: stop every track (video + microphone
+  // belonging to this stream) so the OS/browser indicator turns off.
+  // Review uses the recorded Blob, never the live stream, so stopping here
+  // is safe. A later initialize() acquires a clean new stream.
+  const stop = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
+        track.removeEventListener('ended', handleTrackEnded);
+        try {
+          track.stop();
+        } catch {
+          // ignore — track may already be stopped
+        }
+      });
+      streamRef.current = null;
+    }
+    setStream(null);
+    setIsInitialized(false);
+    setStatus('idle');
+    statusRef.current = 'idle';
+  }, [handleTrackEnded]);
+
   return {
     stream,
     isInitialized,
+    hasInitialized,
     status,
     errorMessage,
     initialize,
+    stop,
     videoDevices,
     audioDevices,
     refreshDevices,

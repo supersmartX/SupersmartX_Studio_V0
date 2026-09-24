@@ -3,8 +3,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getAllRecordings, deleteRecording, renameRecording, type StoredRecording } from '@/lib/recording-store';
 import { getAllLocalExports, deleteLocalExport, type LocalExport } from '@/lib/local-exports-store';
-import { formatTime, formatRelativeTime } from '@/utils/format';
+import { formatTime, formatRelativeTime, formatDate, formatFileSize, formatQualityLabel, formatRecordingFormat, exportStatusLabel, platformDisplayName } from '@/utils/format';
 import { isCreatorPlan } from '@/lib/entitlements';
+import { setPendingDownload, stashPendingDownloadExportId } from '@/lib/auth-guard';
+import { useDismissOnOutsideClick } from '@/hooks/useDismissOnOutsideClick';
+import { Modal } from '@/components/ui/Modal';
 import type { PlanType } from '@/types/db';
 import { PlayIcon, SettingsIcon } from '@/components/icons';
 
@@ -82,7 +85,7 @@ function RecordingThumbnail({ recording }: { recording: StoredRecording }) {
   );
 }
 
-function RecordingPreview({ recording, onClose }: { recording: StoredRecording; onClose: () => void }) {
+function RecordingPreviewModal({ recording, onClose }: { recording: StoredRecording; onClose: () => void }) {
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -94,14 +97,23 @@ function RecordingPreview({ recording, onClose }: { recording: StoredRecording; 
     };
   }, [recording.blob]);
 
+  // No forced aspect class: object-contain preserves 16:9, 9:16, 1:1, 4:5.
   return (
-    <div className="mb-5 rounded-xl border border-border-default bg-black p-2 shadow-xl">
-      <div className="flex items-center justify-between px-2 pb-2">
-        <span className="truncate text-sm font-medium text-text-primary">{recording.name || 'Video recording'}</span>
-        <button onClick={onClose} className="rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-elevated hover:text-text-primary" aria-label="Close preview">Close</button>
-      </div>
-      <video src={sourceUrl || undefined} controls autoPlay playsInline className="max-h-[58vh] w-full rounded-lg bg-black" />
-    </div>
+    <Modal isOpen onClose={onClose} title={recording.name || 'Video recording'} maxWidth="max-w-3xl" ariaLabel="Recording preview">
+      <video src={sourceUrl || undefined} controls autoPlay playsInline className="max-h-[70vh] w-full rounded-lg bg-black object-contain" />
+      <p className="mt-3 text-xs text-text-secondary">
+        Recorded {formatDate(recording.createdAt)} · {formatTime(recording.duration)} · {recording.width} × {recording.height} · {formatFileSize(recording.blob.size)}
+      </p>
+    </Modal>
+  );
+}
+
+function CloudPreviewModal({ url, title, meta, onClose }: { url: string; title: string; meta: string; onClose: () => void }) {
+  return (
+    <Modal isOpen onClose={onClose} title={title} maxWidth="max-w-3xl" ariaLabel="Export preview">
+      <video src={url} controls autoPlay playsInline className="max-h-[70vh] w-full rounded-lg bg-black object-contain" />
+      <p className="mt-3 text-xs text-text-secondary">{meta}</p>
+    </Modal>
   );
 }
 
@@ -121,10 +133,17 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
   const [cloudLoading, setCloudLoading] = useState(false);
   const [cloudError, setCloudError] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewCloudMeta, setPreviewCloudMeta] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const [previewRecording, setPreviewRecording] = useState<StoredRecording | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Dismiss the card menu on outside click or Escape — never for critical
+  // dialogs (this menu only holds safe actions: export/rename/details/delete
+  // prompt, and delete itself still asks for confirmation).
+  useDismissOnOutsideClick(menuRef, openMenuId !== null, () => setOpenMenuId(null));
 
   const loadRecordings = useCallback(async () => {
     const all = await getAllRecordings();
@@ -213,10 +232,16 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
       const res = await fetch(`/api/exports/${id}/preview`);
       if (!res.ok) throw new Error('Preview failed');
       const data = await res.json();
+      const exp = cloudExports.find((e) => e.id === id);
+      setPreviewCloudMeta(
+        exp
+          ? `${platformDisplayName(exp.platform)} · ${exp.outputWidth} × ${exp.outputHeight} · ${formatFileSize(exp.fileSize)}`
+          : '',
+      );
       setPreviewUrl(data.url);
     } catch { setCloudError('Preview failed'); }
     finally { setPreviewLoading(false); }
-  }, []);
+  }, [cloudExports]);
 
   const handleDownloadCloud = useCallback(async (id: string) => {
     setCloudError('');
@@ -235,6 +260,10 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
       }
       if (outcome.kind === 'reauth') {
         setCloudError('Your session expired. Sign in again to download.');
+        // Resume the download after login (closure for credentials logins,
+        // sessionStorage intent for OAuth reloads — see studio page).
+        setPendingDownload(() => { void handleDownloadCloud(id); });
+        stashPendingDownloadExportId(id);
         onAuthRequired?.();
         return;
       }
@@ -274,7 +303,6 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
 
       {/* Recording List */}
       <div className="overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
-        {previewRecording && <RecordingPreview recording={previewRecording} onClose={() => setPreviewRecording(null)} />}
         {!isLoaded ? (
           <div className="flex flex-col gap-2 py-4">
             {[1, 2, 3].map((i) => (
@@ -357,7 +385,7 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
                             </h3>
                           )}
                         </div>
-                        <div className="relative shrink-0">
+                        <div className="relative shrink-0" ref={openMenuId === recording.id ? menuRef : undefined}>
                           <button
                             onClick={() => setOpenMenuId((current) => current === recording.id ? null : recording.id)}
                             className="flex h-8 w-8 items-center justify-center rounded-md text-lg leading-none text-text-muted hover:bg-elevated hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
@@ -377,7 +405,10 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
                         </div>
                       </div>
                       <p className="mt-1 text-xs text-text-secondary">
-                        {formatTime(recording.duration)} · {recording.height}p · {recording.aspectRatio} · {formatRelativeTime(recording.createdAt)}
+                        Recorded {formatDate(recording.createdAt)}
+                      </p>
+                      <p className="mt-0.5 text-xs text-text-secondary">
+                        {formatTime(recording.duration)} · {recording.width} × {recording.height} · {formatFileSize(recording.blob.size)}
                       </p>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
                         <button onClick={() => setPreviewRecording(recording)} className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label={`Preview ${getDisplayName(recording)}`}>
@@ -390,7 +421,9 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
                       {detailsId === recording.id && (
                         <div className="mt-3 rounded-md border border-border-subtle bg-elevated/50 p-3 text-[11px] text-text-secondary">
                           <div className="flex items-center gap-1.5 font-medium text-text-primary"><SettingsIcon className="h-3 w-3" /> Recording details</div>
-                          <p className="mt-1">{recording.width}×{recording.height} · {recording.mimeType} · {recording.hasAudio ? 'Audio included' : 'Video only'}</p>
+                          <p className="mt-1">Format: {formatRecordingFormat(recording.mimeType, recording.extension)}</p>
+                          <p className="mt-0.5">Sound: {recording.hasAudio ? 'With sound' : 'Silent'}</p>
+                          <p className="mt-0.5">Saved: On this device · 24 hours</p>
                         </div>
                       )}
                     </div>
@@ -410,41 +443,38 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
         </p>
       </div>
       <div className="max-h-[45vh] space-y-2 overflow-y-auto px-4 py-2 sm:px-6 lg:px-8">
-        {previewUrl && (
-          <div className="rounded-lg overflow-hidden bg-black border border-border-subtle">
-            <video src={previewUrl} controls className="w-full max-h-[200px]" />
-            <button onClick={() => setPreviewUrl(null)} className="w-full text-[11px] text-text-secondary py-1 hover:text-text-primary">Close preview</button>
-          </div>
-        )}
         {isAuthenticated && canUseCloudLibrary && (
           <>
             {cloudLoading ? (
               <p className="text-[12px] text-text-secondary">Loading cloud exports...</p>
             ) : cloudError ? (
-              <p className="text-[12px] text-recording">{cloudError}</p>
+              <p className="text-[12px] text-recording" role="alert">{cloudError}</p>
             ) : cloudExports.length === 0 ? (
               <p className="text-[12px] text-text-secondary">No cloud exports yet.</p>
             ) : (
-              cloudExports.map(exp => (
+              cloudExports.map(exp => {
+                const quality = formatQualityLabel(exp.outputHeight);
+                return (
                 <div key={exp.id} className="p-2.5 rounded-lg bg-elevated border border-border-subtle flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-[12px] font-medium text-text-primary truncate">{exp.platform}</span>
+                    <span className="text-[12px] font-medium text-text-primary truncate">{platformDisplayName(exp.platform)}{quality ? ` · ${quality}` : ''}</span>
                     <span className="text-[11px] text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
                   </div>
                   <div className="flex items-center gap-2 text-[11px] text-text-secondary">
-                    <span>{(exp.fileSize / (1024*1024)).toFixed(1)} MB</span>
+                    <span>{formatFileSize(exp.fileSize)}</span>
                     <span>·</span>
                     <span>{formatRelativeTime(exp.createdAt)}</span>
                     <span>·</span>
-                    <span className="capitalize">{exp.status}</span>
+                    <span>{exportStatusLabel(exp.status)}</span>
                   </div>
                   <div className="flex gap-1.5 mt-1">
-                    <button onClick={() => handlePreviewCloud(exp.id)} className="text-[11px] px-2 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20">Preview</button>
+                    <button onClick={() => handlePreviewCloud(exp.id)} className="text-[11px] px-2 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20" disabled={previewLoading}>Preview</button>
                     <button onClick={() => handleDownloadCloud(exp.id)} className="text-[11px] px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover">Download</button>
                     <button onClick={() => handleDeleteCloud(exp.id)} className="text-[11px] px-2 py-1 rounded bg-red-500/10 text-recording hover:bg-red-500/20 ml-auto">Delete</button>
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
           </>
         )}
@@ -457,7 +487,7 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
                   <span className="text-[11px] text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
                 </div>
                 <div className="flex items-center gap-2 text-[11px] text-text-secondary">
-                  <span>{(exp.fileSize / (1024*1024)).toFixed(1)} MB</span>
+                  <span>{formatFileSize(exp.fileSize)}</span>
                   <span>·</span>
                   <span>{formatRelativeTime(exp.createdAt)}</span>
                 </div>
@@ -483,7 +513,7 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
                   <span className="text-[11px] text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
                 </div>
                 <div className="flex items-center gap-2 text-[11px] text-text-secondary">
-                  <span>{(exp.fileSize / (1024*1024)).toFixed(1)} MB</span>
+                  <span>{formatFileSize(exp.fileSize)}</span>
                   <span>·</span>
                   <span>{formatRelativeTime(exp.createdAt)}</span>
                 </div>
@@ -502,6 +532,19 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
         <div className="px-4 py-2 border-t border-border-subtle">
           <span className="text-[12px] text-text-secondary">{recordings.length} recording{recordings.length !== 1 ? 's' : ''}</span>
         </div>
+      )}
+
+      {/* Centered preview modals (recordings + cloud exports) */}
+      {previewRecording && (
+        <RecordingPreviewModal recording={previewRecording} onClose={() => setPreviewRecording(null)} />
+      )}
+      {previewUrl && (
+        <CloudPreviewModal
+          url={previewUrl}
+          title="Export preview"
+          meta={previewCloudMeta}
+          onClose={() => { setPreviewUrl(null); setPreviewCloudMeta(''); }}
+        />
       )}
     </div>
   );

@@ -18,13 +18,27 @@ export function CameraPreview({
 
   useEffect(() => {
     setPlayError(false);
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
       videoRef.current.play().catch(() => {
-        setPlayError(true);
+        // Attaching a fresh stream to a (re)mounted element can transiently
+        // reject even with permission granted (proven by live probe:
+        // remount-after-review rejected the first play() in Chromium while
+        // recording proceeded fine). Retry once before declaring blocked —
+        // a blind second take is worse than a 500ms delay.
+        retryTimer = setTimeout(() => {
+          if (cancelled || !videoRef.current) return;
+          videoRef.current.play().catch(() => {
+            if (!cancelled) setPlayError(true);
+          });
+        }, 500);
       });
     }
     return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }

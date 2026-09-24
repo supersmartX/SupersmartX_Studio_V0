@@ -20,7 +20,7 @@ export function BottomNav({
   onSettingsToggle,
 }: BottomNavProps) {
   return (
-    <nav className="flex md:hidden h-14 border-t border-border-subtle bg-surface items-center justify-around px-2 shrink-0 safe-area-bottom z-20" aria-label="Mobile navigation">
+    <nav className="flex lg:hidden h-14 border-t border-border-subtle bg-surface items-center justify-around px-2 shrink-0 safe-area-bottom z-20" aria-label="Mobile navigation">
       <Tooltip content="Studio" side="top">
         <button
           onClick={() => onPanelChange('studio')}

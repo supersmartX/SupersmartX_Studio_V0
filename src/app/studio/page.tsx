@@ -22,6 +22,7 @@ import { useRecordingTimer } from '@/hooks/useRecordingTimer';
 import { useStudioUI } from '@/hooks/useStudioUI';
 import { useHydrated } from '@/hooks/useHydrated';
 import { getEntitlements, isCreatorPlan, isPlatformLockedForUser, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
+import { consumePendingDownloadExportId, hasPendingDownload } from '@/lib/auth-guard';
 import { addDailyRecordingSeconds, canRecordToday, getDailyRecordingRemainingInFlight } from '@/lib/daily-recording';
 import { getTeleprompterSessionCap, getTeleprompterRemainingInSession } from '@/lib/teleprompter-session';
 
@@ -34,6 +35,7 @@ import { DeviceSelectorBar } from '@/components/layout/DeviceSelectorBar';
 import { TransportBar } from '@/components/layout/TransportBar';
 import { Footer } from '@/components/layout/Footer';
 import { CameraPreview } from '@/components/studio/CameraPreview';
+import { EyeLineGuide } from '@/components/studio/EyeLineGuide';
 import { TeleprompterOverlay } from '@/components/studio/TeleprompterOverlay';
 import { RecordingBadge } from '@/components/studio/RecordingBadge';
 import { Timer } from '@/components/studio/Timer';
@@ -225,21 +227,43 @@ export default function HomePage() {
       }
     } catch {}
   }, [sessionStatus, session?.user]);
+
+  // OAuth reload wipes the in-memory pending download. A sessionStorage
+  // intent survives navigation: after login, guide the user to the library
+  // where the authenticated download works. (Credentials logins keep the
+  // live closure via handleAuthSuccess instead.)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (sessionStatus === 'loading' || !session?.user) return;
+    const pendingExportId = consumePendingDownloadExportId();
+    if (!pendingExportId) return;
+    // Credentials logins keep the live closure, which downloads immediately —
+    // don't also yank the user to the library.
+    if (hasPendingDownload()) return;
+    showToast('Signed in — your recording was kept. Download it from your library.');
+    setActivePanel('library');
+  }, [sessionStatus, session?.user, showToast]);
   const entitlements = getEntitlements((session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free');
   // Free: a single recording can never exceed the day's remaining budget
   // (e.g. 4 min used → next recording auto-stops at 6 min). Creator: null = unlimited.
   const recordingCap = isCreatorUser
     ? null
     : Math.max(1, Math.min(entitlements.maxDurationSeconds ?? 600, getDailyRecordingRemainingInFlight(0)));
+  // Stopping a take releases the camera immediately (OS indicator off).
+  // Review always plays the recorded Blob, never the live stream, and the
+  // next Start re-acquires a clean stream (see handleRecordStart).
+  const handleStopAndReleaseCamera = useCallback(() => {
+    recorder.stopRecording();
+    camera.stop();
+  }, [recorder, camera]);
+
   const { elapsedSeconds, resetTimer } = useRecordingTimer({
     recordingState: recorder.recordingState,
-    stopRecording: recorder.stopRecording,
+    stopRecording: handleStopAndReleaseCamera,
     showToast,
     maxDurationSeconds: recordingCap,
     resetOnComplete: false,
-  });
-
-  const isRecordingOrPaused = recorder.recordingState === 'recording' || recorder.recordingState === 'paused';
+  });  const isRecordingOrPaused = recorder.recordingState === 'recording' || recorder.recordingState === 'paused';
   // During SSR the server renders the full 10-min allowance (no localStorage access).
   // Before hydration completes, keep that same value to avoid a mismatch; once
   // hydrated, switch to the real localStorage-backed remaining budget.
@@ -389,18 +413,22 @@ export default function HomePage() {
     }
   }, [elapsedSeconds, recorder, showToast, isCreatorUser, teleprompterSessionCap]);
 
-  const handleRecordStart = useCallback(() => {
-    if (!camera.stream) return;
-
-    // Free: the teleprompter allotment is per-recording (fresh 3 min per take) and only
-    // hides mid-recording — it never blocks or stops a take. The daily recording budget is
-    // the single gate below; teleprompter time never deducts from it.
-
+  const handleRecordStart = useCallback(async () => {
     // Free: enforce 10 min TOTAL recording per day (downloads stay unlimited)
     if (!isCreatorUser && !canRecordToday()) {
       showToast('Daily recording limit reached (10 min/day on Free). Upgrade to Creator for unlimited recording.');
       ui.setIsPricingModalOpen(true);
       return;
+    }
+
+    // Camera released after a previous take (or never enabled): acquire a
+    // clean stream first. Pre-permission users go through the Enable-camera
+    // overlay instead of a silent no-op.
+    let liveStream = camera.stream;
+    if (!liveStream) {
+      if (!camera.hasInitialized) return;
+      liveStream = await handleCameraInitialize();
+      if (!liveStream) return;
     }
 
     if (prompterContainerRef.current) {
@@ -425,20 +453,19 @@ export default function HomePage() {
       return scrolledHeight >= scrollableHeight - 5;
     };
 
-    recorder.startRecording(scrollCallback, checkEndCallback);
-  }, [camera.stream, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, resetTimer, isCreatorUser, showToast, ui]);
+    recorder.startRecording(scrollCallback, checkEndCallback, liveStream);
+  }, [camera, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, resetTimer, isCreatorUser, showToast, ui, handleCameraInitialize]);
 
   const handleRecordStop = useCallback(() => {
     if (recorder.recordingState === 'recording' || recorder.recordingState === 'paused') {
-      recorder.stopRecording();
+      handleStopAndReleaseCamera();
     } else if (
       recorder.recordingState === 'idle' &&
-      camera.stream &&
       !ui.isDrawerVisible
     ) {
-      handleRecordStart();
+      void handleRecordStart();
     }
-  }, [recorder, camera.stream, ui.isDrawerVisible, handleRecordStart]);
+  }, [recorder, ui.isDrawerVisible, handleRecordStart, handleStopAndReleaseCamera]);
 
   const handleCloseDrawer = useCallback(() => {
     if (recorder.recordingState === 'completed' && masterRecordingData) {
@@ -686,6 +713,8 @@ export default function HomePage() {
 
                 <FocalGuideway position={settings.teleprompter.textStartPosition} />
 
+                {camera.stream && !isReview && <EyeLineGuide />}
+
                 <RecordingBadge recordingState={recorder.recordingState} />
 
                 <Timer
@@ -698,7 +727,7 @@ export default function HomePage() {
                   isVisible={recorder.recordingState === 'countdown' && settings.countdownEnabled}
                 />
 
-                {!camera.isInitialized && (
+                {!camera.isInitialized && !camera.hasInitialized && (
                   <InitOverlay
                     onInitialize={handleCameraInitialize}
                     status={camera.status === 'ready' ? 'idle' : camera.status}
@@ -724,8 +753,18 @@ export default function HomePage() {
                     </span>
                     <button
                       onClick={() => {
-                        // Set the export platform to the preview platform, then open ExportModal
+                        // Drive the export from the previewed platform directly:
+                        // the modal must open on the SAME platform the user just
+                        // previewed (single source of truth: PLATFORM_PRESETS).
+                        const srcW = masterRecordingData.sourceWidth || 1920;
+                        const srcH = masterRecordingData.sourceHeight || 1080;
                         settings.setPlatformId(previewPlatformId);
+                        selectPlatform(
+                          previewPlatformId,
+                          srcW,
+                          srcH,
+                          getEntitlements(userPlan).maxResolution,
+                        );
                         ui.setIsDrawerVisible(true);
                       }}
                       className="px-5 py-2 rounded-lg bg-accent text-white text-[13px] font-semibold hover:bg-accent/90 transition-colors"
@@ -762,7 +801,11 @@ export default function HomePage() {
             {isStudio && (
               <TransportBar
                 recordingState={recorder.recordingState}
-                canRecord={!!camera.stream}
+                // Enabled with a live stream, or after a released take (Start
+                // re-acquires). Pre-permission users go through the
+                // Enable-camera overlay; the button stays disabled for them.
+                // Never during an in-flight permission request.
+                canRecord={(!!camera.stream || camera.hasInitialized) && camera.status !== 'requesting'}
                 hasRecording={recorder.recordingState === 'completed'}
                 isMicMuted={isMicMuted}
                 elapsedSeconds={elapsedSeconds}
@@ -790,7 +833,7 @@ export default function HomePage() {
                     }
                   )
                 }
-                onStop={recorder.stopRecording}
+                onStop={handleStopAndReleaseCamera}
               />
             )}
           </main>
