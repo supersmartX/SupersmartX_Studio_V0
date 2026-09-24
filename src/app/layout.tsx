@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 import { SEO_CONFIG } from '@/lib/seo/config';
 import { JsonLd, organizationSchema, websiteSchema, softwareApplicationSchema } from '@/components/seo/JsonLd';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
 
 const inter = Inter({
@@ -88,6 +89,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <AuthProvider>{children}</AuthProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
