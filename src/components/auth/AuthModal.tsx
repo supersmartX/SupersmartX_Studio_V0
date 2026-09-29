@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { signIn, useSession } from 'next-auth/react';
 import { validatePassword } from '@/lib/validation';
 import { CloseIcon } from '@/components/icons';
@@ -129,6 +129,17 @@ export function AuthModal({
   }, [resetForm, onClose]);
 
   const { isClosing, shouldRender, handleClose: handleModalClose, swipeHandlers } = useModalAnimation(isOpen, handleClose);
+
+  // Escape closes like every other modal. The auth step holds no destructive
+  // state (credentials are never persisted until success), so dismissal is safe.
+  useEffect(() => {
+    if (!shouldRender) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleModalClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [shouldRender, handleModalClose]);
 
   if (!shouldRender) return null;
 

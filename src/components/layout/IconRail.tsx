@@ -20,7 +20,7 @@ export function IconRail({
   onShowShortcuts,
 }: IconRailProps) {
   return (
-    <nav className="hidden lg:flex w-[200px] h-full border-r border-border-subtle bg-surface flex-col shrink-0 overflow-hidden" aria-label="Main navigation">
+    <nav className="hidden xl:flex w-[200px] h-full border-r border-border-subtle bg-surface flex-col shrink-0 overflow-hidden" aria-label="Main navigation">
       <div className="flex flex-col gap-0.5 px-3 pt-5 pb-2">
         <span className="text-[11px] font-medium text-text-muted mb-2 px-2">Studio</span>
 

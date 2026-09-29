@@ -142,6 +142,14 @@ async function cleanupTestData(email: string) {
 
 const PLATFORM_LABELS = ['YouTube', 'YouTube Shorts', 'Reels', 'Instagram Square', 'Instagram Portrait', 'TikTok', 'LinkedIn'];
 
+// The platform is chosen once in the Studio's "Preview as" switcher, so the lock
+// matrix is asserted there. Locked buttons carry a distinct title.
+function previewSwitcher(page: Page) {
+  return page.getByText('Preview as', { exact: true }).locator('..');
+}
+const lockedIn = (page: Page) => previewSwitcher(page).locator('button[title*="Creator plan required"]');
+const unlockedIn = (page: Page, label: string) => previewSwitcher(page).locator(`button[title="${label}"]`);
+
 test('guest locks + guest→auth preserves work', async ({ page }) => {
   const email = `e2eguest${Date.now()}@example.com`;
   try {
@@ -150,19 +158,23 @@ test('guest locks + guest→auth preserves work', async ({ page }) => {
     await ensureStudioReady(page);
     await recordShort(page);
 
-    // Guest lock matrix: non-16:9 gated, 16:9 available.
+    // Guest lock matrix: only 16:9 is available, the other 6 launch formats lock.
     await page.getByRole('button', { name: 'Export recording' }).click();
     const dialog = page.getByRole('dialog', { name: 'Export recording' });
     await dialog.waitFor({ state: 'visible', timeout: 15000 });
-    await expect(dialog.getByText('SIGN IN').first()).toBeVisible({ timeout: 10000 });
-    await dialog.getByRole('button', { name: /Continue with YouTube/ }).waitFor({ state: 'visible', timeout: 10000 });
+    await expect(dialog.getByText(/Sign in for all formats/i)).toBeVisible({ timeout: 10000 });
+    await expect(dialog.getByRole('button', { name: /^Export YouTube/ })).toBeVisible();
+    await expect(lockedIn(page)).toHaveCount(6);
+    await expect(unlockedIn(page, 'YouTube')).toHaveCount(1);
 
     // Register without closing the modal (closing asks to discard the take):
-    // login must not clobber the open export UI state.
+    // login must not clobber the open export UI state. The dialog still reflects
+    // the page's session snapshot, so assert the controls survive rather than
+    // waiting on a session refresh that a direct API register does not trigger.
     await apiRegister(page.request, email);
-    await dialog.getByText('Choose a platform').waitFor({ state: 'visible', timeout: 15000 });
-    // Modal still functional post-register: platform cards remain interactive.
-    await dialog.getByRole('button', { name: /Continue with YouTube/ }).waitFor({ state: 'visible', timeout: 10000 });
+    // Modal still functional post-register: the confirmed format is still there.
+    await dialog.getByText('YouTube', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
+    await dialog.getByRole('button', { name: /^Export YouTube/ }).waitFor({ state: 'visible', timeout: 10000 });
 
     // Reload: session authenticated + recording persisted in the local library.
     // (Review UI is session-state; the library is the durable cross-reload path.)
@@ -174,7 +186,7 @@ test('guest locks + guest→auth preserves work', async ({ page }) => {
     await page.getByRole('button', { name: 'Export', exact: true }).first().click();
     const dialog2 = page.getByRole('dialog', { name: 'Export recording' });
     await dialog2.waitFor({ state: 'visible', timeout: 15000 });
-    await dialog2.getByText('Choose a platform').waitFor({ state: 'visible', timeout: 15000 });
+    await dialog2.getByText('YouTube', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });
   } finally {
     await cleanupTestData(email);
   }
@@ -192,14 +204,17 @@ test('creator matrix + stuck jobs do not block single export', async ({ page }) 
     await page.waitForTimeout(3000);
     await recordShort(page);
 
+    // Every launch platform is selectable for Creator, and none is locked.
+    for (const label of PLATFORM_LABELS) {
+      await expect(unlockedIn(page, label)).toBeVisible({ timeout: 10000 });
+    }
+    await expect(lockedIn(page)).toHaveCount(0);
+
     await page.getByRole('button', { name: 'Export recording' }).click();
     const dialog = page.getByRole('dialog', { name: 'Export recording' });
     await dialog.waitFor({ state: 'visible', timeout: 15000 });
-    for (const label of PLATFORM_LABELS) {
-      await expect(dialog.getByText(label, { exact: false }).first()).toBeVisible({ timeout: 10000 });
-    }
-    await expect(dialog.getByText('SIGN IN')).toHaveCount(0);
-    await expect(dialog.getByText('CREATOR', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByText(/Sign in for all formats/i)).toHaveCount(0);
+    await expect(dialog.getByText(/Other formats need Creator/i)).toHaveCount(0);
 
     // Seed 3 abandoned jobs, then export: must proceed (201), not 429.
     const userId = await userIdByEmail(email);
@@ -208,7 +223,7 @@ test('creator matrix + stuck jobs do not block single export', async ({ page }) 
       (r) => r.url().includes('/api/export-jobs') && r.request().method() === 'POST',
       { timeout: 60000 },
     );
-    await dialog.getByRole('button', { name: /Continue with YouTube/ }).click();
+    await dialog.getByRole('button', { name: /^Export YouTube/ }).click();
     const resp = await jobsResponse;
     expect(resp.status(), 'stuck jobs must not block (expect 201, pre-fix 429)').toBe(201);
     await dialog.getByText('Exporting...').waitFor({ state: 'visible', timeout: 30000 });
@@ -228,14 +243,28 @@ test('free locked formats show upgrade prompt, send no export', async ({ page })
     await page.waitForTimeout(3000);
     await recordShort(page);
 
+    // A free account locks every non-16:9 launch format in the switcher.
+    await expect(lockedIn(page)).toHaveCount(6);
+    await expect(unlockedIn(page, 'YouTube')).toHaveCount(1);
+
+    // Click a locked platform (YouTube Shorts) → upgrade prompt, no export sent.
+    // This runs before the export dialog opens, since the dialog's backdrop
+    // covers the switcher.
+    let exportCalls = 0;
+    page.on('request', (r) => {
+      if (r.url().includes('/api/export-jobs') && r.method() === 'POST') exportCalls++;
+    });
+    await previewSwitcher(page).locator('button[title^="YouTube Shorts"]').click();
+    await page.getByRole('button', { name: 'Upgrade to Creator' }).waitFor({ state: 'visible', timeout: 15000 });
+    expect(exportCalls, 'a locked platform must never start an export').toBe(0);
+
+    // The export dialog stays on the one included format and says why.
+    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Export recording' }).click();
     const dialog = page.getByRole('dialog', { name: 'Export recording' });
     await dialog.waitFor({ state: 'visible', timeout: 15000 });
-    await expect(dialog.getByText('CREATOR', { exact: true }).first()).toBeVisible({ timeout: 10000 });
-    // Click a locked platform (Shorts card) → upgrade prompt, no encoding.
-    await dialog.getByText('Shorts', { exact: false }).first().click();
-    await page.getByRole('button', { name: 'Upgrade to Creator' }).waitFor({ state: 'visible', timeout: 15000 });
-    await expect(dialog.getByText('Exporting...')).toHaveCount(0);
+    await expect(dialog.getByText('YouTube', { exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(dialog.getByText(/Other formats need Creator/i)).toBeVisible({ timeout: 10000 });
   } finally {
     await cleanupTestData(email);
   }

@@ -94,6 +94,28 @@ describe('export_jobs', () => {
       expect(found!.resultFileSize).toBe(1024);
     });
 
+    it('encoding → encoding remains allowed for progress updates', async () => {
+      const user = await createUser('progress@example.com', 'Progress User', 'password123');
+      const job = await createExportJob(user.id, '{}');
+
+      expect(await updateExportJobStatus(job.id, 'encoding')).toBe(true);
+      expect(await updateExportJobStatus(job.id, 'encoding', { progress: 42 })).toBe(true);
+      expect((await findExportJobById(job.id))?.progress).toBe(42);
+    });
+
+    it('terminal states cannot be resurrected by the DB boundary', async () => {
+      const user = await createUser('terminal@example.com', 'Terminal User', 'password123');
+      const job = await createExportJob(user.id, '{}');
+
+      await updateExportJobStatus(job.id, 'encoding');
+      await updateExportJobStatus(job.id, 'completed', { resultR2Key: 'exports/completed.mp4' });
+
+      expect(await updateExportJobStatus(job.id, 'pending')).toBe(false);
+      expect(await updateExportJobStatus(job.id, 'encoding')).toBe(false);
+      expect(await updateExportJobStatus(job.id, 'uploading')).toBe(false);
+      expect((await findExportJobById(job.id))?.status).toBe('completed');
+    });
+
     it('transitions from any active state to failed', async () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       const job = await createExportJob(user.id, '{}');

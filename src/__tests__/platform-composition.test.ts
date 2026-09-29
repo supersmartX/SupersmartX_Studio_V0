@@ -3,7 +3,7 @@ import { getDefaultCrop } from '@/lib/export/export-config';
 import { createExportConfig } from '@/lib/export/export-config';
 import { computePreviewStyle, getPreviewCropGeometry } from '@/lib/composition';
 import { PLATFORM_PRESETS } from '@/constants';
-import { FREE_RESOLUTION } from '@/lib/entitlements';
+import { FREE_RESOLUTION, clampResolution } from '@/lib/entitlements';
 import type { PlatformId } from '@/types';
 
 /**
@@ -45,17 +45,46 @@ describe('platform composition matrix (shared geometry)', () => {
     expect(config.crop).toEqual(getDefaultCrop(1920, 1080, w, h));
   });
 
-  it.each(MATRIX)('$id free export keeps aspect while respecting the 720p clamp', ({ id, ratio }) => {
+  it.each(MATRIX)('$id creator export is the exact preset under the 1920x1080 envelope', ({ id, w, h }) => {
+    // The envelope is long-edge x short-edge, so a portrait preset is NOT
+    // squeezed into a landscape box (which used to yield 608x1080).
+    const config = createExportConfig(id, 1920, 1080, { width: 1920, height: 1080 });
+    expect(config.outputWidth).toBe(w);
+    expect(config.outputHeight).toBe(h);
+  });
+
+  it.each(MATRIX)('$id free export keeps aspect while respecting the 720p envelope', ({ id, ratio, w, h }) => {
     const config = createExportConfig(id, 1920, 1080, { ...FREE_RESOLUTION });
     expect(config.aspectRatio).toBe(ratio);
-    expect(config.outputWidth).toBeLessThanOrEqual(FREE_RESOLUTION.width);
-    expect(config.outputHeight).toBeLessThanOrEqual(FREE_RESOLUTION.height);
+    // Orientation-aware ceiling: long edge <= 1280, short edge <= 720.
+    expect(Math.max(config.outputWidth, config.outputHeight)).toBeLessThanOrEqual(FREE_RESOLUTION.width);
+    expect(Math.min(config.outputWidth, config.outputHeight)).toBeLessThanOrEqual(FREE_RESOLUTION.height);
     // Aspect preserved by the uniform clamp (entitlement behavior unchanged).
-    expect(config.outputWidth / config.outputHeight).toBeCloseTo(
-      PLATFORM_PRESETS.find((p) => p.id === id)!.width /
-        PLATFORM_PRESETS.find((p) => p.id === id)!.height,
-      1,
-    );
+    expect(config.outputWidth / config.outputHeight).toBeCloseTo(w / h, 1);
+  });
+
+  it.each(MATRIX)('$id free clamp only bites when the preset exceeds the envelope', ({ id, w, h }) => {
+    const preset = PLATFORM_PRESETS.find((p) => p.id === id)!;
+    const clamped = clampResolution(preset.width, preset.height, { ...FREE_RESOLUTION });
+    const fitsLongEdge = Math.max(w, h) <= FREE_RESOLUTION.width;
+    const fitsShortEdge = Math.min(w, h) <= FREE_RESOLUTION.height;
+    expect(clamped.width).toBe(fitsLongEdge && fitsShortEdge ? preset.width : clamped.width);
+    expect(clamped.height).toBe(fitsLongEdge && fitsShortEdge ? preset.height : clamped.height);
+  });
+
+  it('clampResolution treats the envelope as long edge x short edge in both orientations', () => {
+    const creator = { width: 1920, height: 1080 };
+    // Every launch preset is inside the Creator envelope untouched.
+    expect(clampResolution(1920, 1080, creator)).toEqual({ width: 1920, height: 1080 });
+    expect(clampResolution(1080, 1920, creator)).toEqual({ width: 1080, height: 1920 });
+    expect(clampResolution(1080, 1080, creator)).toEqual({ width: 1080, height: 1080 });
+    expect(clampResolution(1080, 1350, creator)).toEqual({ width: 1080, height: 1350 });
+    // Beyond the envelope it scales uniformly and stays orientation-preserving.
+    expect(clampResolution(2160, 3840, creator)).toEqual({ width: 1080, height: 1920 });
+    expect(clampResolution(2560, 1440, creator)).toEqual({ width: 1920, height: 1080 });
+    // Free landscape behaviour is unchanged: 1920x1080 -> 1280x720.
+    expect(clampResolution(1920, 1080, { ...FREE_RESOLUTION })).toEqual({ width: 1280, height: 720 });
+    expect(clampResolution(1080, 1920, { ...FREE_RESOLUTION })).toEqual({ width: 720, height: 1280 });
   });
 
   it.each(MATRIX)('$id preview style derives from the same crop (centered → 50%/50%)', ({ w, h }) => {

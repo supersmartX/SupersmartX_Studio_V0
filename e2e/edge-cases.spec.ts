@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { dismissWelcomeModal } from './helpers';
 
 test.describe('Edge Cases - Form Inputs', () => {
@@ -44,55 +45,47 @@ test.describe('Edge Cases - Form Inputs', () => {
 });
 
 test.describe('Edge Cases - Auth Forms', () => {
+  // Scope to the inputs by role: getByLabel(/password/i) also matches the
+  // "Show password" toggle button, which is not editable.
+  function authFields(page: Page) {
+    const modal = page.getByRole('dialog');
+    return {
+      email: modal.getByRole('textbox', { name: /email/i }),
+      password: modal.getByRole('textbox', { name: /password/i }),
+    };
+  }
+
   test('handles email with plus addressing', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Log In' }).first().click();
-    const modal = page.getByRole('dialog');
-    await expect(modal).toBeVisible();
+    await expect(page.getByRole('dialog')).toBeVisible();
 
-    const emailField = page.getByLabel(/email/i).first();
-    const passwordField = page.getByLabel(/password/i).first();
-
-    if (await emailField.isVisible().catch(() => false)) {
-      await emailField.fill('user+test@example.com');
-      await passwordField.fill('ValidPass123!');
-      const submitButton = page.getByRole('button', { name: 'Create Account' });
-      await submitButton.click();
-    }
+    const { email, password } = authFields(page);
+    await email.fill('user+test@example.com');
+    await password.fill('ValidPass123!');
+    await page.getByRole('button', { name: 'Create Account' }).click();
   });
 
   test('handles email with subdomain', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Log In' }).first().click();
-    const modal = page.getByRole('dialog');
-    await expect(modal).toBeVisible();
+    await expect(page.getByRole('dialog')).toBeVisible();
 
-    const emailField = page.getByLabel(/email/i).first();
-    const passwordField = page.getByLabel(/password/i).first();
-
-    if (await emailField.isVisible().catch(() => false)) {
-      await emailField.fill('user@mail.example.com');
-      await passwordField.fill('ValidPass123!');
-      const submitButton = page.getByRole('button', { name: 'Create Account' });
-      await submitButton.click();
-    }
+    const { email, password } = authFields(page);
+    await email.fill('user@mail.example.com');
+    await password.fill('ValidPass123!');
+    await page.getByRole('button', { name: 'Create Account' }).click();
   });
 
   test('prevents SQL injection in email field', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Log In' }).first().click();
-    const modal = page.getByRole('dialog');
-    await expect(modal).toBeVisible();
+    await expect(page.getByRole('dialog')).toBeVisible();
 
-    const emailField = page.getByLabel(/email/i).first();
-    const passwordField = page.getByLabel(/password/i).first();
-
-    if (await emailField.isVisible().catch(() => false)) {
-      await emailField.fill("admin'--@example.com");
-      await passwordField.fill('password123');
-      const submitButton = page.getByRole('button', { name: 'Create Account' });
-      await submitButton.click();
-    }
+    const { email, password } = authFields(page);
+    await email.fill("admin'--@example.com");
+    await password.fill('password123');
+    await page.getByRole('button', { name: 'Create Account' }).click();
   });
 });
 

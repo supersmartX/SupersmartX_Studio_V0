@@ -1,4 +1,5 @@
 import { PLATFORM_PRESETS } from '@/constants';
+import { clampResolution } from '@/lib/entitlements';
 import type { CropConfig, ExportConfig, PlatformId } from '@/types';
 
 export function getDefaultCrop(sourceWidth: number, sourceHeight: number, targetWidth: number, targetHeight: number): CropConfig {
@@ -17,11 +18,10 @@ export function getDefaultCrop(sourceWidth: number, sourceHeight: number, target
 }
 
 export function createExportConfig(platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }): ExportConfig {
-  const clamp = (width: number, height: number) => {
-    if (!maxResolution || (width <= maxResolution.width && height <= maxResolution.height)) return { width, height };
-    const scale = Math.min(maxResolution.width / width, maxResolution.height / height);
-    return { width: Math.round(width * scale), height: Math.round(height * scale) };
-  };
+  // Single shared ceiling so the client config can never disagree with the
+  // server-side entitlement clamp that validates /api/exports/complete.
+  const clamp = (width: number, height: number) =>
+    maxResolution ? clampResolution(width, height, maxResolution) : { width, height };
   const preset = PLATFORM_PRESETS.find((item) => item.id === platformId);
   if (!preset) {
     const dimensions = clamp(sourceWidth, Math.round(sourceWidth / (16 / 9)));

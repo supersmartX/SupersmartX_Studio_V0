@@ -62,7 +62,7 @@ export default function HomePage() {
   const focusView = useFocusView();
   const scriptStorage = useScriptStorage();
   const hydrated = useHydrated();
-  const { data: session, status: sessionStatus } = useSession();
+  const { data: session, status: sessionStatus, update: updateSession } = useSession();
   const userPlan = (session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free';
   const isCreatorUser = isCreatorPlan(userPlan);
 
@@ -120,10 +120,21 @@ export default function HomePage() {
       const plan = params.get('plan') || 'creator_monthly';
       const orderId = params.get('order_id');
       setActivationModal({ isOpen: true, plan, orderId });
+      if (orderId) {
+        fetch(`/api/cashfree/verify?order_id=${encodeURIComponent(orderId)}`, { method: 'POST' })
+          .then(async (res) => {
+            if (res.ok) {
+              try {
+                await updateSession();
+              } catch {}
+            }
+          })
+          .catch(() => {});
+      }
       // Clean URL without reload
       window.history.replaceState({}, '', window.location.pathname);
     }
-  }, []);
+  }, [updateSession]);
 
   // Contextual upgrade (S12): a Free user clicks a locked platform → show the
   // "Create for {platform}" prompt instead of a generic pricing modal.
@@ -297,13 +308,17 @@ export default function HomePage() {
 
   // Local UI state
   const isMobile = useMediaQuery('(max-width: 640px)');
+  // The side rail + docked inspector need 1280px before they stop squeezing the
+  // canvas, so everything below `xl` uses the bottom nav and a drawer inspector.
+  // Kept in sync with the `xl` breakpoint used by IconRail/BottomNav/InspectorPanel.
+  const isCompactLayout = useMediaQuery('(max-width: 1279px)');
   const [activePanel, setActivePanel] = useState<TabType | 'record' | 'share'>('studio');
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
 
   useEffect(() => {
-    if (isMobile) setIsInspectorOpen(false);
-  }, [isMobile]);
+    if (isCompactLayout) setIsInspectorOpen(false);
+  }, [isCompactLayout]);
   const prompterContainerRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -311,9 +326,7 @@ export default function HomePage() {
     exportJobs,
     setExportConfig,
     selectPlatform,
-    updateCrop,
     startExport,
-    startBatchExport,
     cancelExport,
     clearJobs,
   } = useExportPipeline();
@@ -612,25 +625,8 @@ export default function HomePage() {
     onMirrorCameraToggle: () => settings.setIsMirrored((prev) => !prev),
     countdownEnabled: settings.countdownEnabled,
     onCountdownToggle: () => settings.setCountdownEnabled((prev) => !prev),
-    videoDevices: camera.videoDevices,
-    audioDevices: camera.audioDevices,
-    selectedVideoDevice: settings.selectedVideoDevice,
-    selectedAudioDevice: settings.selectedAudioDevice,
-    onVideoDeviceChange: handleVideoDeviceChange,
-    onAudioDeviceChange: handleAudioDeviceChange,
-    platformId: settings.platformId,
-    onPlatformChange: settings.setPlatformId,
-    userPlan: session?.user?.plan || 'free',
-    isAuthenticated: !!session?.user,
-    onUpgradeRequired: handlePlatformUpgradeRequired,
+    onUpgradeClick: handleUpgradeClick,
     teleprompterNotice,
-    customAspectRatio: settings.customAspectRatio,
-    onCustomAspectRatioChange: settings.setCustomAspectRatio,
-    customWidth: settings.customWidth,
-    onCustomWidthChange: settings.setCustomWidth,
-    customHeight: settings.customHeight,
-    onCustomHeightChange: settings.setCustomHeight,
-    aspectRatio: settings.aspectRatio,
     script: scriptStorage.script,
     onScriptChange: scriptStorage.setScript,
     onClearScript: scriptStorage.clearScript,
@@ -853,7 +849,7 @@ export default function HomePage() {
           <div className={isStudio ? '' : 'hidden'}>
             <InspectorPanel
               {...inspectorProps}
-              isMobile={isMobile}
+              isDrawer={isCompactLayout}
               isOpen={isInspectorOpen}
               onClose={handleToggleInspector}
               inspectorContext={inspectorContext}
@@ -883,12 +879,9 @@ export default function HomePage() {
         userPlan={session?.user?.plan || 'free'}
         onAuthRequired={ui.handleAuthRequired}
         onDownloadLimitReached={handleUpgradeClick}
-        onUpgradeRequired={handlePlatformUpgradeRequired}
         exportConfig={exportConfig}
         onSelectPlatform={selectPlatform}
-        onUpdateCrop={updateCrop}
         onStartExport={startExport}
-        onStartBatchExport={startBatchExport}
         onCancelExport={() => cancelExport(exportJobs[exportJobs.length - 1]?.id || '')}
       />
 

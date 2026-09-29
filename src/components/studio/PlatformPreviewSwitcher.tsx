@@ -1,6 +1,6 @@
 'use client';
 
-import { PLATFORM_PRESETS } from '@/constants';
+import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlatformId } from '@/types';
 
 interface PlatformPreviewSwitcherProps {
@@ -23,7 +23,7 @@ export function PlatformPreviewSwitcher({
         Preview as
       </span>
       <div className="flex items-center gap-1.5 overflow-x-auto px-2 max-w-full scrollbar-none">
-        {PLATFORM_PRESETS.filter((p) => p.id !== 'custom').map((preset) => {
+        {LAUNCH_PLATFORM_PRESETS.map((preset) => {
           const isActive = preset.id === selectedPlatformId;
           const locked = isLocked?.(preset.id) ?? false;
           return (

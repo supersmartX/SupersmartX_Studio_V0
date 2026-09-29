@@ -1,23 +1,41 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Support - Success Page', () => {
-  test('displays success heading', async ({ page }) => {
-    await page.goto('/support/success?order_id=order-123&plan=pro-monthly');
-    await expect(page.getByRole('heading', { name: /success/i })).toBeVisible();
+// The success page is server-verified: "Payment Successful" is only rendered
+// when Cashfree's authoritative state says PAID for the signed-in account. With
+// no session and no reachable gateway, the page MUST fall back to the neutral
+// confirming state. These specs lock that in — an earlier version of this file
+// asserted the opposite (a success heading from URL parameters alone), which is
+// exactly the vulnerability the server-side verification was added to close.
+test.describe('Support - Success Page is server-verified', () => {
+  test('does not claim success from query parameters alone', async ({ page }) => {
+    await page.goto('/support/success?order_id=order-123&plan=creator_monthly');
+
+    await expect(page.getByRole('heading', { name: /confirming your payment/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /payment successful/i })).toHaveCount(0);
+    await expect(page.getByText(/thank you for subscribing/i)).toHaveCount(0);
   });
 
-  test('displays order ID', async ({ page }) => {
-    await page.goto('/support/success?order_id=order-456&plan=pro-monthly');
+  test('shows an awaiting-confirmation status rather than Paid', async ({ page }) => {
+    await page.goto('/support/success?order_id=order-456&plan=creator_monthly');
+
+    await expect(page.getByText('Awaiting confirmation')).toBeVisible();
+    await expect(page.getByText('Paid', { exact: true })).toHaveCount(0);
+  });
+
+  test('never asserts that a confirmation email was sent without verification', async ({ page }) => {
+    await page.goto('/support/success?order_id=order-456&plan=creator_monthly');
+
+    await expect(page.getByText(/confirmation email sent/i)).toHaveCount(0);
+  });
+
+  test('echoes the order reference back for support traceability', async ({ page }) => {
+    await page.goto('/support/success?order_id=order-456&plan=creator_monthly');
+
     await expect(page.getByText('order-456')).toBeVisible();
   });
 
-  test('displays subscription message', async ({ page }) => {
-    await page.goto('/support/success?order_id=order-789&plan=pro-monthly');
-    await expect(page.getByText(/thank you for subscribing/i)).toBeVisible();
-  });
-
   test('has link back to studio', async ({ page }) => {
-    await page.goto('/support/success?order_id=order-123&plan=pro-monthly');
+    await page.goto('/support/success?order_id=order-123&plan=creator_monthly');
     const studioLink = page.getByRole('link', { name: /studio/i }).first();
     const hasLink = await studioLink.isVisible().catch(() => false);
     if (hasLink) {
@@ -30,16 +48,20 @@ test.describe('Support - Success Page', () => {
 test.describe('Support - Error Handling', () => {
   test('handles missing order_id gracefully', async ({ page }) => {
     await page.goto('/support/success');
-    const heading = page.getByRole('heading');
-    const headingCount = await heading.count();
-    expect(headingCount).toBeGreaterThanOrEqual(0);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /payment successful/i })).toHaveCount(0);
   });
 
   test('handles invalid order_id', async ({ page }) => {
-    await page.goto('/support/success?order_id=invalid-order&plan=pro-monthly');
-    const heading = page.getByRole('heading');
-    const headingCount = await heading.count();
-    expect(headingCount).toBeGreaterThanOrEqual(0);
+    await page.goto('/support/success?order_id=invalid-order&plan=creator_monthly');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /payment successful/i })).toHaveCount(0);
+  });
+
+  test('a forged paid-looking plan parameter does not grant or claim a plan', async ({ page }) => {
+    // A legacy/pro id in the URL must not surface as an activated plan.
+    await page.goto('/support/success?order_id=forged&plan=pro_yearly');
+    await expect(page.getByRole('heading', { name: /confirming your payment/i })).toBeVisible();
   });
 });
 

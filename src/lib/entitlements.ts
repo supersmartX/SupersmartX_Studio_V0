@@ -124,19 +124,51 @@ export function isPlanActive(
   return new Date(expiresAt) > new Date();
 }
 
+/**
+ * Orientation-aware ceiling for an export canvas.
+ *
+ * `maxResolution` is a *capability envelope* (long edge x short edge), not a
+ * landscape frame. Comparing it per-axis against a portrait request would
+ * shrink 1080x1920 to 608x1080, so the envelope is first normalised to
+ * { longEdge, shortEdge } and matched against the request's own long/short
+ * edges. Landscape behaviour is unchanged: 1920x1080 under a 1280x720 envelope
+ * still scales to 1280x720.
+ */
 export function clampResolution(
   width: number,
   height: number,
   maxResolution: { width: number; height: number },
 ): { width: number; height: number } {
-  if (width <= maxResolution.width && height <= maxResolution.height) {
+  const maxLong = Math.max(maxResolution.width, maxResolution.height);
+  const maxShort = Math.min(maxResolution.width, maxResolution.height);
+  const long = Math.max(width, height);
+  const short = Math.min(width, height);
+
+  if (long <= maxLong && short <= maxShort) {
     return { width, height };
   }
-  const scale = Math.min(maxResolution.width / width, maxResolution.height / height);
+  const scale = Math.min(maxLong / long, maxShort / short);
   return {
     width: Math.round(width * scale),
     height: Math.round(height * scale),
   };
+}
+
+/**
+ * True when a frame exceeds the plan's capability envelope.
+ *
+ * Uses the same long-edge/short-edge normalisation as {@link clampResolution}.
+ * A per-axis check is wrong: it rejects 1080x1920 for a Creator whose envelope is
+ * 1920x1080, which is exactly the portrait case the matrix requires.
+ */
+export function exceedsResolutionLimit(
+  width: number,
+  height: number,
+  maxResolution: { width: number; height: number },
+): boolean {
+  const maxLong = Math.max(maxResolution.width, maxResolution.height);
+  const maxShort = Math.min(maxResolution.width, maxResolution.height);
+  return Math.max(width, height) > maxLong || Math.min(width, height) > maxShort;
 }
 
 // ---------------------------------------------------------------------------

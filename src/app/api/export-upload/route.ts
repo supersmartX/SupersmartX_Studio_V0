@@ -5,7 +5,7 @@ import { uploadRecording, isR2Configured } from '@/lib/r2';
 import { createExport, findUserById, ensureUserStatsRow, findExportJobByIdAndUser, updateExportJobStatus, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, atomicTryConsumeRecordingSeconds, atomicRevertRecordingSeconds, getCurrentPeriod } from '@/lib/db';
 import { getEntitlements, isPlanActive, clampResolution, isPlatformLockedForUser, getDailyRecordingAllowanceSeconds, computeRecordingChargeSeconds } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
-import { PLATFORM_PRESETS } from '@/constants';
+import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
 
@@ -44,6 +44,9 @@ export async function POST(request: NextRequest) {
     if (!isPlanActive(user.planExpiresAt, user.plan)) {
       return NextResponse.json({ error: 'Plan has expired' }, { status: 403 });
     }
+    if (userPlan === 'free') {
+      return NextResponse.json({ error: 'Free plan uses local export' }, { status: 403 });
+    }
 
     const entitlements = getEntitlements(userPlan as PlanType);
     if (!entitlements.canExport) {
@@ -76,8 +79,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing platformId' }, { status: 400 });
     }
 
-    const validPlatformIds: PlatformId[] = PLATFORM_PRESETS.map((p) => p.id);
-    if (!validPlatformIds.includes(platformId as PlatformId)) {
+    // The launch matrix only — `custom` is a legacy id with no preset.
+    const preset = LAUNCH_PLATFORM_PRESETS.find((p) => p.id === platformId);
+    if (!preset) {
       return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
     }
 
@@ -86,26 +90,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'This format requires the Creator plan' }, { status: 403 });
     }
 
-    const preset = PLATFORM_PRESETS.find((p) => p.id === platformId);
-    let outputWidth: number;
-    let outputHeight: number;
-
-    if (platformId === 'custom') {
-      const customWidth = parseInt(formData.get('outputWidth') as string, 10);
-      const customHeight = parseInt(formData.get('outputHeight') as string, 10);
-      if (!customWidth || !customHeight || customWidth < 1 || customHeight < 1) {
-        return NextResponse.json({ error: 'Invalid custom dimensions' }, { status: 400 });
-      }
-      const clamped = clampResolution(customWidth, customHeight, entitlements.maxResolution);
-      outputWidth = clamped.width;
-      outputHeight = clamped.height;
-    } else if (preset) {
-      const clamped = clampResolution(preset.width, preset.height, entitlements.maxResolution);
-      outputWidth = clamped.width;
-      outputHeight = clamped.height;
-    } else {
-      return NextResponse.json({ error: 'Invalid platform' }, { status: 400 });
-    }
+    // Dimensions always come from the preset; a client cannot request its own frame.
+    const clamped = clampResolution(preset.width, preset.height, entitlements.maxResolution);
+    const outputWidth = clamped.width;
+    const outputHeight = clamped.height;
 
     // Validate and update job if jobId provided
     if (jobId) {

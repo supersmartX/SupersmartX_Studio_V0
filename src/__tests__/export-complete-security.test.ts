@@ -52,7 +52,12 @@ async function setupUserWithJob(plan: 'free' | 'creator_monthly' = 'creator_mont
   return { user, job, key };
 }
 
-function completeBody(jobId: string, key: string, fileSize: number, extra: Record<string, unknown> = {}) {
+// `plan` MUST match the plan the user was seeded with: the route derives the
+// expected canvas from the preset clamped to that plan's envelope, so sending
+// Creator dimensions for a free user is a dimension mismatch (400), not a
+// quota/ledger decision.
+function completeBody(jobId: string, key: string, fileSize: number, extra: Record<string, unknown> = {}, plan: 'free' | 'creator_monthly' = 'creator_monthly') {
+  const dims = plan === 'free' ? { outputWidth: 1280, outputHeight: 720 } : { outputWidth: 1920, outputHeight: 1080 };
   return new NextRequest('http://localhost/api/exports/complete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -62,8 +67,7 @@ function completeBody(jobId: string, key: string, fileSize: number, extra: Recor
       fileSize,
       mimeType: 'video/mp4',
       platformId: 'youtube-landscape',
-      outputWidth: 1280,
-      outputHeight: 720,
+      ...dims,
       ...extra,
     }),
   });
@@ -96,7 +100,7 @@ describe('POST /api/exports/complete enforcement', () => {
     it('1. honest client size succeeds and stores the verified size', async () => {
       const { user, job, key } = await setupUserWithJob();
       mockHead(1 * MB);
-      const res = await POST(completeBody(job.id, key, 1 * MB));
+      const res = await POST(completeBody(job.id, key, 1 * MB, {}, 'creator_monthly'));
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.exportId).toBeDefined();
@@ -146,12 +150,12 @@ describe('POST /api/exports/complete enforcement', () => {
         const k = `exports/${user.id}/q-${i}.mp4`;
         const j = await createExportJob(user.id, JSON.stringify({ platformId: 'youtube-landscape' }));
         await updateExportJobStatus(j.id, 'pending', { resultR2Key: k }, user.id);
-        const r = await POST(completeBody(j.id, k, 1 * MB));
+        const r = await POST(completeBody(j.id, k, 1 * MB, {}, 'free'));
         expect(r.status).toBe(200);
       }
       const ledgerBefore = await getDailyRecordedSeconds(user.id);
       vi.mocked(deleteRecording).mockClear();
-      const denied = await POST(completeBody(job.id, key, 1 * MB));
+      const denied = await POST(completeBody(job.id, key, 1 * MB, {}, 'free'));
       expect(denied.status).toBe(403);
       expect(vi.mocked(deleteRecording)).toHaveBeenCalledWith(key);
       expect(await exportCount(user.id)).toBe(3);
@@ -173,14 +177,29 @@ describe('POST /api/exports/complete enforcement', () => {
       expect(row.rows[0]?.status).toBe('completed');
     });
 
+    it('11. wrong client dimensions are rejected and server metadata stays authoritative', async () => {
+      const { user, job, key } = await setupUserWithJob();
+      mockHead(5 * MB);
+      const res = await POST(completeBody(job.id, key, 5 * MB, {
+        outputWidth: 1280,
+        outputHeight: 720,
+      }, 'creator_monthly'));
+      expect(res.status).toBe(400);
+      const rows = await getDb().execute({
+        sql: 'SELECT output_width, output_height FROM exports WHERE user_id = ?',
+        args: [user.id],
+      });
+      expect(rows.rows.length).toBe(0);
+    });
+
     it('9. retry of a completed request is idempotent (no duplicate, no double charge)', async () => {
       const { user, job, key } = await setupUserWithJob('free');
       mockHead(10 * MB);
-      const first = await POST(completeBody(job.id, key, 10 * MB, { duration: 60 }));
+      const first = await POST(completeBody(job.id, key, 10 * MB, { duration: 60 }, 'free'));
       expect(first.status).toBe(200);
       const firstId = (await first.json()).exportId;
       const ledgerAfterFirst = await getDailyRecordedSeconds(user.id);
-      const second = await POST(completeBody(job.id, key, 10 * MB, { duration: 60 }));
+      const second = await POST(completeBody(job.id, key, 10 * MB, { duration: 60 }, 'free'));
       expect(second.status).toBe(200);
       expect((await second.json()).exportId).toBe(firstId);
       expect(await exportCount(user.id)).toBe(1);
@@ -195,7 +214,7 @@ describe('POST /api/exports/complete enforcement', () => {
     it('4. claim shorter than the byte floor is charged at the floor', async () => {
       const { user, job, key } = await setupUserWithJob('free');
       mockHead(ACTUAL_150MB);
-      const res = await POST(completeBody(job.id, key, ACTUAL_150MB, { duration: 10 }));
+      const res = await POST(completeBody(job.id, key, ACTUAL_150MB, { duration: 10 }, 'free'));
       expect(res.status).toBe(200);
       expect(await getDailyRecordedSeconds(user.id)).toBeCloseTo(FLOOR_150MB, 4);
     });
@@ -204,13 +223,13 @@ describe('POST /api/exports/complete enforcement', () => {
       for (const bad of [0, -50]) {
         const { user, job, key } = await setupUserWithJob('free');
         mockHead(ACTUAL_150MB);
-        const res = await POST(completeBody(job.id, key, ACTUAL_150MB, { duration: bad }));
+        const res = await POST(completeBody(job.id, key, ACTUAL_150MB, { duration: bad }, 'free'));
         expect(res.status).toBe(200);
         expect(await getDailyRecordedSeconds(user.id)).toBeCloseTo(FLOOR_150MB, 4);
       }
       const { user, job, key } = await setupUserWithJob('free');
       mockHead(ACTUAL_150MB);
-      const res = await POST(completeBody(job.id, key, ACTUAL_150MB)); // no duration at all
+      const res = await POST(completeBody(job.id, key, ACTUAL_150MB, {}, 'free')); // no duration at all
       expect(res.status).toBe(200);
       expect(await getDailyRecordedSeconds(user.id)).toBeCloseTo(FLOOR_150MB, 4);
     });
@@ -219,7 +238,7 @@ describe('POST /api/exports/complete enforcement', () => {
       const { user, job, key } = await setupUserWithJob('free');
       await atomicTryConsumeRecordingSeconds(user.id, 590, 600);
       mockHead(ACTUAL_150MB);
-      const res = await POST(completeBody(job.id, key, ACTUAL_150MB, { duration: 5 }));
+      const res = await POST(completeBody(job.id, key, ACTUAL_150MB, { duration: 5 }, 'free'));
       expect(res.status).toBe(403);
       expect(vi.mocked(deleteRecording)).toHaveBeenCalledWith(key);
       expect(await exportCount(user.id)).toBe(0);
@@ -233,7 +252,7 @@ describe('POST /api/exports/complete enforcement', () => {
       window.localStorage.clear();
       window.localStorage.setItem('sxs-daily-recording-secs', '0');
       mockHead(ACTUAL_150MB);
-      const res = await POST(completeBody(job.id, key, ACTUAL_150MB, { duration: 0 }));
+      const res = await POST(completeBody(job.id, key, ACTUAL_150MB, { duration: 0 }, 'free'));
       expect(res.status).toBe(403);
       expect(await exportCount(user.id)).toBe(0);
     });
@@ -242,7 +261,7 @@ describe('POST /api/exports/complete enforcement', () => {
       const { user, job, key } = await setupUserWithJob('free');
       vi.mocked(auth).mockResolvedValue(null as never);
       mockHead(1 * MB);
-      const res = await POST(completeBody(job.id, key, 1 * MB, { duration: 60 }));
+      const res = await POST(completeBody(job.id, key, 1 * MB, { duration: 60 }, 'free'));
       expect(res.status).toBe(401);
       expect(await exportCount(user.id)).toBe(0);
       expect(await getDailyRecordedSeconds(user.id)).toBe(0);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { getServerPrice, getServerPricingForCountry, ALL_COUNTRIES } from '@/lib/pricing';
+import { getCashfreeEnv, isCashfreeEnvConsistent } from '@/lib/cashfree-fulfillment';
 import { createPendingOrder, findUserById, findUserByEmail, ensureMigrated } from '@/lib/db';
 import { getDb } from '@/lib/db/driver';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
@@ -137,6 +138,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Refuse to create an order when the browser's Cashfree mode disagrees with
+    // the server's: checkout would render against one environment while the
+    // order and its webhook belong to the other, so it could never activate.
+    if (!isCashfreeEnvConsistent()) {
+      logger.error('payment.order_failed', { route: '/api/cashfree/order', requestId, errorCode: 'env_mismatch' });
+      return NextResponse.json(
+        { error: 'Payment is temporarily unavailable. Please try again shortly.' },
+        { status: 503, headers: { 'x-request-id': requestId } }
+      );
+    }
+
     const forwarded = request.headers.get('x-forwarded-for');
     const ip = forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip') || 'unknown';
 
@@ -262,6 +274,9 @@ export async function POST(request: NextRequest) {
     const res = NextResponse.json({
       orderId: order.order_id,
       paymentSessionId: order.payment_session_id,
+      // Authoritative environment for this order, so the browser can confirm its
+      // SDK mode matches instead of silently checking out against the other one.
+      env: getCashfreeEnv(),
     });
     res.headers.set('x-request-id', requestId);
     return res;

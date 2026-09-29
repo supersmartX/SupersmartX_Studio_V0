@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { findUserById, createExportJob, updateExportJobStatus, getActiveExportJobCount, getMonthlyExportCount } from '@/lib/db';
-import { getEntitlements, isPlanActive, clampResolution } from '@/lib/entitlements';
+import { getEntitlements, isPlanActive, clampResolution, exceedsResolutionLimit } from '@/lib/entitlements';
 import { getSignedUploadUrl, generateExportKey, isR2Configured } from '@/lib/r2';
 import { rateLimit } from '@/lib/rate-limit';
-import { PLATFORM_PRESETS } from '@/constants';
+import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
 
@@ -32,18 +32,19 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { platformId, outputWidth, outputHeight, duration, crop, jobId: existingJobId } = body as {
+    const { platformId, duration, crop, jobId: existingJobId } = body as {
       platformId: PlatformId;
-      outputWidth?: number;
-      outputHeight?: number;
       duration?: number;
       crop?: { x?: number; y?: number; zoom?: number };
       jobId?: string;
     };
 
     if (!platformId) return NextResponse.json({ error: 'Missing platformId' }, { status: 400 });
-    const validIds: PlatformId[] = PLATFORM_PRESETS.map(p => p.id);
-    if (!validIds.includes(platformId)) return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
+    // The launch matrix only. `custom` is a legacy compatibility id with no
+    // preset, so accepting it here would let a caller set arbitrary dimensions
+    // and bypass the single source of truth.
+    const preset = LAUNCH_PLATFORM_PRESETS.find((p) => p.id === platformId);
+    if (!preset) return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
 
     // Duration check (null = unlimited Creator)
     if (typeof duration === 'number' && Number.isFinite(duration) && entitlements.maxDurationSeconds !== null && duration > entitlements.maxDurationSeconds) {
@@ -53,18 +54,11 @@ export async function POST(request: NextRequest) {
     if (!entitlements.canCrop && crop && (crop.x !== 0 || crop.y !== 0 || crop.zoom !== 1 && crop.zoom !== undefined)) {
       return NextResponse.json({ error: 'Crop & reframe requires Creator plan' }, { status: 403 });
     }
-    // Resolution check
-    const preset = PLATFORM_PRESETS.find(p => p.id === platformId);
-    let clampedW = outputWidth || 0;
-    let clampedH = outputHeight || 0;
-    if (preset) {
-      const clamped = clampResolution(preset.width, preset.height, entitlements.maxResolution);
-      clampedW = clamped.width; clampedH = clamped.height;
-    } else if (platformId === 'custom' && outputWidth && outputHeight) {
-      const clamped = clampResolution(outputWidth, outputHeight, entitlements.maxResolution);
-      clampedW = clamped.width; clampedH = clamped.height;
-    }
-    if (clampedW > entitlements.maxResolution.width || clampedH > entitlements.maxResolution.height) {
+    // Resolution check — dimensions always come from the preset, never the client.
+    const clamped = clampResolution(preset.width, preset.height, entitlements.maxResolution);
+    const clampedW = clamped.width;
+    const clampedH = clamped.height;
+    if (exceedsResolutionLimit(clampedW, clampedH, entitlements.maxResolution)) {
       return NextResponse.json({ error: 'Resolution exceeds plan limit' }, { status: 403 });
     }
 

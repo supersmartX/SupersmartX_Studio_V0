@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
 import { useSession } from 'next-auth/react';
 import { detectCountry, getPricingForCountry, formatPrice, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
-import { loadCashfreeSDK } from '@/lib/cashfree';
+import { loadCashfreeSDK, getCashfreeMode } from '@/lib/cashfree';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 import { PRICING_PLANS } from '@/constants';
 import '@/styles/pricing.css';
@@ -204,6 +204,17 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       }
 
       const baseUrl = window.location.origin;
+
+      // The SDK was instantiated with a build-time mode. If the server created
+      // this order in the other Cashfree environment, checkout would never
+      // settle against it — stop here rather than sending the user to a payment
+      // page whose order can never activate.
+      if (data.env && data.env !== getCashfreeMode()) {
+        setStep('error');
+        setErrorMessage('Payment is temporarily unavailable. Please try again shortly.');
+        return;
+      }
+
       const result = await cashfree.checkout({
         paymentSessionId: data.paymentSessionId,
         redirectTarget: '_self',

@@ -22,6 +22,25 @@ MediaRecorder ─► Browser Blob ─► IndexedDB ─► MediaBunny encode ─�
   R2 `HeadObject` (server size wins), idempotent on re-delivery
   (same key + completed job → existing ids), orphan R2 object deleted on
   quota failure.
+- **Job create/update** (`POST /api/export-jobs`, `PATCH
+  /api/export-jobs/[id]`): platform must be a launch preset, and the
+  requested dimensions must match the server-clamped preset exactly.
+
+## Server authority over the platform
+
+Every export stage resolves the platform from `LAUNCH_PLATFORM_PRESETS`
+(`src/constants/index.ts`) and derives output dimensions from that preset:
+
+- `presigned-put` ignores client `outputWidth`/`outputHeight` and signs for the
+  preset's dimensions, so a client cannot obtain a URL for a larger frame.
+- `export-jobs` rejects dimensions that differ from the clamped preset.
+- `export-upload` and `exports/complete` re-resolve the platform from the
+  request/job rather than trusting stored client input.
+- `custom` is rejected at every stage; it exists in `PLATFORM_PRESETS` only for
+  backward compatibility and is never purchasable or selectable.
+
+Orientation matters when checking the entitlement ceiling: `exceedsResolutionLimit`
+rotates before comparing, so a 1920×1080 Creator ceiling permits 1080×1920.
 
 ## Failure semantics
 

@@ -1,7 +1,7 @@
 ﻿import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { PlatformSelector } from '@/components/studio/PlatformSelector';
-import { PLATFORM_PRESETS } from '@/constants';
+import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlatformId } from '@/types';
 
 interface Overrides {
@@ -21,7 +21,9 @@ function renderSelector(overrides: Overrides = {}) {
   return props;
 }
 
-const TOTAL_PRESETS = PLATFORM_PRESETS.length;
+// Custom format is not part of the launch matrix, so the selector renders
+// exactly the shipped platforms — never the retained `custom` preset.
+const TOTAL_PRESETS = LAUNCH_PLATFORM_PRESETS.length;
 
 describe('PlatformSelector — Creator-only platform availability', () => {
   describe('Free plan (authenticated)', () => {
@@ -77,7 +79,6 @@ describe('PlatformSelector — Creator-only platform availability', () => {
       ['Instagram Portrait, Creator plan required'],
       ['TikTok, Creator plan required'],
       ['LinkedIn, Creator plan required'],
-      ['Custom, Creator plan required'],
     ])('%s cannot be selected by Free users — locked click does not mutate selected platform', (ariaLabel) => {
       renderSelector({ userPlan: 'free', selectedPlatformId: 'youtube-landscape' });
 
@@ -101,7 +102,6 @@ describe('PlatformSelector — Creator-only platform availability', () => {
         'Instagram Portrait, Creator plan required',
         'TikTok, Creator plan required',
         'LinkedIn, Creator plan required',
-        'Custom, Creator plan required',
       ];
 
       for (const name of lockedAriaLabels) {
@@ -112,14 +112,13 @@ describe('PlatformSelector — Creator-only platform availability', () => {
       expect(onUpgradeRequired).toHaveBeenCalledTimes(lockedAriaLabels.length);
     });
 
-    it('treats Custom as Creator-locked for Free users', () => {
-      const { onSelect, onUpgradeRequired } = renderSelector({ userPlan: 'free' });
+    it('never offers Custom — it is not part of the launch matrix', () => {
+      const { onSelect, onUpgradeRequired } = renderSelector({ userPlan: 'creator_monthly' });
 
-      const custom = screen.getByRole('radio', { name: 'Custom, Creator plan required' });
-      expect(custom).toHaveAttribute('aria-disabled', 'true');
-      fireEvent.click(custom);
+      expect(screen.queryByRole('radio', { name: /Custom/i })).toBeNull();
+      expect(screen.getAllByRole('radio')).toHaveLength(TOTAL_PRESETS);
       expect(onSelect).not.toHaveBeenCalled();
-      expect(onUpgradeRequired).toHaveBeenCalledTimes(1);
+      expect(onUpgradeRequired).not.toHaveBeenCalled();
     });
   });
 

@@ -12,7 +12,9 @@ interface CashfreeInstance {
   }) => Promise<{ error?: { message: string }; redirect?: boolean }>;
 }
 
-function getCashfreeMode(): string {
+export type CashfreeEnv = 'sandbox' | 'production';
+
+export function getCashfreeMode(): CashfreeEnv {
   if (typeof window === 'undefined') return 'sandbox';
   const env = process.env.NEXT_PUBLIC_CASHFREE_ENV || 'sandbox';
   return env === 'production' ? 'production' : 'sandbox';

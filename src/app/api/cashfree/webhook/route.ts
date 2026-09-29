@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { sendPaymentConfirmationEmail, sendAdminNotification } from '@/lib/email';
-import { updateUserPlanById } from '@/lib/db';
-import { isWebhookProcessed, markWebhookProcessed, findPendingOrder } from '@/lib/db';
-import { getServerPrice } from '@/lib/pricing';
-
-const CASHFREE_BASE_URL =
-  process.env.CASHFREE_ENV === 'production'
-    ? 'https://api.cashfree.com/pg'
-    : 'https://sandbox.cashfree.com/pg';
+import { tryClaimWebhookOrder, releaseWebhookClaim, findPendingOrder } from '@/lib/db';
+import {
+  fetchCashfreeOrder,
+  fulfillPaidOrder,
+  fulfillmentErrorMessage,
+  isCashfreeOrderPaid,
+  billingPeriodForPlan,
+} from '@/lib/cashfree-fulfillment';
+import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
 
 function verifyWebhookSignature(
   payload: string,
@@ -34,24 +35,9 @@ function verifyWebhookSignature(
   }
 }
 
-async function getOrderStatus(orderId: string) {
-  const response = await fetch(`${CASHFREE_BASE_URL}/orders/${orderId}`, {
-    method: 'GET',
-    headers: {
-      'x-client-id': process.env.CASHFREE_APP_ID || '',
-      'x-client-secret': process.env.CASHFREE_SECRET_KEY || '',
-      'x-api-version': process.env.CASHFREE_API_VERSION || '2023-08-01',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch order status: ${response.status}`);
-  }
-
-  return response.json();
-}
-
 export async function POST(request: NextRequest) {
+  const requestId = getRequestId(request);
+  let claimedOrderId: string | null = null;
   try {
     if (!process.env.CASHFREE_SECRET_KEY) {
       return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
@@ -70,86 +56,90 @@ export async function POST(request: NextRequest) {
     }
 
     const body = JSON.parse(rawBody);
-    const eventType = body.type;
     const orderId = body.data?.order?.order_id;
 
     if (!orderId) {
       return NextResponse.json({ error: 'Missing order_id' }, { status: 400 });
     }
 
-    // Database-backed deduplication — survives cold starts
-    const alreadyProcessed = await isWebhookProcessed(orderId);
-    if (alreadyProcessed) {
-      return NextResponse.json({ status: 'ok' });
-    }
-
     // Look up the pending order server-side — no plan derivation from order ID
     const pendingOrder = await findPendingOrder(orderId);
     if (!pendingOrder) {
-      console.error('Webhook received for unknown order:', orderId);
+      logger.error('payment.order_unknown', { route: '/api/cashfree/webhook', requestId, orderId });
       return NextResponse.json({ error: 'Unknown order' }, { status: 400 });
     }
 
-    const order = await getOrderStatus(orderId);
+    const order = await fetchCashfreeOrder(orderId);
     const paymentStatus = body.data?.payment?.payment_status;
+    const eventClaimsPaid = isCashfreeOrderPaid(order) || paymentStatus === 'SUCCESS' || paymentStatus === 'PAID';
 
-    if (order.order_status === 'PAID' || paymentStatus === 'SUCCESS') {
-      // Verify amount and currency matches what we stored server-side
-      const paidAmount = Number(order.order_amount);
-      const paidCurrency = order.order_currency;
-      if (Math.abs(paidAmount - pendingOrder.amount) > 0.01) {
-        console.error('Amount mismatch for order:', orderId, {
-          expected: pendingOrder.amount,
-          paid: paidAmount,
-        });
-        return NextResponse.json({ error: 'Amount mismatch' }, { status: 400 });
-      }
-      if (paidCurrency && pendingOrder.currency && paidCurrency !== pendingOrder.currency) {
-        console.error('Currency mismatch for order:', orderId, {
-          expected: pendingOrder.currency,
-          paid: paidCurrency,
-        });
-        return NextResponse.json({ error: 'Currency mismatch' }, { status: 400 });
-      }
-
-      const plan = pendingOrder.plan as 'pro_monthly' | 'pro_yearly' | 'creator_monthly' | 'creator_yearly';
-      const billingPeriod = plan.includes('yearly') ? 'yearly' as const : 'monthly' as const;
-
-      // Calculate expiry
-      const expiresAt = new Date();
-      if (billingPeriod === 'yearly') {
-        expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-      } else {
-        expiresAt.setMonth(expiresAt.getMonth() + 1);
-      }
-
-      // Activate plan by userId (not email)
-      await updateUserPlanById(pendingOrder.userId, plan, expiresAt.toISOString());
-      await markWebhookProcessed(orderId);
-
-      // Send confirmation email (best-effort)
-      const emailData = {
-        orderId,
-        plan,
-        amount: paidAmount,
-        currency: pendingOrder.currency,
-        customerName: order.customer_details?.customer_name || '',
-        customerEmail: order.customer_details?.customer_email || '',
-        billingPeriod,
-      };
-
-      await Promise.allSettled([
-        sendPaymentConfirmationEmail(emailData),
-        sendAdminNotification(emailData),
-      ]);
-    } else {
-      // Still mark as processed to avoid retrying non-success webhooks
-      await markWebhookProcessed(orderId);
+    if (!eventClaimsPaid) {
+      // Genuinely non-terminal event (pending / failed). Not marked processed so
+      // a later success event for the same order is still handled.
+      return NextResponse.json({ status: 'ok' });
     }
 
+    if (!isCashfreeOrderPaid(order)) {
+      // The event says paid but Cashfree's authoritative state does not yet.
+      // Returning 2xx would drop the event permanently, so ask for a retry.
+      logger.warn('payment.order_state_lag', { route: '/api/cashfree/webhook', requestId, orderId, paymentStatus });
+      return NextResponse.json(
+        { error: 'Order not settled yet' },
+        { status: 503, headers: { 'Retry-After': '60' } }
+      );
+    }
+
+    // Claim BEFORE mutating the plan. A duplicate delivery that loses the race
+    // returns early, so the paid expiry can never be extended twice.
+    const claimed = await tryClaimWebhookOrder(orderId);
+    if (!claimed) {
+      return NextResponse.json({ status: 'ok' });
+    }
+    claimedOrderId = orderId;
+
+    const result = await fulfillPaidOrder(pendingOrder, order);
+    if (!result.ok) {
+      await releaseWebhookClaim(orderId);
+      claimedOrderId = null;
+      logger.error('payment.fulfillment_rejected', {
+        route: '/api/cashfree/webhook',
+        requestId,
+        userIdHash: hashUserId(pendingOrder.userId),
+        orderId,
+        reason: result.reason,
+      });
+      return NextResponse.json({ error: fulfillmentErrorMessage(result.reason) }, { status: 400 });
+    }
+
+    // Send confirmation email (best-effort, after the plan is active)
+    const emailData = {
+      orderId,
+      plan: pendingOrder.plan,
+      amount: Number(order.order_amount),
+      currency: pendingOrder.currency,
+      customerName: order.customer_details?.customer_name || '',
+      customerEmail: order.customer_details?.customer_email || '',
+      billingPeriod: billingPeriodForPlan(pendingOrder.plan),
+    };
+
+    await Promise.allSettled([
+      sendPaymentConfirmationEmail(emailData),
+      sendAdminNotification(emailData),
+    ]);
+
+    logger.info('payment.order_fulfilled', { route: '/api/cashfree/webhook', requestId, userIdHash: hashUserId(pendingOrder.userId), orderId, plan: pendingOrder.plan });
+
+    claimedOrderId = null;
     return NextResponse.json({ status: 'ok' });
   } catch (error) {
-    console.error('Webhook processing error:', error instanceof Error ? error.message : 'Unknown error');
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('payment.webhook_failed', { route: '/api/cashfree/webhook', requestId, errorCode: msg.slice(0, 120) });
+    // Release the claim so Cashfree's retry can fulfil this order.
+    if (claimedOrderId) {
+      try {
+        await releaseWebhookClaim(claimedOrderId);
+      } catch {}
+    }
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 }

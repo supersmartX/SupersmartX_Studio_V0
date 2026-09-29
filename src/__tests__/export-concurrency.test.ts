@@ -46,10 +46,13 @@ async function seedStuckJobs(userId: string, count: number, ageMs: number, statu
 }
 
 function exportJobsRequest() {
+  // Creator YouTube canvas (1920x1080). These tests exercise the concurrency
+  // guard, so the config must still pass the route's preset/entitlement
+  // dimension check and not be rejected with 400 first.
   return new NextRequest('http://localhost/api/export-jobs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ config: { platformId: 'youtube-landscape', outputWidth: 1280, outputHeight: 720 } }),
+    body: JSON.stringify({ config: { platformId: 'youtube-landscape', outputWidth: 1920, outputHeight: 1080 } }),
   });
 }
 

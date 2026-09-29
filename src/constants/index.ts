@@ -67,6 +67,20 @@ export const PLATFORM_PRESETS: PlatformPreset[] = [
 
 export const DEFAULT_PLATFORM_ID: PlatformId = 'youtube-landscape';
 
+/**
+ * The launch matrix: every platform the product actually ships. `custom` is
+ * retained in PLATFORM_PRESETS only so stored configs and the PlatformId type
+ * stay backward compatible — it is not offered in any UI and is rejected by
+ * every server-side platform validation.
+ */
+export const LAUNCH_PLATFORM_PRESETS: PlatformPreset[] = PLATFORM_PRESETS.filter(
+  (preset) => preset.id !== 'custom',
+);
+
+export function isLaunchPlatform(id: string): id is PlatformId {
+  return LAUNCH_PLATFORM_PRESETS.some((preset) => preset.id === id);
+}
+
 export const DEFAULT_SETTINGS: TeleprompterSettings = {
   fontFamily: "'Inter', sans-serif",
   fontSize: 36,

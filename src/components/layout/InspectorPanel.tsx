@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import type { TeleprompterSettings, TextAlignment, AspectRatio, PlatformId } from '@/types';
+import type { TeleprompterSettings, TextAlignment } from '@/types';
 import { Slider } from '@/components/ui/Slider';
 import { Toggle } from '@/components/ui/Toggle';
 import { Select } from '@/components/ui/Select';
@@ -9,8 +9,6 @@ import { Card } from '@/components/ui/Card';
 import { CloseIcon, ChevronDownIcon } from '@/components/icons';
 import { FONT_FAMILIES } from '@/constants';
 import { InspirationLoader } from '@/components/editor/InspirationLoader';
-import { PlatformSelector } from '@/components/studio/PlatformSelector';
-import { CustomFormat } from '@/components/studio/CustomFormat';
 
 // The surrounding app signals which creation phase is active so the Inspector
 // can show only the sections relevant to that phase (progressive disclosure).
@@ -29,32 +27,17 @@ interface InspectorPanelProps {
   onMirrorCameraToggle: () => void;
   countdownEnabled: boolean;
   onCountdownToggle: () => void;
-  videoDevices: MediaDeviceInfo[];
-  audioDevices: MediaDeviceInfo[];
-  selectedVideoDevice: string;
-  selectedAudioDevice: string;
-  onVideoDeviceChange: (deviceId: string) => void;
-  onAudioDeviceChange: (deviceId: string) => void;
-  platformId: PlatformId;
-  onPlatformChange: (id: PlatformId) => void;
-  userPlan: string;
-  isAuthenticated: boolean;
-  onUpgradeRequired: (platformId?: PlatformId) => void;
+  /** Opens the pricing flow — used by the teleprompter script-limit notice. */
+  onUpgradeClick: () => void;
   teleprompterNotice?: string | null;
-  customAspectRatio: AspectRatio;
-  onCustomAspectRatioChange: (ratio: AspectRatio) => void;
-  customWidth: number;
-  onCustomWidthChange: (w: number) => void;
-  customHeight: number;
-  onCustomHeightChange: (h: number) => void;
-  aspectRatio: AspectRatio;
   script: string;
   onScriptChange: (value: string) => void;
   onClearScript: () => void;
   wordCount: number;
   progress: number;
   onLoadInspiration: (key: string) => void;
-  isMobile?: boolean;
+  /** Renders the panel as an overlay drawer instead of a docked aside. */
+  isDrawer?: boolean;
   isOpen?: boolean;
   onClose?: () => void;
   inspectorContext?: InspectorContext;
@@ -69,32 +52,15 @@ export function InspectorPanel({
   onMirrorCameraToggle,
   countdownEnabled,
   onCountdownToggle,
-  videoDevices,
-  audioDevices,
-  selectedVideoDevice,
-  selectedAudioDevice,
-  onVideoDeviceChange,
-  onAudioDeviceChange,
-  platformId,
-  onPlatformChange,
-  userPlan,
-  isAuthenticated,
-  onUpgradeRequired,
+  onUpgradeClick,
   teleprompterNotice,
-  customAspectRatio,
-  onCustomAspectRatioChange,
-  customWidth,
-  onCustomWidthChange,
-  customHeight,
-  onCustomHeightChange,
-  aspectRatio,
   script,
   onScriptChange,
   onClearScript,
   wordCount,
   progress,
   onLoadInspiration,
-  isMobile = false,
+  isDrawer = false,
   isOpen = true,
   onClose,
   inspectorContext,
@@ -102,7 +68,7 @@ export function InspectorPanel({
   const drawerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!isMobile || !isOpen) return;
+    if (!isDrawer || !isOpen) return;
     const drawer = drawerRef.current;
     if (!drawer) return;
 
@@ -122,7 +88,7 @@ export function InspectorPanel({
     };
     drawer.addEventListener('keydown', handleKeyDown);
     return () => drawer.removeEventListener('keydown', handleKeyDown);
-  }, [isMobile, isOpen, onClose]);
+  }, [isDrawer, isOpen, onClose]);
 
   const updateSettings = (partial: Partial<TeleprompterSettings>) => {
     onSettingsChange({ ...settings, ...partial });
@@ -138,25 +104,8 @@ export function InspectorPanel({
       onMirrorCameraToggle={onMirrorCameraToggle}
       countdownEnabled={countdownEnabled}
       onCountdownToggle={onCountdownToggle}
-      videoDevices={videoDevices}
-      audioDevices={audioDevices}
-      selectedVideoDevice={selectedVideoDevice}
-      selectedAudioDevice={selectedAudioDevice}
-      onVideoDeviceChange={onVideoDeviceChange}
-      onAudioDeviceChange={onAudioDeviceChange}
-      platformId={platformId}
-      onPlatformChange={onPlatformChange}
-      userPlan={userPlan}
-      isAuthenticated={isAuthenticated}
-      onUpgradeRequired={onUpgradeRequired}
+      onUpgradeClick={onUpgradeClick}
       teleprompterNotice={teleprompterNotice}
-      customAspectRatio={customAspectRatio}
-      onCustomAspectRatioChange={onCustomAspectRatioChange}
-      customWidth={customWidth}
-      onCustomWidthChange={onCustomWidthChange}
-      customHeight={customHeight}
-      onCustomHeightChange={onCustomHeightChange}
-      aspectRatio={aspectRatio}
       script={script}
       onScriptChange={onScriptChange}
       onClearScript={onClearScript}
@@ -179,10 +128,9 @@ export function InspectorPanel({
   // the disposal panel recedes entirely so it never competes with the recording.
   if (inspectorContext === 'recording') return null;
 
-  // Mobile: full-height slide-in drawer from right
-  // Tablet: bottom sheet overlay (60vh)
-  // Desktop: inline aside panel
-  if (isMobile) {
+  // Compact (< 1280px): full-height slide-in drawer from the right, over the canvas.
+  // Wide (>= 1280px): inline aside that shares the row with the IconRail.
+  if (isDrawer) {
     return (
       <>
         {isOpen && (
@@ -211,8 +159,8 @@ export function InspectorPanel({
   // Uses CSS transition for smooth spatial continuity (180ms ease-out).
   return (
     <aside
-      className={`hidden lg:flex h-full border-l border-border-subtle bg-surface flex-col shrink-0 overflow-hidden transition-all duration-[180ms] ease-out ${
-        isOpen ? 'w-[280px] xl:w-[300px] opacity-100' : 'w-0 opacity-0 border-l-0'
+      className={`hidden xl:flex h-full border-l border-border-subtle bg-surface flex-col shrink-0 overflow-hidden transition-all duration-[180ms] ease-out ${
+        isOpen ? 'w-[300px] opacity-100' : 'w-0 opacity-0 border-l-0'
       }`}
       aria-label="Inspector panel"
       aria-hidden={!isOpen}
@@ -251,25 +199,8 @@ function InspectorContent({
   onMirrorCameraToggle,
   countdownEnabled,
   onCountdownToggle,
-  videoDevices,
-  audioDevices,
-  selectedVideoDevice,
-  selectedAudioDevice,
-  onVideoDeviceChange,
-  onAudioDeviceChange,
-  platformId,
-  onPlatformChange,
-  userPlan,
-  isAuthenticated,
-  onUpgradeRequired,
+  onUpgradeClick,
   teleprompterNotice,
-  customAspectRatio,
-  onCustomAspectRatioChange,
-  customWidth,
-  onCustomWidthChange,
-  customHeight,
-  onCustomHeightChange,
-  aspectRatio,
   script,
   onScriptChange,
   onClearScript,
@@ -286,25 +217,8 @@ function InspectorContent({
   onMirrorCameraToggle: () => void;
   countdownEnabled: boolean;
   onCountdownToggle: () => void;
-  videoDevices: MediaDeviceInfo[];
-  audioDevices: MediaDeviceInfo[];
-  selectedVideoDevice: string;
-  selectedAudioDevice: string;
-  onVideoDeviceChange: (deviceId: string) => void;
-  onAudioDeviceChange: (deviceId: string) => void;
-  platformId: PlatformId;
-  onPlatformChange: (id: PlatformId) => void;
-  userPlan: string;
-  isAuthenticated: boolean;
-  onUpgradeRequired: (platformId?: PlatformId) => void;
+  onUpgradeClick: () => void;
   teleprompterNotice?: string | null;
-  customAspectRatio: AspectRatio;
-  onCustomAspectRatioChange: (ratio: AspectRatio) => void;
-  customWidth: number;
-  onCustomWidthChange: (w: number) => void;
-  customHeight: number;
-  onCustomHeightChange: (h: number) => void;
-  aspectRatio: AspectRatio;
   script: string;
   onScriptChange: (value: string) => void;
   onClearScript: () => void;
@@ -317,11 +231,11 @@ function InspectorContent({
     // Match the current creation phase immediately (no open-then-collapse flash).
     switch (inspectorContext) {
       case 'recording':
-        return { script: true, teleprompter: true, camera: true, platform: true };
+        return { script: true, teleprompter: true, camera: true };
       case 'review':
-        return { script: true, teleprompter: true, camera: true, platform: false };
+        return { script: true, teleprompter: true, camera: true };
       default:
-        return { script: false, teleprompter: false, camera: true, platform: true };
+        return { script: false, teleprompter: false, camera: true };
     }
   });
 
@@ -337,18 +251,17 @@ function InspectorContent({
     const phasePresets: Record<InspectorContext, Record<string, boolean>> = {
       // Preparing: script + teleprompter are the primary inputs. Camera config stays
       // available but collapsed (camera/mic switching lives in the DeviceSelectorBar).
-      preparing: { script: false, teleprompter: false, camera: true, platform: true },
+      preparing: { script: false, teleprompter: false, camera: true },
       // Recording: camera is the only surface — everything collapses.
-      recording: { script: true, teleprompter: true, camera: true, platform: true },
-      // Review: the take exists → platform/output config becomes the focus.
-      review: { script: true, teleprompter: true, camera: true, platform: false },
+      recording: { script: true, teleprompter: true, camera: true },
+      // Review: the take exists; platform/output config lives on the Canvas switcher.
+      review: { script: true, teleprompter: true, camera: true },
     };
     setCollapsedSections((prev) => ({ ...prev, ...phasePresets[inspectorContext] }));
   }, [inspectorContext]);
 
   const showScript = inspectorContext === 'preparing';
   const showTeleprompter = inspectorContext === 'preparing';
-  const showPlatform = inspectorContext === 'review';
   const showCamera = inspectorContext === 'preparing';
 
   return (
@@ -439,7 +352,7 @@ function InspectorContent({
               <span className="text-[12px] text-text-secondary leading-snug">{teleprompterNotice}</span>
               {teleprompterNotice.includes('limit reached') && (
                 <button
-                  onClick={() => onUpgradeRequired()}
+                  onClick={onUpgradeClick}
                   className="shrink-0 ml-auto px-2.5 py-1 rounded-md bg-accent/20 text-accent text-[11px] font-semibold hover:bg-accent/30"
                 >
                   Upgrade
@@ -559,47 +472,11 @@ function InspectorContent({
       </Card>
       )}
 
-      {(showPlatform && (showScript || showTeleprompter)) && <div className="h-px bg-border-subtle" />}
+      {/* PLATFORM Section — intentionally absent.
+          The review view owns platform selection through the single "Preview as"
+          switcher on the Canvas; a second selector here made two controls fight
+          over the same state and hid the launch matrix. */}
 
-      {/* PLATFORM Section — only during review */}
-      {showPlatform && (
-      <Card>
-        <div className="flex flex-col gap-3">
-          <button
-            onClick={() => toggleSection('platform')}
-            className="flex items-center justify-between w-full text-left"
-            aria-expanded={!collapsedSections.platform}
-          >
-            <h3 className="text-[12px] font-semibold text-text-secondary">Platform</h3>
-            <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.platform ? '-rotate-90' : ''}`} />
-          </button>
-
-          {!collapsedSections.platform && (<>
-          <PlatformSelector
-            selectedPlatformId={platformId}
-            onSelect={onPlatformChange}
-            userPlan={userPlan}
-            onUpgradeRequired={onUpgradeRequired}
-          />
-
-          {platformId === 'custom' && (
-            <CustomFormat
-              aspectRatio={customAspectRatio}
-              width={customWidth}
-              height={customHeight}
-              onAspectRatioChange={onCustomAspectRatioChange}
-              onWidthChange={onCustomWidthChange}
-              onHeightChange={onCustomHeightChange}
-            />
-          )}
-          </>)}
-        </div>
-      </Card>
-      )}
-
-      {(showCamera && (showScript || showTeleprompter || showPlatform)) && <div className="h-px bg-border-subtle" />}
-
-      {/* CAMERA Section — available during preparing (collapsed by default) */}
       {showCamera && (
       <Card>
         <div className="flex flex-col gap-3">
@@ -608,30 +485,17 @@ function InspectorContent({
             className="flex items-center justify-between w-full text-left"
             aria-expanded={!collapsedSections.camera}
           >
-            <h3 className="text-[12px] font-semibold text-text-secondary">Camera</h3>
+            <h3 className="text-[12px] font-semibold text-text-secondary">Camera &amp; Preview</h3>
             <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.camera ? '-rotate-90' : ''}`} />
           </button>
 
           {!collapsedSections.camera && (<>
-          <Select
-            label="Camera"
-            value={selectedVideoDevice}
-            onChange={onVideoDeviceChange}
-            options={videoDevices.map((d) => ({
-              value: d.deviceId,
-              label: d.label || `Camera ${d.deviceId.slice(0, 8)}`,
-            }))}
-          />
-
-          <Select
-            label="Microphone"
-            value={selectedAudioDevice}
-            onChange={onAudioDeviceChange}
-            options={audioDevices.map((d) => ({
-              value: d.deviceId,
-              label: d.label || `Mic ${d.deviceId.slice(0, 8)}`,
-            }))}
-          />
+          {/* Device picking lives in the DeviceSelectorBar directly above the canvas.
+              Repeating the same two selects here produced two controls writing to the
+              same state, so this section only owns preview behaviour. */}
+          <p className="text-[11px] text-text-muted">
+            Switch camera or microphone from the bar above the canvas.
+          </p>
 
           <Toggle
             checked={mirrorCamera}

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createExportJob, findUserById, ensureUserStatsRow, getActiveExportJobCount } from '@/lib/db';
-import { getEntitlements, isPlanActive, isPlatformLockedForUser } from '@/lib/entitlements';
+import { getEntitlements, isPlanActive, isPlatformLockedForUser, clampResolution } from '@/lib/entitlements';
+import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
 
@@ -44,12 +45,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid config' }, { status: 400 });
     }
 
+    // The launch matrix is the only accepted set. `custom` has no preset, so it
+    // can never produce authoritative dimensions and is rejected here.
+    const preset = LAUNCH_PLATFORM_PRESETS.find((item) => item.id === config.platformId);
+    if (!preset) {
+      return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
+    }
+
     // Validate config types and ranges
     if (typeof config.outputWidth !== 'number' || typeof config.outputHeight !== 'number') {
       return NextResponse.json({ error: 'Invalid dimensions' }, { status: 400 });
     }
     if (config.outputWidth < 1 || config.outputWidth > 7680 || config.outputHeight < 1 || config.outputHeight > 4320) {
       return NextResponse.json({ error: 'Dimensions must be between 1 and 7680' }, { status: 400 });
+    }
+
+    const expected = clampResolution(preset.width, preset.height, entitlements.maxResolution);
+    if (config.outputWidth !== expected.width || config.outputHeight !== expected.height) {
+      return NextResponse.json({ error: 'Dimensions do not match the validated platform preset' }, { status: 400 });
     }
 
     // Free plan: only YouTube 16:9 is included — reject any other platform server-side

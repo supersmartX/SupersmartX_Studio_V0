@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { getEntitlements, isPlanActive, clampResolution, FREE_MAX_DURATION_SECONDS, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
+import { getEntitlements, isPlanActive, clampResolution, exceedsResolutionLimit, FREE_MAX_DURATION_SECONDS, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
+import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 
 describe('getEntitlements', () => {
@@ -108,6 +109,53 @@ describe('clampResolution', () => {
     const creator = getEntitlements('creator_monthly');
     const result = clampResolution(1920, 1080, creator.maxResolution);
     expect(result).toEqual({ width: 1920, height: 1080 });
+  });
+});
+
+describe('exceedsResolutionLimit', () => {
+  const creator = { width: 1920, height: 1080 };
+
+  // Regression: the presigned-upload route used a per-axis check
+  // (`w > max.width || h > max.height`), which rejected 1080x1920 for a Creator
+  // because 1920 > 1080. Every portrait preset in the launch matrix failed.
+  it('accepts a portrait preset under a landscape envelope (the Shorts case)', () => {
+    expect(exceedsResolutionLimit(1080, 1920, creator)).toBe(false);
+  });
+
+  it('accepts every Creator preset in the launch matrix', () => {
+    for (const preset of LAUNCH_PLATFORM_PRESETS) {
+      expect(exceedsResolutionLimit(preset.width, preset.height, creator)).toBe(false);
+    }
+  });
+
+  it('still rejects a frame that genuinely exceeds the envelope', () => {
+    expect(exceedsResolutionLimit(3840, 2160, creator)).toBe(true);
+    expect(exceedsResolutionLimit(2560, 1440, creator)).toBe(true);
+  });
+
+  it('agrees with clampResolution in both orientations', () => {
+    for (const [w, h] of [
+      [1920, 1080],
+      [1080, 1920],
+      [1080, 1080],
+      [1080, 1350],
+      [2160, 3840],
+      [1280, 720],
+    ] as const) {
+      const clamped = clampResolution(w, h, creator);
+      // Anything the clamp had to shrink started out over the envelope; anything
+      // it left alone must pass the limit check.
+      const shrunk = clamped.width !== w || clamped.height !== h;
+      expect(shrunk).toBe(exceedsResolutionLimit(w, h, creator));
+      expect(exceedsResolutionLimit(clamped.width, clamped.height, creator)).toBe(false);
+    }
+  });
+
+  it('enforces the Free envelope per orientation', () => {
+    const free = getEntitlements('free').maxResolution;
+    expect(exceedsResolutionLimit(1920, 1080, free)).toBe(true);
+    expect(exceedsResolutionLimit(1280, 720, free)).toBe(false);
+    expect(exceedsResolutionLimit(720, 1280, free)).toBe(false);
   });
 });
 

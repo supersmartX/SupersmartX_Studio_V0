@@ -593,6 +593,22 @@ export async function createExportJob(
   };
 }
 
+export function isValidExportJobTransition(fromStatus: ExportJobStatus, toStatus: ExportJobStatus): boolean {
+  if (fromStatus === toStatus) return true;
+  if (fromStatus === 'completed' || fromStatus === 'failed') return false;
+
+  // `pending`/`encoding` -> `completed` is intentional: the client encodes
+  // locally, so a job may be completed without ever reporting `uploading`
+  // (presigned PUT + /api/exports/complete attach the R2 key at the end).
+  const allowed: Record<Exclude<ExportJobStatus, 'completed' | 'failed'>, ExportJobStatus[]> = {
+    pending: ['encoding', 'uploading', 'completed', 'failed'],
+    encoding: ['encoding', 'uploading', 'completed', 'failed'],
+    uploading: ['uploading', 'completed', 'failed'],
+  };
+
+  return allowed[fromStatus]?.includes(toStatus) ?? false;
+}
+
 export async function updateExportJobStatus(
   jobId: string,
   status: ExportJobStatus,
@@ -607,6 +623,24 @@ export async function updateExportJobStatus(
 ): Promise<boolean> {
   await ensureMigrated();
   const db = getDb();
+
+  let currentStatusQuery = 'SELECT status FROM export_jobs WHERE id = ?';
+  const currentArgs: (string | number | null)[] = [jobId];
+  if (userId) {
+    currentStatusQuery += ' AND user_id = ?';
+    currentArgs.push(userId);
+  }
+  const currentResult = await db.execute({
+    sql: currentStatusQuery,
+    args: currentArgs,
+  });
+  const currentStatus = currentResult.rows[0]?.status as ExportJobStatus | undefined;
+  if (!currentStatus) return false;
+
+  if (status !== currentStatus && !isValidExportJobTransition(currentStatus, status)) {
+    return false;
+  }
+
   const sets: string[] = ['status = ?'];
   const args: (string | number | null)[] = [status];
 
@@ -712,6 +746,31 @@ export async function markWebhookProcessed(orderId: string): Promise<void> {
   const db = getDb();
   await db.execute({
     sql: `INSERT OR IGNORE INTO processed_webhooks (order_id) VALUES (?)`,
+    args: [orderId],
+  });
+}
+
+/**
+ * Atomically claims an order for fulfilment. Returns true only for the caller
+ * that won the claim, so two concurrent duplicate webhooks (or a webhook
+ * racing the return-URL verification) can never both extend the plan expiry.
+ * Release the claim with releaseWebhookClaim if fulfilment does not complete.
+ */
+export async function tryClaimWebhookOrder(orderId: string): Promise<boolean> {
+  await ensureMigrated();
+  const db = getDb();
+  const result = await db.execute({
+    sql: `INSERT OR IGNORE INTO processed_webhooks (order_id) VALUES (?)`,
+    args: [orderId],
+  });
+  return Number(result.rowsAffected) > 0;
+}
+
+export async function releaseWebhookClaim(orderId: string): Promise<void> {
+  await ensureMigrated();
+  const db = getDb();
+  await db.execute({
+    sql: `DELETE FROM processed_webhooks WHERE order_id = ?`,
     args: [orderId],
   });
 }

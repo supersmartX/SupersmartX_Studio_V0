@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { findUserById, findExportJobByIdAndUser, updateExportJobStatus, createExport, ensureUserStatsRow, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, atomicTryConsumeRecordingSeconds, atomicRevertRecordingSeconds } from '@/lib/db';
-import { getEntitlements, isPlanActive, isPlatformLockedForUser, getDailyRecordingAllowanceSeconds, computeRecordingChargeSeconds } from '@/lib/entitlements';
+import { getEntitlements, isPlanActive, isPlatformLockedForUser, getDailyRecordingAllowanceSeconds, computeRecordingChargeSeconds, clampResolution } from '@/lib/entitlements';
 import { headObject, deleteRecording, isR2Configured } from '@/lib/r2';
-import { PLATFORM_PRESETS } from '@/constants';
+import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
 
@@ -61,11 +61,24 @@ export async function POST(request: NextRequest) {
     if (job.status === 'completed') return NextResponse.json({ error: 'Job already completed' }, { status: 409 });
     // Verify expected key matches job's stored key
     if (job.resultR2Key && job.resultR2Key !== key) return NextResponse.json({ error: 'Key mismatch' }, { status: 403 });
-    const validIds: PlatformId[] = PLATFORM_PRESETS.map(p => p.id);
-    if (!validIds.includes(platformId)) return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
+    // The launch matrix is the only accepted set; `custom` has no preset.
+    if (!LAUNCH_PLATFORM_PRESETS.some((preset) => preset.id === platformId)) {
+      return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
+    }
     // Free plan: only YouTube 16:9 is included — reject any other platform server-side
     if (isPlatformLockedForUser(platformId, user.plan || 'free')) {
       return NextResponse.json({ error: 'This format requires the Creator plan' }, { status: 403 });
+    }
+
+    const jobConfig = JSON.parse(job.configJson || '{}') as { platformId?: PlatformId; outputWidth?: number; outputHeight?: number };
+    const authoritativePlatformId = jobConfig.platformId;
+    const preset = LAUNCH_PLATFORM_PRESETS.find((item) => item.id === authoritativePlatformId);
+    if (!preset) return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
+
+    const expectedDimensions = clampResolution(preset.width, preset.height, entitlements.maxResolution);
+    if (platformId !== authoritativePlatformId) return NextResponse.json({ error: 'Platform mismatch' }, { status: 400 });
+    if (outputWidth !== expectedDimensions.width || outputHeight !== expectedDimensions.height) {
+      return NextResponse.json({ error: 'Output dimensions do not match the validated export configuration' }, { status: 400 });
     }
 
     if (!isR2Configured()) return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
@@ -135,9 +148,9 @@ export async function POST(request: NextRequest) {
       exportRecord = await createExport({
         userId: session.user.id,
         r2Key: key,
-        platform: platformId,
-        outputWidth: outputWidth || 1920,
-        outputHeight: outputHeight || 1080,
+        platform: authoritativePlatformId,
+        outputWidth: expectedDimensions.width,
+        outputHeight: expectedDimensions.height,
         fileSize: sizeToStore,
         mimeType: 'video/mp4',
         status: 'completed',

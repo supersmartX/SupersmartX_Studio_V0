@@ -1,6 +1,6 @@
 'use client';
 
-import { PLATFORM_PRESETS } from '@/constants';
+import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import { isPlatformLockedForUser } from '@/lib/entitlements';
 import type { PlatformId } from '@/types';
 
@@ -36,7 +36,7 @@ export function PlatformSelector({
   return (
     <div className="flex flex-col gap-1.5">
       <div className={gridClass} role="radiogroup" aria-label="Publishing destination">
-        {PLATFORM_PRESETS.map((preset) => {
+        {LAUNCH_PLATFORM_PRESETS.map((preset) => {
           const isActive = preset.id === selectedPlatformId;
           const locked = isLocked(preset.id);
           return (

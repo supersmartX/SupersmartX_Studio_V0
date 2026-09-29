@@ -9,7 +9,7 @@ import { generateFilename } from '@/services/download.service';
 import { setPendingDownload, stashPendingDownloadExportId } from '@/lib/auth-guard';
 import { getEntitlements, isCreatorPlan, isPlatformLockedForUser } from '@/lib/entitlements';
 import type { ExportStep, PlatformId, ExportConfig, MasterRecording, ExportJob } from '@/types';
-import { PLATFORM_PRESETS } from '@/constants';
+import { LAUNCH_PLATFORM_PRESETS, PLATFORM_PRESETS } from '@/constants';
 import { formatTime, platformDisplayName, formatQualityLabel } from '@/utils/format';
 import { getPreviewCropGeometry } from '@/lib/composition';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
@@ -26,16 +26,13 @@ interface ExportModalProps {
   userPlan: string;
   onAuthRequired: () => void;
   onDownloadLimitReached: () => void;
-  onUpgradeRequired?: (platformId: PlatformId) => void;
   exportConfig: ExportConfig | null;
   onSelectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }) => ExportConfig;
   /** Last previewed platform — retained when the modal opens so a header or
       repeat open doesn't reset to YouTube. Falls back to YouTube when unset
       or not available to the current user. */
   initialPlatformId?: PlatformId;
-  onUpdateCrop: (updates: { x?: number; y?: number; zoom?: number }) => void;
   onStartExport: (master: MasterRecording, onProgress?: (progress: number) => void, watermarkRequired?: boolean) => Promise<ExportJob>;
-  onStartBatchExport?: (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void, watermarkRequired?: boolean) => Promise<ExportJob[]>;
   onCancelExport?: () => void;
 }
 
@@ -57,18 +54,14 @@ export function ExportModal({
   userPlan,
   onAuthRequired,
   onDownloadLimitReached,
-  onUpgradeRequired,
   exportConfig,
   onSelectPlatform,
   initialPlatformId,
-  onUpdateCrop,
   onStartExport,
-  onStartBatchExport,
   onCancelExport,
 }: ExportModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isVisible, onClose);
   const [step, setStep] = useState<ExportStep>('platform');
-  const [batchPlatforms, setBatchPlatforms] = useState<PlatformId[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<ExportJob | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
@@ -87,7 +80,6 @@ export function ExportModal({
       setIsExporting(false);
       setExportProgress(0);
       setBatchProgress(null);
-      setBatchPlatforms([]);
       setPendingAutoExport(false);
     }
   }, [isVisible]);
@@ -96,39 +88,10 @@ export function ExportModal({
   const entitlementsView = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
   // Free plan has unlimited local downloads — mirror entitlements instead of an old hardcoded reject.
   const canDownloadFile = isAuthenticated && entitlementsView.canDownload;
-  const canBatch = entitlementsView.canBatchExport;
 
   // Free plan: only YouTube 16:9 is included. All other formats are Creator-locked.
   const isCreatorUser = isCreatorPlan(userPlan);
   const isLockedPlatform = (platformId: PlatformId) => isPlatformLockedForUser(platformId, userPlan);
-
-  const handleSelectPlatform = useCallback((platformId: PlatformId) => {
-    if (isGuest) {
-      // Guest: only YouTube 16:9 (free format) is available without auth.
-      // All other platforms require login + Creator plan.
-      if (platformId !== 'youtube-landscape') {
-        onAuthRequired();
-        return;
-      }
-    }
-    const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
-    if (!entitlements.canExport) {
-      onDownloadLimitReached();
-      return;
-    }
-    if (!isGuest && isLockedPlatform(platformId)) {
-      // Locked format for Free → open contextual upgrade, never start an export
-      onUpgradeRequired?.(platformId) ?? onDownloadLimitReached();
-      return;
-    }
-    const srcW = masterRecording?.sourceWidth || 1920;
-    const srcH = masterRecording?.sourceHeight || 1080;
-    onSelectPlatform(platformId, srcW, srcH, entitlements.maxResolution);
-    // Crop/reframe controls are not part of the launch scope.
-    // Skip directly to encoding for all users.
-    setPendingAutoExport(true);
-    setStep('encoding');
-  }, [isGuest, onSelectPlatform, masterRecording, userPlan, onAuthRequired, onDownloadLimitReached, isLockedPlatform, onUpgradeRequired]);
 
   // YouTube 16:9 is the default/free format — preselect it so Free users never
   // have to pick a platform before a basic export. Runs on open and after login.
@@ -157,65 +120,6 @@ export function ExportModal({
       entitlements.maxResolution,
     );
   }, [isVisible, masterRecording, exportConfig, isGuest, userPlan, initialPlatformId, onSelectPlatform]);
-
-  const handleToggleBatchPlatform = useCallback((platformId: PlatformId) => {
-    setBatchPlatforms((prev) =>
-      prev.includes(platformId)
-        ? prev.filter((id) => id !== platformId)
-        : [...prev, platformId]
-    );
-  }, []);
-
-  const handleBatchExport = useCallback(async () => {
-    if (!masterRecording || batchPlatforms.length === 0 || !onStartBatchExport) return;
-    if (!canBatch) {
-      onDownloadLimitReached();
-      return;
-    }
-
-    setIsExporting(true);
-    setStep('encoding');
-    setExportProgress(0);
-
-    const srcW = masterRecording.sourceWidth || 1920;
-    const srcH = masterRecording.sourceHeight || 1080;
-    const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
-    const configs = batchPlatforms.map((pid) => {
-      return onSelectPlatform(pid, srcW, srcH, entitlements.maxResolution);
-    });
-
-    setBatchProgress({ current: 0, total: configs.length });
-
-    try {
-      const results = await onStartBatchExport(masterRecording, configs, (batchIndex, progress) => {
-        setBatchProgress({ current: batchIndex + 1, total: configs.length });
-        setExportProgress(progress);
-      }, entitlements.watermarkRequired);
-      const lastResult = results[results.length - 1];
-      setExportResult(lastResult);
-      setBatchProgress(null);
-
-      if (lastResult.status === 'done') {
-        setStep('done');
-      } else {
-        setStep('platform');
-        showToast('Some exports failed. Check the results.');
-      }
-    } catch (err) {
-      setStep('platform');
-      const message = err instanceof Error ? err.message : 'Export failed. Please try again.';
-      if (isAuthFailureMessage(message)) {
-        showToast('Your session expired. Sign in again to export.');
-        onAuthRequired();
-        return;
-      }
-      showToast(message);
-    } finally {
-      setIsExporting(false);
-      setBatchProgress(null);
-      setExportProgress(0);
-    }
-  }, [masterRecording, batchPlatforms, onStartBatchExport, onSelectPlatform, showToast, canBatch, onDownloadLimitReached, userPlan]);
 
   const handleExport = useCallback(async () => {
     if (!masterRecording || !exportConfig) return;
@@ -418,7 +322,7 @@ export function ExportModal({
                 videoUrl={masterRecording.url}
                 recordedDuration={masterRecording.duration}
                 onError={() => {}}
-                aspectRatio={exportConfig ? (PLATFORM_PRESETS.find((p) => p.id === exportConfig.platformId)?.aspectRatio ?? '16:9') : '16:9'}
+                aspectRatio={exportConfig ? (LAUNCH_PLATFORM_PRESETS.find((p) => p.id === exportConfig.platformId)?.aspectRatio ?? '16:9') : '16:9'}
                 videoStyle={
                   exportConfig
                     ? getPreviewCropGeometry(
@@ -430,91 +334,37 @@ export function ExportModal({
                     : undefined
                 }
               />
-              {exportConfig && (
-                <p className="text-[12px] text-text-secondary">
-                  Previewing {platformDisplayName(exportConfig.platformId)} · {exportConfig.outputWidth} × {exportConfig.outputHeight}
-                </p>
-              )}
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {PLATFORM_PRESETS.filter((p) => p.id !== 'custom').map((preset) => {
-                  const isCurrentSelection = exportConfig?.platformId === preset.id;
-                  const isLocked = isGuest ? preset.id !== 'youtube-landscape' : isLockedPlatform(preset.id);
-                  return (
-                    <button
-                      key={preset.id}
-                      onClick={() => handleSelectPlatform(preset.id)}
-                      className={`group relative flex items-center gap-2.5 p-3 rounded-lg border transition-all duration-150 text-left min-h-[48px] ${
-                        isCurrentSelection
-                          ? 'shadow-sm ring-1'
-                          : 'bg-elevated border-border-subtle hover:border-border-strong hover:bg-elevated'
-                      }`}
-                      style={isCurrentSelection ? {
-                        borderColor: `${preset.color}66`,
-                        backgroundColor: `${preset.color}1a`,
-                        boxShadow: `0 0 0 1px ${preset.color}33`,
-                      } : undefined}
-                    >
-                      {isCurrentSelection && (
-                        <div
-                          className="absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center"
-                          style={{ backgroundColor: preset.color }}
-                        >
-                          <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                          </svg>
-                        </div>
-                      )}
-                      {isLocked && (
-                        <div
-                          className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-overlay text-text-muted text-[9px] font-bold tracking-wide flex items-center gap-1"
-                          title={isGuest ? 'Sign in required' : 'Creator plan required'}
-                        >
-                          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                          </svg>
-                          {isGuest ? 'SIGN IN' : 'CREATOR'}
-                        </div>
-                      )}
-                      <div
-                        className={`flex-shrink-0 w-9 h-9 rounded-md flex items-center justify-center text-[10px] font-bold tracking-tight transition-all duration-150 ${
-                          isCurrentSelection ? 'text-white shadow-sm' : 'text-text-secondary'
-                        }`}
-                        style={{ backgroundColor: isCurrentSelection ? preset.color : `${preset.color}33` }}
-                      >
-                        {preset.icon}
-                      </div>
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className={`text-[13px] font-medium leading-tight truncate ${
-                          isCurrentSelection ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary'
-                        }`}>
-                          {preset.label}
-                        </span>
-                        <span className="text-[12px] text-text-secondary leading-tight truncate">
-                          {isLocked ? (isGuest ? `${preset.sublabel} · Sign in` : `${preset.sublabel} · Creator`) : preset.sublabel}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-                <button
-                  onClick={() => handleSelectPlatform('custom')}
-                  className="group flex items-center gap-2.5 p-3 rounded-lg bg-elevated hover:bg-elevated border border-border-subtle hover:border-border-strong transition-all duration-150 text-left min-h-[48px]"
-                >
-                  <div className="flex-shrink-0 w-9 h-9 rounded-md bg-[#8B5CF6]/30 flex items-center justify-center text-[10px] font-bold tracking-tight text-text-secondary">
-                    ⚙
+              {/* The platform is chosen once, in the Studio's "Preview as"
+                  switcher. Repeating the grid here created two competing
+                  sources of truth, so this step only confirms the choice. */}
+              {exportConfig && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-elevated border border-border-subtle">
+                  <div
+                    className="flex-shrink-0 w-10 h-10 rounded-md flex items-center justify-center text-[10px] font-bold text-white"
+                    style={{ backgroundColor: LAUNCH_PLATFORM_PRESETS.find((p) => p.id === exportConfig.platformId)?.color || '#666' }}
+                  >
+                    {LAUNCH_PLATFORM_PRESETS.find((p) => p.id === exportConfig.platformId)?.icon || 'YT'}
                   </div>
                   <div className="flex flex-col min-w-0 flex-1">
-                    <span className="text-[13px] font-medium leading-tight text-text-secondary group-hover:text-text-primary">Custom</span>
-                    <span className="text-[12px] text-text-secondary leading-tight">Define your own{!isGuest && !isCreatorUser ? ' · Creator' : ''}</span>
+                    <span className="text-[13px] font-medium text-text-primary truncate">
+                      {platformDisplayName(exportConfig.platformId)}
+                    </span>
+                    <span className="text-[12px] text-text-secondary truncate">
+                      {LAUNCH_PLATFORM_PRESETS.find((p) => p.id === exportConfig.platformId)?.aspectRatio} · {exportConfig.outputWidth} × {exportConfig.outputHeight}
+                    </span>
                   </div>
-                  {!isGuest && !isCreatorUser && (
-                    <div className="px-1.5 py-0.5 rounded bg-accent/20 text-accent text-[9px] font-bold tracking-wide">
-                      👑 CREATOR
-                    </div>
-                  )}
-                </button>
-              </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={closeModal}
+                    aria-label="Change format"
+                  >
+                    Change
+                  </Button>
+                </div>
+              )}
 
               {exportConfig && (
                 <Button
@@ -536,8 +386,8 @@ export function ExportModal({
                   disabled={isExporting}
                 >
                   <DownloadIcon className="w-4 h-4" />
-                  Continue with {PLATFORM_PRESETS.find((p) => p.id === exportConfig.platformId)?.label || 'YouTube'}{' '}
-                  {PLATFORM_PRESETS.find((p) => p.id === exportConfig.platformId)?.aspectRatio || '16:9'}
+                  Export {platformDisplayName(exportConfig.platformId)} ·{' '}
+                  {exportConfig.outputWidth}×{exportConfig.outputHeight}
                 </Button>
               )}
 

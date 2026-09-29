@@ -1,6 +1,20 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { NextRequest } from 'next/server';
 import { resetDb } from '@/lib/db/driver';
 import { setMigrated } from '@/lib/db/index';
+
+vi.mock('@/auth', () => ({ auth: vi.fn() }));
+vi.mock('@/lib/r2', () => ({
+  isR2Configured: () => false,
+  uploadRecording: vi.fn(),
+  generateRecordingKey: vi.fn(),
+  getSignedUploadUrl: vi.fn(),
+  headObject: vi.fn(),
+  deleteRecording: vi.fn(),
+}));
+
+import { auth } from '@/auth';
+import { POST as exportUploadPOST } from '@/app/api/export-upload/route';
 
 process.env.TURSO_DATABASE_URL = 'file::memory:';
 
@@ -18,13 +32,35 @@ import {
 } from '@/lib/db';
 import { getEntitlements, isPlanActive } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
-import { generateRecordingKey } from '@/lib/r2';
 import type { PlanType } from '@/types/db';
+
+// `@/lib/r2` is mocked above for the route-level tests, so the real key
+// generator must come from the actual module — otherwise these assertions
+// would only ever test `vi.fn()` returning undefined.
+const realGenerateRecordingKey = (await vi.importActual<typeof import('@/lib/r2')>('@/lib/r2')).generateRecordingKey;
 
 function cleanTestData() {
   resetDb();
   setMigrated(false);
   process.env.TURSO_DATABASE_URL = 'file::memory:';
+}
+
+/**
+ * Builds a multipart POST request for `/api/export-upload`.
+ *
+ * `Request.formData()` cannot decode a multipart body under the jsdom test
+ * environment (jsdom's File/Blob are not undici's, so the parser hangs or
+ * throws), and a native `FormData` body never finishes streaming. Only the
+ * body decoding is stubbed here — every route handler below is real code.
+ */
+function exportUploadRequest(entries: Record<string, string | File>): NextRequest {
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(entries)) {
+    formData.set(key, value);
+  }
+  const request = new NextRequest('http://localhost/api/export-upload', { method: 'POST' });
+  Object.defineProperty(request, 'formData', { value: async () => formData });
+  return request;
 }
 
 describe('security', () => {
@@ -43,6 +79,31 @@ describe('security', () => {
       expect(entitlements.canDownload).toBe(true);
       expect(entitlements.maxExportsPerMonth).toBeNull();
       expect(entitlements.maxDownloads).toBeNull();
+    });
+
+    it('legacy export-upload route denies Free users for cloud export', async () => {
+      const user = await createUser('legacy-free@example.com', 'Legacy Free', 'password123');
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+
+      const res = await exportUploadPOST(exportUploadRequest({
+        file: new File(['video'], 'export.mp4', { type: 'video/mp4' }),
+        platformId: 'youtube-landscape',
+      }));
+
+      expect(res.status).toBe(403);
+    });
+
+    it('creator user remains allowed on legacy export-upload route', async () => {
+      const user = await createUser('legacy-creator@example.com', 'Legacy Creator', 'password123');
+      await import('@/lib/db').then(({ updateUserPlanById }) => updateUserPlanById(user.id, 'creator_monthly', new Date(Date.now() + 86400000).toISOString()));
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+
+      const res = await exportUploadPOST(exportUploadRequest({
+        file: new File(['video'], 'creator-export.mp4', { type: 'video/mp4' }),
+        platformId: 'youtube-landscape',
+      }));
+
+      expect(res.status).toBe(200);
     });
 
     it('free user can pass canExport check with unlimited downloads', async () => {
@@ -293,13 +354,13 @@ describe('security', () => {
 
   describe('arbitrary R2 key rejected', () => {
     it('generateRecordingKey always prefixes with recordings/userId/', () => {
-      const key = generateRecordingKey('user-123', 'webm');
+      const key = realGenerateRecordingKey('user-123', 'webm');
       expect(key).toMatch(/^recordings\/user-123\//);
       expect(key).toMatch(/\.webm$/);
     });
 
     it('generateRecordingKey uses UUID-based naming', () => {
-      const key = generateRecordingKey('user-123', 'mp4');
+      const key = realGenerateRecordingKey('user-123', 'mp4');
       const parts = key.split('/');
       expect(parts.length).toBe(3);
       expect(parts[0]).toBe('recordings');
@@ -308,14 +369,14 @@ describe('security', () => {
     });
 
     it('generateRecordingKey rejects invalid extensions', () => {
-      expect(() => generateRecordingKey('user-123', 'exe')).toThrow('Invalid extension');
-      expect(() => generateRecordingKey('user-123', 'js')).toThrow('Invalid extension');
-      expect(() => generateRecordingKey('user-123', '../etc/passwd')).toThrow('Invalid extension');
+      expect(() => realGenerateRecordingKey('user-123', 'exe')).toThrow('Invalid extension');
+      expect(() => realGenerateRecordingKey('user-123', 'js')).toThrow('Invalid extension');
+      expect(() => realGenerateRecordingKey('user-123', '../etc/passwd')).toThrow('Invalid extension');
     });
 
     it('generateRecordingKey accepts webm and mp4', () => {
-      expect(generateRecordingKey('user-123', 'webm')).toMatch(/\.webm$/);
-      expect(generateRecordingKey('user-123', 'mp4')).toMatch(/\.mp4$/);
+      expect(realGenerateRecordingKey('user-123', 'webm')).toMatch(/\.webm$/);
+      expect(realGenerateRecordingKey('user-123', 'mp4')).toMatch(/\.mp4$/);
     });
   });
 
