@@ -6,6 +6,17 @@ import type { ExportJob, MasterRecording } from '@/types';
 
 vi.mock('@/lib/export/export-engine', () => ({ encodeExport: vi.fn() }));
 
+// This suite is about STATE 10 — a failed export must finalize its server job
+// so the concurrency slot is released. The STATE 20 capability gate sits ahead
+// of the encode and would otherwise refuse first in jsdom (no WebCodecs, no
+// 2d canvas), so the encode failure these tests set up would never happen.
+vi.mock('@/lib/export/browser-support', () => ({
+  assertExportSupported: vi.fn().mockResolvedValue(undefined),
+  UnsupportedBrowserError: class UnsupportedBrowserError extends Error {},
+  getExportSupport: vi.fn(() => ({ supported: true })),
+  UNSUPPORTED_BROWSER_MESSAGE: "Your browser can't complete this export. Please try Chrome or Edge.",
+}));
+
 const mockEncode = vi.mocked(encodeExport);
 
 interface FetchCall {

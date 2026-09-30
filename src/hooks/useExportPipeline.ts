@@ -7,6 +7,8 @@ import { createExportConfig, getDefaultCrop } from '@/lib/export/export-config';
 import { encodeExport } from '@/lib/export/export-engine';
 import { uploadCreatorExportToR2 } from '@/lib/export/export-upload';
 import { generateExportThumbnail } from '@/lib/export/export-thumbnail';
+import { assertEncodedFrame } from '@/lib/export/mp4-metadata';
+import { assertExportSupported, UnsupportedBrowserError } from '@/lib/export/browser-support';
 
 export { drawWatermark } from '@/lib/export/export-watermark';
 
@@ -109,6 +111,24 @@ export function useExportPipeline(): UseExportPipelineReturn {
 
     let serverJobId: string | undefined;
     try {
+      // STATE 20: refuse BEFORE the job is announced as encoding. A browser that
+      // cannot encode H.264 would otherwise sit at "Exporting... 0%" with no
+      // error and no way out, because the failure is a stall rather than a throw.
+      // This must run before the server job is created so a refusal costs no
+      // quota and leaves no row behind.
+      await assertExportSupported(exportConfig.outputWidth, exportConfig.outputHeight);
+    } catch (error) {
+      const message =
+        error instanceof UnsupportedBrowserError
+          ? error.message
+          : toExportErrorMessage(error, false) ?? 'Export failed';
+      const failedJob: ExportJob = { ...job, status: 'error', error: message };
+      if (mountedRef.current) setExportJobs((prev) => prev.map((item) => item.id === jobId ? failedJob : item));
+      abortControllerRef.current.delete(jobId);
+      return failedJob;
+    }
+
+    try {
       if (!watermarkRequired) {
         try {
           const response = await fetch('/api/export-jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: exportConfig }), signal: abortController.signal });
@@ -128,6 +148,20 @@ export function useExportPipeline(): UseExportPipelineReturn {
         const failedJob: ExportJob = { ...job, status: 'error', error: 'Empty file produced', serverJobId };
         setExportJobs((prev) => prev.map((item) => item.id === jobId ? failedJob : item));
         fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'failed', errorMessage: 'Empty file produced' }), signal: abortController.signal }).catch(() => {});
+        abortControllerRef.current.delete(jobId);
+        return failedJob;
+      }
+
+      // STATE 7: the requested frame is an intention; these are the bytes the
+      // user would actually download. A mismatch is rejected here so the object
+      // is never uploaded and the quota is never spent on a wrong file.
+      try {
+        await assertEncodedFrame(resultBlob, { width: exportConfig.outputWidth, height: exportConfig.outputHeight }, exportConfig.platformId);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'Export failed verification';
+        const failedJob: ExportJob = { ...job, status: 'error', error: message, serverJobId };
+        setExportJobs((prev) => prev.map((item) => item.id === jobId ? failedJob : item));
+        fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'failed', errorMessage: message }), signal: abortController.signal }).catch(() => {});
         abortControllerRef.current.delete(jobId);
         return failedJob;
       }
@@ -178,6 +212,9 @@ export function useExportPipeline(): UseExportPipelineReturn {
         setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'encoding', serverJobId, progress: 0 } : item));
         const resultBlob = await encodeExport({ master, config, signal: abortController.signal, watermarkRequired: watermarkRequired || false, onProgress: (progress) => { onProgress?.(index, progress); if (serverJobId && Math.round(progress * 100) % 10 === 0) fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding', progress: Math.round(progress * 100) }), signal: abortController.signal }).catch(() => {}); } });
         if (!mountedRef.current) break;
+        // STATE 7: same real-byte gate as the single-export path. Throwing here
+        // lands in the catch below, which reports the server job as failed.
+        await assertEncodedFrame(resultBlob, { width: config.outputWidth, height: config.outputHeight }, config.platformId);
         setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'uploading' } : item));
         let exportId: string | undefined;
         let r2Key: string | undefined;

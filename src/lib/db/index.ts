@@ -770,8 +770,45 @@ export async function releaseWebhookClaim(orderId: string): Promise<void> {
   await ensureMigrated();
   const db = getDb();
   await db.execute({
-    sql: `DELETE FROM processed_webhooks WHERE order_id = ?`,
+    sql: 'DELETE FROM processed_webhooks WHERE order_id = ?',
     args: [orderId],
+  });
+}
+
+/**
+ * Claims the right to send one kind of post-payment notification for an order.
+ *
+ * Separate from the webhook claim on purpose. `processed_webhooks` answers
+ * "has this order been fulfilled?", which is a question about the plan write —
+ * and only the first caller to ask it may write. Whether the receipt has been
+ * emailed is a different question with a different lifetime, so gating it on the
+ * same row silently dropped the receipt whenever the return trip fulfilled the
+ * order first and the real webhook arrived second.
+ *
+ * Returns true only for the caller that won, so concurrent duplicates send one
+ * email between them rather than five.
+ */
+export async function tryClaimOrderNotification(orderId: string, kind: string): Promise<boolean> {
+  await ensureMigrated();
+  const db = getDb();
+  const result = await db.execute({
+    sql: 'INSERT OR IGNORE INTO order_notifications (order_id, kind) VALUES (?, ?)',
+    args: [orderId, kind],
+  });
+  return Number(result.rowsAffected) > 0;
+}
+
+/**
+ * Releases a notification claim so a later event can retry the send. Used only
+ * when delivery itself failed — a permanently-unsent receipt must not be
+ * retried forever, but a transient transport failure should be recoverable.
+ */
+export async function releaseOrderNotification(orderId: string, kind: string): Promise<void> {
+  await ensureMigrated();
+  const db = getDb();
+  await db.execute({
+    sql: 'DELETE FROM order_notifications WHERE order_id = ? AND kind = ?',
+    args: [orderId, kind],
   });
 }
 

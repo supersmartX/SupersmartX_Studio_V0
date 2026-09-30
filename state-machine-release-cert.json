@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "SuperSmartX Studio · Release Cert",
+    "subtitle": "Whole product · one state machine",
+    "output": "state-machine-release-cert.html",
+    "viewBox": [1000, 630],
+    "animation": "trace",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    { "id": "main", "label": "Product spine — golden path" },
+    { "id": "pay", "label": "Upgrade rail" },
+    { "id": "terminal", "label": "Exit & recovery" }
+  ],
+  "states": [
+    { "id": "landing", "type": "start", "label": "Landing", "sublabel": "START FREE · /studio", "lane": "main", "col": 0, "step": "01" },
+    { "id": "recording", "type": "active", "label": "Record", "sublabel": "guest or creator · bank 24 h", "lane": "main", "col": 1, "step": "02" },
+    { "id": "review", "type": "decision", "label": "Review", "sublabel": "platform + entitlement gate", "lane": "main", "col": 2, "step": "03" },
+    { "id": "exporting", "type": "active", "label": "Export", "sublabel": "preview · encode MP4", "lane": "main", "col": 3, "step": "04" },
+    { "id": "download", "type": "success", "label": "Download", "sublabel": "Free local · Creator R2", "lane": "main", "col": 4, "step": "05" },
+    { "id": "payment", "type": "waiting", "label": "Cashfree Payment", "sublabel": "auth · settle · verify", "lane": "pay", "col": 0, "width": 112, "tag": "pay" },
+    { "id": "creator_active", "type": "success", "label": "Creator Active", "sublabel": "restore same take", "lane": "pay", "col": 1, "width": 112, "tag": "paid" },
+    { "id": "webhook_lost", "type": "failure", "label": "Paid — Webhook Lost", "sublabel": "no reconciliation cron", "lane": "terminal", "col": 0, "tag": "stranded" },
+    { "id": "plan_expires", "type": "failure", "label": "Plan Expires", "sublabel": "fails closed to Free", "lane": "terminal", "col": 1, "tag": "downgrade" },
+    { "id": "export_failed", "type": "failure", "label": "Export Failed", "sublabel": "encode failure · 403", "lane": "terminal", "col": 2, "tag": "retryable" }
+  ],
+  "transitions": [
+    { "id": "upgrade-required", "from": "review", "to": "payment", "label": "locked → Upgrade", "labelAt": [402, 230], "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "straight" },
+    { "id": "paid", "from": "payment", "to": "creator_active", "label": "PAID", "labelAt": [479, 262], "fromSide": "right", "toSide": "left", "route": "straight" },
+    { "id": "restore-take", "from": "creator_active", "to": "exporting", "label": "restore same take", "labelAt": [556, 250], "variant": "dashed", "fromSide": "top", "toSide": "bottom", "route": "straight", "note": "active and certified" },
+    { "id": "export-failed", "from": "exporting", "to": "export_failed", "label": "encode error · 403", "labelAt": [615, 208], "fromSide": "right", "toSide": "top", "via": [[647, 157], [647, 450], [710, 450]] },
+    { "id": "retry", "from": "export_failed", "to": "exporting", "label": "retry", "labelAt": [630, 72], "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "via": [[710, 542], [880, 542], [880, 80], [556, 80]] },
+    { "id": "lost-webhook", "from": "payment", "to": "webhook_lost", "label": "webhook lost", "labelAt": [402, 400], "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "straight" },
+    { "id": "plan-lapse", "from": "creator_active", "to": "plan_expires", "label": "expiry passes", "labelAt": [556, 395], "fromSide": "bottom", "toSide": "top", "route": "straight" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Golden path — certified", "items": ["Five states · one phase rail", "24h banked take restores", "Gate green: tests · build · lint"] },
+    { "dot": "amber", "title": "Upgrade rail (inline)", "items": ["Cashfree settle gates claim", "Verify + atomic plan write", "30s poll is client recovery"] },
+    { "dot": "rose", "title": "Upgrade rail — open risks", "items": ["restore-take: certified locally", "webhook lost: no cron", "HMAC falls back to API secret"] }
+  ]
+}

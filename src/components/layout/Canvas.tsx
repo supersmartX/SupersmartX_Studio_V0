@@ -3,7 +3,7 @@
 import { ReactNode, useRef, useEffect } from 'react';
 import { EyeIcon } from '@/components/icons';
 import type { AspectRatio, RecordingConfiguration } from '@/types';
-import { ASPECT_RATIO_PRESETS } from '@/constants';
+import { getPreviewBoxContainerStyle, getPreviewBoxStyle } from '@/lib/composition';
 
 interface CanvasProps {
   children: ReactNode;
@@ -33,9 +33,6 @@ export function Canvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const activeRatio = reviewAspectRatio || aspectRatio;
-  const preset = ASPECT_RATIO_PRESETS[activeRatio];
-  const isVertical = activeRatio === '9:16' || activeRatio === '4:5';
-  const isSquare = activeRatio === '1:1';
   const isReview = !!reviewVideoUrl;
 
   // Create and manage the recording canvas
@@ -60,10 +57,21 @@ export function Canvas({
   }, [isReview, reviewVideoUrl]);
 
   return (
-    <div className="flex-1 min-h-0 flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-canvas overflow-hidden">
+    <div
+      className="flex-1 min-h-0 flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-canvas overflow-hidden"
+      style={getPreviewBoxContainerStyle()}
+    >
       <div
-        className={`relative ${isVertical ? 'h-full max-h-full' : isSquare ? 'h-full max-h-full aspect-square' : 'w-full max-w-5xl sm:h-full'} ${preset.cssClass} bg-canvas rounded-xl overflow-hidden ring-1 ring-white/[0.06]`}
-        style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)' }}
+        /* The box IS the platform's frame. Its shape is set by
+           getPreviewBoxStyle (min of both axes + the exact ratio) rather than
+           by `w-full`/`h-full` + aspect-*, because those make `aspect-ratio`
+           inert and let the box take the container's ratio — which silently
+           changed the composition relative to the export. */
+        className="relative bg-canvas rounded-xl overflow-hidden ring-1 ring-white/[0.06]"
+        style={{
+          ...getPreviewBoxStyle(activeRatio),
+          boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
+        }}
       >
         {/* Hidden recording canvas for actual video capture */}
         <canvas

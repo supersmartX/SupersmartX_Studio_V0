@@ -16,7 +16,7 @@ vi.mock('@/lib/email', () => ({
 import { auth } from '@/auth';
 import { POST as verifyPOST } from '@/app/api/cashfree/verify/route';
 import { POST as webhookPOST } from '@/app/api/cashfree/webhook/route';
-import { fulfillPaidOrder, fulfillmentErrorMessage, getCashfreeEnv, cashfreeBaseUrl, isCashfreeEnvConsistent } from '@/lib/cashfree-fulfillment';
+import { fulfillPaidOrder, fulfillmentErrorMessage, getCashfreeEnv, cashfreeBaseUrl, isCashfreeEnvConsistent, isCashfreeOrderTerminalFailure } from '@/lib/cashfree-fulfillment';
 import { resetDb, getDb } from '@/lib/db/driver';
 import {
   setMigrated,
@@ -144,6 +144,147 @@ describe('payment fulfilment is driven by authoritative state, not the return UR
     expect(updated?.plan).toBe('free');
   });
 
+  /* STATE 4 — the return trip from a DECLINED payment lands on the exact same
+   * `?payment=success` URL as a settled one (src/app/api/cashfree/order/route.ts
+   * hardcodes the return_url), so the client cannot tell them apart and must ask
+   * the server. These assert the server gives a verdict instead of a delay, and
+   * that a verdict which is not PAID leaves the account exactly as it was. */
+  describe('a declined or cancelled order is an answer, not a delay', () => {
+    const TERMINAL = ['FAILED', 'CANCELLED', 'EXPIRED'] as const;
+
+    it.each(TERMINAL)('reports %s as failed rather than pending', async (orderStatus) => {
+      const user = await seedBuyer(`declined-${orderStatus.toLowerCase()}@example.com`);
+      const orderId = await seedPendingOrder(user.id);
+      mockCashfreeOrder({ order_id: orderId, order_status: orderStatus, order_amount: CREATOR_MONTHLY, order_currency: 'INR' });
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+
+      const res = await verifyPOST(verifyRequest(orderId));
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({ status: 'failed', orderStatus });
+    });
+
+    it.each(TERMINAL)('leaves the account on Free after a %s order', async (orderStatus) => {
+      const user = await seedBuyer(`nocorrupt-${orderStatus.toLowerCase()}@example.com`);
+      const orderId = await seedPendingOrder(user.id);
+      mockCashfreeOrder({ order_id: orderId, order_status: orderStatus, order_amount: CREATOR_MONTHLY, order_currency: 'INR' });
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+
+      await verifyPOST(verifyRequest(orderId));
+
+      const updated = await findUserById(user.id);
+      expect(updated?.plan).toBe('free');
+      expect(updated?.planExpiresAt ?? null).toBeNull();
+      // A failed order must not consume the atomic claim either: a later
+      // legitimate attempt (or a late, genuine webhook) still has to be able
+      // to settle this order.
+      expect(await claimExists(orderId)).toBe(false);
+    });
+
+    it('still treats ACTIVE as pending — that is the webhook race, not a failure', async () => {
+      // Collapsing ACTIVE into "failed" would break the legitimate case the
+      // return trip exists for: the buyer paid, the redirect beat the webhook.
+      const user = await seedBuyer('settling@example.com');
+      const orderId = await seedPendingOrder(user.id);
+      mockCashfreeOrder({ order_id: orderId, order_status: 'ACTIVE', order_amount: CREATOR_MONTHLY, order_currency: 'INR' });
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+
+      const res = await verifyPOST(verifyRequest(orderId));
+      await expect(res.json()).resolves.toMatchObject({ status: 'pending' });
+    });
+
+    it('does not activate a plan when the return URL claims success for a dead order', async () => {
+      // The URL is attacker-controllable AND is what a real decline produces.
+      // Neither may move `users.plan`.
+      const user = await seedBuyer('url-claim@example.com');
+      const orderId = await seedPendingOrder(user.id);
+      mockCashfreeOrder({ order_id: orderId, order_status: 'FAILED', order_amount: CREATOR_MONTHLY, order_currency: 'INR' });
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+
+      const forged = new NextRequest(
+        `http://localhost/api/cashfree/verify?order_id=${encodeURIComponent(orderId)}&payment=success&plan=creator_yearly`,
+        { method: 'POST' }
+      );
+      await verifyPOST(forged);
+
+      const updated = await findUserById(user.id);
+      expect(updated?.plan).toBe('free');
+    });
+
+      it('does not activate on the return trip when the order is still ACTIVE', async () => {
+      // STATE 5, server half: the redirect beat the webhook, and Cashfree
+      // reports the order as still settling. `activated` here would hand the
+      // buyer a Creator session for a payment that has not landed. The client
+      // gets `pending` and keeps saying "confirming".
+      const user = await seedBuyer('webhook-race@example.com');
+      const orderId = await seedPendingOrder(user.id);
+      mockCashfreeOrder({ order_id: orderId, order_status: 'ACTIVE', order_amount: CREATOR_MONTHLY, order_currency: 'INR' });
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+
+      const res = await verifyPOST(verifyRequest(orderId));
+
+      await expect(res.json()).resolves.toMatchObject({ status: 'pending' });
+      expect((await findUserById(user.id))?.plan).toBe('free');
+      // Still claimable, so the webhook that lands a second later can fulfil it.
+      expect(await claimExists(orderId)).toBe(false);
+    });
+
+    it('lets the webhook fulfil an order the return trip already saw as ACTIVE', async () => {
+      // The mirror of the race above: the return trip leaves the order
+      // untouched and the webhook does the write. Exactly one activation.
+      const user = await seedBuyer('webhook-wins@example.com');
+      const orderId = await seedPendingOrder(user.id);
+      mockCashfreeOrder({ order_id: orderId, order_status: 'ACTIVE', order_amount: CREATOR_MONTHLY, order_currency: 'INR' });
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+      await verifyPOST(verifyRequest(orderId));
+
+      mockCashfreeOrder(paidOrderBody(orderId));
+      await webhookPOST(signedWebhookRequest(orderId, 'SUCCESS'));
+
+      const updated = await findUserById(user.id);
+      expect(updated?.plan).toBe('creator_monthly');
+
+      // And a later verify of the same order must not extend the expiry again.
+      const firstExpiry = updated?.planExpiresAt;
+      await verifyPOST(verifyRequest(orderId));
+      expect((await findUserById(user.id))?.planExpiresAt).toBe(firstExpiry);
+    });
+
+    it('a later PAID settlement of the same order still activates exactly once', async () => {
+      // A failure verdict is not a tombstone: the buyer may retry against the
+      // same order id, and the authoritative re-fetch decides.
+      const user = await seedBuyer('recovered@example.com');
+      const orderId = await seedPendingOrder(user.id);
+      mockCashfreeOrder({ order_id: orderId, order_status: 'CANCELLED', order_amount: CREATOR_MONTHLY, order_currency: 'INR' });
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+      await verifyPOST(verifyRequest(orderId));
+      expect((await findUserById(user.id))?.plan).toBe('free');
+
+      mockCashfreeOrder(paidOrderBody(orderId));
+      await verifyPOST(verifyRequest(orderId));
+      expect((await findUserById(user.id))?.plan).toBe('creator_monthly');
+
+      await verifyPOST(verifyRequest(orderId));
+      expect((await findUserById(user.id))?.plan).toBe('creator_monthly');
+    });
+  });
+
+  describe('terminal-failure classification', () => {
+    it('classifies only states that can never become PAID', () => {
+      expect(isCashfreeOrderTerminalFailure({ order_id: 'o', order_status: 'FAILED' })).toBe(true);
+      expect(isCashfreeOrderTerminalFailure({ order_id: 'o', order_status: 'CANCELLED' })).toBe(true);
+      expect(isCashfreeOrderTerminalFailure({ order_id: 'o', order_status: 'EXPIRED' })).toBe(true);
+      // ACTIVE is the webhook race; PAID is the success path.
+      expect(isCashfreeOrderTerminalFailure({ order_id: 'o', order_status: 'ACTIVE' })).toBe(false);
+      expect(isCashfreeOrderTerminalFailure({ order_id: 'o', order_status: 'PAID' })).toBe(false);
+      // Unknown/missing must not be called a failure — failing closed here
+      // would cancel a legitimate purchase.
+      expect(isCashfreeOrderTerminalFailure({ order_id: 'o' })).toBe(false);
+      expect(isCashfreeOrderTerminalFailure({ order_id: 'o', order_status: 'paid' })).toBe(false);
+      expect(isCashfreeOrderTerminalFailure({ order_id: 'o', order_status: 'SOMETHING_NEW' })).toBe(false);
+    });
+  });
+
   it('rejects a signed-in user who does not own the order', async () => {
     const owner = await seedBuyer('owner@example.com');
     const attacker = await seedBuyer('attacker@example.com');
@@ -242,6 +383,191 @@ describe('payment fulfilment idempotency', () => {
 
     const updated = await findUserById(user.id);
     expect(updated?.plan).toBe('free'); // claim taken, fulfilment not yet run
+  });
+});
+
+/* STATE 6 — the same order reported by both paths, in a deliberately hostile
+ * order: webhook, webhook, verify, webhook, verify. Cashfree retries webhooks
+ * and the browser polls verify, so this interleaving is normal traffic, not an
+ * abuse case. Exactly one fulfilment may result. */
+describe('duplicate payment events for one order', () => {
+  beforeEach(cleanTestData);
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  async function planRow(userId: string) {
+    const db = getDb();
+    const result = await db.execute({ sql: 'SELECT plan, plan_expires_at FROM users WHERE id = ?', args: [userId] });
+    return result.rows[0] as unknown as { plan: string; plan_expires_at: string | null } | undefined;
+  }
+
+  async function expiryFingerprint(orderId: string) {
+    const db = getDb();
+    const result = await db.execute({ sql: 'SELECT order_id FROM processed_webhooks WHERE order_id = ?', args: [orderId] });
+    return result.rows.map((r) => r.order_id);
+  }
+
+  it('fulfils exactly once across webhook, webhook, verify, webhook, verify', async () => {
+    const user = await seedBuyer('dup-sequence@example.com');
+    const orderId = await seedPendingOrder(user.id);
+    mockCashfreeOrder(paidOrderBody(orderId));
+    vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'dup-sequence@example.com' } } as never);
+
+    // 1. webhook
+    const r1 = await webhookPOST(signedWebhookRequest(orderId, 'SUCCESS'));
+    expect(r1.status).toBe(200);
+    const afterWebhook = await planRow(user.id);
+    expect(afterWebhook?.plan).toBe('creator_monthly');
+    const expiryAfterWebhook = afterWebhook?.plan_expires_at;
+    expect(expiryAfterWebhook).toBeTruthy();
+
+    // 2. duplicate webhook
+    const r2 = await webhookPOST(signedWebhookRequest(orderId, 'SUCCESS'));
+    expect(r2.status).toBe(200);
+    await expect(r2.json()).resolves.toMatchObject({ status: 'ok' });
+
+    // 3. verify, racing the already-fulfilled order
+    const r3 = await verifyPOST(verifyRequest(orderId));
+    expect(r3.status).toBe(200);
+    // Already activated: the client must be told so, not left polling.
+    await expect(r3.json()).resolves.toMatchObject({ status: 'activated' });
+
+    // 4. another webhook
+    const r4 = await webhookPOST(signedWebhookRequest(orderId, 'SUCCESS'));
+    expect(r4.status).toBe(200);
+
+    // 5. another verify
+    const r5 = await verifyPOST(verifyRequest(orderId));
+    expect(r5.status).toBe(200);
+    await expect(r5.json()).resolves.toMatchObject({ status: 'activated' });
+
+    // The entitlement was written once. If any of the five had re-fulfilled,
+    // the expiry would have drifted forward by five months.
+    const final = await planRow(user.id);
+    expect(final?.plan).toBe('creator_monthly');
+    expect(final?.plan_expires_at).toBe(expiryAfterWebhook);
+
+    // One order, one claim row — no second fulfilment record.
+    expect(await expiryFingerprint(orderId)).toEqual([orderId]);
+  });
+
+  it('does not extend the subscription when duplicates arrive days apart', async () => {
+    // The real-world shape of this bug: Cashfree retries a webhook, or the user
+    // reopens the return URL the next day. Each duplicate is individually
+    // legitimate, so only the claim can stop it.
+    const user = await seedBuyer('dup-later@example.com');
+    const orderId = await seedPendingOrder(user.id);
+    mockCashfreeOrder(paidOrderBody(orderId));
+    vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'dup-later@example.com' } } as never);
+
+    await webhookPOST(signedWebhookRequest(orderId, 'SUCCESS'));
+    const first = (await planRow(user.id))?.plan_expires_at;
+
+    // Rewind the stored expiry to simulate a month passing.
+    const db = getDb();
+    const earlier = new Date();
+    earlier.setMonth(earlier.getMonth() + 1);
+    const earlierIso = earlier.toISOString();
+    await db.execute({ sql: 'UPDATE users SET plan_expires_at = ? WHERE id = ?', args: [earlierIso, user.id] });
+
+    await webhookPOST(signedWebhookRequest(orderId, 'SUCCESS'));
+    await verifyPOST(verifyRequest(orderId));
+
+    // Still the rewinded date: a duplicate must not silently buy the user more
+    // time, which is how a duplicate event becomes a real revenue/liability bug.
+    expect((await planRow(user.id))?.plan_expires_at).toBe(earlierIso);
+    expect(first).toBeTruthy();
+  });
+
+  it('sends the receipt once, even across the duplicate sequence', async () => {
+    const user = await seedBuyer('dup-email@example.com');
+    const orderId = await seedPendingOrder(user.id);
+    mockCashfreeOrder(paidOrderBody(orderId));
+    vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'dup-email@example.com' } } as never);
+
+    await webhookPOST(signedWebhookRequest(orderId, 'SUCCESS'));
+    await webhookPOST(signedWebhookRequest(orderId, 'SUCCESS'));
+    await verifyPOST(verifyRequest(orderId));
+    await webhookPOST(signedWebhookRequest(orderId, 'SUCCESS'));
+    await verifyPOST(verifyRequest(orderId));
+
+    const { sendPaymentConfirmationEmail } = await import('@/lib/email');
+    expect(vi.mocked(sendPaymentConfirmationEmail)).toHaveBeenCalledTimes(1);
+  });
+
+  it('is safe when the duplicates arrive concurrently rather than in sequence', async () => {
+    // Sequential duplicates are the easy case — the claim is already spent. The
+    // genuinely dangerous version is five calls in flight at once, before any
+    // of them has committed.
+    const user = await seedBuyer('dup-concurrent@example.com');
+    const orderId = await seedPendingOrder(user.id);
+    mockCashfreeOrder(paidOrderBody(orderId));
+    vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'dup-concurrent@example.com' } } as never);
+
+    const responses = await Promise.all([
+      webhookPOST(signedWebhookRequest(orderId, 'SUCCESS')),
+      webhookPOST(signedWebhookRequest(orderId, 'SUCCESS')),
+      verifyPOST(verifyRequest(orderId)),
+      webhookPOST(signedWebhookRequest(orderId, 'SUCCESS')),
+      verifyPOST(verifyRequest(orderId)),
+    ]);
+
+    // No caller may observe an error — a 500 here would make Cashfree retry
+    // forever and would leave the browser polling a rejected verify.
+    for (const res of responses) {
+      expect(res.status).toBe(200);
+    }
+    // Every client-visible answer must still be coherent.
+    for (const res of responses) {
+      const body = (await res.json()) as { status?: string };
+      expect(['ok', 'activated']).toContain(body.status);
+    }
+
+    const final = await planRow(user.id);
+    expect(final?.plan).toBe('creator_monthly');
+    expect(await expiryFingerprint(orderId)).toEqual([orderId]);
+  });
+
+  it('still sends the receipt when the return trip fulfils before the webhook does', async () => {
+    // The dangerous ordering. The redirect beats the webhook, verify claims and
+    // fulfils the order, and then the real webhook arrives and finds the claim
+    // already spent — so it returns early and never reaches the send. The
+    // entitlement is correct, but the buyer is told nothing at all.
+    const user = await seedBuyer('dup-verify-first@example.com');
+    const orderId = await seedPendingOrder(user.id);
+    mockCashfreeOrder(paidOrderBody(orderId));
+    vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'dup-verify-first@example.com' } } as never);
+
+    const { sendPaymentConfirmationEmail } = await import('@/lib/email');
+    vi.mocked(sendPaymentConfirmationEmail).mockClear();
+
+    await verifyPOST(verifyRequest(orderId));
+    await webhookPOST(signedWebhookRequest(orderId, 'SUCCESS'));
+
+    expect((await findUserById(user.id))?.plan).toBe('creator_monthly');
+    expect(vi.mocked(sendPaymentConfirmationEmail)).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves no dangling claim when a duplicate lands after a rejected fulfilment', async () => {
+    // A duplicate that arrives while the order is unpayable must not burn the
+    // claim — otherwise the genuine retry that follows is told "activated" for
+    // a plan that was never written.
+    const user = await seedBuyer('dup-rejected@example.com');
+    const orderId = await seedPendingOrder(user.id);
+    mockCashfreeOrder(paidOrderBody(orderId, 1));
+    vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'dup-rejected@example.com' } } as never);
+
+    const res = await verifyPOST(verifyRequest(orderId));
+    expect(res.status).toBe(400);
+    expect(await claimExists(orderId)).toBe(false);
+
+    // The retry with the real amount must therefore still be able to activate.
+    mockCashfreeOrder(paidOrderBody(orderId));
+    const retry = await verifyPOST(verifyRequest(orderId));
+    expect(retry.status).toBe(200);
+    expect((await findUserById(user.id))?.plan).toBe('creator_monthly');
   });
 });
 

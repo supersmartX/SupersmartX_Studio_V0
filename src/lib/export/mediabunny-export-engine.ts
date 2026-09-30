@@ -1,6 +1,6 @@
 'use client';
 
-import { computeCanvasSourceRect } from '@/lib/composition';
+import { computeCodedSourceRect } from '@/lib/composition';
 import { drawWatermark } from './export-watermark';
 import type { ExportEngineOptions } from './export-types';
 import type { Conversion as ConversionInstance } from 'mediabunny';
@@ -61,7 +61,15 @@ export async function encodeExportMediabunny({ master, config, signal, onProgres
     includeAudio = false;
   }
 
-  const { sx, sy, sw, sh } = computeCanvasSourceRect(crop, sourceW, sourceH, master.sourceWidth || 1920, master.sourceHeight || 1080);
+  const codedCrop = computeCodedSourceRect(
+    crop,
+    sourceW,
+    sourceH,
+    master.sourceWidth || 1920,
+    master.sourceHeight || 1080,
+    outputWidth,
+    outputHeight
+  );
 
   const canvas = document.createElement('canvas');
   canvas.width = outputWidth;
@@ -84,10 +92,17 @@ export async function encodeExportMediabunny({ master, config, signal, onProgres
         fit: 'cover',
         bitrate: MEDIABUNNY_VIDEO_BITRATE,
         forceTranscode: true,
-        // Source-space crop rectangle (cover semantics, auto-clamped to the
-        // input dims by Mediabunny). Applied post-decode, pre-resize — this is
-        // what guarantees the subject fills the frame without black bars.
-        crop: toMediabunnyCropRect({ x: sx, y: sy, width: sw, height: sh }),
+        // Source-space crop rectangle derived from the real coded dimensions
+        // (not the assumed master size), and already at the output aspect.
+        // `fit: cover` then has nothing left to crop, so the frame is always
+        // full-bleed: no stretching, no letterboxing, and the same window the
+        // preview showed.
+        crop: toMediabunnyCropRect({
+          x: codedCrop.left,
+          y: codedCrop.top,
+          width: codedCrop.width,
+          height: codedCrop.height,
+        }),
         processedWidth: outputWidth,
         processedHeight: outputHeight,
         process: (sample) => {

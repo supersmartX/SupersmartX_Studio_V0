@@ -24,6 +24,7 @@ import { useHydrated } from '@/hooks/useHydrated';
 import { getEntitlements, isCreatorPlan, isPlatformLockedForUser, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
 import { getPreviewCropGeometry } from '@/lib/composition';
 import { consumePendingDownloadExportId, hasPendingDownload } from '@/lib/auth-guard';
+import { isReviewState, resolveStudioPhase } from '@/lib/review-state';
 import { addDailyRecordingSeconds, canRecordToday, getDailyRecordingRemainingInFlight } from '@/lib/daily-recording';
 import { getTeleprompterSessionCap, getTeleprompterRemainingInSession } from '@/lib/teleprompter-session';
 
@@ -62,7 +63,10 @@ export default function HomePage() {
   const focusView = useFocusView();
   const scriptStorage = useScriptStorage();
   const hydrated = useHydrated();
-  const { data: session, status: sessionStatus, update: updateSession } = useSession();
+  // `update` is intentionally not destructured here: the plan refresh on the
+  // return trip belongs to ActivationModal, which is the single place that asks
+  // the server what the order actually is.
+  const { data: session, status: sessionStatus } = useSession();
   const userPlan = (session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free';
   const isCreatorUser = isCreatorPlan(userPlan);
 
@@ -79,7 +83,13 @@ export default function HomePage() {
   });
 
   const ui = useStudioUI();
-  const { masterRecording: masterRecordingData, createMasterRecording, clearMasterRecording, restoreMasterRecording } = useMasterRecording();
+  const {
+    masterRecording: masterRecordingData,
+    createMasterRecording,
+    clearMasterRecording,
+    restoreMasterRecording,
+    isRestored,
+  } = useMasterRecording();
   // Guard: completion effect must run once per recording blob.
   // `ui` is a new object every render, so including it in deps would
   // re-create the master recording (and revoke the preview URL) on every
@@ -87,6 +97,25 @@ export default function HomePage() {
   // blob ERR_FILE_NOT_FOUND.
   const setDrawerVisible = ui.setIsDrawerVisible;
   const processedRecordingRef = useRef<Blob | null>(null);
+
+  // The active creation phase drives progressive disclosure across the UI.
+  // 'preparing' → script + teleprompter focused; 'recording' → camera only;
+  // 'review' → the take exists, output/platform becomes relevant.
+  //
+  // Both the phase and the review flag are resolved in one place
+  // (src/lib/review-state.ts) because the take can arrive two ways: finished
+  // in this document, or restored from IndexedDB after a cross-document hop
+  // (Google OAuth, the Cashfree redirect, the return trip, a reload). Every
+  // review surface below routes through `isReview` — never through
+  // `recorder.recordingState` directly, which is exactly what left a paid-for
+  // take stranded after an upgrade.
+  const reviewState = {
+    recordingState: recorder.recordingState,
+    isRestored,
+    hasMasterRecording: !!masterRecordingData,
+  };
+  const isReview = isReviewState(reviewState);
+  const inspectorContext = resolveStudioPhase(reviewState);
 
   const [pendingPricingAfterAuth, setPendingPricingAfterAuth] = useState(false);
   // Checkout intent from landing page (e.g. ?checkout=creator_monthly → open payment form directly)
@@ -112,7 +141,13 @@ export default function HomePage() {
     orderId: null,
   });
 
-  // Detect ?payment=success query param after Cashfree redirect
+  // Detect ?payment=success query param after the Cashfree redirect.
+  //
+  // The param says "we came back", never "we paid". The configured return_url
+  // is the same for a settled order and a declined one, so the outcome is
+  // decided by ActivationModal asking the server, which asks Cashfree. This
+  // effect only opens the modal and scrubs the URL; it deliberately does not
+  // verify, so there is exactly one authority for what the order actually is.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
@@ -120,21 +155,10 @@ export default function HomePage() {
       const plan = params.get('plan') || 'creator_monthly';
       const orderId = params.get('order_id');
       setActivationModal({ isOpen: true, plan, orderId });
-      if (orderId) {
-        fetch(`/api/cashfree/verify?order_id=${encodeURIComponent(orderId)}`, { method: 'POST' })
-          .then(async (res) => {
-            if (res.ok) {
-              try {
-                await updateSession();
-              } catch {}
-            }
-          })
-          .catch(() => {});
-      }
       // Clean URL without reload
       window.history.replaceState({}, '', window.location.pathname);
     }
-  }, [updateSession]);
+  }, []);
 
   // Contextual upgrade (S12): a Free user clicks a locked platform → show the
   // "Create for {platform}" prompt instead of a generic pricing modal.
@@ -331,7 +355,11 @@ export default function HomePage() {
     clearJobs,
   } = useExportPipeline();
 
-  // Restore master recording from IndexedDB on mount
+  // Restore the master recording from IndexedDB. This is the only thing that
+  // carries a take across a cross-document navigation (Google OAuth, the
+  // Cashfree redirect, the return trip, a reload), so it runs for every
+  // session — the hook makes it one attempt per document and refuses to
+  // resurrect a take the user explicitly discarded.
   useEffect(() => {
     if (!masterRecordingData) {
       restoreMasterRecording();
@@ -437,10 +465,14 @@ export default function HomePage() {
 
     // Camera released after a previous take (or never enabled): acquire a
     // clean stream first. Pre-permission users go through the Enable-camera
-    // overlay instead of a silent no-op.
+    // overlay instead of a silent no-op — except in review, which renders
+    // over the Canvas children and would otherwise hide that overlay behind a
+    // document that has no camera at all. After an upgrade return there is no
+    // InitOverlay to click, so Start acquires on demand; it is a user gesture,
+    // so the browser permission prompt is the expected affordance.
     let liveStream = camera.stream;
     if (!liveStream) {
-      if (!camera.hasInitialized) return;
+      if (!camera.hasInitialized && !isReview) return;
       liveStream = await handleCameraInitialize();
       if (!liveStream) return;
     }
@@ -468,33 +500,30 @@ export default function HomePage() {
     };
 
     recorder.startRecording(scrollCallback, checkEndCallback, liveStream);
-  }, [camera, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, resetTimer, isCreatorUser, showToast, ui, handleCameraInitialize]);
+  }, [camera, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, resetTimer, isCreatorUser, showToast, ui, handleCameraInitialize, isReview]);
 
   const handleRecordStop = useCallback(() => {
     if (recorder.recordingState === 'recording' || recorder.recordingState === 'paused') {
       handleStopAndReleaseCamera();
     } else if (
       recorder.recordingState === 'idle' &&
-      !ui.isDrawerVisible
+      !ui.isDrawerVisible &&
+      // A restored take reviews exactly like a live one: Space does not start
+      // a fresh recording over the top of it. Recording again is a deliberate
+      // click on Start / Record again.
+      !isReview
     ) {
       void handleRecordStart();
     }
-  }, [recorder, ui.isDrawerVisible, handleRecordStart, handleStopAndReleaseCamera]);
+  }, [recorder, ui.isDrawerVisible, handleRecordStart, handleStopAndReleaseCamera, isReview]);
 
-  const handleCloseDrawer = useCallback(() => {
-    if (recorder.recordingState === 'completed' && masterRecordingData) {
-      if (!window.confirm('Discard this recording? This cannot be undone.')) {
-        return;
-      }
-    }
+  // Closing the export sheet must never destroy the take. Users dismiss it
+  // precisely to reach the Studio's "Preview as" switcher and change format, and
+  // the recording has to survive that round trip. Discarding belongs to explicit
+  // actions (record again / open library), never to dismissing a dialog.
+  const handleDismissDrawer = useCallback(() => {
     ui.setIsDrawerVisible(false);
-    if (recorder.recordingState === 'completed') {
-      recorder.resetRecording();
-      clearMasterRecording();
-      clearJobs();
-      setExportConfig(null);
-    }
-  }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig, masterRecordingData]);
+  }, [ui]);
 
   const handlePracticeAgain = useCallback(() => {
     ui.setIsDrawerVisible(false);
@@ -504,14 +533,18 @@ export default function HomePage() {
     setExportConfig(null);
   }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
 
+  // "Open My Library" is a navigation, not a discard. It must leave the master
+  // recording untouched: this button sits on the post-export success screen, so
+  // deleting here threw away the very take the user just exported and made
+  // "change platform and export again" (Reels -> back to Review -> TikTok)
+  // impossible without re-recording. The restore effect re-surfaces the take
+  // when the user returns to Studio, which is the correct outcome.
+  // Deleting the IndexedDB row is correct ONLY for an explicit discard
+  // ("Record Again"), which is handlePracticeAbove.
   const handleOpenLibrary = useCallback(() => {
     ui.setIsDrawerVisible(false);
-    recorder.resetRecording();
-    clearMasterRecording();
-    clearJobs();
-    setExportConfig(null);
     setActivePanel('library');
-  }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
+  }, [ui]);
 
   const handleNudgeUp = useCallback(() => {
     if (prompterContainerRef.current) {
@@ -581,7 +614,7 @@ export default function HomePage() {
     onMicToggle: handleMicToggle,
     onNudgeUp: handleNudgeUp,
     onNudgeDown: handleNudgeDown,
-    onCloseDrawer: handleCloseDrawer,
+    onCloseDrawer: handleDismissDrawer,
     isRecording: recorder.recordingState === 'recording',
     isPaused: recorder.recordingState === 'paused',
     canRecord: !!camera.stream,
@@ -591,19 +624,8 @@ export default function HomePage() {
 
   const isStudio = activePanel === 'studio';
 
-  // The active creation phase drives progressive disclosure across the UI.
-  // 'preparing' → script + teleprompter focused; 'recording' → camera only;
-  // 'review' → the take exists, output/platform becomes relevant.
-  const inspectorContext =
-    recorder.recordingState === 'recording' || recorder.recordingState === 'paused' || recorder.recordingState === 'countdown'
-      ? 'recording'
-      : recorder.recordingState === 'completed'
-        ? 'review'
-        : 'preparing';
-
   // Preview as — separate from export platform
   const [previewPlatformId, setPreviewPlatformId] = useState<PlatformId>('youtube-landscape');
-  const isReview = inspectorContext === 'review';
   const previewPreset = PLATFORM_PRESETS.find((p) => p.id === previewPlatformId) ?? PLATFORM_PRESETS[0];
   // Review crop geometry from the SAME production math the export uses
   // (getDefaultCrop → cover). Shape (Canvas box) and crop move together.
@@ -651,7 +673,7 @@ export default function HomePage() {
       <div className="h-screen flex flex-col bg-canvas overflow-hidden">
         <Header
           isMobile={isMobile}
-          hasRecording={recorder.recordingState === 'completed' && !!masterRecordingData}
+          hasRecording={isReview && !!masterRecordingData}
           onExport={() => ui.setIsDrawerVisible(true)}
           onShare={share}
           onToggleInspector={handleToggleInspector}
@@ -809,12 +831,15 @@ export default function HomePage() {
             {isStudio && (
               <TransportBar
                 recordingState={recorder.recordingState}
-                // Enabled with a live stream, or after a released take (Start
-                // re-acquires). Pre-permission users go through the
-                // Enable-camera overlay; the button stays disabled for them.
-                // Never during an in-flight permission request.
-                canRecord={(!!camera.stream || camera.hasInitialized) && camera.status !== 'requesting'}
-                hasRecording={recorder.recordingState === 'completed'}
+                // Enabled with a live stream, after a released take (Start
+                // re-acquires), or straight out of a restored review — the
+                // return trip after an upgrade lands in a fresh document with
+                // no camera, and the review canvas covers the Enable-camera
+                // overlay. Pre-permission users outside review go through that
+                // overlay instead; the button stays disabled for them. Never
+                // during an in-flight permission request.
+                canRecord={(!!camera.stream || camera.hasInitialized || isReview) && camera.status !== 'requesting'}
+                hasRecording={isReview}
                 isMicMuted={isMicMuted}
                 elapsedSeconds={elapsedSeconds}
                 dailyRemainingSeconds={dailyRemainingDisplay}
@@ -869,7 +894,7 @@ export default function HomePage() {
       <ExportModal
         isVisible={ui.isDrawerVisible}
         masterRecording={masterRecordingData}
-        onClose={handleCloseDrawer}
+        onClose={handleDismissDrawer}
         initialPlatformId={previewPlatformId}
         onPracticeAgain={handlePracticeAgain}
         onOpenLibrary={handleOpenLibrary}
@@ -927,16 +952,57 @@ export default function HomePage() {
         isOpen={activationModal.isOpen}
         plan={activationModal.plan}
         orderId={activationModal.orderId}
-        onClose={() => {
+        onRetry={() => {
+          // Straight back to the payment form. The order intent is left in
+          // localStorage on purpose: if this attempt does settle, the
+          // closed-loop restore below still knows which format to reopen on.
+          setPricingInitialStep('form');
+          ui.setIsPricingModalOpen(true);
+        }}
+        onClose={(outcome) => {
           setActivationModal({ isOpen: false, plan: '', orderId: null });
-          // Closed-loop upgrade: restore the platform the user was trying to use
+
+          if (outcome === 'failed') {
+            // Nothing was activated, so nothing may be treated as if it were.
+            // Dropping the platform intent matters: it is what re-opens the
+            // "Create for {format} with Creator" prompt on every later load,
+            // so a declined payment would otherwise keep asking.
+            try { window.localStorage.removeItem('sxs-upgrade-intent'); } catch {}
+            return;
+          }
+
+          // Closed-loop upgrade: restore the platform the user was trying to use.
+          // ExportModal reads `previewPlatformId` (its initialPlatformId), not
+          // `settings.platformId` — the latter only drives recorder capture via
+          // useStudioConfig. Setting it alone reopened the sheet on the default
+          // format, silently dropping the plan the user just paid for.
           try {
             const pendingPlatform = window.localStorage.getItem('sxs-upgrade-intent');
             if (pendingPlatform) {
               window.localStorage.removeItem('sxs-upgrade-intent');
-              settings.setPlatformId(pendingPlatform as PlatformId);
-              // Open export modal with the newly unlocked platform
-              setTimeout(() => ui.setIsDrawerVisible(true), 300);
+              const restored = pendingPlatform as PlatformId;
+              settings.setPlatformId(restored);
+              setPreviewPlatformId(restored);
+              // IndexedDB restore is async, so the take may not be back in
+              // state yet when the user dismisses the activation modal.
+              // Opening the sheet with no master renders nothing at all, which
+              // reads as a dead screen — so drive the selection now and only
+              // auto-open once the take is actually there.
+              const openSheet = (attempt = 0) => {
+                if (masterRecordingData) {
+                  selectPlatform(
+                    restored,
+                    masterRecordingData.sourceWidth || 1920,
+                    masterRecordingData.sourceHeight || 1080,
+                    getEntitlements(userPlan).maxResolution,
+                  );
+                  setTimeout(() => ui.setIsDrawerVisible(true), 300);
+                  return;
+                }
+                if (attempt >= 10) return;
+                setTimeout(() => openSheet(attempt + 1), 200);
+              };
+              openSheet();
             }
           } catch {}
         }}

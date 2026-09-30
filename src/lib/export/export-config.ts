@@ -1,6 +1,32 @@
-import { PLATFORM_PRESETS } from '@/constants';
+import { LAUNCH_PLATFORM_PRESETS, PLATFORM_PRESETS } from '@/constants';
 import { clampResolution } from '@/lib/entitlements';
 import type { CropConfig, ExportConfig, PlatformId } from '@/types';
+
+export const DEFAULT_EXPORT_PLATFORM: PlatformId = 'youtube-landscape';
+
+/**
+ * Resolve which platform the export sheet should open on.
+ *
+ * Unset or non-launch requests fall back to the free default. A request the
+ * current identity is not entitled to (Free or guest -> anything but YouTube
+ * 16:9) is downgraded to that default rather than presented as a chosen format,
+ * so a stale or tampered preference can never hand a locked config to the
+ * encoder. The predicate is passed in so the caller owns the entitlement
+ * source, and so guests are covered by the same rule as authenticated Free.
+ */
+export function resolveInitialExportPlatform(
+  initialPlatformId: PlatformId | undefined,
+  isPlatformLocked: (platformId: PlatformId) => boolean,
+): PlatformId {
+  const requested =
+    initialPlatformId && LAUNCH_PLATFORM_PRESETS.some((p) => p.id === initialPlatformId)
+      ? initialPlatformId
+      : DEFAULT_EXPORT_PLATFORM;
+  if (requested !== DEFAULT_EXPORT_PLATFORM && isPlatformLocked(requested)) {
+    return DEFAULT_EXPORT_PLATFORM;
+  }
+  return requested;
+}
 
 export function getDefaultCrop(sourceWidth: number, sourceHeight: number, targetWidth: number, targetHeight: number): CropConfig {
   const targetRatio = targetWidth / targetHeight;

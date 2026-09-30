@@ -4,6 +4,7 @@
  * into shared infrastructure. Uses fake camera/mic devices.
  */
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { studioReady } from './helpers';
 import { createClient, type Client } from '@libsql/client';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -40,27 +41,18 @@ function db(): Client {
   return _db;
 }
 
+/**
+ * Delegates to the shared helper.
+ *
+ * This was a local copy that only knew about the Welcome dialog's "Get Started"
+ * button. A fresh document has no camera, so the InitOverlay is the only control
+ * that acquires one — and after `apiRegister` + `page.reload()` that is exactly
+ * what is on screen. The local copy left the record button disabled and burned
+ * the full 240s deadline, reporting it as "record button stayed disabled" even
+ * though the product was fine. One helper, so the fix cannot drift per spec.
+ */
 async function ensureStudioReady(page: Page) {
-  // The welcome modal (and its Get Started camera init) can appear late on
-  // cold dev-server compiles. Poll: dismiss whenever visible, succeed when
-  // the record button enables.
-  const recordBtn = page.getByLabel('Recording controls').getByRole('button', { name: 'Start Recording' });
-  await recordBtn.waitFor({ state: 'visible', timeout: 60000 });
-  const deadline = Date.now() + 240000;
-  while (Date.now() < deadline) {
-    const getStarted = page.getByRole('button', { name: 'Get Started' });
-    if (await getStarted.isVisible().catch(() => false)) {
-      await getStarted.click({ timeout: 15000 }).catch(() => {});
-      await page.waitForTimeout(2000);
-    }
-    try {
-      await expect(recordBtn).toBeEnabled({ timeout: 8000 });
-      return;
-    } catch {
-      // Not ready yet: loop again (modal may still be mounting).
-    }
-  }
-  throw new Error('studio never became ready: record button stayed disabled');
+  await studioReady(page);
 }
 
 async function recordShort(page: Page) {

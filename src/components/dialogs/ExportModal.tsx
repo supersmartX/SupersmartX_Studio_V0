@@ -9,9 +9,10 @@ import { generateFilename } from '@/services/download.service';
 import { setPendingDownload, stashPendingDownloadExportId } from '@/lib/auth-guard';
 import { getEntitlements, isCreatorPlan, isPlatformLockedForUser } from '@/lib/entitlements';
 import type { ExportStep, PlatformId, ExportConfig, MasterRecording, ExportJob } from '@/types';
-import { LAUNCH_PLATFORM_PRESETS, PLATFORM_PRESETS } from '@/constants';
+import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import { formatTime, platformDisplayName, formatQualityLabel } from '@/utils/format';
 import { getPreviewCropGeometry } from '@/lib/composition';
+import { resolveInitialExportPlatform } from '@/lib/export/export-config';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 
 interface ExportModalProps {
@@ -98,21 +99,27 @@ export function ExportModal({
   // A retained preview choice (initialPlatformId) wins over the default so a
   // header/repeat open doesn't reset a deliberate Shorts/Reels/Square pick —
   // but only when that format is actually available to the current user.
-  const autoSelectedRef = useRef(false);
+  //
+  // An existing exportConfig is NOT a reason to skip: reopening via the header
+  // button (which never calls selectPlatform) would otherwise pin the sheet to
+  // whatever was exported last. We instead remember which platform we resolved
+  // to, so a genuine change re-selects once and a no-op re-render doesn't loop.
+  const autoSelectedRef = useRef<PlatformId | null>(null);
   useEffect(() => {
     if (!isVisible) {
-      autoSelectedRef.current = false;
+      autoSelectedRef.current = null;
       return;
     }
-    if (!masterRecording || exportConfig || autoSelectedRef.current) return;
+    if (!masterRecording) return;
+    if (autoSelectedRef.current && exportConfig?.platformId === autoSelectedRef.current) return;
     const entitlements = getEntitlements(userPlan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly');
     if (!entitlements.canExport) return;
-    const requested = initialPlatformId && PLATFORM_PRESETS.some((p) => p.id === initialPlatformId)
-      ? initialPlatformId
-      : 'youtube-landscape';
-    const locked = requested !== 'youtube-landscape' && (isGuest || isPlatformLockedForUser(requested, userPlan));
-    const chosen: PlatformId = locked ? 'youtube-landscape' : requested;
-    autoSelectedRef.current = true;
+    const chosen = resolveInitialExportPlatform(
+      initialPlatformId,
+      (id) => isGuest || isPlatformLockedForUser(id, userPlan),
+    );
+    if (autoSelectedRef.current === chosen) return;
+    autoSelectedRef.current = chosen;
     onSelectPlatform(
       chosen,
       masterRecording.sourceWidth || 1920,
@@ -129,7 +136,7 @@ export function ExportModal({
       onDownloadLimitReached();
       return;
     }
-    if (!isGuest && isLockedPlatform(exportConfig.platformId)) {
+    if (isLockedPlatform(exportConfig.platformId)) {
       // Stale config (e.g. plan changed) — never export a locked format for Free
       onDownloadLimitReached();
       return;
@@ -371,7 +378,7 @@ export function ExportModal({
                   variant="primary"
                   size="lg"
                   onClick={() => {
-                    if (!isGuest && isLockedPlatform(exportConfig.platformId)) {
+                    if (isLockedPlatform(exportConfig.platformId)) {
                       onDownloadLimitReached();
                       return;
                     }

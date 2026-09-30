@@ -1,6 +1,6 @@
 import type { Client } from '@libsql/client';
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 
 const MIGRATIONS = [
   // Version 1
@@ -158,6 +158,19 @@ const MIGRATIONS = [
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   )`,
   `CREATE INDEX IF NOT EXISTS idx_daily_recording_user_day ON daily_recording_seconds(user_id, day)`,
+  // Version 12 — notification ledger, deliberately separate from
+  // processed_webhooks. That table is a *fulfilment* lock: whichever of the
+  // webhook and the return-trip verify claims it owns the plan write, and the
+  // loser returns early. Reusing it to gate the receipt email meant that when
+  // the redirect beat the webhook (the common case) the buyer was activated
+  // and never told. One row per (order, kind) makes "send exactly once" a
+  // property of the notification itself, independent of who fulfilled.
+  `CREATE TABLE IF NOT EXISTS order_notifications (
+    order_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (order_id, kind)
+  )`,
 ];
 
 async function getSchemaVersion(db: Client): Promise<number> {

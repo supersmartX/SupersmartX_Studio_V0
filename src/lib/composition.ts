@@ -1,6 +1,7 @@
 'use client';
 
-import type { CropConfig } from '@/types';
+import type { AspectRatio, CropConfig } from '@/types';
+import { ASPECT_RATIO_PRESETS } from '@/constants';
 import { getDefaultCrop } from './export/export-config';
 
 // Authoritative composition model — single source for preview + export
@@ -37,6 +38,72 @@ export function computeCanvasSourceRect(
     sy: eff.y * scaleY,
     sw: eff.width * scaleX,
     sh: eff.height * scaleY,
+  };
+}
+
+/**
+ * The rect the encoder actually crops, in real video pixels, guaranteed to be
+ * exactly the output aspect.
+ *
+ * computeCanvasSourceRect maps the crop from master space into the blob's real
+ * pixel space. That is exact only while the master's aspect matches the coded
+ * video's aspect — which is the normal case, but not guaranteed: the recorder
+ * falls back to its configured size when the video probe fails, a restored take
+ * keeps whatever was stored, and the engine falls back to 1920x1080 if
+ * getCodedWidth() throws. If the aspects disagree, the scaled crop keeps the
+ * MASTER's aspect, and the encoder's own `fit: cover` then crops it a second
+ * time — so the file ends up tighter than the preview and off-centre. The user
+ * sees a different composition than the one they approved, with the subject
+ * drifting toward a cut-off edge.
+ *
+ * So the window is re-derived from the real pixels: take the cover crop of the
+ * coded source at the OUTPUT aspect (what object-fit:cover shows in the
+ * preview), then place it so the crop's normalised centre lands on that
+ * window's centre. For the only crop production generates (getDefaultCrop,
+ * always centred) this reduces exactly to the cover crop — identical to before
+ * — and for a non-centred crop it stays inside the source and keeps the output
+ * aspect, which is what prevents black bars and stretching.
+ */
+export function computeCodedSourceRect(
+  crop: CropConfig,
+  codedW: number,
+  codedH: number,
+  masterSourceW: number,
+  masterSourceH: number,
+  outputW: number,
+  outputH: number
+): { left: number; top: number; width: number; height: number } {
+  const outputRatio = outputW / outputH;
+  const srcRatio = codedW / codedH;
+
+  // Cover crop of the real pixels at the output aspect — the preview's window.
+  let width: number;
+  let height: number;
+  if (outputRatio > srcRatio) {
+    width = codedW;
+    height = codedW / outputRatio;
+  } else {
+    height = codedH;
+    width = codedH * outputRatio;
+  }
+
+  const mW = masterSourceW || codedW;
+  const mH = masterSourceH || codedH;
+  const eff = getEffectiveCrop(crop);
+  // Where the requested crop's centre sits, as a fraction of the frame.
+  const centreX = (eff.x + eff.width / 2) / mW;
+  const centreY = (eff.y + eff.height / 2) / mH;
+
+  const left = centreX * codedW - width / 2;
+  const top = centreY * codedH - height / 2;
+
+  return {
+    // Clamp rather than overflow: a window outside the source would make the
+    // encoder pad, which is exactly the black-bar artefact to avoid.
+    left: Math.min(Math.max(left, 0), codedW - width),
+    top: Math.min(Math.max(top, 0), codedH - height),
+    width,
+    height,
   };
 }
 
@@ -77,6 +144,54 @@ export function getPreviewCropGeometry(
   const sH = sourceH > 0 ? sourceH : 1080;
   const crop = getDefaultCrop(sW, sH, targetW, targetH);
   return { crop, style: computePreviewStyle(crop, sW, sH) };
+}
+
+/* ------------------------------------------------------------------ *
+ * Preview BOX shape — the other half of "preview == export"
+ * ------------------------------------------------------------------ *
+ * computePreviewStyle picks the right window inside the box, but it can only
+ * be right if the box itself has the target aspect: `object-fit: cover` crops
+ * to the BOX ratio, so a box that is not the platform ratio shows a different
+ * composition than the file the user downloads.
+ *
+ * Sizing such a box in CSS is subtler than it looks, and getting it wrong is
+ * silent:
+ *
+ *   - `aspect-ratio` is only honoured while an axis is `auto`. Setting both
+ *     `w-full` and `h-full` (or `sm:h-full`) makes it inert, and the box
+ *     silently takes the container's ratio instead.
+ *   - A `max-width` / `max-height` clamp is just as bad: it shrinks ONE axis
+ *     after the ratio was applied, so the box is no longer the target ratio.
+ *
+ * Both failure modes were measured in a real browser: a landscape (16:9) review
+ * box rendered at 6.36:1 on a 1600x900 viewport and 11.25:1 on 1440x620, while
+ * 9:16 / 4:5 / 1:1 were all exactly right. The landscape case was the broken
+ * one precisely because it was the only ratio sized `w-full ... sm:h-full`.
+ *
+ * The fix sizes the box by the binding axis explicitly: `min(100cqw,
+ * 100cqh * ratio)`. Whichever axis is tighter wins, and `aspect-ratio` then
+ * derives the other one, so the box is exactly the target ratio and can never
+ * overflow. Requires `container-type: size` on the parent (see
+ * getPreviewBoxContainerStyle).
+ */
+
+/** Style for the element that WRAPS a preview box. Makes cqw/cqh resolvable. */
+export function getPreviewBoxContainerStyle(): React.CSSProperties {
+  return { containerType: 'size' };
+}
+
+/**
+ * A box that is exactly `aspectRatio` and always fits its container.
+ * Must be rendered inside an element carrying getPreviewBoxContainerStyle().
+ */
+export function getPreviewBoxStyle(aspectRatio: AspectRatio): React.CSSProperties {
+  const preset = ASPECT_RATIO_PRESETS[aspectRatio];
+  const w = preset?.width ?? 16;
+  const h = preset?.height ?? 9;
+  return {
+    width: `min(100cqw, calc(100cqh * ${w} / ${h}))`,
+    aspectRatio: `${w} / ${h}`,
+  };
 }
 
 // Focal helpers — map presets to crop positions

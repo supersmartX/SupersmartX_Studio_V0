@@ -1,4 +1,4 @@
-import { updateUserPlanById } from '@/lib/db';
+import { updateUserPlanById, tryClaimOrderNotification, releaseOrderNotification } from '@/lib/db';
 import { logger } from '@/lib/observe/logger';
 
 export const CASHFREE_API_VERSION_FALLBACK = '2023-08-01';
@@ -86,6 +86,22 @@ export function isCashfreeOrderPaid(order: CashfreeOrder): boolean {
   return order.order_status === 'PAID';
 }
 
+/**
+ * Cashfree order states that will never become PAID.
+ *
+ * `ACTIVE` is deliberately NOT here: it is the genuine "still settling" state
+ * the return trip exists to wait on (the webhook routinely lands after the
+ * redirect). These three are terminal — the buyer declined, the gateway
+ * rejected, or the session expired — so polling for an activation that can
+ * never arrive is what turned a failed payment into a 30-second spinner
+ * promising a plan that was never going to land.
+ */
+const TERMINAL_UNPAID_STATUSES = ['FAILED', 'CANCELLED', 'EXPIRED'] as const;
+
+export function isCashfreeOrderTerminalFailure(order: CashfreeOrder): boolean {
+  return (TERMINAL_UNPAID_STATUSES as readonly string[]).includes(order.order_status ?? '');
+}
+
 export type FulfillmentFailureReason = 'amount_mismatch' | 'currency_mismatch' | 'unknown_plan';
 
 export type FulfillmentResult =
@@ -146,6 +162,77 @@ export async function fulfillPaidOrder(
 
 export function billingPeriodForPlan(plan: string): 'monthly' | 'yearly' {
   return plan.includes('yearly') ? 'yearly' : 'monthly';
+}
+
+/**
+ * Sends the post-payment receipt for a fulfilled order, at most once.
+ *
+ * Both the webhook and the return-trip verification call this. They race for
+ * the fulfilment claim in `processed_webhooks`, and whichever loses returns
+ * early — so when the redirect beat the webhook, the buyer was activated and
+ * never emailed. Claiming the notification separately makes "exactly one
+ * receipt" a property of the notification rather than an accident of which
+ * path happened to win.
+ *
+ * Best-effort in both directions: a failed send does not undo an entitlement
+ * that is already correct, and a send that throws is not allowed to turn a
+ * settled order into a webhook retry loop.
+ *
+ * This function is therefore TOTAL — it never throws. That guarantee has to
+ * include claiming the notification, not just the send: both callers
+ * (`webhook/route.ts`, `verify/route.ts`) invoke it *after* the plan is
+ * written, and their catch blocks release the *fulfilment* claim on any
+ * throw. A throw from the claim below would therefore delete the claim for an
+ * entitlement that is already correct, Cashfree's retry would win the claim
+ * back, and `fulfillPaidOrder` would run again — and because the expiry is
+ * computed from `new Date()`, each retry extends the subscription by another
+ * full billing period. Claiming outside the try made that unbounded.
+ */
+export async function sendOrderReceiptOnce(
+  pendingOrder: PendingOrder,
+  order: CashfreeOrder,
+): Promise<boolean> {
+  try {
+    const claimed = await tryClaimOrderNotification(pendingOrder.orderId, 'payment_receipt');
+    if (!claimed) return false;
+    const [{ sendPaymentConfirmationEmail, sendAdminNotification }] = await Promise.all([
+      import('@/lib/email'),
+    ]);
+    await Promise.allSettled([
+      sendPaymentConfirmationEmail({
+        orderId: pendingOrder.orderId,
+        plan: pendingOrder.plan,
+        amount: Number(order.order_amount),
+        currency: pendingOrder.currency,
+        customerName: order.customer_details?.customer_name || '',
+        customerEmail: order.customer_details?.customer_email || '',
+        billingPeriod: billingPeriodForPlan(pendingOrder.plan),
+      }),
+      sendAdminNotification({
+        orderId: pendingOrder.orderId,
+        plan: pendingOrder.plan,
+        amount: Number(order.order_amount),
+        currency: pendingOrder.currency,
+        customerName: order.customer_details?.customer_name || '',
+        customerEmail: order.customer_details?.customer_email || '',
+        billingPeriod: billingPeriodForPlan(pendingOrder.plan),
+      }),
+    ]);
+    return true;
+  } catch (error) {
+    // The entitlement is already written and correct; a mail transport failure
+    // must not escalate into a retry that re-runs fulfilment. Release the claim
+    // so a later event can still try to deliver the receipt.
+    try {
+      await releaseOrderNotification(pendingOrder.orderId, 'payment_receipt');
+    } catch {}
+    logger.error('payment.receipt_failed', {
+      route: '/api/cashfree',
+      orderId: pendingOrder.orderId,
+      errorCode: error instanceof Error ? error.message.slice(0, 120) : 'unknown',
+    });
+    return false;
+  }
 }
 
 /** Client-safe message for a rejected fulfilment. Never echoes stored values. */

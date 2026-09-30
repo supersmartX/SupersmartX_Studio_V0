@@ -6,7 +6,9 @@ import {
   fulfillPaidOrder,
   fulfillmentErrorMessage,
   isCashfreeOrderPaid,
+  isCashfreeOrderTerminalFailure,
   isCashfreeConfigured,
+  sendOrderReceiptOnce,
 } from '@/lib/cashfree-fulfillment';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
 
@@ -17,6 +19,11 @@ import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
  * only ever activated from Cashfree's authoritative order state, never from the
  * URL. This is the recovery path for a webhook that has not landed yet; it is
  * safe to call repeatedly because the fulfilment is claimed atomically.
+ *
+ * The same authority runs in the other direction: a FAILED / CANCELLED /
+ * EXPIRED order is reported as `failed` so the client can stop waiting, and
+ * because nothing here writes a plan on that path, the account is still Free
+ * and a retried or abandoned attempt leaves no entitlement behind.
  */
 export async function POST(request: NextRequest) {
   const requestId = getRequestId(request);
@@ -58,13 +65,33 @@ export async function POST(request: NextRequest) {
     const order = await fetchCashfreeOrder(orderId);
 
     if (!isCashfreeOrderPaid(order)) {
+      // A terminal failure is an answer, not a delay. Reporting it as
+      // 'pending' is what made a declined payment look like a slow one: the
+      // client kept polling for an activation that could never arrive, then
+      // told the buyer their plan was on its way. The plan is untouched here,
+      // so the session keeps reading 'free' and every Free limit still holds.
+      if (isCashfreeOrderTerminalFailure(order)) {
+        logger.info('payment.verify_order_failed', {
+          route: '/api/cashfree/verify',
+          requestId,
+          userIdHash: hashUserId(session.user.id),
+          orderId,
+          orderStatus: order.order_status,
+        });
+        return NextResponse.json({ status: 'failed', orderStatus: order.order_status });
+      }
       logger.info('payment.verify_pending', { route: '/api/cashfree/verify', requestId, orderId, orderStatus: order.order_status || 'unknown' });
       return NextResponse.json({ status: 'pending', orderStatus: order.order_status || 'ACTIVE' });
     }
 
-    // Already fulfilled by the webhook (or an earlier verify call).
+    // Already fulfilled by the webhook (or an earlier verify call). The claim
+    // only says the plan write is spoken for — it says nothing about whether the
+    // buyer was ever told, and the winner of that race may have been a path
+    // that sends no receipt at all. Claim the notification separately so the
+    // buyer is not activated and left in silence.
     const claimed = await tryClaimWebhookOrder(orderId);
     if (!claimed) {
+      await sendOrderReceiptOnce(pendingOrder, order);
       return NextResponse.json({ status: 'activated' });
     }
     claimedOrderId = orderId;
@@ -76,6 +103,8 @@ export async function POST(request: NextRequest) {
       logger.error('payment.fulfillment_rejected', { route: '/api/cashfree/verify', requestId, orderId, reason: result.reason });
       return NextResponse.json({ error: fulfillmentErrorMessage(result.reason) }, { status: 400 });
     }
+
+    await sendOrderReceiptOnce(pendingOrder, order);
 
     claimedOrderId = null;
     logger.info('payment.verify_activated', { route: '/api/cashfree/verify', requestId, userIdHash: hashUserId(pendingOrder.userId), orderId, plan: pendingOrder.plan });

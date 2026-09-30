@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { sendPaymentConfirmationEmail, sendAdminNotification } from '@/lib/email';
 import { tryClaimWebhookOrder, releaseWebhookClaim, findPendingOrder } from '@/lib/db';
 import {
   fetchCashfreeOrder,
   fulfillPaidOrder,
   fulfillmentErrorMessage,
   isCashfreeOrderPaid,
-  billingPeriodForPlan,
+  sendOrderReceiptOnce,
 } from '@/lib/cashfree-fulfillment';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
 
@@ -93,6 +92,12 @@ export async function POST(request: NextRequest) {
     // returns early, so the paid expiry can never be extended twice.
     const claimed = await tryClaimWebhookOrder(orderId);
     if (!claimed) {
+      // Someone else already fulfilled this order — usually the return-trip
+      // verify, which routinely beats the webhook. That does NOT mean the buyer
+      // has been told: the receipt is claimed separately, so send it here
+      // rather than assuming the winner handled it. Losing the fulfilment race
+      // is a reason to check, not a reason to go silent.
+      await sendOrderReceiptOnce(pendingOrder, order);
       return NextResponse.json({ status: 'ok' });
     }
     claimedOrderId = orderId;
@@ -111,21 +116,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: fulfillmentErrorMessage(result.reason) }, { status: 400 });
     }
 
-    // Send confirmation email (best-effort, after the plan is active)
-    const emailData = {
-      orderId,
-      plan: pendingOrder.plan,
-      amount: Number(order.order_amount),
-      currency: pendingOrder.currency,
-      customerName: order.customer_details?.customer_name || '',
-      customerEmail: order.customer_details?.customer_email || '',
-      billingPeriod: billingPeriodForPlan(pendingOrder.plan),
-    };
-
-    await Promise.allSettled([
-      sendPaymentConfirmationEmail(emailData),
-      sendAdminNotification(emailData),
-    ]);
+    // Receipt after the plan is active, so the email can never describe an
+    // entitlement the buyer does not have.
+    await sendOrderReceiptOnce(pendingOrder, order);
 
     logger.info('payment.order_fulfilled', { route: '/api/cashfree/webhook', requestId, userIdHash: hashUserId(pendingOrder.userId), orderId, plan: pendingOrder.plan });
 
