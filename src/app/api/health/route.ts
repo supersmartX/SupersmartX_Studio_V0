@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/driver';
 import { ensureMigrated } from '@/lib/db';
+import { getR2ConfigurationError } from '@/lib/r2';
 import { auth } from '@/auth';
 
 export async function GET() {
@@ -33,9 +34,9 @@ export async function GET() {
   // Only expose detailed checks to authenticated users
   const session = await auth().catch(() => null);
   if (session?.user?.id) {
-    checks.r2 = (process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID)
-      ? 'configured'
-      : 'not_configured';
+    const r2Error = getR2ConfigurationError();
+    checks.r2 = r2Error ? 'not_configured' : 'configured';
+    if (r2Error) checks.r2_detail = r2Error;
     response.checks = checks;
   }
 

@@ -6,6 +6,7 @@ process.env.TURSO_DATABASE_URL = 'file::memory:';
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/r2', () => ({
   isR2Configured: () => true,
+  getR2ConfigurationError: () => null,
   headObject: vi.fn(),
   deleteRecording: vi.fn(),
 }));

@@ -5,7 +5,9 @@ import { resetDb } from '@/lib/db/driver';
 import { setMigrated } from '@/lib/db/index';
 
 process.env.TURSO_DATABASE_URL = 'file::memory:';
-process.env.R2_ACCOUNT_ID = 'test-account';
+// isR2Configured() validates shapes, so the fixture must be a well-formed
+// (fictional) account id: 32 hex characters, like a real Cloudflare account.
+process.env.R2_ACCOUNT_ID = '0123456789abcdef0123456789abcdef';
 process.env.R2_ACCESS_KEY_ID = 'test-key-id';
 process.env.R2_SECRET_ACCESS_KEY = 'test-secret';
 process.env.R2_BUCKET_NAME = 'test-bucket';

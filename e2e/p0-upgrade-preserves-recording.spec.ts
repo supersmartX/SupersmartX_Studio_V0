@@ -54,7 +54,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { createClient, type Client } from '@libsql/client';
 import * as fs from 'fs';
 import * as path from 'path';
-import { hasRealCredentials } from './helpers';
+import { hasRealCredentials, hasRealR2Credentials } from './helpers';
 
 test.use({
   permissions: ['camera', 'microphone'],
@@ -115,10 +115,7 @@ function env(key: string): string {
   return (process.env[key] || fileEnv[key] || '').trim();
 }
 
-const R2_READY = hasRealCredentials(
-  ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET_NAME'],
-  env
-);
+const R2_READY = hasRealR2Credentials(env);
 const CASHFREE_READY = hasRealCredentials(['CASHFREE_APP_ID', 'CASHFREE_SECRET_KEY'], env);
 
 let _db: Client | null = null;

@@ -5,7 +5,7 @@ import type { ExportConfig, ExportJob, CropConfig, PlatformId, MasterRecording }
 import { saveLocalExport } from '@/lib/local-exports-store';
 import { createExportConfig, getDefaultCrop } from '@/lib/export/export-config';
 import { encodeExport } from '@/lib/export/export-engine';
-import { uploadCreatorExportToR2 } from '@/lib/export/export-upload';
+import { uploadCreatorExportToR2, ExportUploadError, describeUploadError } from '@/lib/export/export-upload';
 import { generateExportThumbnail } from '@/lib/export/export-thumbnail';
 import { assertEncodedFrame } from '@/lib/export/mp4-metadata';
 import { assertExportSupported, UnsupportedBrowserError } from '@/lib/export/browser-support';
@@ -41,6 +41,10 @@ function reportServerJob(serverJobId: string | undefined, body: { status: 'faile
 // caller can keep them silent.
 export function toExportErrorMessage(error: unknown, aborted: boolean): string | undefined {
   if (aborted) return undefined;
+  // Upload failures arrive already classified: the message names the stage that
+  // broke (presigned URL / storage PUT / completion) instead of pretending the
+  // user's connection is at fault for every one of them.
+  if (error instanceof ExportUploadError) return describeUploadError(error);
   if (error instanceof TypeError && /^(Failed to fetch|Load failed|NetworkError)/.test(error.message)) {
     return 'Connection error. Check your connection and try again.';
   }

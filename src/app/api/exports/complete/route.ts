@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { findUserById, findExportJobByIdAndUser, updateExportJobStatus, createExport, ensureUserStatsRow, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, atomicTryConsumeRecordingSeconds, atomicRevertRecordingSeconds } from '@/lib/db';
 import { getEntitlements, isPlanActive, isPlatformLockedForUser, getDailyRecordingAllowanceSeconds, computeRecordingChargeSeconds, clampResolution } from '@/lib/entitlements';
-import { headObject, deleteRecording, isR2Configured } from '@/lib/r2';
+import { headObject, deleteRecording, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Output dimensions do not match the validated export configuration' }, { status: 400 });
     }
 
-    if (!isR2Configured()) return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
+    if (!isR2Configured()) return NextResponse.json({ error: `Storage not configured: ${getR2ConfigurationError()}` }, { status: 503 });
 
     // Verify object exists via Head
     const head = await headObject(key);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getSignedDownloadUrl, isR2Configured } from '@/lib/r2';
+import { getSignedDownloadUrl, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
 import { findExportByIdAndUser, findUserById, atomicIncrementDownloadCount, ensureUserStatsRow } from '@/lib/db';
 import { getEntitlements, isPlanActive } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!isR2Configured()) {
-      return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
+      return NextResponse.json({ error: `Storage not configured: ${getR2ConfigurationError()}` }, { status: 503 });
     }
 
     const rl = rateLimit(`download:${session.user.id}`, DOWNLOAD_RATE_LIMIT_MAX, DOWNLOAD_RATE_LIMIT_WINDOW_MS);

@@ -8,6 +8,7 @@ process.env.TURSO_DATABASE_URL = 'file::memory:';
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/r2', () => ({
   isR2Configured: () => true,
+  getR2ConfigurationError: () => null,
   getSignedUploadUrl: vi.fn().mockResolvedValue('https://r2.example/upload'),
   // Real keys are namespaced under the user id; the complete route enforces
   // that prefix, so the mock must produce a genuine per-user key.

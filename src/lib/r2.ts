@@ -1,38 +1,124 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-function getR2Client(): S3Client | null {
-  const accountId = process.env.R2_ACCOUNT_ID;
-  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+// Cloudflare account IDs are exactly 32 hex characters. Anything else cannot
+// address a real account, and the S3 endpoint it produces fails the TLS
+// handshake at Cloudflare's edge (`sslv3 alert handshake failure`) — a
+// signature mismatch never even gets that far. Rejecting the shape here is what
+// turns "Connection error. Check your connection and try again." into a 503.
+const R2_ACCOUNT_ID_PATTERN = /^[0-9a-f]{32}$/i;
 
-  if (!accountId || !accessKeyId || !secretAccessKey) {
-    return null;
-  }
+// R2 bucket names: 3-63 chars, lowercase alphanumerics with internal dashes.
+const R2_BUCKET_NAME_PATTERN = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+
+// Values shipped in .env.example, DEPLOYMENT.md and audit/CHANGELOG.md as
+// fill-in-the-blank. They are non-empty, so every truthiness check treats them
+// as configured and the failure only surfaces as an opaque network error much
+// later in the export pipeline.
+const PLACEHOLDER_LITERALS = new Set([
+  'your_account_id',
+  'your-account-id',
+  'your-cloudflare-account',
+  'your-bucket-name',
+  'your-access-key-id',
+  'your-access-key',
+  'your-secret-access-key',
+  'your-secret-key',
+  'placeholder',
+  'changeme',
+  'change-me',
+  'replace-me',
+  'replace_me',
+  'todo',
+  'tbd',
+  'xxx',
+]);
+
+// Substring form, used only for the two credential values. A high-entropy key
+// cannot contain these, whereas a bucket name legitimately can ("*-example-*"),
+// so the bucket is matched against the exact set instead.
+const PLACEHOLDER_SUBSTRING =
+  /(your[_-]|xxx+|placeholder|changeme|change[_-]?me|replace[_-]?me|insert[_-]?here|dummy|example|todo|tbd|<[^>]*>|\$\{)/i;
+
+function readConfigValue(name: string): string | undefined {
+  const raw = process.env[name];
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isUsableCredential(value: string | undefined): boolean {
+  return !!value && !/\s/.test(value) && !PLACEHOLDER_SUBSTRING.test(value);
+}
+
+function isUsableBucketName(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  if (PLACEHOLDER_LITERALS.has(normalized)) return false;
+  if (PLACEHOLDER_LITERALS.has(normalized.replace(/[_-]/g, ''))) return false;
+  return true;
+}
+
+/**
+ * Returns a short, human-readable reason R2 is unusable, or null when the
+ * configuration is well-formed. Callers surface this instead of a generic
+ * "Storage not configured" so a misconfigured environment is self-describing.
+ */
+export function getR2ConfigurationError(): string | null {
+  const accountId = readConfigValue('R2_ACCOUNT_ID');
+  if (!accountId) return 'R2_ACCOUNT_ID is not set';
+  if (PLACEHOLDER_LITERALS.has(accountId.toLowerCase())) return 'R2_ACCOUNT_ID is still a placeholder value';
+  if (!R2_ACCOUNT_ID_PATTERN.test(accountId)) return 'R2_ACCOUNT_ID must be a 32-character Cloudflare account ID';
+
+  const accessKeyId = readConfigValue('R2_ACCESS_KEY_ID');
+  if (!accessKeyId) return 'R2_ACCESS_KEY_ID is not set';
+  if (!isUsableCredential(accessKeyId)) return 'R2_ACCESS_KEY_ID is not a usable credential';
+
+  const secretAccessKey = readConfigValue('R2_SECRET_ACCESS_KEY');
+  if (!secretAccessKey) return 'R2_SECRET_ACCESS_KEY is not set';
+  if (!isUsableCredential(secretAccessKey)) return 'R2_SECRET_ACCESS_KEY is not a usable credential';
+
+  const bucket = readConfigValue('R2_BUCKET_NAME');
+  if (!bucket) return 'R2_BUCKET_NAME is not set';
+  if (!isUsableBucketName(bucket)) return 'R2_BUCKET_NAME is still a placeholder value';
+  if (!R2_BUCKET_NAME_PATTERN.test(bucket)) return 'R2_BUCKET_NAME is not a valid R2 bucket name';
+
+  return null;
+}
+
+export function isR2Configured(): boolean {
+  return getR2ConfigurationError() === null;
+}
+
+function getR2Client(): S3Client | null {
+  const configError = getR2ConfigurationError();
+  if (configError) return null;
 
   return new S3Client({
     region: 'auto',
-    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+    endpoint: `https://${readConfigValue('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com`,
+    // R2 has no virtual-hosted-style endpoint. Since @aws-sdk/client-s3 v3.729
+    // the SDK defaults this to false and would emit
+    // https://<bucket>.<account>.r2.cloudflarestorage.com/... — a host that does
+    // not exist, so every presigned URL 403s/handshake-fails at the browser.
+    forcePathStyle: true,
     credentials: {
-      accessKeyId,
-      secretAccessKey,
+      accessKeyId: readConfigValue('R2_ACCESS_KEY_ID') as string,
+      secretAccessKey: readConfigValue('R2_SECRET_ACCESS_KEY') as string,
     },
   });
 }
 
-function getBucketName(): string {
-  const bucket = process.env.R2_BUCKET_NAME;
-  if (!bucket) throw new Error('R2_BUCKET_NAME is not configured');
-  return bucket;
+function requireR2Client(): S3Client {
+  const client = getR2Client();
+  if (!client) throw new Error(`R2 not configured: ${getR2ConfigurationError()}`);
+  return client;
 }
 
-export function isR2Configured(): boolean {
-  return !!(
-    process.env.R2_ACCOUNT_ID &&
-    process.env.R2_ACCESS_KEY_ID &&
-    process.env.R2_SECRET_ACCESS_KEY &&
-    process.env.R2_BUCKET_NAME
-  );
+function getBucketName(): string {
+  const bucket = readConfigValue('R2_BUCKET_NAME');
+  if (!bucket) throw new Error('R2_BUCKET_NAME is not configured');
+  return bucket;
 }
 
 export async function uploadRecording(
@@ -40,8 +126,7 @@ export async function uploadRecording(
   blob: Blob,
   metadata: Record<string, string>
 ): Promise<void> {
-  const client = getR2Client();
-  if (!client) throw new Error('R2 not configured');
+  const client = requireR2Client();
 
   const bucket = getBucketName();
   const arrayBuffer = await blob.arrayBuffer();
@@ -62,8 +147,7 @@ export async function getSignedDownloadUrl(
   key: string,
   expiresIn: number = 3600
 ): Promise<string> {
-  const client = getR2Client();
-  if (!client) throw new Error('R2 not configured');
+  const client = requireR2Client();
 
   const bucket = getBucketName();
 
@@ -76,8 +160,7 @@ export async function getSignedDownloadUrl(
 }
 
 export async function deleteRecording(key: string): Promise<void> {
-  const client = getR2Client();
-  if (!client) throw new Error('R2 not configured');
+  const client = requireR2Client();
 
   const bucket = getBucketName();
 
@@ -94,8 +177,7 @@ export async function getSignedUploadUrl(
   contentType: string = 'video/mp4',
   expiresIn: number = 900
 ): Promise<string> {
-  const client = getR2Client();
-  if (!client) throw new Error('R2 not configured');
+  const client = requireR2Client();
   const bucket = getBucketName();
   const command = new PutObjectCommand({
     Bucket: bucket,
@@ -106,8 +188,7 @@ export async function getSignedUploadUrl(
 }
 
 export async function headObject(key: string): Promise<{ size: number; contentType?: string } | null> {
-  const client = getR2Client();
-  if (!client) throw new Error('R2 not configured');
+  const client = requireR2Client();
   const bucket = getBucketName();
   try {
     const command = new HeadObjectCommand({ Bucket: bucket, Key: key });
@@ -127,8 +208,7 @@ export function generateExportKey(userId: string): string {
 export async function listUserRecordings(
   prefix: string
 ): Promise<Array<{ key: string; size: number; lastModified: Date }>> {
-  const client = getR2Client();
-  if (!client) throw new Error('R2 not configured');
+  const client = requireR2Client();
 
   const bucket = getBucketName();
 

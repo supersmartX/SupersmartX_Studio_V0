@@ -6,6 +6,7 @@ process.env.TURSO_DATABASE_URL = 'file::memory:';
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/r2', () => ({
   isR2Configured: () => true,
+  getR2ConfigurationError: () => null,
   getSignedUploadUrl: vi.fn().mockResolvedValue('https://r2.example/upload'),
   generateExportKey: vi.fn().mockReturnValue('exports/test/key.mp4'),
   headObject: vi.fn().mockResolvedValue({ size: 2_000_000, contentType: 'video/mp4' }),

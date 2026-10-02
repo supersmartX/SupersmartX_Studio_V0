@@ -6,6 +6,7 @@ import { setMigrated } from '@/lib/db/index';
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/r2', () => ({
   isR2Configured: () => false,
+  getR2ConfigurationError: () => 'R2_ACCOUNT_ID is not set',
   uploadRecording: vi.fn(),
   generateRecordingKey: vi.fn(),
   getSignedUploadUrl: vi.fn(),

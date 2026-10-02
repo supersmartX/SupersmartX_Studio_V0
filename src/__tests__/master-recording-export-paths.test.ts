@@ -47,7 +47,8 @@ vi.mock('@/lib/export/browser-support', () => ({
 // need a hand-built MP4 to let a synthetic blob through.
 vi.mock('@/lib/export/mp4-metadata', () => ({ assertEncodedFrame: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('@/lib/local-exports-store', () => ({ saveLocalExport: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('@/lib/export/export-upload', () => ({
+vi.mock('@/lib/export/export-upload', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/export/export-upload')>()),
   uploadCreatorExportToR2: vi.fn().mockResolvedValue({ exportId: 'export-1', r2Key: 'exports/u/x.mp4' }),
 }));
 vi.mock('@/lib/export/export-thumbnail', () => ({ generateExportThumbnail: vi.fn() }));

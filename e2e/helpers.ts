@@ -54,6 +54,20 @@ export function hasRealCredentials(keys: string[], lookup: (key: string) => stri
   });
 }
 
+/**
+ * Presence and placeholder checks alone accept a mistyped Cloudflare account ID
+ * (e.g. a 34-character value containing non-hex characters). Cloudflare's edge
+ * rejects that host at the TLS handshake, so every presigned PUT fails for a
+ * reason no amount of retrying can fix — and the P0 gate would happily run into
+ * it. The account ID is the one R2 credential with a fixed, documented shape,
+ * so it is checked here rather than left to fail at request time.
+ */
+export function hasRealR2Credentials(lookup: (key: string) => string): boolean {
+  const keys = ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET_NAME'];
+  if (!hasRealCredentials(keys, lookup)) return false;
+  return /^[0-9a-f]{32}$/i.test(lookup('R2_ACCOUNT_ID').trim());
+}
+
 /** TransportBar's PauseIcon — the pause button carries no accessible name. */
 const PAUSE_ICON = 'path[d^="M10 9v6m4-6v6"]';
 

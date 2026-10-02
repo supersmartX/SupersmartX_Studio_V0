@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { findExportByIdAndUser, findUserById } from '@/lib/db';
 import { isPlanActive } from '@/lib/entitlements';
-import { getSignedDownloadUrl, isR2Configured } from '@/lib/r2';
+import { getSignedDownloadUrl, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth();
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!isR2Configured()) return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
+    if (!isR2Configured()) return NextResponse.json({ error: `Storage not configured: ${getR2ConfigurationError()}` }, { status: 503 });
     const { id } = await params;
     const user = await findUserById(session.user.id);
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 401 });

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { findUserById, createExportJob, updateExportJobStatus, getActiveExportJobCount, getMonthlyExportCount } from '@/lib/db';
 import { getEntitlements, isPlanActive, clampResolution, exceedsResolutionLimit } from '@/lib/entitlements';
-import { getSignedUploadUrl, generateExportKey, isR2Configured } from '@/lib/r2';
+import { getSignedUploadUrl, generateExportKey, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
 import { rateLimit } from '@/lib/rate-limit';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!isR2Configured()) return NextResponse.json({ error: 'Storage not configured' }, { status: 503 });
+    if (!isR2Configured()) return NextResponse.json({ error: `Storage not configured: ${getR2ConfigurationError()}` }, { status: 503 });
 
     const rl = rateLimit(`presigned:${session.user.id}`, PRESIGNED_RATE_LIMIT_MAX, PRESIGNED_RATE_LIMIT_WINDOW_MS);
     if (!rl.allowed) return NextResponse.json({ error: 'Rate limited' }, { status: 429 });
