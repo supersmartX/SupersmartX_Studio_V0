@@ -31,7 +31,7 @@ export default function PrivacyPage() {
               <li><strong>Account information:</strong> Email address, first name, last name (when you create an account)</li>
               <li><strong>Payment information:</strong> Processed by Cashfree — we do not store card details</li>
               <li><strong>Scripts:</strong> Teleprompter text you enter (stored locally in your browser)</li>
-              <li><strong>Recordings:</strong> Video and audio recorded via your camera and microphone (processed locally, not uploaded unless you share)</li>
+              <li><strong>Recordings:</strong> Video and audio captured via your camera and microphone. On the Free plan these stay on your device and are never uploaded to us. On the Creator plan, the exported MP4 file you choose to export is uploaded to our storage provider (Cloudflare R2) and linked to your account — see section 4.</li>
             </ul>
           </section>
 
@@ -41,6 +41,7 @@ export default function PrivacyPage() {
               <li>To provide and maintain the Service</li>
               <li>To process payments and manage subscriptions</li>
               <li>To send transactional emails (password reset, payment confirmations)</li>
+              <li>To store, display and deliver the videos you export on a paid plan</li>
               <li>To improve the Service</li>
             </ul>
           </section>
@@ -49,16 +50,37 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-text-primary">3. Camera and Microphone</h2>
             <p>
               Camera and microphone access is requested solely for the purpose of recording your video presentations.
-              Media streams are processed entirely in your browser. We do not capture, store, or transmit
-              your camera or microphone data to our servers.
+              The live camera and microphone streams are processed entirely in your browser and are never sent to our
+              servers by the recording feature. Recording and exporting also happen on your device: the MP4 is
+              encoded locally in your browser.
+            </p>
+            <p>
+              What does leave your device is the finished MP4 file, and only when you export it on the Creator plan —
+              see the next section. Free exports are never uploaded.
             </p>
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-text-primary">4. Local Storage</h2>
+            <h2 className="text-lg font-semibold text-text-primary">4. Local Storage and Uploaded Exports</h2>
             <p>
-              Scripts, settings, and recordings are stored in your browser&apos;s local storage and IndexedDB.
-              This data never leaves your device unless you explicitly download or share it.
+              Scripts, settings, and your original recordings are stored in your browser&apos;s local storage and
+              IndexedDB. On the Free plan this data never leaves your device unless you explicitly download or share it,
+              and a Free local export is also stored only on your device (in your browser&apos;s local export storage)
+              for 7 days before it is no longer listed.
+            </p>
+            <p>
+              On the Creator plan, exporting a video uploads the finished MP4 directly from your browser to Cloudflare
+              R2, our object storage provider, and records it against your account so it can appear in your Creator
+              library and be downloaded again later. Those files are stored under a key namespaced to your user ID and
+              are served only through short-lived signed download links; the bucket is not publicly readable and there
+              is no public URL for your video.
+            </p>
+            <p>
+              An uploaded Creator export is retained until you delete it yourself from your library, or until you
+              delete your account, at which point the stored file and its database record are removed. We do not
+              currently apply an automatic expiry to Creator library files. An unfinished export upload that was never
+              completed is removed by a nightly cleanup job after 30 days; files that belong to a completed export are
+              never touched by that job.
             </p>
           </section>
 
@@ -67,6 +89,7 @@ export default function PrivacyPage() {
             <ul className="list-disc list-inside space-y-1 ml-4">
               <li><strong>Cashfree:</strong> Payment processing</li>
               <li><strong>Vercel:</strong> Hosting and deployment</li>
+              <li><strong>Cloudflare R2:</strong> Object storage for the videos you export on the Creator plan</li>
               <li><strong>Resend:</strong> Transactional email delivery</li>
             </ul>
           </section>
@@ -85,7 +108,7 @@ export default function PrivacyPage() {
             <ul className="list-disc list-inside space-y-1 ml-4">
               <li>Access your personal data</li>
               <li>Correct inaccurate data</li>
-              <li>Delete your account and associated data</li>
+              <li>Delete your account and associated data — deleting your account removes your stored exports from Cloudflare R2 and your records from our database, and ends every active session for that account</li>
               <li>Export your data</li>
             </ul>
           </section>

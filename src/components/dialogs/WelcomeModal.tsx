@@ -81,7 +81,7 @@ export function WelcomeModal({
                   </svg>
                 ),
                 title: 'Private by Design',
-                desc: 'Your recordings stay on your device until you choose to export.',
+                desc: 'Your recording stays on your device until you choose to export. Creator exports are then uploaded to your own private cloud library.',
               },
               {
                 icon: (

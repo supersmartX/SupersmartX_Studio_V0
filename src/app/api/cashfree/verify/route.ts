@@ -8,6 +8,7 @@ import {
   isCashfreeOrderPaid,
   isCashfreeOrderTerminalFailure,
   isCashfreeConfigured,
+  isCashfreeEnvUsable,
   sendOrderReceiptOnce,
 } from '@/lib/cashfree-fulfillment';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
@@ -39,6 +40,14 @@ export async function POST(request: NextRequest) {
 
     if (!isCashfreeConfigured()) {
       return NextResponse.json({ error: 'Payment gateway not configured' }, { status: 503 });
+    }
+
+    // Never verify (and therefore never activate) against a Cashfree
+    // environment that production has not explicitly selected. A mistyped or
+    // missing CASHFREE_ENV must not be able to fulfil a real order.
+    if (!isCashfreeEnvUsable()) {
+      logger.error('payment.verify_failed', { route: '/api/cashfree/verify', requestId, errorCode: 'cashfree_env_not_production' });
+      return NextResponse.json({ error: 'Payment is temporarily unavailable' }, { status: 503 });
     }
 
     const orderId = request.nextUrl.searchParams.get('order_id')?.trim();

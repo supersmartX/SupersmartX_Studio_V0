@@ -77,6 +77,43 @@ export async function findUserById(userId: string): Promise<StoredUser | undefin
   };
 }
 
+/**
+ * Records that an identity was deleted, along with the highest session version
+ * ever issued to it.
+ *
+ * Deleting the `users` row is not enough to end an identity. `middleware` only
+ * verifies the JWT signature, and `resolveSessionUser` resolves a stale token by
+ * EMAIL — so after a delete, a later signup on the same address would be
+ * adopted by the deleted account's still-valid cookie. The high-water mark lets
+ * a re-registration start above it, which retires every token from the previous
+ * identity instead of silently re-provisioning it.
+ */
+export async function recordDeletedIdentity(email: string, sessionVersion: number): Promise<void> {
+  await ensureMigrated();
+  const db = getDb();
+  const version = Number.isInteger(sessionVersion) && sessionVersion > 0 ? sessionVersion : 1;
+  await db.execute({
+    sql: `INSERT INTO deleted_identities (email, session_version, deleted_at) VALUES (?, ?, ?)
+          ON CONFLICT(email) DO UPDATE SET
+            session_version = MAX(deleted_identities.session_version, excluded.session_version),
+            deleted_at = excluded.deleted_at`,
+    args: [email.toLowerCase(), version, new Date().toISOString()],
+  });
+}
+
+export async function getDeletedIdentitySessionVersion(email: string): Promise<number | null> {
+  await ensureMigrated();
+  const db = getDb();
+  const result = await db.execute({
+    sql: 'SELECT session_version FROM deleted_identities WHERE email = ?',
+    args: [email.toLowerCase()],
+  });
+  const row = result.rows[0];
+  if (!row) return null;
+  const version = Number(row.session_version);
+  return Number.isInteger(version) ? version : null;
+}
+
 export async function createUser(
   email: string,
   name: string,
@@ -88,18 +125,23 @@ export async function createUser(
   const db = getDb();
   const userId = id || `user-${crypto.randomUUID()}`;
   const now = createdAt || new Date().toISOString();
+  const normalizedEmail = email.toLowerCase();
+  // Start above every session version ever issued for this address, so a
+  // re-registration on a deleted identity cannot be resumed by a cookie that
+  // predates the deletion.
+  const sessionVersion = (await getDeletedIdentitySessionVersion(normalizedEmail)) ?? 0;
   await db.execute({
-    sql: 'INSERT INTO users (id, email, name, password_hash, created_at, plan) VALUES (?, ?, ?, ?, ?, ?)',
-    args: [userId, email.toLowerCase(), name, passwordHash, now, 'free'],
+    sql: 'INSERT INTO users (id, email, name, password_hash, created_at, plan, session_version) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    args: [userId, normalizedEmail, name, passwordHash, now, 'free', sessionVersion],
   });
   return {
     id: userId,
-    email: email.toLowerCase(),
+    email: normalizedEmail,
     name,
     passwordHash,
     createdAt: now,
     plan: 'free',
-    sessionVersion: 0,
+    sessionVersion,
   };
 }
 
@@ -709,12 +751,34 @@ export async function findExportJobByIdAndUser(
   return mapExportJobRow(result.rows[0]);
 }
 
+/**
+ * Retention sweep for export jobs.
+ *
+ * Only abandoned work is eligible. A `completed` job's `result_r2_key` IS the
+ * R2 object behind a Creator library item, so sweeping it deleted a file the
+ * customer had already exported.
+ *
+ * The two halves of the sweep have different guarantees and they must not be
+ * conflated:
+ *
+ * - `getOldExportJobs` decides which *objects* may be deleted in R2, and
+ *   excludes any key an `exports` row still references. An export whose job
+ *   never advanced past `uploading` (the completion route writes the export row
+ *   before stamping the job) is therefore never a delete target.
+ * - `deleteOldExportJobs` deletes *rows*. It does not need the same exclusion,
+ *   because `exports.job_id` is declared `ON DELETE SET NULL`: the export and
+ *   its R2 object survive intact while the stale job row is reclaimed.
+ */
+const CLEANABLE_EXPORT_JOB_STATUSES = `('pending', 'encoding', 'uploading', 'failed')`;
+
 export async function deleteOldExportJobs(maxAgeMs: number): Promise<number> {
   await ensureMigrated();
   const db = getDb();
   const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
   const result = await db.execute({
-    sql: 'DELETE FROM export_jobs WHERE created_at < ?',
+    sql: `DELETE FROM export_jobs
+          WHERE created_at < ?
+            AND status IN ${CLEANABLE_EXPORT_JOB_STATUSES}`,
     args: [cutoff],
   });
   return result.rowsAffected;
@@ -725,7 +789,11 @@ export async function getOldExportJobs(maxAgeMs: number): Promise<{ r2Key: strin
   const db = getDb();
   const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
   const result = await db.execute({
-    sql: 'SELECT result_r2_key FROM export_jobs WHERE created_at < ? AND result_r2_key IS NOT NULL',
+    sql: `SELECT result_r2_key FROM export_jobs
+          WHERE created_at < ?
+            AND result_r2_key IS NOT NULL
+            AND status IN ${CLEANABLE_EXPORT_JOB_STATUSES}
+            AND result_r2_key NOT IN (SELECT r2_key FROM exports)`,
     args: [cutoff],
   });
   return result.rows.map((row) => ({ r2Key: row.result_r2_key as string }));

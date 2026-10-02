@@ -52,8 +52,16 @@ export default function TermsPage() {
             <h2 className="text-lg font-semibold text-text-primary">4. User Content</h2>
             <p>
               You retain ownership of all scripts and recordings you create using the Service.
-              We do not claim ownership over your content. Recordings are processed locally in your browser
-              and are not uploaded to our servers unless you explicitly choose to share them.
+              We do not claim ownership over your content. Recording and video encoding happen in your
+              browser.
+            </p>
+            <p>
+              Storage of your content depends on your plan. On the Free plan your original recording and
+              your exported file stay on your device — in your browser&apos;s local storage — and are never
+              uploaded to us. On the Creator plan, exporting a video uploads the finished MP4 from your
+              browser to Cloudflare R2 and stores it against your account so it can appear in your Creator
+              library and be downloaded again. You can delete an individual export at any time, and
+              deleting your account deletes every stored export.
             </p>
           </section>
 

@@ -6,6 +6,7 @@ import {
   fulfillPaidOrder,
   fulfillmentErrorMessage,
   isCashfreeOrderPaid,
+  isCashfreeEnvUsable,
   sendOrderReceiptOnce,
 } from '@/lib/cashfree-fulfillment';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
@@ -39,6 +40,18 @@ export async function POST(request: NextRequest) {
   let claimedOrderId: string | null = null;
   try {
     if (!process.env.CASHFREE_SECRET_KEY) {
+      return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
+    }
+
+    // Fulfilment runs against whichever environment the server selected. In
+    // production an absent or misspelt CASHFREE_ENV must stop fulfilment dead
+    // rather than verify the order against sandbox and write a real entitlement.
+    if (!isCashfreeEnvUsable()) {
+      logger.error('payment.webhook_failed', {
+        route: '/api/cashfree/webhook',
+        requestId,
+        errorCode: 'cashfree_env_not_production',
+      });
       return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
     }
 

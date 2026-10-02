@@ -16,7 +16,8 @@ vi.mock('@/lib/email', () => ({
 import { auth } from '@/auth';
 import { POST as verifyPOST } from '@/app/api/cashfree/verify/route';
 import { POST as webhookPOST } from '@/app/api/cashfree/webhook/route';
-import { fulfillPaidOrder, fulfillmentErrorMessage, getCashfreeEnv, cashfreeBaseUrl, isCashfreeEnvConsistent, isCashfreeOrderTerminalFailure } from '@/lib/cashfree-fulfillment';
+import { POST as orderPOST } from '@/app/api/cashfree/order/route';
+import { fulfillPaidOrder, fulfillmentErrorMessage, getCashfreeEnv, cashfreeBaseUrl, isCashfreeEnvConsistent, isCashfreeOrderTerminalFailure, assertCashfreeEnvForRuntime, isCashfreeEnvUsable } from '@/lib/cashfree-fulfillment';
 import { resetDb, getDb } from '@/lib/db/driver';
 import {
   setMigrated,
@@ -82,6 +83,22 @@ function paidOrderBody(orderId: string, amount = CREATOR_MONTHLY, currency = 'IN
 function verifyRequest(orderId: string) {
   return new NextRequest(`http://localhost/api/cashfree/verify?order_id=${encodeURIComponent(orderId)}`, {
     method: 'POST',
+  });
+}
+
+/** A fully valid checkout body for the India/INR region. */
+function orderBody(plan: string) {
+  return new NextRequest('http://localhost/api/cashfree/order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      plan,
+      currency: 'INR',
+      country: 'IN',
+      name: 'Buyer',
+      email: 'buyer@example.com',
+      phone: '+919999999999',
+    }),
   });
 }
 
@@ -731,6 +748,134 @@ describe('Cashfree environment consistency', () => {
     process.env.CASHFREE_ENV = 'sandbox';
     process.env.NEXT_PUBLIC_CASHFREE_ENV = 'production';
     expect(isCashfreeEnvConsistent()).toBe(false);
+  });
+});
+
+/**
+ * The finding: `getCashfreeEnv` collapses anything unrecognised to `sandbox`,
+ * which is safe for local work and wrong in production. A deploy with
+ * `CASHFREE_ENV` unset or misspelt would keep serving, would create orders and
+ * verify payments against the sandbox host, and would show no error anywhere —
+ * while real customers check out against a production build. The guard has to
+ * fail closed in production and nowhere else, or it becomes noise for
+ * developers and for the test suite.
+ */
+describe('Cashfree fails closed in production only', () => {
+  const ORIGINAL = { ...process.env };
+
+  beforeEach(() => {
+    process.env.CASHFREE_APP_ID = 'test-app-id';
+    process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
+    delete process.env.NEXT_PUBLIC_CASHFREE_ENV;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    process.env = { ...ORIGINAL };
+  });
+
+  describe('library guard', () => {
+    it('refuses every production value that is not exactly "production"', () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      for (const bad of [undefined, '', 'sandbox', 'prodution', 'PRODUCTION', 'Production', 'live']) {
+        if (bad === undefined) delete process.env.CASHFREE_ENV;
+        else process.env.CASHFREE_ENV = bad;
+        expect(isCashfreeEnvUsable()).toBe(false);
+        expect(() => assertCashfreeEnvForRuntime()).toThrow('cashfree_env_not_production');
+        // And the host selection itself refuses rather than silently sandboxing.
+        expect(() => cashfreeBaseUrl()).toThrow('cashfree_env_not_production');
+      }
+    });
+
+    it('allows an exact production value', () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      process.env.CASHFREE_ENV = 'production';
+      expect(isCashfreeEnvUsable()).toBe(true);
+      expect(() => assertCashfreeEnvForRuntime()).not.toThrow();
+      expect(cashfreeBaseUrl()).toBe('https://api.cashfree.com/pg');
+    });
+
+    it('still falls back to sandbox outside production, so local and test work is untouched', () => {
+      for (const nodeEnv of ['development', 'test']) {
+        vi.stubEnv('NODE_ENV', nodeEnv);
+        delete process.env.CASHFREE_ENV;
+        expect(isCashfreeEnvUsable()).toBe(true);
+        expect(cashfreeBaseUrl()).toBe('https://sandbox.cashfree.com/pg');
+      }
+    });
+
+    it('still rejects a production server / sandbox browser split in production', () => {
+      // The server env is valid here, so the runtime guard passes and the
+      // consistency check is what refuses — it reports rather than throws.
+      vi.stubEnv('NODE_ENV', 'production');
+      process.env.CASHFREE_ENV = 'production';
+      process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
+      expect(isCashfreeEnvConsistent()).toBe(false);
+    });
+
+    it('throws rather than reporting when the server env itself is unusable', () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      delete process.env.CASHFREE_ENV;
+      expect(() => isCashfreeEnvConsistent()).toThrow('cashfree_env_not_production');
+    });
+  });
+
+  describe('order route', () => {
+    beforeEach(cleanTestData);
+    afterEach(cleanTestData);
+
+    it('answers 503 and never calls Cashfree when CASHFREE_ENV is unset in production', async () => {
+      const user = await createUser('env-missing@example.com', 'Env', 'hash');
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+      vi.stubEnv('NODE_ENV', 'production');
+      delete process.env.CASHFREE_ENV;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      const res = await orderPOST(orderBody('creator_monthly'));
+
+      expect(res.status).toBe(503);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
+    });
+
+    it('answers 503 and never calls Cashfree when CASHFREE_ENV is misspelt in production', async () => {
+      const user = await createUser('env-misspelt@example.com', 'Env', 'hash');
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+      vi.stubEnv('NODE_ENV', 'production');
+      process.env.CASHFREE_ENV = 'prodution';
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      const res = await orderPOST(orderBody('creator_monthly'));
+
+      expect(res.status).toBe(503);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
+    });
+
+    it('reaches Cashfree in production once the env is set correctly', async () => {
+      const user = await createUser('env-ok@example.com', 'Env', 'hash');
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+      vi.stubEnv('NODE_ENV', 'production');
+      process.env.CASHFREE_ENV = 'production';
+      process.env.NEXT_PUBLIC_CASHFREE_ENV = 'production';
+      globalThis.fetch = vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            order_id: 'order_env_ok',
+            order_status: 'ACTIVE',
+            order_amount: CREATOR_MONTHLY,
+            order_currency: 'INR',
+            payment_session_id: 'ps_env_ok',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ) as never;
+
+      const res = await orderPOST(orderBody('creator_monthly'));
+
+      expect(res.status).toBe(200);
+      expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toContain('https://api.cashfree.com/pg');
+    });
   });
 });
 

@@ -26,7 +26,13 @@ const securityHeaders = [
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
+      // 'unsafe-inline' is retained deliberately: Next.js emits inline
+      // bootstrap/runtime scripts for hydration and the build is not verified
+      // nonce-based, so removing it would break the app rather than harden it.
       `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''} https://sdk.cashfree.com`,
+      // Defence in depth behind X-Frame-Options: DENY. CSP-level framing control
+      // also covers browsers and embedders that ignore X-Frame-Options.
+      "frame-ancestors 'none'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       `img-src 'self' data: blob: https://sdk.cashfree.com${r2Domain ? ` https://${r2Domain}` : ''}`,
       "font-src 'self' data: https://fonts.googleapis.com https://fonts.gstatic.com",

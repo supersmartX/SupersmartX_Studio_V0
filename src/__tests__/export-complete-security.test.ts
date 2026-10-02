@@ -13,6 +13,7 @@ vi.mock('@/lib/r2', () => ({
 
 import { auth } from '@/auth';
 import { headObject, deleteRecording } from '@/lib/r2';
+import { MAX_EXPORT_SIZE_MB } from '@/lib/export/export-limits';
 import { POST } from '@/app/api/exports/complete/route';
 import { resetDb, getDb } from '@/lib/db/driver';
 import {
@@ -36,8 +37,14 @@ let n = 0;
 const MB = 1024 * 1024;
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
 
-function mockHead(size: number) {
-  vi.mocked(headObject).mockResolvedValue({ size, contentType: 'video/mp4' });
+// `contentType` is optional because R2 omits the field entirely when an object
+// was uploaded without one — and that absence is a case under test, so `null`
+// and `undefined` must both be expressible.
+function mockHead(size: number, observed?: { contentType?: string }) {
+  vi.mocked(headObject).mockResolvedValue({
+    size,
+    contentType: observed ? observed.contentType : 'video/mp4',
+  });
 }
 
 async function setupUserWithJob(plan: 'free' | 'creator_monthly' = 'creator_monthly') {
@@ -132,15 +139,31 @@ describe('POST /api/exports/complete enforcement', () => {
       expect(Number(row.rows[0]?.file_size)).toBe(1 * MB);
     });
 
-    it('4/7/10. actual object over 200MB is rejected WITH cleanup and NO record', async () => {
+it('4/7/10. actual object over the cap is rejected WITH cleanup and NO record', async () => {
       const { user, job, key } = await setupUserWithJob();
-      mockHead(250 * MB);
+      mockHead((MAX_EXPORT_SIZE_MB + 50) * MB);
       const res = await POST(completeBody(job.id, key, 1 * MB)); // lies small
       expect(res.status).toBe(413);
       expect(vi.mocked(deleteRecording)).toHaveBeenCalledWith(key);
       expect(await exportCount(user.id)).toBe(0);
       const stored = await findExportJobByIdAndUser(job.id, user.id);
       expect(stored?.status).not.toBe('completed');
+    });
+
+    // The old cap was 200MB, which allowed only ~164s of Creator output — a
+    // hard stop on a plan whose recording duration is unlimited. The cap is now
+    // 2048MB, derived from the shared bitrate in export-limits.
+    it('an object that the old 200MB cap rejected is accepted for Creator', async () => {
+      const { user, job, key } = await setupUserWithJob();
+      mockHead(250 * MB);
+      const res = await POST(completeBody(job.id, key, 250 * MB));
+      expect(res.status).toBe(200);
+      expect(await exportCount(user.id)).toBe(1);
+      const row = await getDb().execute({
+        sql: 'SELECT file_size FROM exports WHERE user_id = ?',
+        args: [user.id],
+      });
+      expect(Number(row.rows[0]?.file_size)).toBe(250 * MB);
     });
 
     it('5/6. quota-exhausted user is rejected with cleanup and no record', async () => {
@@ -205,6 +228,71 @@ describe('POST /api/exports/complete enforcement', () => {
       expect((await second.json()).exportId).toBe(firstId);
       expect(await exportCount(user.id)).toBe(1);
       expect(await getDailyRecordedSeconds(user.id)).toBeCloseTo(ledgerAfterFirst, 6);
+    });
+  });
+
+  /**
+   * The stored object is what gets previewed in the library and served back on
+   * download, and the library only ever receives `video/mp4`. The route used to
+   * accept whatever R2 reported, so an object whose content type was absent or
+   * non-MP4 was recorded as a valid MP4 export and billed as one.
+   */
+  describe('content type is verified against the stored object', () => {
+    async function completeWithObservedType(contentType?: string) {
+      const { user, job, key } = await setupUserWithJob();
+      mockHead(1 * MB, { contentType });
+      const res = await POST(completeBody(job.id, key, 1 * MB));
+      return { user, job, key, res };
+    }
+
+    it('rejects a non-MP4 object, deletes it, and writes no export row', async () => {
+      const { user, key, res } = await completeWithObservedType('text/html');
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({ error: 'Uploaded file is not a valid MP4' });
+      expect(vi.mocked(deleteRecording)).toHaveBeenCalledWith(key);
+      expect(await exportCount(user.id)).toBe(0);
+    });
+
+    it('rejects an object with no content type at all', async () => {
+      const { user, key, res } = await completeWithObservedType();
+      expect(res.status).toBe(400);
+      expect(vi.mocked(deleteRecording)).toHaveBeenCalledWith(key);
+      expect(await exportCount(user.id)).toBe(0);
+    });
+
+    it('rejects an empty content type', async () => {
+      const { user, res } = await completeWithObservedType('   ');
+      expect(res.status).toBe(400);
+      expect(await exportCount(user.id)).toBe(0);
+    });
+
+    it('rejects a generic binary type such as application/octet-stream', async () => {
+      const { user, res } = await completeWithObservedType('application/octet-stream');
+      expect(res.status).toBe(400);
+      expect(await exportCount(user.id)).toBe(0);
+    });
+
+    it('rejects a type carrying extra parameters, e.g. video/mp4; codecs=avc1', async () => {
+      const { user, res } = await completeWithObservedType('video/mp4; codecs="avc1.640028"');
+      expect(res.status).toBe(400);
+      expect(await exportCount(user.id)).toBe(0);
+    });
+
+    it('accepts the canonical type and application/mp4', async () => {
+      for (const ok of ['video/mp4', 'application/mp4', 'VIDEO/MP4']) {
+        cleanTestData();
+        vi.clearAllMocks();
+        const { res } = await completeWithObservedType(ok);
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it('consumes no quota and no recording budget for a rejected type', async () => {
+      const { user, job, key } = await setupUserWithJob('free');
+      mockHead(1 * MB, { contentType: 'text/html' });
+      const res = await POST(completeBody(job.id, key, 1 * MB, {}, 'free'));
+      expect(res.status).toBe(400);
+      expect(await getDailyRecordedSeconds(user.id)).toBe(0);
     });
   });
 

@@ -381,8 +381,10 @@ describe('security', () => {
     });
   });
 
-  describe('R2 cleanup', () => {
-    it('getOldExportJobs returns resultR2Key for old jobs', async () => {
+describe('R2 cleanup', () => {
+    // A completed job's result_r2_key IS a live Creator library object. The
+    // retention sweep must never return it as a delete target.
+    it('getOldExportJobs never returns a completed job R2 key', async () => {
       const user = await createUser('cleanup@example.com', 'Cleanup User', 'password123');
       const job = await createExportJob(user.id, '{}');
 
@@ -391,8 +393,7 @@ describe('security', () => {
       });
 
       const oldJobs = await getOldExportJobs(-1);
-      expect(oldJobs.length).toBeGreaterThanOrEqual(1);
-      expect(oldJobs.some((j) => j.r2Key === 'exports/test/file.mp4')).toBe(true);
+      expect(oldJobs.some((j) => j.r2Key === 'exports/test/file.mp4')).toBe(false);
     });
 
     it('deleteOldExportJobs removes old DB rows', async () => {

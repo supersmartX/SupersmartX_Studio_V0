@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { findUserById, ensureMigrated } from '@/lib/db';
+import { findUserById, ensureMigrated, recordDeletedIdentity } from '@/lib/db';
 import { getDb } from '@/lib/db/driver';
 import { listUserRecordings, deleteRecording } from '@/lib/r2';
+
+// Both cookie names must be cleared: NextAuth issues the `__Secure-` prefixed
+// cookie in production and the bare name everywhere else.
+function clearSessionCookies(response: NextResponse): NextResponse {
+  for (const name of ['__Secure-next-auth.session-token', 'next-auth.session-token']) {
+    response.cookies.set(name, '', { path: '/', maxAge: 0 });
+  }
+  return response;
+}
 
 export async function DELETE(request: NextRequest) {
   try {
@@ -64,9 +73,25 @@ export async function DELETE(request: NextRequest) {
     try {
       await db.execute({ sql: `DELETE FROM pending_orders WHERE user_id = ?`, args: [session.user.id] });
     } catch {}
+
+    // Retire every token ever issued for this identity BEFORE the row goes
+    // away. The tombstone is keyed by email and carries the next session
+    // version, so a later signup on this address starts above it — otherwise
+    // resolveSessionUser's email fallback would hand the deleted account's
+    // still-signed cookie to the new identity.
+    try {
+      await recordDeletedIdentity(user.email, user.sessionVersion + 1);
+    } catch (e) {
+      // Fail closed: an unrecorded deletion leaves the old session usable, so
+      // the account row is kept rather than silently re-provisioned later.
+      console.error('Failed to record deleted identity tombstone', e);
+      return NextResponse.json({ error: 'Deletion failed' }, { status: 500 });
+    }
+
     const delUser = await db.execute({ sql: `DELETE FROM users WHERE id = ?`, args: [session.user.id] });
 
-    return NextResponse.json({ success: true, deletedR2Objects: r2Keys.length, userDeleted: delUser.rowsAffected > 0 });
+    const response = NextResponse.json({ success: true, deletedR2Objects: r2Keys.length, userDeleted: delUser.rowsAffected > 0 });
+    return clearSessionCookies(response);
   } catch (e) {
     console.error('Account deletion failed', e instanceof Error ? e.message : 'unknown');
     return NextResponse.json({ error: 'Deletion failed' }, { status: 500 });

@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { getServerPrice, getServerPricingForCountry, ALL_COUNTRIES } from '@/lib/pricing';
-import { getCashfreeEnv, isCashfreeEnvConsistent } from '@/lib/cashfree-fulfillment';
+import { getCashfreeEnv, isCashfreeEnvConsistent, cashfreeBaseUrl, isCashfreeEnvUsable } from '@/lib/cashfree-fulfillment';
 import { createPendingOrder, findUserById, findUserByEmail, ensureMigrated } from '@/lib/db';
 import { getDb } from '@/lib/db/driver';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
 
-const CASHFREE_BASE_URL =
-  process.env.CASHFREE_ENV === 'production'
-    ? 'https://api.cashfree.com/pg'
-    : 'https://sandbox.cashfree.com/pg';
+// Resolved per request rather than captured at module load, so the production
+// guard inside cashfreeBaseUrl() actually runs and a runtime env change cannot
+// leave a stale host baked into the module.
+function cashfreeBaseUrlForRequest(): string {
+  return cashfreeBaseUrl();
+}
 
 // Derive valid currencies from canonical pricing source to stay in sync
 const VALID_CURRENCIES = [...new Set(ALL_COUNTRIES.map(c => c.currency))];
@@ -72,7 +74,7 @@ async function createCashfreeOrder(data: { amount: number; currency: string; pla
     },
   };
 
-  const response = await fetch(`${CASHFREE_BASE_URL}/orders`, {
+  const response = await fetch(`${cashfreeBaseUrlForRequest()}/orders`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -135,6 +137,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Payment gateway not configured' },
         { status: 503 }
+      );
+    }
+
+    // Production must not silently run against sandbox. Refuse to create an
+    // order at all when CASHFREE_ENV is missing or misspelt in production.
+    if (!isCashfreeEnvUsable()) {
+      logger.error('payment.order_failed', { route: '/api/cashfree/order', requestId, errorCode: 'cashfree_env_not_production' });
+      return NextResponse.json(
+        { error: 'Payment is temporarily unavailable. Please try again shortly.' },
+        { status: 503, headers: { 'x-request-id': requestId } }
       );
     }
 

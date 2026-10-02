@@ -3,6 +3,7 @@ import { auth } from '@/auth';
 import { findUserById, createExportJob, updateExportJobStatus, getActiveExportJobCount, getMonthlyExportCount } from '@/lib/db';
 import { getEntitlements, isPlanActive, clampResolution, exceedsResolutionLimit } from '@/lib/entitlements';
 import { getSignedUploadUrl, generateExportKey, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
+import { MAX_EXPORT_DURATION_SECONDS, describeExportDurationLimit } from '@/lib/export/export-limits';
 import { rateLimit } from '@/lib/rate-limit';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
@@ -49,6 +50,21 @@ export async function POST(request: NextRequest) {
     // Duration check (null = unlimited Creator)
     if (typeof duration === 'number' && Number.isFinite(duration) && entitlements.maxDurationSeconds !== null && duration > entitlements.maxDurationSeconds) {
       return NextResponse.json({ error: `Recording too long. Maximum is ${entitlements.maxDurationSeconds} seconds` }, { status: 403 });
+    }
+    // Creator recording is unlimited, but a single exported artifact is not:
+    // the encoder's own bitrate decides how long a recording fits under the
+    // server-side size cap. Reject here — before the browser spends bandwidth
+    // on a multi-gigabyte PUT — instead of letting the upload finish and then
+    // fail at completion. The authoritative check stays on the server-verified
+    // R2 object size in /api/exports/complete; this claim-based pre-check is
+    // user experience, never the security control.
+    if (
+      typeof duration === 'number' &&
+      Number.isFinite(duration) &&
+      duration > 0 &&
+      duration > MAX_EXPORT_DURATION_SECONDS
+    ) {
+      return NextResponse.json({ error: describeExportDurationLimit() }, { status: 403 });
     }
     // Crop check
     if (!entitlements.canCrop && crop && (crop.x !== 0 || crop.y !== 0 || crop.zoom !== 1 && crop.zoom !== undefined)) {

@@ -11,6 +11,7 @@ import {
 } from './lib/user-store';
 import { isAccountLocked, recordFailedLogin, resetFailedLogins } from './lib/db';
 import { resolveSessionUser } from './lib/auth-identity';
+import { reconcileSessionVersion } from './lib/session-version';
 import { isPlanActive } from './lib/entitlements';
 import { validatePassword } from './lib/validation';
 
@@ -151,11 +152,16 @@ const fullAuthConfig = {
         } else {
           token.plan = fullUser.plan || 'free';
         }
-        // Session version check: reject JWT if password was changed
-        if (token.sessionVersion !== undefined && token.sessionVersion !== fullUser.sessionVersion) {
+        // Session version check: a JWT minted against an older row version is
+        // retired. This is what ends every existing session on password reset
+        // and on account deletion (the row is gone, and a re-registration starts
+        // above the deleted identity's high-water mark). A token with no version
+        // at all predates the claim and adopts the current one once.
+        const sessionVersion = reconcileSessionVersion(token.sessionVersion, fullUser.sessionVersion);
+        if (sessionVersion === null) {
           return null; // Token rejected — forces re-login
         }
-        token.sessionVersion = fullUser.sessionVersion;
+        token.sessionVersion = sessionVersion;
       }
       // Sliding window: extend token expiry if more than 7 days remain
       if (token.exp && typeof token.exp === 'number') {

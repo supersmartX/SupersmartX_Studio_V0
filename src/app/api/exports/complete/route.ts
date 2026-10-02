@@ -3,12 +3,12 @@ import { auth } from '@/auth';
 import { findUserById, findExportJobByIdAndUser, updateExportJobStatus, createExport, ensureUserStatsRow, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, atomicTryConsumeRecordingSeconds, atomicRevertRecordingSeconds } from '@/lib/db';
 import { getEntitlements, isPlanActive, isPlatformLockedForUser, getDailyRecordingAllowanceSeconds, computeRecordingChargeSeconds, clampResolution } from '@/lib/entitlements';
 import { headObject, deleteRecording, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
+import { MAX_EXPORT_SIZE_MB, MAX_EXPORT_SIZE_BYTES } from '@/lib/export/export-limits';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
 
-const MAX_EXPORT_SIZE_MB = 200;
-const MAX_EXPORT_SIZE_BYTES = MAX_EXPORT_SIZE_MB * 1024 * 1024;
+const ALLOWED_EXPORT_CONTENT_TYPES = ['video/mp4', 'application/mp4'];
 
 // Duration previously reported by the client at presigned-PUT time is stored
 // on the job config. It is only a claim (the byte floor still applies); a
@@ -97,8 +97,15 @@ export async function POST(request: NextRequest) {
       console.warn('complete: client fileSize disagrees with verified size; server wins');
     }
     const sizeToStore = verifiedSize;
-    if (head.contentType && head.contentType !== 'video/mp4' && !head.contentType.includes('mp4')) {
-      // Allow video/mp4 only
+    // Content type is read from R2's own object metadata, never from the client
+    // body: the client-declared `mimeType` above is only an early rejection and
+    // the signed PUT binds the header, but the stored object is what gets served
+    // back on download and previewed in the library, so it must be verified
+    // here. An absent type is rejected too — "unknown" is not "mp4".
+    const observedContentType = head.contentType?.trim().toLowerCase();
+    if (!observedContentType || !ALLOWED_EXPORT_CONTENT_TYPES.includes(observedContentType)) {
+      try { await deleteRecording(key); } catch {}
+      return NextResponse.json({ error: 'Uploaded file is not a valid MP4' }, { status: 400 });
     }
 
     await ensureUserStatsRow(session.user.id);

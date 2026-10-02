@@ -2,11 +2,9 @@
 
 import { computeCodedSourceRect } from '@/lib/composition';
 import { drawWatermark } from './export-watermark';
+import { EXPORT_AUDIO_BITRATE, EXPORT_VIDEO_BITRATE } from './export-limits';
 import type { ExportEngineOptions } from './export-types';
 import type { Conversion as ConversionInstance } from 'mediabunny';
-
-const MEDIABUNNY_VIDEO_BITRATE = 10_000_000;
-const MEDIABUNNY_AUDIO_BITRATE = 192_000;
 
 // Maps a source-space crop rect to Mediabunny's CropRectangle. Values are
 // rounded to even integers: H.264 (4:2:0) requires even crop dimensions and
@@ -90,7 +88,7 @@ export async function encodeExportMediabunny({ master, config, signal, onProgres
         width: outputWidth,
         height: outputHeight,
         fit: 'cover',
-        bitrate: MEDIABUNNY_VIDEO_BITRATE,
+        bitrate: EXPORT_VIDEO_BITRATE,
         forceTranscode: true,
         // Source-space crop rectangle derived from the real coded dimensions
         // (not the assumed master size), and already at the output aspect.
@@ -120,7 +118,7 @@ export async function encodeExportMediabunny({ master, config, signal, onProgres
         },
       },
       audio: includeAudio
-        ? { codec: 'aac', bitrate: MEDIABUNNY_AUDIO_BITRATE, forceTranscode: true }
+        ? { codec: 'aac', bitrate: EXPORT_AUDIO_BITRATE, forceTranscode: true }
         : { discard: true },
       showWarnings: false,
     });

@@ -31,7 +31,79 @@ Build → Validate → Test → Deploy to Staging → Validate → Approval → 
 | `R2_BUCKET_NAME` | *(optional)* | `your-bucket-name` | R2 storage |
 | `CASHFREE_APP_ID` | *(optional)* | `your-cashfree-id` | Payments |
 | `CASHFREE_SECRET_KEY` | *(optional)* | `your-cashfree-secret` | Payments |
-| `CASHFREE_ENV` | `sandbox` | `production` | Payments environment |
+| `CASHFREE_ENV` | `sandbox` | `production` | Payments environment (exact value required in production) |
+| `NEXT_PUBLIC_CASHFREE_ENV` | `sandbox` | `production` | Browser checkout environment; must match `CASHFREE_ENV` |
+| `CASHFREE_WEBHOOK_SECRET` | *(optional)* | **`required`** | Webhook HMAC secret from the Cashfree dashboard — NOT the API secret key |
+
+> `CASHFREE_ENV` is checked strictly in production. If it is unset, empty, or
+> misspelt (e.g. `prodution`, `PRODUCTION`), every payment path — order
+> creation, return-trip verification and the webhook — returns 5xx and fulfils
+> nothing. This is deliberate: a production deployment must never silently
+> transact against sandbox.
+>
+> `CASHFREE_WEBHOOK_SECRET` is the secret shown in **Cashfree Dashboard →
+> Webhooks → Secret**. Without it the webhook route falls back to
+> `CASHFREE_SECRET_KEY`, which is a different value, so the HMAC comparison
+> rejects every genuine Cashfree event and a paid order is never activated by
+> webhook (only by the return trip). Set it in every environment.
+
+### Cloudflare R2 bucket CORS (required for Creator export)
+
+The Creator export path uploads the finished MP4 **directly from the browser to
+R2** using a 15-minute presigned URL (`/api/exports/presigned-put` →
+`PUT` → `/api/exports/complete`). No R2 credential ever reaches the browser, so
+the only thing the browser needs is a bucket CORS policy that permits the
+origin, the method and the `Content-Type` request header.
+
+Apply this in the Cloudflare dashboard: **R2 → `<bucket>` → Settings → CORS
+Policies → Add**.
+
+```json
+[
+  {
+    "AllowedOrigins": [
+      "https://studio.supersmartx.com",
+      "https://www.supersmartx.com",
+      "https://supersmartx.com"
+    ],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Rules that must hold:
+
+- `AllowedOrigins` uses the **exact** scheme + host + optional port. No wildcard
+  (`*`) and no trailing slash. Include the exact origin a customer loads the
+  studio from; a mismatch fails the preflight and the upload reports
+  "Connection error during the upload to R2 storage".
+- `AllowedMethods` needs `PUT` (the presigned upload). `GET` is not required —
+  downloads are streamed through the server as a redirect to a *separate* signed
+  URL and the object is never publicly readable.
+- `AllowedHeaders` must include `Content-Type`. The browser sends it on the PUT
+  and the signature binds it; omitting it fails the preflight.
+- Do **not** add `NEXT_PUBLIC_R2_SECRET` or `NEXT_PUBLIC_R2_ACCESS_KEY`. Any
+  `NEXT_PUBLIC_*` variable is inlined into the client bundle and would ship the
+  bucket credentials to every visitor.
+
+Manual verification (the browser half cannot be proven from the server):
+
+1. Log in as Creator on `https://studio.supersmartx.com`, record a short clip,
+   export it.
+2. DevTools → Network → filter `PUT`, find the `*.r2.cloudflarestorage.com`
+   request. There must be a `204`/`200` **OPTIONS** preflight immediately before
+   it, and the PUT must return `2xx`.
+3. Cloudflare R2 → the bucket → Objects: the object under
+   `exports/<userId>/<uuid>.mp4` exists and is **not** listed as publicly
+   accessible.
+4. The Studio library shows the export and its download returns a signed URL
+   that streams the MP4.
+
+If steps 2-4 have not been executed against the production bucket, the R2 CORS
+configuration is **NOT VERIFIED** regardless of what the source says.
 
 ### Pre-Deploy Checklist
 
@@ -39,7 +111,15 @@ Build → Validate → Test → Deploy to Staging → Validate → Approval → 
 - [ ] All production secrets rotated from any previously committed values
 - [ ] `.env` file has NO real credentials — only `.env.local` (which is gitignored)
 - [ ] Turso database exists and `TURSO_AUTH_TOKEN` is valid
-- [ ] `CLEANUP_SECRET` is set for the cleanup API endpoint
+- [ ] `CLEANUP_SECRET` is set **and** `CRON_SECRET` is set to the same value
+      (Vercel Cron Jobs send `Authorization: Bearer $CRON_SECRET`; the route
+      compares it against `CLEANUP_SECRET`)
+- [ ] `CASHFREE_ENV=production` exactly, and `NEXT_PUBLIC_CASHFREE_ENV=production`
+      — any other value makes every payment path refuse rather than run
+- [ ] `CASHFREE_WEBHOOK_SECRET` is set from the Cashfree dashboard (Webhook
+      secret), **not** the API secret key
+- [ ] Cloudflare R2 bucket CORS is configured — see §2 "Cloudflare R2 bucket
+      CORS (required)", without which browser upload fails at the PUT
 
 ---
 
@@ -107,23 +187,55 @@ npm run build
 
 Migrations run automatically on first request via `ensureMigrated()` with a promise-based lock.
 
+`src/lib/db/schema.ts` holds migrations as **version-grouped** statement lists
+(`{ version, statements[] }`), not one flat array. `schema_meta.schema_version`
+is a *version*, never an index into an array — appending a group therefore
+cannot replay an older group's statements.
+
 **Schema versions:**
 - v1: `users`, `reset_tokens`, `schema_meta`
 - v2: `user_stats`
 - v3: `exports`, `export_jobs`
-- v4: `export_jobs.job_id` column
+- v4: `exports.job_id` column
 - v5: `processed_webhooks`
 - v6: `users.failed_login_attempts`, `users.locked_until`
+- v7: `pending_orders`
+- v8: `users.session_version`
+- v9: `monthly_export_counts`
+- v10: `exports` / `user_stats` rebuild to add `ON DELETE SET NULL` / `CASCADE`
+- v11: `daily_recording_seconds`
+- v12: `order_notifications`
+- v13: `deleted_identities` (account-deletion session tombstone)
 
 **Migration safety:**
-- All ALTER TABLE statements are wrapped in try/catch
-- Duplicate column errors are silently skipped
-- Migrations are idempotent — safe to run multiple times
+- Only groups with `version > stored version` are applied
+- Each version group is applied as **one transaction** (`db.batch(..., 'write')`),
+  and the version stamp travels inside that same batch. A group therefore either
+  applies completely and records its version, or does neither — an interrupted
+  run restarts from the last fully applied version with the schema untouched
+- Any error aborts and surfaces the version it failed at. There is no
+  "duplicate column, carry on" leniency: every `CREATE` in the ledger is
+  `IF NOT EXISTS` and every `DROP` is `IF EXISTS`, so a duplicate error can only
+  mean the stored version disagrees with the real schema — an inconsistent
+  database that must stop the deploy loudly
+- A failed schema-version *read* throws instead of falling back to 0 — treating
+  an unreadable database as empty would replay every migration over live data
+- A stored version newer than the build is refused
+- Copy/swap migrations (v10, which drops and rebuilds `exports` and `user_stats`)
+  are safe because the group is atomic: it cannot fail between the `DROP` and
+  the `RENAME`
+
+**Adding a migration:** append a new group with the next version.
+`SCHEMA_VERSION` is derived from the last group — never renumber or edit an
+existing group.
 
 **Pre-deploy verification:**
 ```bash
 # Test migration against fresh database
 TURSO_DATABASE_URL="file:data/test-migration.db" npx vitest run src/__tests__/exports-db.test.ts
+
+# Regression suite for the version-keyed runner (v12 -> v13 upgrade, data survival)
+npx vitest run src/__tests__/db-migrations.test.ts
 ```
 
 ---
@@ -138,10 +250,12 @@ TURSO_DATABASE_URL="file:data/test-migration.db" npx vitest run src/__tests__/ex
 | Google OAuth | Vercel env | Google Cloud Console |
 | Resend API Key | Vercel env | Resend dashboard |
 | Cashfree Keys | Vercel env | Cashfree dashboard |
+| `CASHFREE_WEBHOOK_SECRET` | Vercel env | Cashfree dashboard → Webhooks → Secret |
 | R2 Keys | Vercel env | Cloudflare dashboard |
 
 **Rules:**
 - Never commit `.env` or `.env.local` to version control
+- Never prefix an R2 credential with `NEXT_PUBLIC_` — it is inlined into the client bundle
 - Use `vercel env add <NAME> production` for production secrets
 - Rotate all credentials before first production deploy
 - Document rotation schedule in team wiki
@@ -307,7 +421,11 @@ vercel logs | grep -i error
 **Recovery:**
 1. Check R2 credentials if cloud storage enabled
 2. Check WebCodecs browser support (Chrome 94+, Edge 94+)
-3. Run cleanup: `POST /api/export-jobs/cleanup` with `x-cleanup-secret` header
+3. Run the retention sweep manually: `POST /api/export-jobs/cleanup` with an
+   `x-cleanup-secret: <CLEANUP_SECRET>` header (the same route also answers
+   `GET`, which is what the nightly cron uses)
+4. Check `CRON_SECRET` equals `CLEANUP_SECRET` — if the nightly job 401s, stale
+   jobs are never reclaimed
 
 ### Scenario: Rate Limiter Issues
 

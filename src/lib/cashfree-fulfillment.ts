@@ -13,10 +13,41 @@ export function getCashfreeEnv(): CashfreeEnv {
   return process.env.CASHFREE_ENV === 'production' ? 'production' : 'sandbox';
 }
 
+/**
+ * Production must never fall back to sandbox.
+ *
+ * `getCashfreeEnv` collapses anything unrecognised to `sandbox`, which is the
+ * right default for local work but the wrong one in production: a missing or
+ * mistyped `CASHFREE_ENV` (unset, `prodution`, `PRODUCTION`, empty) would leave
+ * a live deployment creating orders and verifying payments against the sandbox
+ * host. Every payment entry point calls this first and refuses to act, so the
+ * deployment fails closed and diagnosable rather than silently taking money in
+ * one environment while the browser checks out in another.
+ *
+ * Non-production runtimes are untouched: local and test keep the sandbox
+ * fallback, so existing sandbox behaviour is unchanged.
+ */
+export function assertCashfreeEnvForRuntime(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+  if (process.env.CASHFREE_ENV === 'production') return;
+  throw new Error('cashfree_env_not_production');
+}
+
 export function cashfreeBaseUrl(): string {
+  assertCashfreeEnvForRuntime();
   return getCashfreeEnv() === 'production'
     ? 'https://api.cashfree.com/pg'
     : 'https://sandbox.cashfree.com/pg';
+}
+
+/** Non-throwing form of the guard, for request handlers that answer 503. */
+export function isCashfreeEnvUsable(): boolean {
+  try {
+    assertCashfreeEnvForRuntime();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -30,6 +61,7 @@ export function cashfreeBaseUrl(): string {
  * refuse to create an order while they are inconsistent.
  */
 export function isCashfreeEnvConsistent(): boolean {
+  assertCashfreeEnvForRuntime();
   const serverEnv = getCashfreeEnv();
   const publicEnv = process.env.NEXT_PUBLIC_CASHFREE_ENV;
   // Absent public value: nothing to contradict the server with.

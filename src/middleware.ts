@@ -8,6 +8,11 @@ const PUBLIC_API_ROUTES = [
   '/api/cashfree/webhook',
   '/api/health',
   '/api/observe/client-error',
+  // Vercel Cron Jobs call this path with GET and a bearer secret, never a
+  // session cookie, so the session gate would 401 the scheduled sweep. The
+  // route authenticates itself with a timing-safe CLEANUP_SECRET comparison —
+  // reaching it still requires that secret.
+  '/api/export-jobs/cleanup',
 ];
 
 function isPublicRoute(pathname: string): boolean {
