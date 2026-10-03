@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command, HeadObjectCommand, CopyObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // Cloudflare account IDs are exactly 32 hex characters. Anything else cannot
@@ -187,13 +187,26 @@ export async function getSignedUploadUrl(
   return getSignedUrl(client, command, { expiresIn });
 }
 
-export async function headObject(key: string): Promise<{ size: number; contentType?: string } | null> {
+export async function copyRecording(sourceKey: string, destinationKey: string, sourceETag: string): Promise<void> {
+  const client = requireR2Client();
+  const bucket = getBucketName();
+  const encodedSourceKey = sourceKey.split('/').map(encodeURIComponent).join('/');
+  await client.send(new CopyObjectCommand({
+    Bucket: bucket,
+    Key: destinationKey,
+    CopySource: `${bucket}/${encodedSourceKey}`,
+    CopySourceIfMatch: sourceETag,
+    MetadataDirective: 'COPY',
+  }));
+}
+
+export async function headObject(key: string): Promise<{ size: number; contentType?: string; eTag?: string } | null> {
   const client = requireR2Client();
   const bucket = getBucketName();
   try {
     const command = new HeadObjectCommand({ Bucket: bucket, Key: key });
     const result = await client.send(command);
-    return { size: result.ContentLength || 0, contentType: result.ContentType };
+    return { size: result.ContentLength || 0, contentType: result.ContentType, eTag: result.ETag };
   } catch (e: unknown) {
     if (e instanceof Error && (e.name === 'NotFound' || (e as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404)) return null;
     throw e;
@@ -203,6 +216,14 @@ export async function headObject(key: string): Promise<{ size: number; contentTy
 export function generateExportKey(userId: string): string {
   const uuid = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `exports/${userId}/${uuid}.mp4`;
+}
+
+export function generateExportStagingKey(userId: string, jobId: string): string {
+  return `staging/${userId}/${jobId}/source.mp4`;
+}
+
+export function generateFinalExportKey(userId: string, jobId: string): string {
+  return `exports/${userId}/${jobId}.mp4`;
 }
 
 export async function listUserRecordings(

@@ -316,7 +316,7 @@ export function ExportModal({
               {isAuthenticated && !isCreatorUser && (
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-elevated border border-border-subtle">
                   <div className="flex flex-col gap-0.5">
-                    <span className="text-[12px] font-medium text-text-primary">Free Plan — YouTube 16:9 included, unlimited downloads</span>
+                    <span className="text-[12px] font-medium text-text-primary">Free Plan — YouTube 16:9 included, unlimited local downloads</span>
                     <span className="text-[12px] text-text-secondary">Other formats need Creator. Exports include a watermark.</span>
                   </div>
                   <Button variant="secondary" size="sm" onClick={onDownloadLimitReached} className="shrink-0 ml-auto">

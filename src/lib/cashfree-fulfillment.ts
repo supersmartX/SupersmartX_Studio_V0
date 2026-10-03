@@ -1,4 +1,4 @@
-import { updateUserPlanById, tryClaimOrderNotification, releaseOrderNotification } from '@/lib/db';
+import { updateUserPlanByIdIfInactive, tryClaimOrderNotification, releaseOrderNotification } from '@/lib/db';
 import { logger } from '@/lib/observe/logger';
 
 export const CASHFREE_API_VERSION_FALLBACK = '2023-08-01';
@@ -134,7 +134,7 @@ export function isCashfreeOrderTerminalFailure(order: CashfreeOrder): boolean {
   return (TERMINAL_UNPAID_STATUSES as readonly string[]).includes(order.order_status ?? '');
 }
 
-export type FulfillmentFailureReason = 'amount_mismatch' | 'currency_mismatch' | 'unknown_plan';
+export type FulfillmentFailureReason = 'amount_mismatch' | 'currency_mismatch' | 'unknown_plan' | 'active_plan_exists';
 
 export type FulfillmentResult =
   | { ok: true }
@@ -182,11 +182,11 @@ export async function fulfillPaidOrder(
     expiresAt.setMonth(expiresAt.getMonth() + 1);
   }
 
-  const updated = await updateUserPlanById(pendingOrder.userId, plan, expiresAt.toISOString());
+  const updated = await updateUserPlanByIdIfInactive(pendingOrder.userId, plan, expiresAt.toISOString());
   if (!updated) {
-    // No user row matched. Throwing (rather than returning ok) makes both callers
-    // release their claim and retry instead of reporting a phantom activation.
-    throw new Error('fulfillment_target_user_missing');
+    const userExists = await (await import('@/lib/db')).findUserById(pendingOrder.userId);
+    if (!userExists) throw new Error('fulfillment_target_user_missing');
+    return { ok: false, reason: 'active_plan_exists', expected: 'no active paid plan', received: userExists.plan };
   }
 
   return { ok: true };
@@ -276,5 +276,7 @@ export function fulfillmentErrorMessage(reason: FulfillmentFailureReason): strin
       return 'Currency mismatch';
     case 'unknown_plan':
       return 'Unsupported plan';
+    case 'active_plan_exists':
+      return 'An active paid plan already exists';
   }
 }

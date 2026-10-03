@@ -20,7 +20,7 @@ export default function PrivacyPage() {
       <div className="max-w-3xl mx-auto px-6 py-16 space-y-8">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold">Privacy Policy</h1>
-          <p className="text-sm text-text-secondary">Last updated: August 2026</p>
+          <p className="text-sm text-text-secondary">Last updated: October 2026</p>
         </div>
 
         <div className="space-y-6 text-sm leading-relaxed text-text-secondary">
@@ -31,7 +31,7 @@ export default function PrivacyPage() {
               <li><strong>Account information:</strong> Email address, first name, last name (when you create an account)</li>
               <li><strong>Payment information:</strong> Processed by Cashfree — we do not store card details</li>
               <li><strong>Scripts:</strong> Teleprompter text you enter (stored locally in your browser)</li>
-              <li><strong>Recordings:</strong> Video and audio captured via your camera and microphone. On the Free plan these stay on your device and are never uploaded to us. On the Creator plan, the exported MP4 file you choose to export is uploaded to our storage provider (Cloudflare R2) and linked to your account — see section 4.</li>
+              <li><strong>Recordings:</strong> Video and audio captured via your camera and microphone. Free recordings stay on your device and are not uploaded to us. Original local master recordings are available for up to 24 hours in the same browser profile; they are not a cloud backup. On the Creator plan, an exported MP4 you choose to upload is stored with Cloudflare R2 and linked to your account — see section 4.</li>
             </ul>
           </section>
 
@@ -39,7 +39,7 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-text-primary">2. How We Use Your Information</h2>
             <ul className="list-disc list-inside space-y-1 ml-4">
               <li>To provide and maintain the Service</li>
-              <li>To process payments and manage subscriptions</li>
+              <li>To process payments and manage the paid access period you purchased</li>
               <li>To send transactional emails (password reset, payment confirmations)</li>
               <li>To store, display and deliver the videos you export on a paid plan</li>
               <li>To improve the Service</li>
@@ -63,10 +63,12 @@ export default function PrivacyPage() {
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-text-primary">4. Local Storage and Uploaded Exports</h2>
             <p>
-              Scripts, settings, and your original recordings are stored in your browser&apos;s local storage and
-              IndexedDB. On the Free plan this data never leaves your device unless you explicitly download or share it,
-              and a Free local export is also stored only on your device (in your browser&apos;s local export storage)
-              for 7 days before it is no longer listed.
+              Scripts and settings are stored in your browser. Original master recordings are stored in IndexedDB in
+              the same browser profile and are available for up to 24 hours. Clearing browser data can remove local
+              recordings sooner. These recordings are not backed up to the Creator cloud library. On the Free plan,
+              recordings and local exports are not uploaded by the Service. You can download a local export or choose
+              to share it yourself; a Free local export is stored in browser storage for 7 days before it is no longer
+              listed.
             </p>
             <p>
               On the Creator plan, exporting a video uploads the finished MP4 directly from your browser to Cloudflare
@@ -91,6 +93,13 @@ export default function PrivacyPage() {
               <li><strong>Vercel:</strong> Hosting and deployment</li>
               <li><strong>Cloudflare R2:</strong> Object storage for the videos you export on the Creator plan</li>
               <li><strong>Resend:</strong> Transactional email delivery</li>
+              <li><strong>ipapi.co / ip-api.com:</strong> Approximate country lookup used to localize pricing and payment options</li>
+              <li><strong>Gravatar:</strong> Public avatar image requests derived from your email address when your profile image is displayed</li>
+              <li><strong>Google sign-in:</strong> Optional authentication provider when enabled for the Service</li>
+              <li><strong>Remote libSQL database:</strong> Stores account, access, payment-fulfillment and export metadata. The database provider is set by the production deployment.</li>
+              <li><strong>Google Fonts:</strong> Serves fonts used by the public website</li>
+              <li><strong>CloudFront:</strong> Serves embedded product-demo media</li>
+              <li><strong>Discord:</strong> An optional external link for feedback; information submitted there is provided to Discord</li>
             </ul>
           </section>
 

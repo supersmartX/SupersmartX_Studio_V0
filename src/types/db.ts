@@ -1,6 +1,6 @@
 export type PlanType = 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly';
 
-export type ExportJobStatus = 'pending' | 'encoding' | 'uploading' | 'completed' | 'failed';
+export type ExportJobStatus = 'pending' | 'encoding' | 'uploading' | 'finalizing' | 'completed' | 'failed';
 
 export interface StoredUser {
   id: string;
@@ -25,6 +25,7 @@ export interface ExportJobRecord {
   configJson: string;
   status: ExportJobStatus;
   progress: number;
+  stagingR2Key: string | null;
   resultR2Key: string | null;
   resultExportId: string | null;
   resultFileSize: number;
@@ -32,6 +33,7 @@ export interface ExportJobRecord {
   retryCount: number;
   createdAt: string;
   startedAt: string | null;
+  finalizingAt: string | null;
   completedAt: string | null;
 }
 

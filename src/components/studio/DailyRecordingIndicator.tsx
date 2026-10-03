@@ -22,11 +22,11 @@ export function DailyRecordingIndicator({
   variant = 'full',
 }: DailyRecordingIndicatorProps) {
   if (remainingSeconds === null) {
-    const label = 'Creator plan: unlimited recording';
+    const label = 'Creator plan: unlimited recording duration and sessions';
     return (
       <div role="status" aria-live="off" aria-label={label} className="flex items-center shrink-0">
         <span className="text-[11px] sm:text-[12px] text-text-secondary whitespace-nowrap">
-          Creator · Unlimited recording
+          Creator · Unlimited recording duration
         </span>
       </div>
     );
@@ -45,9 +45,10 @@ export function DailyRecordingIndicator({
   const totalText = formatTime(total);
   const percent = Math.max(0, Math.min(100, Math.round((remaining / total) * 100)));
 
+  const localLimitNotice = 'Device-local limit; may reset if site data is cleared or you switch browser profiles.';
   const label = isRecording
-    ? `Recording: ${remainingText} remaining today`
-    : `Free plan: ${remainingText} of ${totalText} recording time available today`;
+    ? `Recording: ${remainingText} remaining today. ${localLimitNotice}`
+    : `Free recording is limited to up to 10 minutes per browser profile per local calendar day. ${localLimitNotice} ${remainingText} of ${totalText} remaining.`;
 
   if (variant === 'compact') {
     return (
@@ -92,6 +93,9 @@ export function DailyRecordingIndicator({
           />
         </div>
       </div>
+      <span className="max-w-[200px] text-right text-[9px] leading-snug text-text-muted">
+        Device-local; may reset if site data is cleared or you switch browser profiles.
+      </span>
     </div>
   );
 }

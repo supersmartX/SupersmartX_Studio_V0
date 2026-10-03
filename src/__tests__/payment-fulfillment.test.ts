@@ -27,6 +27,7 @@ import {
   tryClaimWebhookOrder,
   releaseWebhookClaim,
   findUserById,
+  updateUserPlanById,
 } from '@/lib/db';
 
 function cleanTestData() {
@@ -699,6 +700,99 @@ describe('webhook request handling', () => {
   });
 });
 
+/**
+ * Cashfree signs webhooks with the PG client secret key. It publishes no
+ * separate webhook secret, so an override variable could only ever hold a value
+ * Cashfree never signs with — and preferring it would reject every genuine
+ * event, meaning no order is ever activated by webhook. These tests pin the
+ * signing key to CASHFREE_SECRET_KEY so that regression cannot return.
+ */
+describe('webhook signature is keyed only by CASHFREE_SECRET_KEY', () => {
+  const ORIGINAL = { ...process.env };
+
+  beforeEach(cleanTestData);
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    process.env = { ...ORIGINAL };
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  /** A webhook signed with `secret`, as Cashfree would send it. */
+  function webhookSignedWith(secret: string, orderId: string) {
+    const raw = JSON.stringify({
+      event_type: 'PAYMENT_SUCCESS',
+      data: { order: { order_id: orderId }, payment: { payment_status: 'SUCCESS' } },
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = crypto.createHmac('sha256', secret).update(timestamp + raw).digest('base64');
+    return new NextRequest('http://localhost/api/cashfree/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-webhook-signature': signature,
+        'x-webhook-timestamp': timestamp,
+      },
+      body: raw,
+    });
+  }
+
+  it('accepts a signature generated with CASHFREE_SECRET_KEY', async () => {
+    const user = await seedBuyer('signed-with-secret-key@example.com');
+    const orderId = await seedPendingOrder(user.id);
+    vi.stubEnv('CASHFREE_SECRET_KEY', 'pg-client-secret-key');
+    mockCashfreeOrder(paidOrderBody(orderId));
+
+    const res = await webhookPOST(webhookSignedWith('pg-client-secret-key', orderId));
+
+    expect(res.status).toBe(200);
+    expect((await findUserById(user.id))?.plan).toBe('creator_monthly');
+  });
+
+  it('rejects a signature generated with any other secret', async () => {
+    const user = await seedBuyer('signed-with-wrong-key@example.com');
+    const orderId = await seedPendingOrder(user.id);
+    vi.stubEnv('CASHFREE_SECRET_KEY', 'pg-client-secret-key');
+    mockCashfreeOrder(paidOrderBody(orderId));
+
+    const res = await webhookPOST(webhookSignedWith('some-other-key', orderId));
+
+    expect(res.status).toBe(400);
+    expect((await findUserById(user.id))?.plan).toBe('free');
+    expect(await claimExists(orderId)).toBe(false);
+  });
+
+  it('ignores a stray CASHFREE_WEBHOOK_SECRET instead of letting it override the signing key', async () => {
+    const user = await seedBuyer('stray-webhook-secret@example.com');
+    const orderId = await seedPendingOrder(user.id);
+    vi.stubEnv('CASHFREE_SECRET_KEY', 'pg-client-secret-key');
+    // Left behind by the docs that used to tell operators to fetch a value
+    // Cashfree does not publish. It must not win over the real key.
+    vi.stubEnv('CASHFREE_WEBHOOK_SECRET', 'invented-value-cashfree-never-signs-with');
+    mockCashfreeOrder(paidOrderBody(orderId));
+
+    const res = await webhookPOST(webhookSignedWith('pg-client-secret-key', orderId));
+
+    expect(res.status).toBe(200);
+    expect((await findUserById(user.id))?.plan).toBe('creator_monthly');
+  });
+
+  it('refuses to fulfil when a stray CASHFREE_WEBHOOK_SECRET is the only valid key', async () => {
+    const user = await seedBuyer('stray-webhook-secret-only-key@example.com');
+    const orderId = await seedPendingOrder(user.id);
+    vi.stubEnv('CASHFREE_SECRET_KEY', 'pg-client-secret-key');
+    vi.stubEnv('CASHFREE_WEBHOOK_SECRET', 'invented-value-cashfree-never-signs-with');
+    mockCashfreeOrder(paidOrderBody(orderId));
+
+    // Signed the way the old override branch would have wanted. Still rejected.
+    const res = await webhookPOST(webhookSignedWith('invented-value-cashfree-never-signs-with', orderId));
+
+    expect(res.status).toBe(400);
+    expect((await findUserById(user.id))?.plan).toBe('free');
+    expect(await claimExists(orderId)).toBe(false);
+  });
+});
+
 describe('Cashfree environment consistency', () => {
   const ORIGINAL = { ...process.env };
 
@@ -852,6 +946,37 @@ describe('Cashfree fails closed in production only', () => {
       fetchSpy.mockRestore();
     });
 
+    it('rejects a direct order creation when the user already has an active Creator plan', async () => {
+      const user = await createUser('active-plan-order@example.com', 'Active', 'hash');
+      const future = new Date(Date.now() + 30 * 86400000).toISOString();
+      await updateUserPlanById(user.id, 'creator_monthly', future);
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'active-plan-order@example.com' } } as never);
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      const res = await orderPOST(orderBody('creator_monthly'));
+
+      expect(res.status).toBe(409);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      const count = await getDb().execute({ sql: 'SELECT COUNT(*) AS cnt FROM pending_orders' });
+      expect(Number(count.rows[0]?.cnt)).toBe(0);
+    });
+
+    it('allows a new Creator order again after the current paid entitlement expires', async () => {
+      const user = await createUser('expired-plan-order@example.com', 'Expired', 'hash');
+      const past = new Date(Date.now() - 86400000).toISOString();
+      await updateUserPlanById(user.id, 'creator_monthly', past);
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'expired-plan-order@example.com' } } as never);
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => ({ order_id: 'expired-plan-order', payment_session_id: 'ps-expired' }),
+      } as never);
+
+      const res = await orderPOST(orderBody('creator_monthly'));
+
+      expect(res.status).toBe(200);
+      expect(fetchSpy).toHaveBeenCalled();
+    });
+
     it('reaches Cashfree in production once the env is set correctly', async () => {
       const user = await createUser('env-ok@example.com', 'Env', 'hash');
       vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
@@ -876,6 +1001,34 @@ describe('Cashfree fails closed in production only', () => {
       expect(res.status).toBe(200);
       expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toContain('https://api.cashfree.com/pg');
     });
+  });
+
+  it('does not shorten an annual paid expiry when a later monthly order settles', async () => {
+    const user = await seedBuyer('annual-preserved@example.com');
+    const annualExpiry = new Date(Date.now() + 365 * 86400000).toISOString();
+    await updateUserPlanById(user.id, 'creator_yearly', annualExpiry);
+    const pending = { orderId: 'annual-preserve-order', userId: user.id, plan: 'creator_monthly', amount: CREATOR_MONTHLY, currency: 'INR' };
+
+    const result = await fulfillPaidOrder(pending, { order_id: pending.orderId, order_status: 'PAID', order_amount: CREATOR_MONTHLY, order_currency: 'INR' });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('active_plan_exists');
+    expect((await findUserById(user.id))?.plan).toBe('creator_yearly');
+    expect((await findUserById(user.id))?.planExpiresAt).toBe(annualExpiry);
+  });
+
+  it('does not shorten a monthly paid expiry when another monthly order settles', async () => {
+    const user = await seedBuyer('monthly-preserved@example.com');
+    const monthlyExpiry = new Date(Date.now() + 30 * 86400000).toISOString();
+    await updateUserPlanById(user.id, 'creator_monthly', monthlyExpiry);
+    const pending = { orderId: 'monthly-preserve-order', userId: user.id, plan: 'creator_monthly', amount: CREATOR_MONTHLY, currency: 'INR' };
+
+    const result = await fulfillPaidOrder(pending, { order_id: pending.orderId, order_status: 'PAID', order_amount: CREATOR_MONTHLY, order_currency: 'INR' });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('active_plan_exists');
+    expect((await findUserById(user.id))?.plan).toBe('creator_monthly');
+    expect((await findUserById(user.id))?.planExpiresAt).toBe(monthlyExpiry);
   });
 });
 
@@ -903,6 +1056,7 @@ describe('fulfillPaidOrder guardrails', () => {
     expect(fulfillmentErrorMessage('amount_mismatch')).toBe('Amount mismatch');
     expect(fulfillmentErrorMessage('currency_mismatch')).toBe('Currency mismatch');
     expect(fulfillmentErrorMessage('unknown_plan')).toBe('Unsupported plan');
+    expect(fulfillmentErrorMessage('active_plan_exists')).toBe('An active paid plan already exists');
   });
 
   it('sets a one-month expiry for monthly and one-year for yearly', async () => {
@@ -918,12 +1072,13 @@ describe('fulfillPaidOrder guardrails', () => {
     expect(monthlyMs).toBeGreaterThan(27 * 86400000);
     expect(monthlyMs).toBeLessThan(32 * 86400000);
 
+    const yearlyUser = await seedBuyer('yearly-expiry@example.com');
     const before2 = Date.now();
     await fulfillPaidOrder(
-      { orderId: 'o3', userId: user.id, plan: 'creator_yearly', amount: 2899, currency: 'INR' },
+      { orderId: 'o3', userId: yearlyUser.id, plan: 'creator_yearly', amount: 2899, currency: 'INR' },
       { order_id: 'o3', order_status: 'PAID', order_amount: 2899, order_currency: 'INR' }
     );
-    const yearly = await findUserById(user.id);
+    const yearly = await findUserById(yearlyUser.id);
     const yearlyMs = new Date(yearly!.planExpiresAt!).getTime() - before2;
     expect(yearlyMs).toBeGreaterThan(360 * 86400000);
     expect(yearlyMs).toBeLessThan(370 * 86400000);

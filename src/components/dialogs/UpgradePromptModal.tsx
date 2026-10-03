@@ -14,10 +14,10 @@ interface UpgradePromptModalProps {
 }
 
 const CREATOR_BENEFITS = [
-  'Everything in Free',
-  'Unlimited recording',
+  'Free: up to 10 min/day per browser profile (device-local)',
+  'Unlimited recording duration and sessions',
   'Unlimited teleprompter',
-  'Unlimited exports & downloads',
+  'Unlimited exports by count & downloads; each file is limited to 2 GiB (about 28 min at current 1080p settings)',
   'All supported platform formats',
   '1080p with no watermark',
   'Voice-activated teleprompter',
@@ -95,8 +95,8 @@ export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgra
           {monthlyLabel && (
             <span className="text-[20px] font-bold text-text-primary tabular-nums">{monthlyLabel}</span>
           )}
-          <span className="text-[12px] text-text-secondary">/month</span>
         </div>
+        <p className="text-[11px] text-text-secondary">One-time payment for 1 month of access. No automatic renewal.</p>
 
         <div className="flex flex-col gap-2">
           <Button
@@ -107,7 +107,7 @@ export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgra
               onUpgrade();
             }}
           >
-            {isGuest ? 'Continue' : 'Upgrade to Creator'}
+            {isGuest ? 'Continue' : 'Buy Creator access'}
           </Button>
           <Button variant="ghost" size="md" className="w-full" onClick={onClose}>
             {isGuest ? 'Use Free instead' : 'Not now'}
@@ -116,7 +116,7 @@ export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgra
 
         {isGuest && (
           <p className="text-[11px] text-text-muted text-center -mt-1">
-            Account required to subscribe and download
+            Account required to buy Creator access and download
           </p>
         )}
       </div>

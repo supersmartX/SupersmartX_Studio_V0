@@ -11,12 +11,20 @@ import {
 } from '@/lib/cashfree-fulfillment';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
 
+/**
+ * Cashfree signs every webhook with the PG client secret key — the same value
+ * sent as `x-client-secret` on API calls. There is no separate webhook secret,
+ * so a second variable here could only ever hold a value Cashfree never signs
+ * with, and preferring it would reject every genuine event. The key is read
+ * only from CASHFREE_SECRET_KEY, and the handler's own guard has already
+ * established that it is present.
+ */
 function verifyWebhookSignature(
   payload: string,
   signature: string,
   timestamp: string
 ): boolean {
-  const secretKey = process.env.CASHFREE_WEBHOOK_SECRET || process.env.CASHFREE_SECRET_KEY || '';
+  const secretKey = process.env.CASHFREE_SECRET_KEY || '';
   if (!secretKey) return false;
 
   const signatureData = timestamp + payload;

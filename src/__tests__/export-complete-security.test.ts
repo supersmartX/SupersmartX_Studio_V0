@@ -8,11 +8,13 @@ vi.mock('@/lib/r2', () => ({
   isR2Configured: () => true,
   getR2ConfigurationError: () => null,
   headObject: vi.fn(),
+  copyRecording: vi.fn(async () => undefined),
+  generateFinalExportKey: (userId: string, jobId: string) => `exports/${userId}/${jobId}.mp4`,
   deleteRecording: vi.fn(),
 }));
 
 import { auth } from '@/auth';
-import { headObject, deleteRecording } from '@/lib/r2';
+import { headObject, deleteRecording, copyRecording } from '@/lib/r2';
 import { MAX_EXPORT_SIZE_MB } from '@/lib/export/export-limits';
 import { POST } from '@/app/api/exports/complete/route';
 import { resetDb, getDb } from '@/lib/db/driver';
@@ -25,6 +27,7 @@ import {
   findExportJobByIdAndUser,
   getDailyRecordedSeconds,
   atomicTryConsumeRecordingSeconds,
+  setExportJobStagingKey,
 } from '@/lib/db';
 
 function cleanTestData() {
@@ -44,6 +47,7 @@ function mockHead(size: number, observed?: { contentType?: string }) {
   vi.mocked(headObject).mockResolvedValue({
     size,
     contentType: observed ? observed.contentType : 'video/mp4',
+    eTag: '"source-etag"',
   });
 }
 
@@ -293,6 +297,71 @@ it('4/7/10. actual object over the cap is rejected WITH cleanup and NO record', 
       const res = await POST(completeBody(job.id, key, 1 * MB, {}, 'free'));
       expect(res.status).toBe(400);
       expect(await getDailyRecordedSeconds(user.id)).toBe(0);
+    });
+  });
+
+  describe('R2 presigned replay protection', () => {
+    it('browser staging PUT cannot overwrite the finalized export key after completion', async () => {
+      const { user, job } = await setupUserWithJob();
+      const stageKey = `staging/${user.id}/${job.id}/source.mp4`;
+      const finalKey = `exports/${user.id}/${job.id}.mp4`;
+      await setExportJobStagingKey(job.id, user.id, stageKey);
+      const original = { size: 1 * MB, contentType: 'video/mp4', eTag: '"object-a-etag"' };
+      const unchanged = { size: 1 * MB, contentType: 'video/mp4', eTag: '"final-etag"' };
+
+      vi.mocked(headObject).mockImplementation(async (key) => {
+        if (key === stageKey) return original;
+        if (key === finalKey) return unchanged;
+        return null;
+      });
+
+      const first = await POST(completeBody(job.id, stageKey, 1 * MB, {}, 'creator_monthly'));
+      expect(first.status).toBe(200);
+      const firstBody = await first.json();
+      expect(firstBody.r2Key).toBe(finalKey);
+      expect(vi.mocked(copyRecording)).toHaveBeenCalledWith(stageKey, finalKey, '"object-a-etag"');
+
+      vi.mocked(copyRecording).mockClear();
+      vi.mocked(headObject).mockClear();
+      const replay = await POST(completeBody(job.id, stageKey, 1 * MB, {}, 'creator_monthly'));
+      expect(replay.status).toBe(200);
+      const replayBody = await replay.json();
+      expect(replayBody.exportId).toBe(firstBody.exportId);
+      expect(replayBody.r2Key).toBe(finalKey);
+      expect(vi.mocked(copyRecording)).not.toHaveBeenCalled();
+      expect(vi.mocked(headObject)).not.toHaveBeenCalled();
+    });
+
+    it('oversized replay to the original presigned URL does not replace the finalized export', async () => {
+      const { user, job } = await setupUserWithJob();
+      const stageKey = `staging/${user.id}/${job.id}/source.mp4`;
+      const finalKey = `exports/${user.id}/${job.id}.mp4`;
+      await setExportJobStagingKey(job.id, user.id, stageKey);
+      const original = { size: 1 * MB, contentType: 'video/mp4', eTag: '"object-a-etag"' };
+      const unchanged = { size: 1 * MB, contentType: 'video/mp4', eTag: '"final-etag"' };
+
+      vi.mocked(headObject).mockImplementation(async (key) => {
+        if (key === stageKey) return original;
+        if (key === finalKey) return unchanged;
+        return null;
+      });
+
+      const valid = await POST(completeBody(job.id, stageKey, 1 * MB, {}, 'creator_monthly'));
+      expect(valid.status).toBe(200);
+      vi.mocked(copyRecording).mockClear();
+      vi.mocked(headObject).mockClear();
+
+      const replay = await POST(completeBody(job.id, stageKey, (MAX_EXPORT_SIZE_MB + 5) * MB, {}, 'creator_monthly'));
+      expect(replay.status).toBe(413);
+      const replayBody = await replay.json();
+      expect(replayBody.error).toMatch(/File too large/i);
+      expect(vi.mocked(copyRecording)).not.toHaveBeenCalled();
+      expect(await exportCount(user.id)).toBe(1);
+      const row = await getDb().execute({
+        sql: 'SELECT r2_key FROM exports WHERE user_id = ? AND job_id = ?',
+        args: [user.id, job.id],
+      });
+      expect(String(row.rows[0]?.r2_key)).toBe(finalKey);
     });
   });
 

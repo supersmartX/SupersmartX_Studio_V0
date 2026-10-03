@@ -261,6 +261,17 @@ const MIGRATION_LEDGER: { version: number; statements: string[] }[] = [
   )`,
     ],
   },
+  {
+    // Version 14 — server-owned export finalization lease. The token fences
+    // concurrent completions; the timestamp lets a retry recover after a
+    // crashed serverless invocation.
+    version: 14,
+    statements: [
+      `ALTER TABLE export_jobs ADD COLUMN staging_r2_key TEXT`,
+      `ALTER TABLE export_jobs ADD COLUMN finalizing_at TEXT`,
+      `ALTER TABLE export_jobs ADD COLUMN finalizing_token TEXT`,
+    ],
+  },
 ];
 
 /**

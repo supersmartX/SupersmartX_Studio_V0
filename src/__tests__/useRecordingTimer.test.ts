@@ -36,7 +36,7 @@ describe('useRecordingTimer — approval wording locks', () => {
     });
 
     expect(showToast).toHaveBeenCalledWith(
-      '1 minute remaining of your 10 min/day Free recording limit',
+      '1 minute remaining in your device-local Free recording allowance',
     );
     expect(showToast).toHaveBeenCalledTimes(1);
   });
@@ -64,7 +64,7 @@ describe('useRecordingTimer — approval wording locks', () => {
       vi.advanceTimersByTime(1000);
     });
     expect(result.current.elapsedSeconds).toBe(600);
-    expect(showToast).toHaveBeenCalledWith('Recording stopped — 10 min/day Free limit reached');
+    expect(showToast).toHaveBeenCalledWith('Recording stopped — device-local Free recording allowance reached for today');
     expect(showToast).toHaveBeenCalledTimes(2);
 
     act(() => {
@@ -94,7 +94,7 @@ describe('useRecordingTimer — approval wording locks', () => {
 
     expect(stopRecording).not.toHaveBeenCalled();
     expect(showToast).not.toHaveBeenCalledWith(
-      'Recording stopped — 10 min/day Free limit reached',
+      'Recording stopped — device-local Free recording allowance reached for today',
     );
   });
 

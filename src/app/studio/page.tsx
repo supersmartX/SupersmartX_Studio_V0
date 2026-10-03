@@ -458,7 +458,7 @@ export default function HomePage() {
   const handleRecordStart = useCallback(async () => {
     // Free: enforce 10 min TOTAL recording per day (downloads stay unlimited)
     if (!isCreatorUser && !canRecordToday()) {
-      showToast('Daily recording limit reached (10 min/day on Free). Upgrade to Creator for unlimited recording.');
+      showToast('Your device-local Free recording allowance is used for today. It may reset if site data is cleared or you switch browser profiles.');
       ui.setIsPricingModalOpen(true);
       return;
     }

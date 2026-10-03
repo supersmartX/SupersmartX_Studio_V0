@@ -173,6 +173,21 @@ export async function updateUserPlanById(
   return result.rowsAffected > 0;
 }
 
+export async function updateUserPlanByIdIfInactive(
+  userId: string,
+  plan: PlanType,
+  expiresAt: string,
+  now = new Date(),
+): Promise<boolean> {
+  await ensureMigrated();
+  const result = await getDb().execute({
+    sql: `UPDATE users SET plan = ?, plan_expires_at = ?
+          WHERE id = ? AND (plan = 'free' OR plan_expires_at IS NULL OR plan_expires_at <= ?)`,
+    args: [plan, expiresAt, userId, now.toISOString()],
+  });
+  return result.rowsAffected > 0;
+}
+
 export async function updateUserPassword(
   email: string,
   passwordHash: string,
@@ -370,6 +385,16 @@ export async function atomicIncrementUploadCount(
   return { allowed: true, stats: finalStats };
 }
 
+export async function atomicRevertUploadCount(userId: string, fileSize: number): Promise<void> {
+  await ensureMigrated();
+  await getDb().execute({
+    sql: `UPDATE user_stats
+          SET upload_count = MAX(0, upload_count - 1), storage_bytes = MAX(0, storage_bytes - ?)
+          WHERE user_id = ?`,
+    args: [fileSize, userId],
+  });
+}
+
 // Jobs stuck in a non-terminal state longer than this are abandoned clients
 // (cancelled, crashed, or failed exports that never reported back) — not
 // running exports. Bounded far above any legitimate single export so normal
@@ -400,6 +425,67 @@ export async function createExport(record: Omit<ExportRecord, 'id' | 'createdAt'
     args: [id, record.userId, record.r2Key, record.platform, record.outputWidth, record.outputHeight, record.fileSize, record.mimeType, record.status, now, record.jobId || null],
   });
   return { ...record, id, createdAt: now };
+}
+
+export type FinalizeExportResult =
+  | { kind: 'completed'; export: ExportRecord }
+  | { kind: 'claim_lost' };
+
+export async function atomicFinalizeExport(input: {
+  jobId: string;
+  userId: string;
+  token: string;
+  stagingKey: string;
+  finalKey: string;
+  platform: string;
+  outputWidth: number;
+  outputHeight: number;
+  fileSize: number;
+  now?: Date;
+}): Promise<FinalizeExportResult> {
+  await ensureMigrated();
+  const db = getDb();
+  const now = input.now ?? new Date();
+  const createdAt = now.toISOString();
+  const exportId = `export-${crypto.randomUUID()}`;
+  const results = await db.batch([
+    {
+      sql: `UPDATE export_jobs
+            SET status = 'completed', result_r2_key = ?, result_export_id = ?, result_file_size = ?,
+                completed_at = ?, finalizing_at = NULL, finalizing_token = NULL
+            WHERE id = ? AND user_id = ? AND status = 'finalizing'
+              AND finalizing_token = ? AND staging_r2_key = ? AND result_export_id IS NULL`,
+      args: [input.finalKey, exportId, input.fileSize, createdAt, input.jobId, input.userId, input.token, input.stagingKey],
+    },
+    {
+      sql: `INSERT INTO exports (id, user_id, r2_key, platform, output_width, output_height, file_size, mime_type, status, created_at, job_id)
+            SELECT ?, ?, ?, ?, ?, ?, ?, 'video/mp4', 'completed', ?, ?
+            WHERE EXISTS (
+              SELECT 1 FROM export_jobs WHERE id = ? AND user_id = ? AND status = 'completed'
+                AND result_export_id = ? AND result_r2_key = ?
+            )`,
+      args: [exportId, input.userId, input.finalKey, input.platform, input.outputWidth, input.outputHeight, input.fileSize, createdAt, input.jobId, input.jobId, input.userId, exportId, input.finalKey],
+    },
+  ], 'write');
+  if (results[0].rowsAffected !== 1) return { kind: 'claim_lost' };
+  if (results[1].rowsAffected !== 1) throw new Error('export_finalization_record_missing');
+
+  return {
+    kind: 'completed',
+    export: {
+      id: exportId,
+      userId: input.userId,
+      r2Key: input.finalKey,
+      platform: input.platform,
+      outputWidth: input.outputWidth,
+      outputHeight: input.outputHeight,
+      fileSize: input.fileSize,
+      mimeType: 'video/mp4',
+      status: 'completed',
+      createdAt,
+      jobId: input.jobId,
+    },
+  };
 }
 
 export async function findExportById(exportId: string): Promise<ExportRecord | undefined> {
@@ -603,6 +689,7 @@ function mapExportJobRow(row: Record<string, unknown>): ExportJobRecord {
     configJson: row.config_json as string,
     status: row.status as ExportJobStatus,
     progress: Number(row.progress),
+    stagingR2Key: row.staging_r2_key as string | null,
     resultR2Key: row.result_r2_key as string | null,
     resultExportId: row.result_export_id as string | null,
     resultFileSize: Number(row.result_file_size),
@@ -610,6 +697,7 @@ function mapExportJobRow(row: Record<string, unknown>): ExportJobRecord {
     retryCount: Number(row.retry_count),
     createdAt: row.created_at as string,
     startedAt: row.started_at as string | null,
+    finalizingAt: row.finalizing_at as string | null,
     completedAt: row.completed_at as string | null,
   };
 }
@@ -629,9 +717,9 @@ export async function createExportJob(
   });
   return {
     id, userId, configJson, status: 'pending', progress: 0,
-    resultR2Key: null, resultExportId: null, resultFileSize: 0,
+    stagingR2Key: null, resultR2Key: null, resultExportId: null, resultFileSize: 0,
     errorMessage: null, retryCount: 0, createdAt: now,
-    startedAt: null, completedAt: null,
+    startedAt: null, finalizingAt: null, completedAt: null,
   };
 }
 
@@ -643,9 +731,10 @@ export function isValidExportJobTransition(fromStatus: ExportJobStatus, toStatus
   // locally, so a job may be completed without ever reporting `uploading`
   // (presigned PUT + /api/exports/complete attach the R2 key at the end).
   const allowed: Record<Exclude<ExportJobStatus, 'completed' | 'failed'>, ExportJobStatus[]> = {
-    pending: ['encoding', 'uploading', 'completed', 'failed'],
-    encoding: ['encoding', 'uploading', 'completed', 'failed'],
-    uploading: ['uploading', 'completed', 'failed'],
+    pending: ['encoding', 'uploading', 'finalizing', 'completed', 'failed'],
+    encoding: ['encoding', 'uploading', 'finalizing', 'completed', 'failed'],
+    uploading: ['uploading', 'finalizing', 'completed', 'failed'],
+    finalizing: [],
   };
 
   return allowed[fromStatus]?.includes(toStatus) ?? false;
@@ -689,6 +778,9 @@ export async function updateExportJobStatus(
   if (status === 'encoding' || status === 'uploading') {
     sets.push("started_at = COALESCE(started_at, CURRENT_TIMESTAMP)");
   }
+  if (status !== 'finalizing') {
+    sets.push('finalizing_at = NULL, finalizing_token = NULL');
+  }
   if (status === 'completed' || status === 'failed') {
     sets.push("completed_at = CURRENT_TIMESTAMP");
   }
@@ -724,6 +816,48 @@ export async function updateExportJobStatus(
     args,
   });
   return result.rowsAffected > 0;
+}
+
+const EXPORT_FINALIZATION_LEASE_MS = 30 * 60 * 1000;
+
+export async function claimExportJobFinalization(
+  jobId: string,
+  userId: string,
+  stagingKey: string,
+  token: string,
+  now = new Date(),
+): Promise<boolean> {
+  await ensureMigrated();
+  const cutoff = new Date(now.getTime() - EXPORT_FINALIZATION_LEASE_MS).toISOString();
+  const result = await getDb().execute({
+    sql: `UPDATE export_jobs
+          SET status = 'finalizing', finalizing_at = ?, finalizing_token = ?
+          WHERE id = ? AND user_id = ? AND staging_r2_key = ? AND result_export_id IS NULL
+            AND (status IN ('pending', 'encoding', 'uploading')
+              OR (status = 'finalizing' AND finalizing_at <= ?))`,
+    args: [now.toISOString(), token, jobId, userId, stagingKey, cutoff],
+  });
+  return result.rowsAffected === 1;
+}
+
+export async function releaseExportJobFinalization(jobId: string, userId: string, token: string): Promise<void> {
+  await ensureMigrated();
+  await getDb().execute({
+    sql: `UPDATE export_jobs SET status = 'uploading', finalizing_at = NULL, finalizing_token = NULL
+          WHERE id = ? AND user_id = ? AND status = 'finalizing' AND finalizing_token = ?`,
+    args: [jobId, userId, token],
+  });
+}
+
+export async function setExportJobStagingKey(jobId: string, userId: string, stagingKey: string): Promise<boolean> {
+  await ensureMigrated();
+  const result = await getDb().execute({
+    sql: `UPDATE export_jobs SET staging_r2_key = ?
+          WHERE id = ? AND user_id = ? AND status IN ('pending', 'encoding', 'uploading')
+            AND result_export_id IS NULL`,
+    args: [stagingKey, jobId, userId],
+  });
+  return result.rowsAffected === 1;
 }
 
 export async function findExportJobById(jobId: string): Promise<ExportJobRecord | undefined> {

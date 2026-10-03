@@ -73,7 +73,7 @@ export function softwareApplicationSchema() {
     ],
     featureList: [
       'Built-in teleprompter with voice-activated scrolling',
-      'Unlimited video recording for Creator, 10 minutes per day for Free',
+      'Unlimited recording duration and sessions for Creator; Free recording is limited to up to 10 minutes per browser profile per local calendar day, using a device-local counter',
       '1080p export for Creator, 720p for Free',
       'Platform presets for YouTube, Instagram, TikTok, LinkedIn',
       'Preview video on any platform before exporting',

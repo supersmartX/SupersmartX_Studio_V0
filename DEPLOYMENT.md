@@ -30,10 +30,9 @@ Build → Validate → Test → Deploy to Staging → Validate → Approval → 
 | `R2_SECRET_ACCESS_KEY` | *(optional)* | `your-r2-secret` | R2 storage |
 | `R2_BUCKET_NAME` | *(optional)* | `your-bucket-name` | R2 storage |
 | `CASHFREE_APP_ID` | *(optional)* | `your-cashfree-id` | Payments |
-| `CASHFREE_SECRET_KEY` | *(optional)* | `your-cashfree-secret` | Payments |
+| `CASHFREE_SECRET_KEY` | *(optional)* | **`required`** | PG client secret key. **Also the webhook-signing key** — see note below |
 | `CASHFREE_ENV` | `sandbox` | `production` | Payments environment (exact value required in production) |
 | `NEXT_PUBLIC_CASHFREE_ENV` | `sandbox` | `production` | Browser checkout environment; must match `CASHFREE_ENV` |
-| `CASHFREE_WEBHOOK_SECRET` | *(optional)* | **`required`** | Webhook HMAC secret from the Cashfree dashboard — NOT the API secret key |
 
 > `CASHFREE_ENV` is checked strictly in production. If it is unset, empty, or
 > misspelt (e.g. `prodution`, `PRODUCTION`), every payment path — order
@@ -41,11 +40,14 @@ Build → Validate → Test → Deploy to Staging → Validate → Approval → 
 > nothing. This is deliberate: a production deployment must never silently
 > transact against sandbox.
 >
-> `CASHFREE_WEBHOOK_SECRET` is the secret shown in **Cashfree Dashboard →
-> Webhooks → Secret**. Without it the webhook route falls back to
-> `CASHFREE_SECRET_KEY`, which is a different value, so the HMAC comparison
-> rejects every genuine Cashfree event and a paid order is never activated by
-> webhook (only by the return trip). Set it in every environment.
+> `CASHFREE_SECRET_KEY` is also the webhook-signing key. Cashfree signs every
+> webhook with the PG client secret key and publishes **no separate webhook
+> secret** — there is no "Webhooks → Secret" value in the dashboard, in Sandbox
+> or in Production. `/api/cashfree/webhook` therefore reads
+> `CASHFREE_SECRET_KEY` and nothing else: `HMAC-SHA256(timestamp + rawBody)`
+> keyed with it, compared with `timingSafeEqual`. If that key is missing the
+> route refuses every event, so a paid order is never activated by webhook (only
+> by the return trip). Set it in every environment.
 
 ### Cloudflare R2 bucket CORS (required for Creator export)
 
@@ -116,8 +118,8 @@ configuration is **NOT VERIFIED** regardless of what the source says.
       compares it against `CLEANUP_SECRET`)
 - [ ] `CASHFREE_ENV=production` exactly, and `NEXT_PUBLIC_CASHFREE_ENV=production`
       — any other value makes every payment path refuse rather than run
-- [ ] `CASHFREE_WEBHOOK_SECRET` is set from the Cashfree dashboard (Webhook
-      secret), **not** the API secret key
+- [ ] `CASHFREE_SECRET_KEY` is set to the Cashfree PG client secret key — it is
+      also the webhook-signing key, and Cashfree publishes no separate one
 - [ ] Cloudflare R2 bucket CORS is configured — see §2 "Cloudflare R2 bucket
       CORS (required)", without which browser upload fails at the PUT
 
@@ -249,8 +251,7 @@ npx vitest run src/__tests__/db-migrations.test.ts
 | `CLEANUP_SECRET` | Vercel env | Generate new, redeploy |
 | Google OAuth | Vercel env | Google Cloud Console |
 | Resend API Key | Vercel env | Resend dashboard |
-| Cashfree Keys | Vercel env | Cashfree dashboard |
-| `CASHFREE_WEBHOOK_SECRET` | Vercel env | Cashfree dashboard → Webhooks → Secret |
+| Cashfree Keys (incl. webhook signing) | Vercel env | Cashfree dashboard |
 | R2 Keys | Vercel env | Cloudflare dashboard |
 
 **Rules:**

@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       if (!result.allowed) {
         const period = getCurrentPeriod();
         return NextResponse.json(
-          { error: `Monthly export limit reached (${entitlements.maxExportsPerMonth} exports for ${period}). Upgrade to Creator for unlimited exports.` },
+          { error: `Monthly export limit reached (${entitlements.maxExportsPerMonth} exports for ${period}). Creator export count is unlimited; each file is limited to 2 GiB (about 28 min at current 1080p settings).` },
           { status: 403 },
         );
       }
@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
       if (!budget.allowed) {
         if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
         return NextResponse.json(
-          { error: 'Daily recording limit reached. Upgrade to Creator for unlimited recording.' },
+          { error: 'Daily Free recording allowance reached. Creator recording duration and sessions are unlimited.' },
           { status: 403 },
         );
       }

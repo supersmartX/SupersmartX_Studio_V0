@@ -4,6 +4,7 @@ import { getServerPrice, getServerPricingForCountry, ALL_COUNTRIES } from '@/lib
 import { getCashfreeEnv, isCashfreeEnvConsistent, cashfreeBaseUrl, isCashfreeEnvUsable } from '@/lib/cashfree-fulfillment';
 import { createPendingOrder, findUserById, findUserByEmail, ensureMigrated } from '@/lib/db';
 import { getDb } from '@/lib/db/driver';
+import { isCreatorPlan, isPlanActive } from '@/lib/entitlements';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
 
 // Resolved per request rather than captured at module load, so the production
@@ -182,6 +183,12 @@ export async function POST(request: NextRequest) {
 
     if (plan === 'free') {
       return NextResponse.json({ error: 'Free plan does not require payment' }, { status: 400 });
+    }
+
+    const purchaseOwner = await findUserById(session.user.id)
+      || (session.user.email ? await findUserByEmail(session.user.email) : undefined);
+    if (purchaseOwner && isCreatorPlan(purchaseOwner.plan) && isPlanActive(purchaseOwner.planExpiresAt, purchaseOwner.plan)) {
+      return NextResponse.json({ error: 'An active Creator plan already exists' }, { status: 409 });
     }
 
     // Resolve pricing by server-verified country (prevents client arbitrage).

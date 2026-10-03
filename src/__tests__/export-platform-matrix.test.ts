@@ -9,6 +9,7 @@ vi.mock('@/lib/r2', () => ({
   getR2ConfigurationError: () => null,
   getSignedUploadUrl: vi.fn().mockResolvedValue('https://r2.example/upload'),
   generateExportKey: vi.fn().mockReturnValue('exports/test/key.mp4'),
+  generateExportStagingKey: (userId: string, jobId: string) => `staging/${userId}/${jobId}/source.mp4`,
   headObject: vi.fn().mockResolvedValue({ size: 2_000_000, contentType: 'video/mp4' }),
   deleteRecording: vi.fn(),
   deleteObject: vi.fn(),

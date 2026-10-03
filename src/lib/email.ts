@@ -43,7 +43,7 @@ function getPlanFeatures(plan: string): string[] {
     case 'pro_yearly':
     case 'creator_monthly':
     case 'creator_yearly':
-      return ['Unlimited recording', 'Unlimited teleprompter', 'Unlimited exports & downloads', 'All supported platform formats', '1080p with no watermark', 'Voice-activated teleprompter', 'Cloud video library'];
+      return ['Unlimited recording duration and sessions', 'Unlimited teleprompter', 'Unlimited exports by count & downloads; each file is limited to 2 GiB (about 28 min at current 1080p settings)', 'All supported platform formats', '1080p with no watermark', 'Voice-activated teleprompter', 'Cloud video library'];
     default:
       return [];
   }
@@ -63,10 +63,10 @@ function formatCurrency(amount: number, currency: string): string {
 
 function getPlanDisplayName(plan: string): string {
   switch (plan) {
-    case 'creator_monthly': return 'Creator Monthly';
-    case 'creator_yearly': return 'Creator Yearly';
-    case 'pro_monthly': return 'Creator Monthly';
-    case 'pro_yearly': return 'Creator Yearly';
+    case 'creator_monthly': return 'Creator (1 month)';
+    case 'creator_yearly': return 'Creator (1 year)';
+    case 'pro_monthly': return 'Creator (1 month)';
+    case 'pro_yearly': return 'Creator (1 year)';
     case 'free': return 'Free';
     default: return plan;
   }
@@ -122,15 +122,15 @@ function buildUserConfirmationHtml(data: PaymentEmailData): string {
                   <td style="padding:4px 0;font-size:13px;color:#22c55e;text-align:right;font-weight:700;">${sanitizeHtml(price)}</td>
                 </tr>
                 <tr>
-                  <td style="padding:4px 0;font-size:13px;color:#71717a;">Billing</td>
-                  <td style="padding:4px 0;font-size:13px;color:#ffffff;text-align:right;">${data.billingPeriod === 'monthly' ? 'Monthly' : 'Annually'}</td>
+                  <td style="padding:4px 0;font-size:13px;color:#71717a;">Access term</td>
+                  <td style="padding:4px 0;font-size:13px;color:#ffffff;text-align:right;">${data.billingPeriod === 'monthly' ? '1 month' : '1 year'}</td>
                 </tr>
                 <tr>
                   <td style="padding:4px 0;font-size:13px;color:#71717a;">Order ID</td>
                   <td style="padding:4px 0;font-size:12px;color:#a1a1aa;text-align:right;font-family:monospace;">${safeOrderId}</td>
                 </tr>
                 <tr>
-                  <td style="padding:4px 0;font-size:13px;color:#71717a;">Next billing</td>
+                  <td style="padding:4px 0;font-size:13px;color:#71717a;">Access until</td>
                   <td style="padding:4px 0;font-size:13px;color:#ffffff;text-align:right;">${sanitizeHtml(renewalStr)}</td>
                 </tr>
               </table>
@@ -218,7 +218,7 @@ function buildAdminNotificationHtml(data: PaymentEmailData): string {
 function buildUserConfirmationText(data: PaymentEmailData): string {
   const price = formatCurrency(data.amount, data.currency);
   const planName = getPlanDisplayName(data.plan);
-  return `Payment Successful\n\nHi ${data.customerName || 'there'},\n\nYour ${planName} subscription is now active.\n\nAmount: ${price}\nOrder ID: ${data.orderId}\n\nOpen SupersmartX Studio: ${APP_URL}/studio\n\nQuestions? Reply to this email or contact ${ADMIN_EMAIL}`;
+  return `Payment Successful\n\nHi ${data.customerName || 'there'},\n\nYour ${planName} access is now active for the purchased term.\n\nAmount: ${price}\nOrder ID: ${data.orderId}\n\nAccess ends at the end of the purchased term. There is no automatic renewal.\n\nOpen SupersmartX Studio: ${APP_URL}/studio\n\nQuestions? Reply to this email or contact ${ADMIN_EMAIL}`;
 }
 
 function buildAdminNotificationText(data: PaymentEmailData): string {

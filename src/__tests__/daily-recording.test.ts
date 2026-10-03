@@ -8,7 +8,7 @@ import {
 } from '@/lib/daily-recording';
 import { FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
 
-describe('daily recording budget (Free: 10 min/day, downloads unlimited)', () => {
+describe('device-local daily recording counter (Free: up to 10 min/profile/day)', () => {
   beforeEach(() => {
     localStorage.clear();
   });
@@ -26,7 +26,7 @@ describe('daily recording budget (Free: 10 min/day, downloads unlimited)', () =>
     expect(canRecordToday()).toBe(true);
   });
 
-  it('blocks new recordings once 10 min/day is used', () => {
+  it('blocks new recordings in this profile once 10 min is used', () => {
     addDailyRecordingSeconds(420);
     addDailyRecordingSeconds(180);
     expect(getDailyRecordingUsage()).toBe(600);

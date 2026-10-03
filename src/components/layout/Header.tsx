@@ -121,8 +121,11 @@ export function Header({
                     }`}>
                       {isCreator ? 'Creator' : 'Free'}
                     </span>
-                    <span className="text-[12px] text-text-secondary truncate">
-                      {isCreator ? 'Unlimited recording' : '10 min/day recording'}
+                    <span
+                      className="text-[12px] text-text-secondary truncate"
+                      title={isCreator ? 'Unlimited recording duration and sessions' : 'Free recording is limited to up to 10 minutes per browser profile per local calendar day. This device-local limit may reset if site data is cleared or you switch browser profiles.'}
+                    >
+                      {isCreator ? 'Unlimited recording duration' : 'Up to 10 min/day per browser profile'}
                     </span>
                   </div>
                   <button

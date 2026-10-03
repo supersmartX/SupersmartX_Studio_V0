@@ -6,8 +6,8 @@ import { fetchCashfreeOrder, isCashfreeOrderPaid, isCashfreeConfigured } from '@
 export const dynamic = 'force-dynamic';
 
 function planLabel(plan: string | null | undefined): string {
-  if (plan === 'creator_yearly' || plan === 'pro_yearly') return 'Creator Yearly';
-  if (plan === 'creator_monthly' || plan === 'pro_monthly') return 'Creator Monthly';
+  if (plan === 'creator_yearly' || plan === 'pro_yearly') return 'Creator (1 year)';
+  if (plan === 'creator_monthly' || plan === 'pro_monthly') return 'Creator (1 month)';
   return 'Creator';
 }
 
@@ -87,7 +87,7 @@ export default async function SupportSuccessPage({
           </h1>
           {paid ? (
             <p className="text-sm text-text-secondary">
-              Thank you for subscribing to <span className="font-semibold text-accent">{planName}</span>!
+              Thank you for purchasing <span className="font-semibold text-accent">{planName}</span> access!
             </p>
           ) : (
             <p className="text-sm text-text-secondary">{REASONS[reason!]}</p>

@@ -202,12 +202,14 @@ describe('migrate(): v12 production database upgraded to v13', () => {
 
     await migrate(db);
 
-    // v12 -> v13 is exactly one pending group, so exactly one transaction.
-    expect(batches).toHaveLength(1);
-    expect(batches[0].mode).toBe('write');
-    // The group is one CREATE plus the version stamp, issued together.
-    const group = MIGRATIONS[MIGRATIONS.length - 1];
-    expect(batches[0].statements).toBe(group.statements.length + 1);
+    // v12 -> current applies v13 and v14 as separate atomic groups.
+    const pendingGroups = MIGRATIONS.filter((group) => group.version > V12);
+    expect(batches).toHaveLength(pendingGroups.length);
+    expect(batches.every((batch) => batch.mode === 'write')).toBe(true);
+    expect(batches.map((batch) => batch.statements)).toEqual(
+      pendingGroups.map((group) => group.statements.length + 1),
+    );
+    expect(await storedVersion(db)).toBe(String(SCHEMA_VERSION));
     spy.mockRestore();
 
     // A fresh database takes one transaction per version, in order.

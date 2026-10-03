@@ -758,7 +758,7 @@ export default function LandingPage() {
           '@type': 'FAQPage',
           mainEntity: [
             { '@type': 'Question', name: 'What is SupersmartX Studio?', acceptedAnswer: { '@type': 'Answer', text: 'SupersmartX Studio is a Creator Content Studio — a browser-based tool that turns your script into a camera-ready, platform-ready video.' } },
-            { '@type': 'Question', name: 'How much does SupersmartX Studio cost?', acceptedAnswer: { '@type': 'Answer', text: `Free forever and Creator ${format(currentPricing.creatorMonthly)} per month. Creator includes unlimited recording, unlimited teleprompter, unlimited exports, all platform formats, 1080p, no watermark, voice-activated teleprompter, and cloud video library.` } },
+            { '@type': 'Question', name: 'How much does SupersmartX Studio cost?', acceptedAnswer: { '@type': 'Answer', text: `Free forever. Free recording is limited to up to 10 minutes per browser profile per local calendar day. This is a device-local limit and may reset if site data is cleared or you switch browser profiles. Creator access is a one-time payment for 1 month or 1 year; access expires at the end of the purchased term with no automatic renewal.` } },
             { '@type': 'Question', name: 'Is there a watermark on the free plan?', acceptedAnswer: { '@type': 'Answer', text: 'Yes, free exports include a watermark. Creator has no watermark.' } },
           ],
         }}
@@ -928,14 +928,14 @@ export default function LandingPage() {
                 onClick={() => setBillingPeriod('monthly')}
                 className={`lsx-pricing-toggle-btn ${billingPeriod === 'monthly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
               >
-                Monthly
+                      1 month
               </button>
               <button
                 type="button"
                 onClick={() => setBillingPeriod('yearly')}
                 className={`lsx-pricing-toggle-btn ${billingPeriod === 'yearly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
               >
-                Yearly <span className="lsx-pricing-toggle-save">{formatSavingsPercent(currentPricing.creatorMonthly, currentPricing.creatorYearly)}</span>
+                      1 year <span className="lsx-pricing-toggle-save">{formatSavingsPercent(currentPricing.creatorMonthly, currentPricing.creatorYearly)}</span>
               </button>
             </div>
 
@@ -965,12 +965,12 @@ export default function LandingPage() {
                 <div className="lsx-pricing-badge">Popular</div>
                 <div className="lsx-pricing-card-header">
                   <h3 className="lsx-pricing-plan">{PRICING_PLANS.creator.name}</h3>
-                  <div className="lsx-pricing-price">{format(billingPeriod === 'monthly' ? currentPricing.creatorMonthly : currentPricing.creatorYearly)}<span className="lsx-pricing-period">/{billingPeriod === 'monthly' ? 'month' : 'year'}</span></div>
+                  <div className="lsx-pricing-price">{format(billingPeriod === 'monthly' ? currentPricing.creatorMonthly : currentPricing.creatorYearly)}<span className="lsx-pricing-period"> for {billingPeriod === 'monthly' ? '1 month' : '1 year'}</span></div>
                   {billingPeriod === 'yearly' && (
-                    <p className="lsx-pricing-note">That&apos;s {format(currentPricing.creatorYearly / 12)}/month</p>
+                    <p className="lsx-pricing-note">One-time payment for 1 year of access (equivalent to {format(currentPricing.creatorYearly / 12)}/month).</p>
                   )}
                   {billingPeriod === 'monthly' && (
-                    <p className="lsx-pricing-note">Regional pricing</p>
+                    <p className="lsx-pricing-note">One-time payment for 1 month of access.</p>
                   )}
                 </div>
                 <ul className="lsx-pricing-features">
@@ -1016,7 +1016,7 @@ export default function LandingPage() {
                 },
                 {
                   q: 'How much does SupersmartX Studio cost?',
-                  a: `Free forever with standard teleprompter (3 minutes per recording), 10 minutes recording per day, YouTube 16:9, 720p, unlimited local downloads and watermark. Creator ${format(currentPricing.creatorMonthly)} per month includes unlimited recording, unlimited teleprompter, unlimited exports, all platform formats, 1080p, no watermark, voice-activated teleprompter, and cloud video library.`,
+                  a: `Free forever with standard teleprompter (3 minutes per recording), YouTube 16:9, 720p, unlimited local downloads and watermark. Free recording is limited to up to 10 minutes per browser profile per local calendar day. This is a device-local limit and may reset if site data is cleared or you switch browser profiles. Creator access is a one-time payment for 1 month or 1 year; access expires at the end of the purchased term with no automatic renewal.`,
                 },
                 {
                   q: 'Is there a watermark on the free plan?',
@@ -1024,7 +1024,7 @@ export default function LandingPage() {
                 },
                 {
                   q: 'What is the maximum recording length?',
-                  a: 'Free: up to 10 minutes recording per day with unlimited local downloads. Creator: unlimited recording.',
+                  a: 'Free recording is limited to up to 10 minutes per browser profile per local calendar day. This is a device-local limit and may reset if site data is cleared or you switch browser profiles. Creator has unlimited recording duration and sessions; export count is unlimited, but each file is limited to 2 GiB (about 28 min 5 sec at current 1080p settings).',
                 },
               ].map((item) => (
                 <details key={item.q} className="group bg-white/[0.02] border border-white/5 rounded-xl p-5 open:bg-white/[0.03]">

@@ -7,9 +7,8 @@ Source of truth for names: `.env.example`. Required in production:
 | `NEXTAUTH_SECRET` (or `AUTH_SECRET`) | JWT/session signing | ≥32 chars, random. Auth refuses to start in prod without it (`src/auth.ts`) |
 | `NEXTAUTH_URL` / `NEXT_PUBLIC_APP_URL` | Absolute URLs (OAuth, Cashfree return URL) | Must be `https://studio.supersmartx.com` in prod |
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | Production database | Without them the app falls back to local file, or `:memory:` on serverless (DATA LOSS — see DATABASE.md) |
-| `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY` | Payments | Build warns if missing; order API 503s |
+| `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY` | Payments | Build warns if missing; order API 503s. `CASHFREE_SECRET_KEY` is also the webhook-signing key — Cashfree publishes no separate webhook secret |
 | `CASHFREE_ENV` / `NEXT_PUBLIC_CASHFREE_ENV` | `sandbox` vs `production` | Must match Cashfree dashboard mode AND each other — see below |
-| `CASHFREE_WEBHOOK_SECRET` | Webhook HMAC verification | Falls back to `CASHFREE_SECRET_KEY` |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` | Cloudflare R2 | All four required; else 503. Bucket must be PRIVATE |
 | `R2_SIGNED_URL_TTL_SECONDS` | Download URL TTL | Default 3600 |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth | Optional; enables Google provider |

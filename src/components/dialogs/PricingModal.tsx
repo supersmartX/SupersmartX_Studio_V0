@@ -278,14 +278,14 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                       onClick={() => setBillingPeriod('monthly')}
                       className={`lsx-pricing-toggle-btn ${billingPeriod === 'monthly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
                     >
-                      Monthly
+                      1 month
                     </button>
                     <button
                       type="button"
                       onClick={() => setBillingPeriod('yearly')}
                       className={`lsx-pricing-toggle-btn ${billingPeriod === 'yearly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
                     >
-                      Yearly <span className="lsx-pricing-toggle-save">{formatSavingsPercent(currentPricing.creatorMonthly, currentPricing.creatorYearly)}</span>
+                      1 year <span className="lsx-pricing-toggle-save">{formatSavingsPercent(currentPricing.creatorMonthly, currentPricing.creatorYearly)}</span>
                     </button>
                   </div>
 
@@ -297,7 +297,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                       const isSelected = selectedTier === tier;
                       const isCurrentPlan = tier === currentTier;
                       const price = getTierPrice(tier, billingPeriod);
-                      const periodLabel = tier === 'free' ? '/forever' : billingPeriod === 'monthly' ? '/month' : '/year';
+                      const periodLabel = tier === 'free' ? '/forever' : billingPeriod === 'monthly' ? ' for 1 month' : ' for 1 year';
 
                       return (
                         <button
@@ -317,10 +317,10 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                               <span className="lsx-pricing-period">{periodLabel}</span>
                             </div>
                             {tier !== 'free' && billingPeriod === 'yearly' && (
-                              <p className="lsx-pricing-note">That&apos;s {format(getTierPrice(tier, 'yearly') / 12)}/month</p>
+                              <p className="lsx-pricing-note">One-time payment for 1 year of access (equivalent to {format(getTierPrice(tier, 'yearly') / 12)}/month).</p>
                             )}
                             {tier !== 'free' && billingPeriod === 'monthly' && (
-                              <p className="lsx-pricing-note">Regional pricing</p>
+                              <p className="lsx-pricing-note">One-time payment for 1 month of access.</p>
                             )}
                           </div>
                           <ul className="lsx-pricing-features">
@@ -348,7 +348,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                       ? 'Current Plan'
                       : selectedPlan === 'free'
                         ? PRICING_PLANS.free.cta
-                        : `Subscribe for ${format(getTierPrice(selectedTier, billingPeriod))}${billingPeriod === 'monthly' ? '/mo' : '/yr'}`}
+                        : `Pay once for ${format(getTierPrice(selectedTier, billingPeriod))}${billingPeriod === 'monthly' ? ' / 1 month' : ' / 1 year'}`}
                   </Button>
 
                   <p className="text-xs text-text-muted text-center">
@@ -363,7 +363,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     <div>
                       <span className="text-sm font-semibold text-text-primary">{PRICING_PLANS[selectedTier].name} {billingPeriod === 'yearly' ? 'Yearly' : 'Monthly'}</span>
                       <span className="text-xs text-text-muted block mt-1">
-                        Billed {billingPeriod === 'yearly' ? 'annually' : 'monthly'} in {currentPricing.currency}
+                        One-time payment for {billingPeriod === 'yearly' ? '1 year' : '1 month'} of access in {currentPricing.currency}
                       </span>
                     </div>
                     <span className="text-xl font-bold text-text-primary">
@@ -454,7 +454,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                   </div>
 
                   <p className="text-xs text-text-muted text-center">
-                    Secure checkout powered by Cashfree. Cancel anytime.
+                    Secure checkout powered by Cashfree. Access lasts for the purchased term with no automatic renewal.
                   </p>
                 </div>
               )}

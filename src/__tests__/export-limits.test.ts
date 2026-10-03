@@ -9,6 +9,7 @@ vi.mock('@/lib/r2', () => ({
   getR2ConfigurationError: () => null,
   getSignedUploadUrl: vi.fn(async () => 'https://signed.example/upload'),
   generateExportKey: (userId: string) => `exports/${userId}/generated.mp4`,
+  generateExportStagingKey: (userId: string, jobId: string) => `staging/${userId}/${jobId}/source.mp4`,
 }));
 
 import { auth } from '@/auth';
@@ -135,7 +136,7 @@ describe('POST /api/exports/presigned-put duration handling', () => {
     await seedUser();
     await POST(presign(30));
     expect(vi.mocked(getSignedUploadUrl)).toHaveBeenCalledWith(
-      expect.stringMatching(/^exports\//),
+      expect.stringMatching(/^staging\//),
       'video/mp4',
       900,
     );

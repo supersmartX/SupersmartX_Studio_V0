@@ -36,7 +36,7 @@ export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: Act
   const [status, setStatus] = useState<'pending' | 'confirmed' | 'failed'>('pending');
   const [pollCount, setPollCount] = useState(0);
 
-  const planName = plan.includes('yearly') ? 'Creator Yearly' : 'Creator Monthly';
+  const planName = plan.includes('yearly') ? 'Creator (1 year)' : 'Creator (1 month)';
 
   const confirmedRef = useRef(false);
   const failedRef = useRef(false);

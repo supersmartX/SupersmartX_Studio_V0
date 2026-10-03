@@ -23,12 +23,12 @@ export function useRecordingTimer({ recordingState, stopRecording, showToast, ma
           const next = prev + 1;
           if (typeof maxDurationSeconds === 'number' && Number.isFinite(maxDurationSeconds)) {
             if (next === maxDurationSeconds - 60) {
-              showToast(`1 minute remaining of your 10 min/day Free recording limit`);
+              showToast('1 minute remaining in your device-local Free recording allowance');
             }
             if (next >= maxDurationSeconds) {
               if (timerRef.current) clearInterval(timerRef.current);
               setTimeout(() => stopRecording(), 0);
-              showToast(`Recording stopped — 10 min/day Free limit reached`);
+              showToast('Recording stopped — device-local Free recording allowance reached for today');
               return maxDurationSeconds;
             }
           }

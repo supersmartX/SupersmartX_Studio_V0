@@ -92,12 +92,12 @@ describe('PRO not customer-facing at launch', () => {
     expect((PRICING_PLANS as any).pro).toBeUndefined();
   });
   it('free and creator copy matches final spec', () => {
-    expect(PRICING_PLANS.free.features.some(f=>f.text.includes('10 minutes recording per day'))).toBe(true);
+    expect(PRICING_PLANS.free.features.some(f=>f.text.includes('10 minutes per browser profile per local calendar day'))).toBe(true);
     expect(PRICING_PLANS.free.features.some(f=>f.text.includes('Unlimited local downloads'))).toBe(true);
     expect(PRICING_PLANS.free.features.some(f=>f.text.includes('YouTube 16:9'))).toBe(true);
     expect(PRICING_PLANS.free.features.some(f=>f.text.includes('720p'))).toBe(true);
-    expect(PRICING_PLANS.creator.features.some(f=>f.text.includes('Unlimited recording'))).toBe(true);
-    expect(PRICING_PLANS.creator.features.some(f=>f.text.includes('Unlimited exports'))).toBe(true);
+    expect(PRICING_PLANS.creator.features.some(f=>f.text.includes('Unlimited recording duration'))).toBe(true);
+    expect(PRICING_PLANS.creator.features.some(f=>f.text.includes('Unlimited exports') && f.text.includes('2 GiB'))).toBe(true);
     expect(PRICING_PLANS.creator.features.some(f=>f.text.includes('1080p'))).toBe(true);
   });
   it('no stale 3-exports-per-month claim remains', () => {

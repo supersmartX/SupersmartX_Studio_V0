@@ -13,7 +13,10 @@ vi.mock('@/lib/r2', () => ({
   // Real keys are namespaced under the user id; the complete route enforces
   // that prefix, so the mock must produce a genuine per-user key.
   generateExportKey: vi.fn((userId: string) => `exports/${userId}/export.mp4`),
-  headObject: vi.fn().mockResolvedValue({ size: 2_000_000, contentType: 'video/mp4' }),
+  generateExportStagingKey: vi.fn((userId: string, jobId: string) => `staging/${userId}/${jobId}/source.mp4`),
+  generateFinalExportKey: vi.fn((userId: string, jobId: string) => `exports/${userId}/${jobId}.mp4`),
+  headObject: vi.fn().mockResolvedValue({ size: 2_000_000, contentType: 'video/mp4', eTag: '"source-etag"' }),
+  copyRecording: vi.fn().mockResolvedValue(undefined),
   deleteRecording: vi.fn(),
   deleteObject: vi.fn(),
 }));
@@ -313,7 +316,7 @@ describe('the server records the frame it will serve back', () => {
       expect(stored!.platform).toBe(id);
       expect(stored!.outputWidth).toBe(width);
       expect(stored!.outputHeight).toBe(height);
-      expect(stored!.r2Key).toBe(key);
+      expect(stored!.r2Key).toBe(`exports/${user.id}/${jobId}.mp4`);
     }
   );
 

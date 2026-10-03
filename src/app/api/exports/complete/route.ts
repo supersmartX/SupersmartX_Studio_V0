@@ -1,18 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { auth } from '@/auth';
-import { findUserById, findExportJobByIdAndUser, updateExportJobStatus, createExport, ensureUserStatsRow, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, atomicTryConsumeRecordingSeconds, atomicRevertRecordingSeconds } from '@/lib/db';
-import { getEntitlements, isPlanActive, isPlatformLockedForUser, getDailyRecordingAllowanceSeconds, computeRecordingChargeSeconds, clampResolution } from '@/lib/entitlements';
-import { headObject, deleteRecording, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
-import { MAX_EXPORT_SIZE_MB, MAX_EXPORT_SIZE_BYTES } from '@/lib/export/export-limits';
+import {
+  atomicIncrementUploadCount,
+  atomicRevertMonthlyExport,
+  atomicRevertRecordingSeconds,
+  atomicRevertUploadCount,
+  atomicTryConsumeMonthlyExport,
+  atomicTryConsumeRecordingSeconds,
+  atomicFinalizeExport,
+  claimExportJobFinalization,
+  ensureUserStatsRow,
+  findExportJobByIdAndUser,
+  findUserById,
+  releaseExportJobFinalization,
+  setExportJobStagingKey,
+} from '@/lib/db';
+import {
+  clampResolution,
+  computeRecordingChargeSeconds,
+  getDailyRecordingAllowanceSeconds,
+  getEntitlements,
+  isPlanActive,
+  isPlatformLockedForUser,
+} from '@/lib/entitlements';
+import {
+  copyRecording,
+  deleteRecording,
+  generateFinalExportKey,
+  getR2ConfigurationError,
+  headObject,
+  isR2Configured,
+} from '@/lib/r2';
+import { MAX_EXPORT_SIZE_BYTES, MAX_EXPORT_SIZE_MB } from '@/lib/export/export-limits';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
 
 const ALLOWED_EXPORT_CONTENT_TYPES = ['video/mp4', 'application/mp4'];
 
-// Duration previously reported by the client at presigned-PUT time is stored
-// on the job config. It is only a claim (the byte floor still applies); a
-// missing or corrupt config simply contributes no claim.
 function jobClaimedDurationSeconds(configJson: string | null | undefined): unknown {
   if (!configJson) return undefined;
   try {
@@ -21,6 +47,14 @@ function jobClaimedDurationSeconds(configJson: string | null | undefined): unkno
   } catch {
     return undefined;
   }
+}
+
+async function completedResponse(jobId: string, userId: string, stagingKey: string) {
+  const latest = await findExportJobByIdAndUser(jobId, userId);
+  if (latest?.status === 'completed' && latest.resultExportId && latest.resultR2Key && latest.stagingR2Key === stagingKey) {
+    return NextResponse.json({ exportId: latest.resultExportId, r2Key: latest.resultR2Key });
+  }
+  return null;
 }
 
 export async function POST(request: NextRequest) {
@@ -48,29 +82,43 @@ export async function POST(request: NextRequest) {
     };
 
     if (!jobId || !key || !fileSize || !platformId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
-    if (!key.startsWith(`exports/${session.user.id}/`)) return NextResponse.json({ error: 'Invalid key' }, { status: 403 });
     if (fileSize > MAX_EXPORT_SIZE_BYTES) return NextResponse.json({ error: 'File too large' }, { status: 413 });
     if (mimeType && mimeType !== 'video/mp4') return NextResponse.json({ error: 'Invalid mimeType' }, { status: 400 });
 
     const job = await findExportJobByIdAndUser(jobId, session.user.id);
     if (!job) return NextResponse.json({ error: 'Invalid job' }, { status: 400 });
-    // Idempotency: if already completed with same key, return existing
-    if (job.status === 'completed' && job.resultR2Key === key && job.resultExportId) {
-      return NextResponse.json({ exportId: job.resultExportId, r2Key: key });
+    if (
+      job.status === 'completed' &&
+      job.resultExportId &&
+      job.resultR2Key &&
+      (job.stagingR2Key === key || (!job.stagingR2Key && job.resultR2Key === key))
+    ) {
+      return NextResponse.json({ exportId: job.resultExportId, r2Key: job.resultR2Key });
     }
     if (job.status === 'completed') return NextResponse.json({ error: 'Job already completed' }, { status: 409 });
-    // Verify expected key matches job's stored key
-    if (job.resultR2Key && job.resultR2Key !== key) return NextResponse.json({ error: 'Key mismatch' }, { status: 403 });
-    // The launch matrix is the only accepted set; `custom` has no preset.
+    if (job.status === 'failed') return NextResponse.json({ error: 'Job is not available for completion' }, { status: 409 });
+
+    // Complete an in-flight upload issued before staging keys were deployed.
+    let stagingKey = job.stagingR2Key;
+    if (!stagingKey && job.resultR2Key === key && key.startsWith(`exports/${session.user.id}/`)) {
+      if (!await setExportJobStagingKey(jobId, session.user.id, key)) {
+        return NextResponse.json({ error: 'Job is not available for completion' }, { status: 409 });
+      }
+      stagingKey = key;
+    }
+    if (!stagingKey || stagingKey !== key) return NextResponse.json({ error: 'Key mismatch' }, { status: 403 });
+    if (!stagingKey.startsWith(`staging/${session.user.id}/`) && !stagingKey.startsWith(`exports/${session.user.id}/`)) {
+      return NextResponse.json({ error: 'Invalid key' }, { status: 403 });
+    }
+
     if (!LAUNCH_PLATFORM_PRESETS.some((preset) => preset.id === platformId)) {
       return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
     }
-    // Free plan: only YouTube 16:9 is included — reject any other platform server-side
     if (isPlatformLockedForUser(platformId, user.plan || 'free')) {
       return NextResponse.json({ error: 'This format requires the Creator plan' }, { status: 403 });
     }
 
-    const jobConfig = JSON.parse(job.configJson || '{}') as { platformId?: PlatformId; outputWidth?: number; outputHeight?: number };
+    const jobConfig = JSON.parse(job.configJson || '{}') as { platformId?: PlatformId };
     const authoritativePlatformId = jobConfig.platformId;
     const preset = LAUNCH_PLATFORM_PRESETS.find((item) => item.id === authoritativePlatformId);
     if (!preset) return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
@@ -80,105 +128,132 @@ export async function POST(request: NextRequest) {
     if (outputWidth !== expectedDimensions.width || outputHeight !== expectedDimensions.height) {
       return NextResponse.json({ error: 'Output dimensions do not match the validated export configuration' }, { status: 400 });
     }
-
     if (!isR2Configured()) return NextResponse.json({ error: `Storage not configured: ${getR2ConfigurationError()}` }, { status: 503 });
 
-    // Verify object exists via Head
-    const head = await headObject(key);
-    if (!head || head.size <= 0) return NextResponse.json({ error: 'Object not found, upload first' }, { status: 400 });
-    // SEC-001: the cap is enforced against the SERVER-VERIFIED size, never
-    // the client claim. A lying fileSize cannot smuggle an oversized object.
-    const verifiedSize = head.size;
-    if (verifiedSize > MAX_EXPORT_SIZE_BYTES) {
-      try { await deleteRecording(key); } catch {}
+    const source = await headObject(stagingKey);
+    if (!source || source.size <= 0) return NextResponse.json({ error: 'Object not found, upload first' }, { status: 400 });
+    if (source.size > MAX_EXPORT_SIZE_BYTES) {
+      try { await deleteRecording(stagingKey); } catch {}
       return NextResponse.json({ error: `File too large (max ${MAX_EXPORT_SIZE_MB}MB)` }, { status: 413 });
     }
-    if (Math.abs(verifiedSize - fileSize) > 1024) {
+    if (Math.abs(source.size - fileSize) > 1024) {
       console.warn('complete: client fileSize disagrees with verified size; server wins');
     }
-    const sizeToStore = verifiedSize;
-    // Content type is read from R2's own object metadata, never from the client
-    // body: the client-declared `mimeType` above is only an early rejection and
-    // the signed PUT binds the header, but the stored object is what gets served
-    // back on download and previewed in the library, so it must be verified
-    // here. An absent type is rejected too — "unknown" is not "mp4".
-    const observedContentType = head.contentType?.trim().toLowerCase();
-    if (!observedContentType || !ALLOWED_EXPORT_CONTENT_TYPES.includes(observedContentType)) {
-      try { await deleteRecording(key); } catch {}
+    const sourceType = source.contentType?.trim().toLowerCase();
+    if (!sourceType || !ALLOWED_EXPORT_CONTENT_TYPES.includes(sourceType)) {
+      try { await deleteRecording(stagingKey); } catch {}
       return NextResponse.json({ error: 'Uploaded file is not a valid MP4' }, { status: 400 });
     }
+    if (!source.eTag) return NextResponse.json({ error: 'Uploaded object cannot be finalized' }, { status: 503 });
 
-    await ensureUserStatsRow(session.user.id);
-
-    // BUS-001: server-side daily recording budget. The charge is
-    // max(client claim, floor from verified bytes), so under-reporting the
-    // duration (0, negative, short, missing) cannot reduce it. Unlimited
-    // plans skip the ledger entirely (no rows = unlimited).
-    let recordingConsumedSeconds = 0;
     const dailyAllowance = getDailyRecordingAllowanceSeconds(user.plan);
-    if (dailyAllowance !== null) {
-      const charge = computeRecordingChargeSeconds(
-        duration ?? jobClaimedDurationSeconds(job.configJson),
-        verifiedSize,
-      );
-      const res = await atomicTryConsumeRecordingSeconds(session.user.id, charge, dailyAllowance);
-      if (!res.allowed) {
-        try { await deleteRecording(key); } catch {}
-        return NextResponse.json({ error: 'Daily recording limit reached. Upgrade to Creator for unlimited recording.' }, { status: 403 });
-      }
-      recordingConsumedSeconds = charge;
-    }
-
-    let quotaConsumed = false;
-    if (entitlements.maxExportsPerMonth !== null) {
-      const res = await atomicTryConsumeMonthlyExport(session.user.id, entitlements.maxExportsPerMonth);
-      if (!res.allowed) {
-        // Attempt cleanup of uploaded object since quota exceeded
-        if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
-        try { await deleteRecording(key); } catch {}
-        return NextResponse.json({ error: `Monthly limit reached` }, { status: 403 });
-      }
-      quotaConsumed = true;
-    }
-
+    const recordingCharge = dailyAllowance === null
+      ? 0
+      : computeRecordingChargeSeconds(duration ?? jobClaimedDurationSeconds(job.configJson), source.size);
     const maxStorageBytes = entitlements.maxStorageMB ? entitlements.maxStorageMB * 1024 * 1024 : null;
-    const quotaResult = await atomicIncrementUploadCount(session.user.id, sizeToStore, entitlements.maxUploads, maxStorageBytes);
-    if (!quotaResult.allowed) {
-      if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
-      if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
-      try { await deleteRecording(key); } catch {}
-      return NextResponse.json({ error: quotaResult.reason }, { status: 403 });
+    const finalKey = generateFinalExportKey(session.user.id, jobId);
+    const finalizationToken = crypto.randomUUID();
+
+    if (!await claimExportJobFinalization(jobId, session.user.id, stagingKey, finalizationToken)) {
+      const latest = await findExportJobByIdAndUser(jobId, session.user.id);
+      if (latest?.status === 'completed' && latest.resultExportId && latest.resultR2Key && latest.stagingR2Key === stagingKey) {
+        return NextResponse.json({ exportId: latest.resultExportId, r2Key: latest.resultR2Key });
+      }
+      return NextResponse.json({ error: 'Export is already being finalized. Retry shortly.' }, { status: 409 });
     }
 
-    let exportRecord;
+    let recordingConsumedSeconds = 0;
+    let monthlyConsumed = false;
+    let uploadConsumed = false;
+
+    const revertQuotas = async () => {
+      if (uploadConsumed) await atomicRevertUploadCount(session.user.id, source.size);
+      if (monthlyConsumed) await atomicRevertMonthlyExport(session.user.id);
+      if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
+    };
+
     try {
-      exportRecord = await createExport({
+      await copyRecording(stagingKey, finalKey, source.eTag);
+      const finalized = await headObject(finalKey);
+      const finalType = finalized?.contentType?.trim().toLowerCase();
+      if (
+        !finalized || finalized.size !== source.size || !finalType ||
+        !ALLOWED_EXPORT_CONTENT_TYPES.includes(finalType)
+      ) {
+        try { await deleteRecording(finalKey); } catch {}
+        await releaseExportJobFinalization(jobId, session.user.id, finalizationToken);
+        return NextResponse.json({ error: 'Finalized file verification failed' }, { status: 502 });
+      }
+
+      await ensureUserStatsRow(session.user.id);
+      if (dailyAllowance !== null) {
+        const daily = await atomicTryConsumeRecordingSeconds(session.user.id, recordingCharge, dailyAllowance);
+        if (!daily.allowed) {
+          try { await deleteRecording(finalKey); } catch {}
+          try { await deleteRecording(stagingKey); } catch {}
+          await releaseExportJobFinalization(jobId, session.user.id, finalizationToken);
+          return NextResponse.json({ error: 'Daily Free recording allowance reached. Creator recording duration and sessions are unlimited.' }, { status: 403 });
+        }
+        recordingConsumedSeconds = recordingCharge;
+      }
+      if (entitlements.maxExportsPerMonth !== null) {
+        const monthly = await atomicTryConsumeMonthlyExport(session.user.id, entitlements.maxExportsPerMonth);
+        if (!monthly.allowed) {
+          await revertQuotas();
+          try { await deleteRecording(finalKey); } catch {}
+          try { await deleteRecording(stagingKey); } catch {}
+          await releaseExportJobFinalization(jobId, session.user.id, finalizationToken);
+          return NextResponse.json({ error: 'Monthly limit reached' }, { status: 403 });
+        }
+        monthlyConsumed = true;
+      }
+      const uploadQuota = await atomicIncrementUploadCount(
+        session.user.id,
+        source.size,
+        entitlements.maxUploads,
+        maxStorageBytes,
+      );
+      if (!uploadQuota.allowed) {
+        await revertQuotas();
+        try { await deleteRecording(finalKey); } catch {}
+        try { await deleteRecording(stagingKey); } catch {}
+        await releaseExportJobFinalization(jobId, session.user.id, finalizationToken);
+        return NextResponse.json({ error: uploadQuota.reason }, { status: 403 });
+      }
+      uploadConsumed = true;
+
+      const result = await atomicFinalizeExport({
+        jobId,
         userId: session.user.id,
-        r2Key: key,
+        token: finalizationToken,
+        stagingKey,
+        finalKey,
         platform: authoritativePlatformId,
         outputWidth: expectedDimensions.width,
         outputHeight: expectedDimensions.height,
-        fileSize: sizeToStore,
-        mimeType: 'video/mp4',
-        status: 'completed',
-        jobId,
+        fileSize: source.size,
       });
-    } catch (e) {
-      if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
-      if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
-      try { await deleteRecording(key); } catch {}
-      throw e;
+      if (result.kind === 'claim_lost') {
+        await revertQuotas();
+        try { await deleteRecording(finalKey); } catch {}
+        const latest = await findExportJobByIdAndUser(jobId, session.user.id);
+        if (latest?.status === 'completed' && latest.resultExportId && latest.resultR2Key && latest.stagingR2Key === stagingKey) {
+          return NextResponse.json({ exportId: latest.resultExportId, r2Key: latest.resultR2Key });
+        }
+        return NextResponse.json({ error: 'Export is already being finalized. Retry shortly.' }, { status: 409 });
+      }
+      // Keep the staging key on the completed job so cleanup can retry if this
+      // deletion fails. The presigned URL can write only this staging object.
+      try { await deleteRecording(stagingKey); } catch {}
+      return NextResponse.json({ exportId: result.export.id, r2Key: finalKey });
+    } catch (error) {
+      await revertQuotas();
+      try { await deleteRecording(finalKey); } catch {}
+      await releaseExportJobFinalization(jobId, session.user.id, finalizationToken);
+      throw error;
     }
-
-    await updateExportJobStatus(jobId, 'completed', {
-      resultR2Key: key,
-      resultExportId: exportRecord.id,
-      resultFileSize: sizeToStore,
-    }, session.user.id);
-
-    return NextResponse.json({ exportId: exportRecord.id, r2Key: key });
-  } catch (e) {
-    console.error('complete failed', e instanceof Error ? e.message : 'unknown');
+  } catch (error) {
+    console.error('complete failed', error instanceof Error ? error.message : 'unknown');
     return NextResponse.json({ error: 'Completion failed' }, { status: 500 });
   }
 }

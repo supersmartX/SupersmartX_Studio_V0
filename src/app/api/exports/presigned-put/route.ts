@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { findUserById, createExportJob, updateExportJobStatus, getActiveExportJobCount, getMonthlyExportCount } from '@/lib/db';
 import { getEntitlements, isPlanActive, clampResolution, exceedsResolutionLimit } from '@/lib/entitlements';
-import { getSignedUploadUrl, generateExportKey, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
+import { getSignedUploadUrl, generateExportStagingKey, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
 import { MAX_EXPORT_DURATION_SECONDS, describeExportDurationLimit } from '@/lib/export/export-limits';
 import { rateLimit } from '@/lib/rate-limit';
+import { findExportJobByIdAndUser, setExportJobStagingKey } from '@/lib/db';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
@@ -91,22 +92,22 @@ export async function POST(request: NextRequest) {
     }
 
     let jobId: string;
-    let key: string;
     if (existingJobId) {
-      const existing = await (await import('@/lib/db')).findExportJobByIdAndUser(existingJobId, session.user.id);
+      const existing = await findExportJobByIdAndUser(existingJobId, session.user.id);
       if (!existing) return NextResponse.json({ error: 'Invalid job' }, { status: 400 });
-      jobId = existing.id;
-      // Reuse stored key if exists, else generate
-      key = existing.resultR2Key || generateExportKey(session.user.id);
-      if (!existing.resultR2Key) {
-        await updateExportJobStatus(jobId, 'pending', { resultR2Key: key }, session.user.id);
+      if (existing.status === 'completed' || existing.status === 'failed' || existing.status === 'finalizing') {
+        return NextResponse.json({ error: 'Job is not available for upload' }, { status: 409 });
       }
+      jobId = existing.id;
     } else {
-      key = generateExportKey(session.user.id);
       const configJson = JSON.stringify({ platformId, outputWidth: clampedW, outputHeight: clampedH, duration, crop });
       const job = await createExportJob(session.user.id, configJson);
-      await updateExportJobStatus(job.id, 'pending', { resultR2Key: key }, session.user.id);
       jobId = job.id;
+    }
+
+    const key = generateExportStagingKey(session.user.id, jobId);
+    if (!await setExportJobStagingKey(jobId, session.user.id, key)) {
+      return NextResponse.json({ error: 'Job is not available for upload' }, { status: 409 });
     }
 
     const uploadUrl = await getSignedUploadUrl(key, 'video/mp4', 900);

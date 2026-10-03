@@ -29,9 +29,9 @@ describe('DailyRecordingIndicator', () => {
   });
 
   describe('Creator plan', () => {
-    it('shows Unlimited recording', () => {
+    it('shows unlimited recording duration', () => {
       render(<DailyRecordingIndicator remainingSeconds={null} totalSeconds={TOTAL} />);
-      screen.getByText(/Creator · Unlimited recording/);
+      screen.getByText(/Creator · Unlimited recording duration/);
     });
   });
 
@@ -118,7 +118,7 @@ describe('DailyRecordingIndicator', () => {
       render(<DailyRecordingIndicator remainingSeconds={360} totalSeconds={TOTAL} />);
       expect(screen.getByRole('status')).toHaveAttribute(
         'aria-label',
-        'Free plan: 06:00 of 10:00 recording time available today',
+        'Free recording is limited to up to 10 minutes per browser profile per local calendar day. Device-local limit; may reset if site data is cleared or you switch browser profiles. 06:00 of 10:00 remaining.',
       );
     });
 
@@ -128,7 +128,7 @@ describe('DailyRecordingIndicator', () => {
       );
       expect(screen.getByRole('status')).toHaveAttribute(
         'aria-label',
-        'Recording: 03:00 remaining today',
+        'Recording: 03:00 remaining today. Device-local limit; may reset if site data is cleared or you switch browser profiles.',
       );
     });
 
@@ -136,7 +136,7 @@ describe('DailyRecordingIndicator', () => {
       render(<DailyRecordingIndicator remainingSeconds={null} totalSeconds={TOTAL} />);
       expect(screen.getByRole('status')).toHaveAttribute(
         'aria-label',
-        'Creator plan: unlimited recording',
+        'Creator plan: unlimited recording duration and sessions',
       );
     });
   });

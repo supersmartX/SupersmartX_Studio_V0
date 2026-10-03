@@ -1,0 +1,89 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "SupersmartX Studio — Free vs Creator flow and the plan switch",
+    "output": "userflow-free-creator.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "free-flow",
+        "label": "Free flow",
+        "focus": ["studio", "record", "gate", "free_export"],
+        "note": "A free user records and exports locally; nothing leaves the browser."
+      },
+      {
+        "id": "creator-switch",
+        "label": "The plan switch",
+        "focus": ["gate", "upgrade", "checkout", "fulfilled"],
+        "note": "Every Creator-only action routes through one Cashfree order and one idempotent write."
+      },
+      {
+        "id": "unlock-return",
+        "label": "After activation",
+        "focus": ["fulfilled", "record", "gate", "free_export"],
+        "note": "The plan is re-read from the database, so the next gated request takes the Creator branch."
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "studio", "label": "Studio · browser" },
+    { "id": "gate", "label": "Identity · plan gate · Cashfree" },
+    { "id": "free", "label": "Free plan" }
+  ],
+  "phases": [
+    { "id": "record", "label": "Record", "fromCol": 0, "toCol": 1 },
+    { "id": "enforce", "label": "Enforce", "fromCol": 2, "toCol": 2, "variant": "emphasis" },
+    { "id": "switch", "label": "Plan switch + fulfill", "fromCol": 3, "toCol": 5, "variant": "security" }
+  ],
+  "mainPath": ["studio", "record", "gate", "upgrade", "checkout", "fulfilled"],
+  "semanticChecks": {
+    "allowedRoots": ["studio"],
+    "allowedTerminals": ["free_export", "fulfilled"],
+    "requiredPaths": [
+      { "from": "studio", "to": "free_export" },
+      { "from": "studio", "to": "fulfilled" }
+    ]
+  },
+  "nodes": [
+    { "id": "studio", "lane": "studio", "col": 0, "type": "frontend", "width": 80, "label": "Studio", "sublabel": "GET /studio" },
+    { "id": "record", "lane": "studio", "col": 1, "type": "frontend", "width": 80, "label": "Record take", "sublabel": "MediaRecorder" },
+    { "id": "signin", "lane": "gate", "col": 1, "type": "security", "width": 80, "label": "Sign in", "sublabel": "Google or email" },
+    { "id": "gate", "lane": "gate", "col": 2, "type": "security", "width": 80, "label": "Plan gate", "sublabel": "isPlanActive()" },
+    { "id": "upgrade", "lane": "gate", "col": 3, "type": "security", "width": 80, "label": "Upgrade", "sublabel": "PricingModal" },
+    { "id": "checkout", "lane": "gate", "col": 4, "type": "external", "width": 80, "label": "Checkout", "sublabel": "Cashfree order" },
+    { "id": "fulfilled", "lane": "gate", "col": 5, "type": "backend", "width": 80, "label": "Fulfilled", "sublabel": "updateUserPlanById" },
+    { "id": "free_export", "lane": "free", "col": 5, "type": "frontend", "width": 80, "label": "Local export", "sublabel": "browser MP4" }
+  ],
+  "edges": [
+    { "from": "studio", "to": "record", "role": "main" },
+    { "from": "record", "to": "gate", "label": "export request", "role": "main" },
+    { "from": "gate", "to": "upgrade", "label": "Creator action", "role": "main" },
+    { "from": "upgrade", "to": "checkout", "label": "server price", "role": "main" },
+    { "from": "checkout", "to": "fulfilled", "label": "PAID + webhook", "role": "main" },
+    { "from": "studio", "to": "signin", "label": "needs account", "role": "branch" },
+    { "from": "signin", "to": "gate", "label": "session JWT", "role": "branch" },
+    { "from": "gate", "to": "free_export", "label": "Free plan", "role": "branch" },
+    { "from": "fulfilled", "to": "record", "label": "plan re-read", "role": "return", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Free is enforced at the gate",
+      "items": [
+        "No login redirect — /studio renders for guests",
+        "auth() → findUserById → isPlanActive() per export",
+        "720p, watermark, YouTube 16:9, 600 s/day, no cloud"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "One order, one write, real gaps",
+      "items": [
+        "Server resolves price from a 62-country table",
+        "Webhook and return-verify claim processed_webhooks",
+        "No cancel or portal despite Cancel anytime. copy"
+      ]
+    }
+  ]
+}
