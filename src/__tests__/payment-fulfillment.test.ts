@@ -6,6 +6,7 @@ process.env.TURSO_DATABASE_URL = 'file::memory:';
 process.env.CASHFREE_APP_ID = 'test-app-id';
 process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
 process.env.CASHFREE_ENV = 'sandbox';
+process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
 
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/email', () => ({
@@ -19,6 +20,7 @@ import { POST as webhookPOST } from '@/app/api/cashfree/webhook/route';
 import { POST as orderPOST } from '@/app/api/cashfree/order/route';
 import { fulfillPaidOrder, fulfillmentErrorMessage, getCashfreeEnv, cashfreeBaseUrl, isCashfreeEnvConsistent, isCashfreeOrderTerminalFailure, assertCashfreeEnvForRuntime, isCashfreeEnvUsable } from '@/lib/cashfree-fulfillment';
 import { resetDb, getDb } from '@/lib/db/driver';
+import { getCashfreeMode, resolveCashfreeMode } from '@/lib/cashfree';
 import {
   setMigrated,
   createUser,
@@ -800,15 +802,19 @@ describe('Cashfree environment consistency', () => {
     process.env = { ...ORIGINAL };
   });
 
-  it('defaults to sandbox when the server env is unset', () => {
-    delete process.env.CASHFREE_ENV;
+  it('selects sandbox only when the server env is exactly sandbox', () => {
+    process.env.CASHFREE_ENV = 'sandbox';
     expect(getCashfreeEnv()).toBe('sandbox');
     expect(cashfreeBaseUrl()).toBe('https://sandbox.cashfree.com/pg');
   });
 
-  it('treats an unrecognised server env as sandbox, never production', () => {
-    process.env.CASHFREE_ENV = 'prodution';
-    expect(getCashfreeEnv()).toBe('sandbox');
+  it('rejects unset and unrecognised server env values', () => {
+    for (const invalid of [undefined, '', 'prodution', 'PRODUCTION', 'Production', 'live']) {
+      if (invalid === undefined) delete process.env.CASHFREE_ENV;
+      else process.env.CASHFREE_ENV = invalid;
+      expect(() => getCashfreeEnv()).toThrow('cashfree_env_invalid');
+      expect(() => cashfreeBaseUrl()).toThrow('cashfree_env_invalid');
+    }
   });
 
   it('selects the live host only for an exact production value', () => {
@@ -823,10 +829,18 @@ describe('Cashfree environment consistency', () => {
     expect(isCashfreeEnvConsistent()).toBe(true);
   });
 
-  it('accepts an absent public env (nothing to contradict)', () => {
-    process.env.CASHFREE_ENV = 'production';
-    delete process.env.NEXT_PUBLIC_CASHFREE_ENV;
+  it('accepts matching sandbox modes', () => {
+    process.env.CASHFREE_ENV = 'sandbox';
+    process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
     expect(isCashfreeEnvConsistent()).toBe(true);
+  });
+
+  it('rejects a missing or invalid public env', () => {
+    process.env.CASHFREE_ENV = 'sandbox';
+    delete process.env.NEXT_PUBLIC_CASHFREE_ENV;
+    expect(isCashfreeEnvConsistent()).toBe(false);
+    process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbx';
+    expect(isCashfreeEnvConsistent()).toBe(false);
   });
 
   // A browser locked to sandbox checkout while the server creates a production
@@ -846,21 +860,18 @@ describe('Cashfree environment consistency', () => {
 });
 
 /**
- * The finding: `getCashfreeEnv` collapses anything unrecognised to `sandbox`,
- * which is safe for local work and wrong in production. A deploy with
- * `CASHFREE_ENV` unset or misspelt would keep serving, would create orders and
- * verify payments against the sandbox host, and would show no error anywhere —
- * while real customers check out against a production build. The guard has to
- * fail closed in production and nowhere else, or it becomes noise for
- * developers and for the test suite.
+ * The server must select one exact Cashfree mode in every runtime. Explicit
+ * Sandbox is valid in production for controlled testing; unset/unknown modes
+ * and browser/server mismatches fail closed.
  */
-describe('Cashfree fails closed in production only', () => {
+describe('Cashfree environment validation', () => {
   const ORIGINAL = { ...process.env };
 
   beforeEach(() => {
     process.env.CASHFREE_APP_ID = 'test-app-id';
     process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
-    delete process.env.NEXT_PUBLIC_CASHFREE_ENV;
+    process.env.CASHFREE_ENV = 'sandbox';
+    process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
   });
 
   afterEach(() => {
@@ -869,15 +880,14 @@ describe('Cashfree fails closed in production only', () => {
   });
 
   describe('library guard', () => {
-    it('refuses every production value that is not exactly "production"', () => {
+    it('refuses unset and unknown values in production', () => {
       vi.stubEnv('NODE_ENV', 'production');
-      for (const bad of [undefined, '', 'sandbox', 'prodution', 'PRODUCTION', 'Production', 'live']) {
+      for (const bad of [undefined, '', 'prodution', 'PRODUCTION', 'Production', 'live']) {
         if (bad === undefined) delete process.env.CASHFREE_ENV;
         else process.env.CASHFREE_ENV = bad;
         expect(isCashfreeEnvUsable()).toBe(false);
-        expect(() => assertCashfreeEnvForRuntime()).toThrow('cashfree_env_not_production');
-        // And the host selection itself refuses rather than silently sandboxing.
-        expect(() => cashfreeBaseUrl()).toThrow('cashfree_env_not_production');
+        expect(() => assertCashfreeEnvForRuntime()).toThrow('cashfree_env_invalid');
+        expect(() => cashfreeBaseUrl()).toThrow('cashfree_env_invalid');
       }
     });
 
@@ -889,18 +899,26 @@ describe('Cashfree fails closed in production only', () => {
       expect(cashfreeBaseUrl()).toBe('https://api.cashfree.com/pg');
     });
 
-    it('still falls back to sandbox outside production, so local and test work is untouched', () => {
-      for (const nodeEnv of ['development', 'test']) {
-        vi.stubEnv('NODE_ENV', nodeEnv);
-        delete process.env.CASHFREE_ENV;
-        expect(isCashfreeEnvUsable()).toBe(true);
-        expect(cashfreeBaseUrl()).toBe('https://sandbox.cashfree.com/pg');
-      }
+    it('allows explicitly configured Sandbox in a production deployment', () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      process.env.CASHFREE_ENV = 'sandbox';
+      process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
+      expect(isCashfreeEnvUsable()).toBe(true);
+      expect(() => assertCashfreeEnvForRuntime()).not.toThrow();
+      expect(cashfreeBaseUrl()).toBe('https://sandbox.cashfree.com/pg');
+      expect(isCashfreeEnvConsistent()).toBe(true);
     });
 
-    it('still rejects a production server / sandbox browser split in production', () => {
-      // The server env is valid here, so the runtime guard passes and the
-      // consistency check is what refuses — it reports rather than throws.
+    it('allows explicitly configured Production in a production deployment', () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      process.env.CASHFREE_ENV = 'production';
+      process.env.NEXT_PUBLIC_CASHFREE_ENV = 'production';
+      expect(isCashfreeEnvUsable()).toBe(true);
+      expect(cashfreeBaseUrl()).toBe('https://api.cashfree.com/pg');
+      expect(isCashfreeEnvConsistent()).toBe(true);
+    });
+
+    it('rejects a production server / sandbox browser split in production', () => {
       vi.stubEnv('NODE_ENV', 'production');
       process.env.CASHFREE_ENV = 'production';
       process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
@@ -910,7 +928,7 @@ describe('Cashfree fails closed in production only', () => {
     it('throws rather than reporting when the server env itself is unusable', () => {
       vi.stubEnv('NODE_ENV', 'production');
       delete process.env.CASHFREE_ENV;
-      expect(() => isCashfreeEnvConsistent()).toThrow('cashfree_env_not_production');
+      expect(() => isCashfreeEnvConsistent()).toThrow('cashfree_env_invalid');
     });
   });
 
@@ -944,6 +962,31 @@ describe('Cashfree fails closed in production only', () => {
       expect(res.status).toBe(503);
       expect(fetchSpy).not.toHaveBeenCalled();
       fetchSpy.mockRestore();
+    });
+
+    it('creates a Sandbox order in a production deployment when both modes are Sandbox', async () => {
+      const user = await createUser('production-sandbox@example.com', 'Env', 'hash');
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+      vi.stubEnv('NODE_ENV', 'production');
+      process.env.CASHFREE_ENV = 'sandbox';
+      process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
+      globalThis.fetch = vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            order_id: 'order_production_sandbox',
+            order_status: 'ACTIVE',
+            order_amount: CREATOR_MONTHLY,
+            order_currency: 'INR',
+            payment_session_id: 'ps_production_sandbox',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ) as never;
+
+      const res = await orderPOST(orderBody('creator_monthly'));
+
+      expect(res.status).toBe(200);
+      expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toContain('https://sandbox.cashfree.com/pg');
     });
 
     it('rejects a direct order creation when the user already has an active Creator plan', async () => {
@@ -1029,6 +1072,57 @@ describe('Cashfree fails closed in production only', () => {
     if (!result.ok) expect(result.reason).toBe('active_plan_exists');
     expect((await findUserById(user.id))?.plan).toBe('creator_monthly');
     expect((await findUserById(user.id))?.planExpiresAt).toBe(monthlyExpiry);
+  });
+});
+
+/**
+ * The browser half of the guard. `NEXT_PUBLIC_CASHFREE_ENV` is baked into the
+ * bundle at build time and fixes the SDK's mode the moment the Cashfree script
+ * loads, so its value is as unforgiving as the server's: a typo or a missing
+ * variable used to resolve to `sandbox` silently, which is the one fallback that
+ * can point a live browser at the wrong Cashfree environment with nothing
+ * reporting a failure.
+ */
+describe('browser Cashfree environment resolution', () => {
+  const ORIGINAL = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL };
+  });
+
+  it('accepts the two exact values', () => {
+    process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
+    expect(resolveCashfreeMode()).toBe('sandbox');
+    expect(getCashfreeMode()).toBe('sandbox');
+
+    process.env.NEXT_PUBLIC_CASHFREE_ENV = 'production';
+    expect(resolveCashfreeMode()).toBe('production');
+    expect(getCashfreeMode()).toBe('production');
+  });
+
+  it('never falls back to sandbox for an unset or misspelt value', () => {
+    for (const invalid of [undefined, '', 'sandbx', 'PRODUCTION', 'Production', 'live']) {
+      if (invalid === undefined) delete process.env.NEXT_PUBLIC_CASHFREE_ENV;
+      else process.env.NEXT_PUBLIC_CASHFREE_ENV = invalid;
+
+      // The comparison helper reports absence rather than inventing a mode.
+      expect(resolveCashfreeMode()).toBeNull();
+      // The SDK loader refuses instead of quietly checking out in sandbox.
+      expect(() => getCashfreeMode()).toThrow('cashfree_env_invalid');
+    }
+  });
+
+  it('is unaffected by NODE_ENV, matching the server guard', () => {
+    for (const nodeEnv of ['development', 'production']) {
+      vi.stubEnv('NODE_ENV', nodeEnv);
+      process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
+      expect(getCashfreeMode()).toBe('sandbox');
+      process.env.NEXT_PUBLIC_CASHFREE_ENV = 'production';
+      expect(getCashfreeMode()).toBe('production');
+      process.env.NEXT_PUBLIC_CASHFREE_ENV = 'nonsense';
+      expect(() => getCashfreeMode()).toThrow('cashfree_env_invalid');
+      vi.unstubAllEnvs();
+    }
   });
 });
 

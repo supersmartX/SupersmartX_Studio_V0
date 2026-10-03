@@ -269,7 +269,7 @@ test.describe('Smoke Test - Payment Success Page', () => {
   test('displays Creator (not Pro) for creator plans', async ({ page }) => {
     await page.goto('/support/success?order_id=test123&plan=creator_monthly');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByText('Creator Monthly').first()).toBeVisible();
+    await expect(page.getByText('Creator (1 month)').first()).toBeVisible();
     await expect(page.locator('h1').getByText('Pro')).not.toBeVisible();
     await expect(page.getByRole('heading', { name: /payment successful/i })).toHaveCount(0);
   });
@@ -277,7 +277,7 @@ test.describe('Smoke Test - Payment Success Page', () => {
   test('displays Creator (not Pro) for legacy pro plan', async ({ page }) => {
     await page.goto('/support/success?order_id=test123&plan=pro_yearly');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByText('Creator Yearly').first()).toBeVisible();
+    await expect(page.getByText('Creator (1 year)').first()).toBeVisible();
     await expect(page.locator('h1').getByText('Pro')).not.toBeVisible();
     await expect(page.getByRole('heading', { name: /payment successful/i })).toHaveCount(0);
   });

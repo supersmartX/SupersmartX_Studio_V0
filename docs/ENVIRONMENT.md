@@ -38,7 +38,23 @@ activation. Both failure modes are therefore blocked:
 - The order response carries the authoritative `env`; the client compares it to
   its loaded SDK mode and aborts with a retry message on mismatch.
 
-Only the exact value `production` selects live. Any other value is treated as
-`sandbox`, so a typo can never route production traffic at live credentials.
+Only the two exact values `sandbox` and `production` are accepted, on both sides.
+Anything else — unset, empty, misspelt, wrong case — fails closed with
+`cashfree_env_invalid`; no value is ever substituted, and an unknown value never
+quietly becomes `sandbox`. `sandbox` is a legitimate choice in a production
+deployment, so the guard does not consult `NODE_ENV`: `CASHFREE_ENV` alone
+selects the Cashfree environment, which keeps "how the app is deployed" and
+"which gateway it talks to" independent.
+
 Because the public value is baked in at build time, changing environments
 requires a rebuild, not just a redeploy.
+
+### Switching between Sandbox and Production
+
+Both variables plus the matching Cashfree App ID / Secret Key, then redeploy.
+No code change is involved.
+
+| Goal | `CASHFREE_ENV` | `NEXT_PUBLIC_CASHFREE_ENV` | Credentials |
+| ---- | -------------- | ------------------------- | ----------- |
+| Test against Sandbox | `sandbox` | `sandbox` | Sandbox keys |
+| Take live payments | `production` | `production` | Production keys |

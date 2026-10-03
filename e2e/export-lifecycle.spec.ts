@@ -247,7 +247,7 @@ test('free locked formats show upgrade prompt, send no export', async ({ page })
       if (r.url().includes('/api/export-jobs') && r.method() === 'POST') exportCalls++;
     });
     await previewSwitcher(page).locator('button[title^="YouTube Shorts"]').click();
-    await page.getByRole('button', { name: 'Upgrade to Creator' }).waitFor({ state: 'visible', timeout: 15000 });
+    await page.getByRole('button', { name: 'Buy Creator access' }).waitFor({ state: 'visible', timeout: 15000 });
     expect(exportCalls, 'a locked platform must never start an export').toBe(0);
 
     // The export dialog stays on the one included format and says why.

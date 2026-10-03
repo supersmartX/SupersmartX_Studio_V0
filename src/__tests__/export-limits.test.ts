@@ -3,10 +3,14 @@ import { NextRequest } from 'next/server';
 
 process.env.TURSO_DATABASE_URL = 'file::memory:';
 
+// `configured` is toggled by the ordering test below, so the storage guard can be
+// observed from the outside. Defaults to configured, matching every other case.
+const r2State = vi.hoisted(() => ({ configured: true }));
+
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/r2', () => ({
-  isR2Configured: () => true,
-  getR2ConfigurationError: () => null,
+  isR2Configured: () => r2State.configured,
+  getR2ConfigurationError: () => (r2State.configured ? null : 'R2_ACCOUNT_ID is not set'),
   getSignedUploadUrl: vi.fn(async () => 'https://signed.example/upload'),
   generateExportKey: (userId: string) => `exports/${userId}/generated.mp4`,
   generateExportStagingKey: (userId: string, jobId: string) => `staging/${userId}/${jobId}/source.mp4`,
@@ -82,6 +86,7 @@ describe('POST /api/exports/presigned-put duration handling', () => {
   beforeEach(() => {
     cleanTestData();
     vi.clearAllMocks();
+    r2State.configured = true;
     vi.mocked(getSignedUploadUrl).mockResolvedValue('https://signed.example/upload');
   });
   afterEach(() => cleanTestData());
@@ -130,6 +135,25 @@ describe('POST /api/exports/presigned-put duration handling', () => {
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toMatchObject({ error: 'Free plan uses local export' });
     expect(vi.mocked(getSignedUploadUrl)).not.toHaveBeenCalled();
+  });
+
+  it('refuses Free on plan grounds before it consults storage configuration', async () => {
+    // The plan guard must be evaluated ahead of the storage guard, for two
+    // reasons: a Free account is told the truth about its own plan, and it is
+    // never handed the state of a bucket it can never reach. With the storage
+    // check first, both of these become a 503 that names the missing variable.
+    r2State.configured = false;
+    await seedUser('free');
+    const free = await POST(presign(FREE_MAX_DURATION_SECONDS + 1));
+    expect(free.status).toBe(403);
+    await expect(free.json()).resolves.toMatchObject({ error: 'Free plan uses local export' });
+    expect(vi.mocked(getSignedUploadUrl)).not.toHaveBeenCalled();
+
+    // The same unconfigured storage still blocks a Creator, so this is a real
+    // ordering and not the storage guard simply being skipped.
+    await seedUser();
+    const creator = await POST(presign(30));
+    expect(creator.status).toBe(503);
   });
 
   it('binds the signed URL to video/mp4 and a fixed expiry', async () => {

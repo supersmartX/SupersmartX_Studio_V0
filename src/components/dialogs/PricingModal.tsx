@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
 import { useSession } from 'next-auth/react';
 import { detectCountry, getPricingForCountry, formatPrice, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
-import { loadCashfreeSDK, getCashfreeMode } from '@/lib/cashfree';
+import { loadCashfreeSDK, resolveCashfreeMode } from '@/lib/cashfree';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 import { PRICING_PLANS } from '@/constants';
 import '@/styles/pricing.css';
@@ -174,6 +174,17 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     const planPrice = getTierPrice(selectedTier, billingPeriod);
 
     try {
+      // Resolve the build-time mode before anything is instantiated. The SDK
+      // instance is memoised for the whole session and its mode is fixed when the
+      // script loads, so an unset or unrecognised value must stop checkout here
+      // rather than silently becoming sandbox.
+      const browserMode = resolveCashfreeMode();
+      if (!browserMode) {
+        setStep('error');
+        setErrorMessage('Payment is temporarily unavailable. Please try again shortly.');
+        return;
+      }
+
       const cashfree = await loadCashfreeSDK();
 
       const response = await fetch('/api/cashfree/order', {
@@ -209,7 +220,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       // this order in the other Cashfree environment, checkout would never
       // settle against it — stop here rather than sending the user to a payment
       // page whose order can never activate.
-      if (data.env && data.env !== getCashfreeMode()) {
+      if (data.env && data.env !== browserMode) {
         setStep('error');
         setErrorMessage('Payment is temporarily unavailable. Please try again shortly.');
         return;

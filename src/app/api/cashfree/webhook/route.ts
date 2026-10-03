@@ -51,14 +51,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
     }
 
-    // Fulfilment runs against whichever environment the server selected. In
-    // production an absent or misspelt CASHFREE_ENV must stop fulfilment dead
-    // rather than verify the order against sandbox and write a real entitlement.
+    // Fulfilment runs against whichever Cashfree environment the server selected,
+    // which is chosen by CASHFREE_ENV alone and is not tied to NODE_ENV. An
+    // unset or misspelt value must stop fulfilment dead rather than verify the
+    // order against an environment nobody selected and write a real entitlement.
     if (!isCashfreeEnvUsable()) {
       logger.error('payment.webhook_failed', {
         route: '/api/cashfree/webhook',
         requestId,
-        errorCode: 'cashfree_env_not_production',
+        errorCode: 'cashfree_env_invalid',
       });
       return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
     }

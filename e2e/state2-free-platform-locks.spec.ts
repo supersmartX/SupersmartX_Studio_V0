@@ -106,7 +106,7 @@ test.describe('STATE 2 — Free platform restrictions', () => {
       // A guest cannot subscribe yet, and is told so rather than dumped into checkout.
       await expect(prompt.getByRole('button', { name: 'Continue' })).toBeVisible();
       await expect(prompt.getByRole('button', { name: 'Use Free instead' })).toBeVisible();
-      await expect(prompt.getByText('Account required to subscribe and download')).toBeVisible();
+      await expect(prompt.getByText('Account required to buy Creator access and download')).toBeVisible();
 
       // THE KEY ASSERTION: a locked click must not switch the preview format.
       await expectOnlyYoutubeAvailable(page);
@@ -185,9 +185,9 @@ test.describe('STATE 2 — Free platform restrictions', () => {
       await expect(prompt.getByText(`${sublabel} with Creator. Free supports YouTube 16:9 only.`)).toBeVisible();
 
       // A signed-in Free user is offered the real upgrade, with no auth detour.
-      await expect(prompt.getByRole('button', { name: 'Upgrade to Creator' })).toBeVisible();
+      await expect(prompt.getByRole('button', { name: 'Buy Creator access' })).toBeVisible();
       await expect(prompt.getByRole('button', { name: 'Not now' })).toBeVisible();
-      await expect(prompt.getByText('Account required to subscribe and download')).toHaveCount(0);
+      await expect(prompt.getByText('Account required to buy Creator access and download')).toHaveCount(0);
 
       await expectOnlyYoutubeAvailable(page);
 
@@ -198,7 +198,7 @@ test.describe('STATE 2 — Free platform restrictions', () => {
 
     // The upgrade CTA actually opens Creator pricing (not auth, not an error).
     await lockedPlatform(page, 'Instagram Square').click();
-    await upgradePrompt(page, 'Instagram Square').getByRole('button', { name: 'Upgrade to Creator' }).click();
+    await upgradePrompt(page, 'Instagram Square').getByRole('button', { name: 'Buy Creator access' }).click();
     const pricing = page.getByRole('dialog', { name: 'Choose Plan' });
     await expect(pricing, 'Free must be able to reach Creator pricing').toBeVisible({ timeout: 20_000 });
     await expect(pricing.getByText('Creator', { exact: false }).first()).toBeVisible();
@@ -229,7 +229,7 @@ test.describe('STATE 2 — Free platform restrictions', () => {
     await expect(dialog).toBeVisible({ timeout: 20_000 });
 
     // Signed in, so the guest copy is gone and the Free copy is shown.
-    await expect(dialog.getByText('Free Plan — YouTube 16:9 included, unlimited downloads')).toBeVisible();
+    await expect(dialog.getByText('Free Plan — YouTube 16:9 included, unlimited local downloads')).toBeVisible();
     await expect(dialog.getByText('Export as guest — YouTube 16:9 included')).toHaveCount(0);
     // The restriction and its cost are both disclosed up front.
     await expect(dialog.getByText('Other formats need Creator. Exports include a watermark.')).toBeVisible();

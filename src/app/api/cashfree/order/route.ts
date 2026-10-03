@@ -141,10 +141,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Production must not silently run against sandbox. Refuse to create an
-    // order at all when CASHFREE_ENV is missing or misspelt in production.
+    // CASHFREE_ENV selects the Cashfree environment on its own, independently of
+    // NODE_ENV: a production deployment may deliberately point at Sandbox while
+    // testing. Only an unset, misspelt or otherwise invalid value refuses here —
+    // the guard never substitutes one Cashfree environment for the other.
     if (!isCashfreeEnvUsable()) {
-      logger.error('payment.order_failed', { route: '/api/cashfree/order', requestId, errorCode: 'cashfree_env_not_production' });
+      logger.error('payment.order_failed', { route: '/api/cashfree/order', requestId, errorCode: 'cashfree_env_invalid' });
       return NextResponse.json(
         { error: 'Payment is temporarily unavailable. Please try again shortly.' },
         { status: 503, headers: { 'x-request-id': requestId } }

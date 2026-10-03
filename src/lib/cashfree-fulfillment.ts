@@ -5,32 +5,19 @@ export const CASHFREE_API_VERSION_FALLBACK = '2023-08-01';
 
 export type CashfreeEnv = 'sandbox' | 'production';
 
-/**
- * The server's authoritative environment. Anything unrecognised falls back to
- * sandbox so a typo can never point production traffic at live credentials.
- */
+/** The server's authoritative Cashfree environment; only exact values are valid. */
 export function getCashfreeEnv(): CashfreeEnv {
-  return process.env.CASHFREE_ENV === 'production' ? 'production' : 'sandbox';
+  const env = process.env.CASHFREE_ENV;
+  if (env === 'sandbox' || env === 'production') return env;
+  throw new Error('cashfree_env_invalid');
 }
 
 /**
- * Production must never fall back to sandbox.
- *
- * `getCashfreeEnv` collapses anything unrecognised to `sandbox`, which is the
- * right default for local work but the wrong one in production: a missing or
- * mistyped `CASHFREE_ENV` (unset, `prodution`, `PRODUCTION`, empty) would leave
- * a live deployment creating orders and verifying payments against the sandbox
- * host. Every payment entry point calls this first and refuses to act, so the
- * deployment fails closed and diagnosable rather than silently taking money in
- * one environment while the browser checks out in another.
- *
- * Non-production runtimes are untouched: local and test keep the sandbox
- * fallback, so existing sandbox behaviour is unchanged.
+ * Validate the server-selected mode. Sandbox is permitted in production when
+ * explicitly configured; missing and unknown values always fail closed.
  */
 export function assertCashfreeEnvForRuntime(): void {
-  if (process.env.NODE_ENV !== 'production') return;
-  if (process.env.CASHFREE_ENV === 'production') return;
-  throw new Error('cashfree_env_not_production');
+  getCashfreeEnv();
 }
 
 export function cashfreeBaseUrl(): string {
@@ -64,14 +51,11 @@ export function isCashfreeEnvConsistent(): boolean {
   assertCashfreeEnvForRuntime();
   const serverEnv = getCashfreeEnv();
   const publicEnv = process.env.NEXT_PUBLIC_CASHFREE_ENV;
-  // Absent public value: nothing to contradict the server with.
-  if (!publicEnv) return true;
-  const normalized = publicEnv === 'production' ? 'production' : 'sandbox';
-  if (normalized === serverEnv) return true;
+  if (publicEnv === serverEnv) return true;
   logger.error('payment.env_mismatch', {
     route: '/api/cashfree',
     serverEnv,
-    publicEnv: normalized,
+    publicEnv: publicEnv || 'unset',
   });
   return false;
 }

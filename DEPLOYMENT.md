@@ -31,14 +31,21 @@ Build → Validate → Test → Deploy to Staging → Validate → Approval → 
 | `R2_BUCKET_NAME` | *(optional)* | `your-bucket-name` | R2 storage |
 | `CASHFREE_APP_ID` | *(optional)* | `your-cashfree-id` | Payments |
 | `CASHFREE_SECRET_KEY` | *(optional)* | **`required`** | PG client secret key. **Also the webhook-signing key** — see note below |
-| `CASHFREE_ENV` | `sandbox` | `production` | Payments environment (exact value required in production) |
-| `NEXT_PUBLIC_CASHFREE_ENV` | `sandbox` | `production` | Browser checkout environment; must match `CASHFREE_ENV` |
+| `CASHFREE_ENV` | `sandbox` | `production` | Payments environment. Exactly `sandbox` or `production`; independent of `NODE_ENV` |
+| `NEXT_PUBLIC_CASHFREE_ENV` | `sandbox` | `production` | Browser checkout environment; must match `CASHFREE_ENV` exactly |
 
-> `CASHFREE_ENV` is checked strictly in production. If it is unset, empty, or
-> misspelt (e.g. `prodution`, `PRODUCTION`), every payment path — order
-> creation, return-trip verification and the webhook — returns 5xx and fulfils
-> nothing. This is deliberate: a production deployment must never silently
-> transact against sandbox.
+> `CASHFREE_ENV` is checked strictly in **every** runtime, not only production. If
+> it is unset, empty, or misspelt (e.g. `prodution`, `PRODUCTION`), every payment
+> path — order creation, return-trip verification and the webhook — returns 5xx
+> and fulfils nothing. No value is ever substituted for it.
+>
+> `CASHFREE_ENV` selects the Cashfree environment **on its own**; the guard does
+> not consult `NODE_ENV`. A production deployment may deliberately set
+> `sandbox`/`sandbox` to test against Cashfree Sandbox, and nothing will reject
+> it. Switching to live payments is therefore an environment change, not a code
+> change: set both variables to `production`, swap in the production App ID and
+> Secret Key, and redeploy. The public value is baked in at build time, so the
+> redeploy is what makes the browser pick up the change.
 >
 > `CASHFREE_SECRET_KEY` is also the webhook-signing key. Cashfree signs every
 > webhook with the PG client secret key and publishes **no separate webhook
@@ -117,6 +124,8 @@ configuration is **NOT VERIFIED** regardless of what the source says.
       (Vercel Cron Jobs send `Authorization: Bearer $CRON_SECRET`; the route
       compares it against `CLEANUP_SECRET`)
 - [ ] `CASHFREE_ENV=production` exactly, and `NEXT_PUBLIC_CASHFREE_ENV=production`
+      — takes live payments; for Sandbox testing set both to `sandbox` instead,
+      which is equally valid on a production deployment
       — any other value makes every payment path refuse rather than run
 - [ ] `CASHFREE_SECRET_KEY` is set to the Cashfree PG client secret key — it is
       also the webhook-signing key, and Cashfree publishes no separate one

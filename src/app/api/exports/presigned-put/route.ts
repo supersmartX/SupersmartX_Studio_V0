@@ -17,8 +17,10 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!isR2Configured()) return NextResponse.json({ error: `Storage not configured: ${getR2ConfigurationError()}` }, { status: 503 });
 
+    // Throttle before any lookup: this endpoint is the most expensive to reach, so
+    // the limiter guards the database read below rather than sitting behind the
+    // plan checks.
     const rl = rateLimit(`presigned:${session.user.id}`, PRESIGNED_RATE_LIMIT_MAX, PRESIGNED_RATE_LIMIT_WINDOW_MS);
     if (!rl.allowed) return NextResponse.json({ error: 'Rate limited' }, { status: 429 });
 
@@ -28,10 +30,16 @@ export async function POST(request: NextRequest) {
 
     const entitlements = getEntitlements(user.plan as PlanType);
     if (!entitlements.canExport) return NextResponse.json({ error: 'Upgrade required' }, { status: 403 });
-    // Free should not use direct R2 upload — they are local-only (unlimited local downloads)
+    // Free should not use direct R2 upload — they are local-only (unlimited local downloads).
+    // Resolved before storage configuration because it is a property of the plan, not of
+    // the backend: a Free account must be refused for this reason whether or not R2
+    // happens to be configured, and it must not be answered with the state of a bucket
+    // Free can never use.
     if ((user.plan || 'free') === 'free') {
       return NextResponse.json({ error: 'Free plan uses local export' }, { status: 403 });
     }
+
+    if (!isR2Configured()) return NextResponse.json({ error: `Storage not configured: ${getR2ConfigurationError()}` }, { status: 503 });
 
     const body = await request.json();
     const { platformId, duration, crop, jobId: existingJobId } = body as {
