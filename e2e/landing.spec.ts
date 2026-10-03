@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openAuthFromLanding } from './helpers';
 
 test.describe('Landing Page', () => {
   test('renders hero section with correct content', async ({ page }) => {
@@ -17,10 +18,8 @@ test.describe('Landing Page', () => {
 
   test('opens auth modal on "Log in" click', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    const loginButton = page.getByRole('button', { name: 'Log in' }).first();
-    await loginButton.click();
+    await openAuthFromLanding(page);
     const modal = page.getByRole('dialog');
-    await expect(modal).toBeVisible();
     await expect(modal).toContainText(/Sign in|Log in|Create account/i);
   });
 

@@ -4,13 +4,12 @@
  * into shared infrastructure. Uses fake camera/mic devices.
  */
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { studioReady } from './helpers';
+import { studioReady, grantMediaPermissions } from './helpers';
 import { createClient, type Client } from '@libsql/client';
 import * as fs from 'fs';
 import * as path from 'path';
 
 test.use({
-  permissions: ['camera', 'microphone'],
   viewport: { width: 1280, height: 800 },
   launchOptions: {
     args: [
@@ -20,6 +19,10 @@ test.use({
       '--mute-audio',
     ],
   },
+});
+
+test.beforeEach(async ({ context, browserName }) => {
+  await grantMediaPermissions(context, browserName);
 });
 
 test.setTimeout(420_000);
@@ -141,6 +144,9 @@ function previewSwitcher(page: Page) {
 }
 const lockedIn = (page: Page) => previewSwitcher(page).locator('button[title*="Creator plan required"]');
 const unlockedIn = (page: Page, label: string) => previewSwitcher(page).locator(`button[title="${label}"]`);
+
+// Every test in this file records a take before exporting it.
+test.skip(({ browserName }) => browserName !== 'chromium', 'requires fake media devices');
 
 test('guest locks + guest→auth preserves work', async ({ page }) => {
   const email = `e2eguest${Date.now()}@example.com`;

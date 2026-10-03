@@ -1,4 +1,4 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { test, expect, type Page, type APIRequestContext, type BrowserContext } from '@playwright/test';
 import { createClient, type Client } from '@libsql/client';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -363,6 +363,43 @@ export async function dismissAllModals(page: Page) {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(200);
   }
+}
+
+/**
+ * Grants camera/microphone to the test context where Playwright supports those
+ * permission names.
+ *
+ * Firefox has no mapping for them: requesting either aborts context creation
+ * with "Unknown permission: camera", which kills the entire spec file before a
+ * single test body runs — that alone accounted for every Firefox failure in CI.
+ * Firefox is given fake media devices, and auto-answered prompts, through the
+ * media.navigator.* prefs in playwright.config.ts instead, so there is nothing
+ * to grant there.
+ */
+export async function grantMediaPermissions(context: BrowserContext, browserName: string): Promise<void> {
+  if (browserName === 'firefox') return;
+  await context.grantPermissions(['camera', 'microphone']);
+}
+
+/**
+ * Opens the auth modal from the landing page and waits for it.
+ *
+ * Below the header breakpoint the "Log In" button only exists inside the closed
+ * burger menu, so a bare getByRole('Log In') resolves to a node that never
+ * becomes actionable and the click times out (this is what failed the
+ * mobile-chrome / Pixel 5 project). Wait for the header to settle before
+ * choosing a branch: an early isVisible check races hydration and picks wrong.
+ */
+export async function openAuthFromLanding(page: Page): Promise<void> {
+  await expect(page.getByRole('link', { name: /supersmartx/i }).first()).toBeVisible();
+  const burger = page.getByRole('button', { name: /open menu/i });
+  if (await burger.isVisible().catch(() => false)) {
+    await burger.click();
+    await page.locator('#lsx-mobile-nav').getByRole('button', { name: 'Log In' }).click();
+  } else {
+    await page.getByRole('button', { name: 'Log In' }).first().click();
+  }
+  await expect(page.getByRole('dialog')).toBeVisible();
 }
 
 // Re-exported so specs can configure fake media devices without importing Playwright twice.

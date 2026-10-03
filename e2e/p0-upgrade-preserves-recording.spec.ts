@@ -54,10 +54,9 @@ import { test, expect, type Page } from '@playwright/test';
 import { createClient, type Client } from '@libsql/client';
 import * as fs from 'fs';
 import * as path from 'path';
-import { hasRealCredentials, hasRealR2Credentials } from './helpers';
+import { hasRealCredentials, hasRealR2Credentials, grantMediaPermissions } from './helpers';
 
 test.use({
-  permissions: ['camera', 'microphone'],
   viewport: { width: 1280, height: 800 },
   launchOptions: {
     args: [
@@ -67,6 +66,10 @@ test.use({
       '--mute-audio',
     ],
   },
+});
+
+test.beforeEach(async ({ context, browserName }) => {
+  await grantMediaPermissions(context, browserName);
 });
 
 /* The journey records a short take by default. Duration does not affect any
@@ -292,6 +295,7 @@ const unlockedIn = (page: Page, label: string) => previewSwitcher(page).locator(
 test.setTimeout(600_000);
 
 test.skip(!!process.env.TURSO_DATABASE_URL, 'P0 gate needs the local dev database file; skipping against shared DB');
+test.skip(({ browserName }) => browserName !== 'chromium', 'requires fake media devices');
 test.skip(!R2_READY, 'P0 gate needs real R2 credentials (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME) — the R2 upload → Library → Download tail cannot be faked, because /api/exports/complete verifies the object server-side with headObject');
 
 test('P0: Free records, upgrades, and the same recording survives all the way to a downloaded 1080×1920 Reel', async ({ page }) => {

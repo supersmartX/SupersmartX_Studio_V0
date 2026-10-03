@@ -22,12 +22,12 @@ import {
   apiRegister,
   cleanupTestUser,
   LOCKED_PLATFORMS,
+  grantMediaPermissions,
 } from './helpers';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000';
 
 test.use({
-  permissions: ['camera', 'microphone'],
   viewport: { width: 1440, height: 900 },
   launchOptions: {
     args: [
@@ -37,6 +37,10 @@ test.use({
       '--mute-audio',
     ],
   },
+});
+
+test.beforeEach(async ({ context, browserName }) => {
+  await grantMediaPermissions(context, browserName);
 });
 
 test.setTimeout(300_000);
@@ -75,7 +79,8 @@ async function expectNoErrorToast(page: import('@playwright/test').Page) {
 }
 
 test.describe('STATE 2 — Free platform restrictions', () => {
-  test('2.1 anonymous Free: all six locked formats are visible, locked, and inert', async ({ page }) => {
+  test('2.1 anonymous Free: all six locked formats are visible, locked, and inert', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'requires fake media devices');
     await instrument(page);
     const cloudAttempts = await blockCloud(page);
 
@@ -121,7 +126,8 @@ test.describe('STATE 2 — Free platform restrictions', () => {
     expect(cloudAttempts, `locked clicks must never reach the cloud: ${cloudAttempts.join(', ')}`).toEqual([]);
   });
 
-  test('2.2 anonymous Free: upgrade CTA leads to auth, and the take is never lost', async ({ page }) => {
+  test('2.2 anonymous Free: upgrade CTA leads to auth, and the take is never lost', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'requires fake media devices');
     await instrument(page);
     await page.goto('/studio');
     await recordTake(page);
@@ -157,7 +163,8 @@ test.describe('STATE 2 — Free platform restrictions', () => {
     await expect(exportDialog.getByRole('button', { name: /^Export YouTube · 1280×720$/ })).toBeVisible();
   });
 
-  test('2.3 authenticated Free: same locks, but the CTA goes straight to Creator pricing', async ({ page }) => {
+  test('2.3 authenticated Free: same locks, but the CTA goes straight to Creator pricing', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'requires fake media devices');
     const email = `e2e-state2-locks-${Date.now()}@example.com`;
     await cleanupTestUser(email);
     await apiRegister(page.request, email);
@@ -210,7 +217,8 @@ test.describe('STATE 2 — Free platform restrictions', () => {
     await cleanupTestUser(email);
   });
 
-  test('2.4 authenticated Free: export sheet stays on YouTube and admits the restriction', async ({ page }) => {
+  test('2.4 authenticated Free: export sheet stays on YouTube and admits the restriction', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'requires fake media devices');
     const email = `e2e-state2-sheet-${Date.now()}@example.com`;
     await cleanupTestUser(email);
     await apiRegister(page.request, email);

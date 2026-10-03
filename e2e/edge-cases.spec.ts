@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { dismissWelcomeModal } from './helpers';
+import { dismissWelcomeModal, openAuthFromLanding } from './helpers';
 
 test.describe('Edge Cases - Form Inputs', () => {
   test('handles empty script submission', async ({ page }) => {
@@ -57,7 +57,7 @@ test.describe('Edge Cases - Auth Forms', () => {
 
   test('handles email with plus addressing', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: 'Log In' }).first().click();
+    await openAuthFromLanding(page);
     await expect(page.getByRole('dialog')).toBeVisible();
 
     const { email, password } = authFields(page);
@@ -68,7 +68,7 @@ test.describe('Edge Cases - Auth Forms', () => {
 
   test('handles email with subdomain', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: 'Log In' }).first().click();
+    await openAuthFromLanding(page);
     await expect(page.getByRole('dialog')).toBeVisible();
 
     const { email, password } = authFields(page);
@@ -79,7 +79,7 @@ test.describe('Edge Cases - Auth Forms', () => {
 
   test('prevents SQL injection in email field', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: 'Log In' }).first().click();
+    await openAuthFromLanding(page);
     await expect(page.getByRole('dialog')).toBeVisible();
 
     const { email, password } = authFields(page);
@@ -118,7 +118,7 @@ test.describe('Edge Cases - Browser Behavior', () => {
 test.describe('Edge Cases - Concurrent Actions', () => {
   test('prevents double-click on submit buttons', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: 'Log In' }).first().click();
+    await openAuthFromLanding(page);
     const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
 

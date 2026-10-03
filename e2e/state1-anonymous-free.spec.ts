@@ -26,10 +26,10 @@ import {
   trackState,
   readLocalExports,
   LOCKED_PLATFORMS,
+  grantMediaPermissions,
 } from './helpers';
 
 test.use({
-  permissions: ['camera', 'microphone'],
   viewport: { width: 1440, height: 900 },
   launchOptions: {
     args: [
@@ -40,6 +40,14 @@ test.use({
     ],
   },
 });
+
+test.beforeEach(async ({ context, browserName }) => {
+  await grantMediaPermissions(context, browserName);
+});
+
+// Every test here calls studioReady(), which only returns once a real camera
+// is acquired; Playwright's Firefox cannot supply the fake device that needs.
+test.skip(({ browserName }) => browserName !== 'chromium', 'requires fake media devices');
 
 test.setTimeout(300_000);
 
@@ -65,6 +73,7 @@ test.describe('STATE 1 — Anonymous Free', () => {
   });
 
   test('1.2 camera and microphone permission work', async ({ page }) => {
+    
     await instrument(page);
     await page.goto('/studio');
     await studioReady(page);
@@ -108,6 +117,7 @@ test.describe('STATE 1 — Anonymous Free', () => {
   });
 
   test('1.3 script and teleprompter work', async ({ page }) => {
+    
     await instrument(page);
     await page.goto('/studio');
     await studioReady(page);
@@ -157,6 +167,7 @@ test.describe('STATE 1 — Anonymous Free', () => {
   });
 
   test('1.4 record, pause, resume, stop; camera stops; review appears', async ({ page }) => {
+    
     await instrument(page);
     await page.goto('/studio');
     await studioReady(page);
@@ -204,6 +215,7 @@ test.describe('STATE 1 — Anonymous Free', () => {
   });
 
   test('1.5 recording survives refresh; master video remains available', async ({ page }) => {
+    
     await instrument(page);
     await page.goto('/studio');
     await recordTake(page);
@@ -234,6 +246,7 @@ test.describe('STATE 1 — Anonymous Free', () => {
   });
 
   test('1.6 free export: YouTube 16:9 1280x720, watermark, local download, no R2, no login', async ({ page }) => {
+    
     await instrument(page);
     const cloudAttempts = await blockCloud(page);
 

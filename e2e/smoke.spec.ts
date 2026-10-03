@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { dismissWelcomeModal } from './helpers';
+import { dismissWelcomeModal, grantMediaPermissions, openAuthFromLanding } from './helpers';
 import type { Page } from '@playwright/test';
 
 // Rendered text only: textContent('body') includes inline <script>/<style>
@@ -16,7 +16,10 @@ test.use({
   launchOptions: {
     args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
   },
-  permissions: ['camera', 'microphone'],
+});
+
+test.beforeEach(async ({ context, browserName }) => {
+  await grantMediaPermissions(context, browserName);
 });
 
 test.describe('Smoke Test - Landing Page', () => {
