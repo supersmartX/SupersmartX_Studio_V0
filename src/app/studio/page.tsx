@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { NUDGE_AMOUNT_KEYBOARD, PLATFORM_PRESETS } from '@/constants';
+import { NUDGE_AMOUNT_KEYBOARD, PLATFORM_PRESETS, DEFAULT_PLATFORM_ID } from '@/constants';
 
 import { useWelcomeModal } from '@/hooks/useWelcomeModal';
 import { useCamera } from '@/hooks/useCamera';
@@ -86,6 +86,8 @@ export default function HomePage() {
   const {
     masterRecording: masterRecordingData,
     createMasterRecording,
+    openStoredRecording,
+    releaseMasterRecording,
     clearMasterRecording,
     restoreMasterRecording,
     isRestored,
@@ -339,6 +341,9 @@ export default function HomePage() {
   const [activePanel, setActivePanel] = useState<TabType | 'record' | 'share'>('studio');
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+  // Preview as — separate from export platform. Declared up here because
+  // "New Video" resets it as part of ending the creation session.
+  const [previewPlatformId, setPreviewPlatformId] = useState<PlatformId>(DEFAULT_PLATFORM_ID);
 
   useEffect(() => {
     if (isCompactLayout) setIsInspectorOpen(false);
@@ -355,11 +360,35 @@ export default function HomePage() {
     clearJobs,
   } = useExportPipeline();
 
+  // "New Video" — start a clean creation session.
+  //
+  // Two workflows exist and must not bleed into each other:
+  //   A. create a NEW video  (here)
+  //   B. work with an EXISTING library recording (openStoredRecording)
+  //
+  // This used to only switch the active panel, so the previous take, its review
+  // state, its preview platform and its export config all survived the click and
+  // the Studio reopened showing the recording the user had already finished.
+  // It must not reuse clearMasterRecording: that deletes the IndexedDB row,
+  // which is the only copy of the bytes, so the previous take has to be
+  // DETACHED here and left in the library, reachable from Library only.
+  const handleNewVideo = useCallback(() => {
+    ui.setIsDrawerVisible(false);
+    // 'completed' keeps review alive on its own (see isReviewState), so the
+    // capture session has to go back to idle or review survives with no take.
+    recorder.resetRecording();
+    releaseMasterRecording();
+    clearJobs();
+    setExportConfig(null);
+    setPreviewPlatformId(DEFAULT_PLATFORM_ID);
+    setActivePanel('studio');
+  }, [ui, recorder, releaseMasterRecording, clearJobs, setExportConfig]);
+
   // Restore the master recording from IndexedDB. This is the only thing that
   // carries a take across a cross-document navigation (Google OAuth, the
   // Cashfree redirect, the return trip, a reload), so it runs for every
   // session — the hook makes it one attempt per document and refuses to
-  // resurrect a take the user explicitly discarded.
+  // resurrect a take the user explicitly discarded or left behind via New Video.
   useEffect(() => {
     if (!masterRecordingData) {
       restoreMasterRecording();
@@ -576,9 +605,16 @@ export default function HomePage() {
     });
   }, [camera.stream]);
 
+  // Both rails label the studio entry "New Video" / "Studio"; either one means
+  // "start creating", so it runs the full session reset rather than just
+  // swapping panels.
   const handlePanelChange = useCallback((panel: TabType | 'record' | 'share') => {
+    if (panel === 'studio') {
+      handleNewVideo();
+      return;
+    }
     setActivePanel(panel);
-  }, []);
+  }, [handleNewVideo]);
 
   const handleToggleInspector = useCallback(() => {
     setIsInspectorOpen((prev) => !prev);
@@ -624,8 +660,6 @@ export default function HomePage() {
 
   const isStudio = activePanel === 'studio';
 
-  // Preview as — separate from export platform
-  const [previewPlatformId, setPreviewPlatformId] = useState<PlatformId>('youtube-landscape');
   const previewPreset = PLATFORM_PRESETS.find((p) => p.id === previewPlatformId) ?? PLATFORM_PRESETS[0];
   // Review crop geometry from the SAME production math the export uses
   // (getDefaultCrop → cover). Shape (Canvas box) and crop move together.
@@ -814,16 +848,22 @@ export default function HomePage() {
                   userPlan={userPlan}
                   refreshKey={exportJobs.length}
                   onAuthRequired={ui.handleAuthRequired}
+                  // Workflow B: attach the EXISTING master. This used to call
+                  // createMasterRecording, which minted a fresh
+                  // `master-<ts>-<rand>` id and re-saved the row — so opening a
+                  // library item forked it into a second, identical recording
+                  // and orphaned the original id, on every single open. The
+                  // stored row IS the master; its identity is adopted verbatim.
                   onExportRecording={(recording) => {
-                    createMasterRecording(
-                      recording.blob,
-                      recording.duration,
-                      recording.hasAudio,
-                      recording.width,
-                      recording.height
-                    );
+                    openStoredRecording(recording);
                     ui.setIsDrawerVisible(true);
                   }}
+                  previewPlatformId={previewPlatformId}
+                  onPreviewPlatformChange={setPreviewPlatformId}
+                  isPlatformLocked={(id) =>
+                    !isCreatorUser && isPlatformLockedForUser(id, session?.user?.plan || 'free')
+                  }
+                  onLockedPlatformClick={handlePlatformUpgradeRequired}
                 />
               </div>
             )}

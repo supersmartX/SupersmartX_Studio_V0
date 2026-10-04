@@ -8,7 +8,10 @@ import { isCreatorPlan } from '@/lib/entitlements';
 import { setPendingDownload, stashPendingDownloadExportId } from '@/lib/auth-guard';
 import { useDismissOnOutsideClick } from '@/hooks/useDismissOnOutsideClick';
 import { Modal } from '@/components/ui/Modal';
+import { PlatformPreviewSwitcher } from '@/components/studio/PlatformPreviewSwitcher';
+import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
+import type { PlatformId } from '@/types';
 import { PlayIcon, SettingsIcon } from '@/components/icons';
 
 interface RecordingsPanelProps {
@@ -18,6 +21,15 @@ interface RecordingsPanelProps {
   userPlan?: PlanType | 'free';
   refreshKey?: number;
   onAuthRequired?: () => void;
+  /**
+   * Platform preview state is owned by the Studio, not by this panel: an
+   * existing recording and a freshly recorded one must share one selection, and
+   * the panel must not grow a second selector of its own.
+   */
+  previewPlatformId?: PlatformId;
+  onPreviewPlatformChange?: (id: PlatformId) => void;
+  isPlatformLocked?: (id: PlatformId) => boolean;
+  onLockedPlatformClick?: (id: PlatformId) => void;
 }
 
 export type DownloadOutcome =
@@ -85,8 +97,36 @@ function RecordingThumbnail({ recording }: { recording: StoredRecording }) {
   );
 }
 
-function RecordingPreviewModal({ recording, onClose }: { recording: StoredRecording; onClose: () => void }) {
+/**
+ * Workflow B — the user opened a recording that already exists.
+ *
+ * Deliberately NOT a creation surface: there is no script, no camera, no
+ * "Record again". What it says is "this is your existing video, pick an export
+ * target for it", and the platform row is the SAME `PlatformPreviewSwitcher`
+ * the Studio review uses, so changing platform here cannot fork the master —
+ * it only moves the export target of the one recording being worked on.
+ */
+function ExistingRecordingModal({
+  recording,
+  onClose,
+  onExport,
+  previewPlatformId,
+  onPreviewPlatformChange,
+  isPlatformLocked,
+  onLockedPlatformClick,
+}: {
+  recording: StoredRecording;
+  onClose: () => void;
+  onExport: (recording: StoredRecording) => void;
+  previewPlatformId?: PlatformId;
+  onPreviewPlatformChange?: (id: PlatformId) => void;
+  isPlatformLocked?: (id: PlatformId) => boolean;
+  onLockedPlatformClick?: (id: PlatformId) => void;
+}) {
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  // Collapsed by default: the current target is stated in words, and the chips
+  // appear on request. One selector either way — never two.
+  const [isChoosingPlatform, setIsChoosingPlatform] = useState(false);
 
   useEffect(() => {
     const url = URL.createObjectURL(recording.blob);
@@ -97,13 +137,61 @@ function RecordingPreviewModal({ recording, onClose }: { recording: StoredRecord
     };
   }, [recording.blob]);
 
+  const selected = LAUNCH_PLATFORM_PRESETS.find((p) => p.id === previewPlatformId);
+  const isSelectable = Boolean(onPreviewPlatformChange);
+
   // No forced aspect class: object-contain preserves 16:9, 9:16, 1:1, 4:5.
   return (
-    <Modal isOpen onClose={onClose} title={recording.name || 'Video recording'} maxWidth="max-w-3xl" ariaLabel="Recording preview">
-      <video src={sourceUrl || undefined} controls autoPlay playsInline className="max-h-[70vh] w-full rounded-lg bg-black object-contain" />
+    <Modal isOpen onClose={onClose} title="Existing video" maxWidth="max-w-3xl">
+      <video src={sourceUrl || undefined} controls autoPlay playsInline className="max-h-[50vh] w-full rounded-lg bg-black object-contain" />
       <p className="mt-3 text-xs text-text-secondary">
         Recorded {formatDate(recording.createdAt)} · {formatTime(recording.duration)} · {recording.width} × {recording.height} · {formatFileSize(recording.blob.size)}
       </p>
+
+      <div className="mt-5 rounded-lg border border-border-subtle bg-elevated/40 p-4">
+        <p className="text-sm font-medium text-text-primary">Export this video</p>
+        <p className="mt-1 text-xs text-text-secondary">
+          Exporting creates a new copy for the chosen platform. Your original recording stays the same.
+        </p>
+
+        <p className="mt-3 text-[12px] text-text-secondary">
+          {selected ? `Preview as: ${selected.label} · ${selected.sublabel}` : 'Preview as: YouTube · 16:9 landscape'}
+        </p>
+
+        {isSelectable && isChoosingPlatform && (
+          <div className="-mx-4">
+            <PlatformPreviewSwitcher
+              label="Preview as"
+              selectedPlatformId={previewPlatformId ?? 'youtube-landscape'}
+              onSelect={(id) => {
+                onPreviewPlatformChange?.(id);
+                setIsChoosingPlatform(false);
+              }}
+              isLocked={isPlatformLocked}
+              onLockedClick={onLockedPlatformClick}
+            />
+          </div>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsChoosingPlatform((open) => !open)}
+            className="min-h-9 rounded-md border border-border-subtle px-3 py-2 text-xs font-medium text-text-secondary hover:border-border-strong hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+            aria-expanded={isChoosingPlatform}
+          >
+            Change Platform
+          </button>
+          <button
+            type="button"
+            onClick={() => onExport(recording)}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+            aria-label={`Export this video${selected ? ` as ${selected.label}` : ''}`}
+          >
+            <PlayIcon className="h-3.5 w-3.5" /> Export
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }
@@ -117,7 +205,18 @@ function CloudPreviewModal({ url, title, meta, onClose }: { url: string; title: 
   );
 }
 
-export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, userPlan = 'free', refreshKey, onAuthRequired }: RecordingsPanelProps) {
+export function RecordingsPanel({
+  onExportRecording,
+  isMobile,
+  isAuthenticated,
+  userPlan = 'free',
+  refreshKey,
+  onAuthRequired,
+  previewPlatformId,
+  onPreviewPlatformChange,
+  isPlatformLocked,
+  onLockedPlatformClick,
+}: RecordingsPanelProps) {
   // Cloud library is a Creator entitlement — Free is local-first.
   const canUseCloudLibrary = isCreatorPlan(userPlan);
   const [recordings, setRecordings] = useState<StoredRecording[]>([]);
@@ -191,6 +290,20 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
 
   const getDisplayName = useCallback((recording: StoredRecording) => {
     return recording.name || 'Video recording';
+  }, []);
+
+  /**
+   * The recording as it should read INSIDE a control's accessible name.
+   *
+   * `getDisplayName` is a standalone card title ("Video recording"), which
+   * becomes ungrammatical once it follows a verb — "Export Video recording".
+   * Action labels therefore take a plain noun phrase: "Export video",
+   * "Preview video", or the user's own title ("Export My intro"). The name still
+   * opens with the button's visible text, so voice control and speech input
+   * users can say the word they can see.
+   */
+  const getItemLabel = useCallback((recording: StoredRecording) => {
+    return recording.name || 'video';
   }, []);
 
   const loadCloudExports = useCallback(async () => {
@@ -389,7 +502,7 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
                           <button
                             onClick={() => setOpenMenuId((current) => current === recording.id ? null : recording.id)}
                             className="flex h-8 w-8 items-center justify-center rounded-md text-lg leading-none text-text-muted hover:bg-elevated hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-                            aria-label={`More actions for ${getDisplayName(recording)}`}
+                            aria-label={`More actions for ${getItemLabel(recording)}`}
                             aria-expanded={openMenuId === recording.id}
                           >
                             <span aria-hidden="true">•••</span>
@@ -411,10 +524,10 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
                         {formatTime(recording.duration)} · {recording.width} × {recording.height} · {formatFileSize(recording.blob.size)}
                       </p>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <button onClick={() => setPreviewRecording(recording)} className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label={`Preview ${getDisplayName(recording)}`}>
+                        <button onClick={() => setPreviewRecording(recording)} className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label={`Preview ${getItemLabel(recording)}`}>
                           <PlayIcon className="h-3.5 w-3.5" /> Preview
                         </button>
-                        <button onClick={() => onExportRecording?.(recording)} className="min-h-9 rounded-md border border-border-subtle px-3 py-2 text-xs font-medium text-text-secondary hover:border-border-strong hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+                        <button onClick={() => onExportRecording?.(recording)} aria-label={`Export ${getItemLabel(recording)}`} className="min-h-9 rounded-md border border-border-subtle px-3 py-2 text-xs font-medium text-text-secondary hover:border-border-strong hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
                           Export
                         </button>
                       </div>
@@ -536,7 +649,18 @@ export function RecordingsPanel({ onExportRecording, isMobile, isAuthenticated, 
 
       {/* Centered preview modals (recordings + cloud exports) */}
       {previewRecording && (
-        <RecordingPreviewModal recording={previewRecording} onClose={() => setPreviewRecording(null)} />
+        <ExistingRecordingModal
+          recording={previewRecording}
+          onClose={() => setPreviewRecording(null)}
+          onExport={(recording) => {
+            setPreviewRecording(null);
+            onExportRecording?.(recording);
+          }}
+          previewPlatformId={previewPlatformId}
+          onPreviewPlatformChange={onPreviewPlatformChange}
+          isPlatformLocked={isPlatformLocked}
+          onLockedPlatformClick={onLockedPlatformClick}
+        />
       )}
       {previewUrl && (
         <CloudPreviewModal

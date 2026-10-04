@@ -229,8 +229,8 @@ test.describe('STATE 1 — Anonymous Free', () => {
     await expect(page.getByText('1 recording', { exact: false }).first()).toBeVisible({ timeout: 20_000 });
 
     // The master blob is intact: it previews with decoded dimensions.
-    await page.getByRole('button', { name: /^Preview Video recording$/ }).first().click();
-    const preview = page.getByRole('dialog', { name: 'Recording preview' });
+    await page.getByRole('button', { name: /^Preview video$/ }).first().click();
+    const preview = page.getByRole('dialog', { name: 'Existing video' });
     await expect(preview).toBeVisible();
     const meta = await readVideo(preview.locator('video'));
     expect(meta.w, 'master video must still decode after refresh').toBeGreaterThan(0);
@@ -239,7 +239,7 @@ test.describe('STATE 1 — Anonymous Free', () => {
     await preview.getByRole('button', { name: 'Close' }).click();
 
     // The master video is still exportable after the reload.
-    await page.getByRole('button', { name: 'Export', exact: true }).first().click();
+    await page.getByRole('button', { name: /^Export video$/ }).first().click();
     const dialog = page.getByRole('dialog', { name: 'Export recording' });
     await expect(dialog).toBeVisible({ timeout: 20_000 });
     await expect(dialog.getByText('16:9 · 1280 × 720')).toBeVisible();

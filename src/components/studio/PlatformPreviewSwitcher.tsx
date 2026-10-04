@@ -9,6 +9,12 @@ interface PlatformPreviewSwitcherProps {
   /** When true, locked platforms show upgrade indicator instead of selecting */
   isLocked?: (id: PlatformId) => boolean;
   onLockedClick?: (id: PlatformId) => void;
+  /**
+   * Caption above the chips. The single source of platform selection for both
+   * workflows — Studio review and the library's existing-recording view — so it
+   * must never be duplicated with a second selector.
+   */
+  label?: string;
 }
 
 export function PlatformPreviewSwitcher({
@@ -16,11 +22,12 @@ export function PlatformPreviewSwitcher({
   onSelect,
   isLocked,
   onLockedClick,
+  label = 'Preview as',
 }: PlatformPreviewSwitcherProps) {
   return (
     <div className="flex flex-col items-center gap-2 py-3">
       <span className="text-[11px] font-medium text-text-muted uppercase tracking-wider">
-        Preview as
+        {label}
       </span>
       <div className="flex items-center gap-1.5 overflow-x-auto px-2 max-w-full scrollbar-none">
         {LAUNCH_PLATFORM_PRESETS.map((preset) => {

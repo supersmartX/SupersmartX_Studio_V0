@@ -181,7 +181,7 @@ test('guest locks + guest→auth preserves work', async ({ page }) => {
     await ensureStudioReady(page);
     await expect(page.getByRole('button', { name: 'Log In' })).toHaveCount(0);
     await page.getByRole('navigation', { name: 'Main navigation' }).getByText('Recordings').first().click();
-    await page.getByRole('button', { name: 'Export', exact: true }).first().click();
+    await page.getByRole('button', { name: /^Export video$/ }).first().click();
     const dialog2 = page.getByRole('dialog', { name: 'Export recording' });
     await dialog2.waitFor({ state: 'visible', timeout: 15000 });
     await dialog2.getByText('YouTube', { exact: true }).waitFor({ state: 'visible', timeout: 15000 });

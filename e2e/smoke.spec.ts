@@ -602,8 +602,10 @@ test.describe('Smoke Test - Camera Journey (chromium)', () => {
   test('library preview modal shows user-worded metadata', async ({ page }) => {
     await recordTake(page);
     await gotoLibrary(page);
-    await page.getByRole('button', { name: /Preview Video recording/i }).first().click();
-    const dialog = page.getByRole('dialog', { name: /preview/i }).first();
+    await page.getByRole('button', { name: /^Preview video$/ }).first().click();
+    // The library's existing-recording surface. Workflow B: it previews and
+    // exports the stored take, so its dialog is named for the visible title.
+    const dialog = page.getByRole('dialog', { name: 'Existing video' }).first();
     await expect(dialog).toBeVisible({ timeout: 10000 });
     await expect(dialog.getByText(/Recorded /)).toBeVisible();
     const text = (await dialog.textContent()) || '';

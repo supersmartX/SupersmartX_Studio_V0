@@ -283,6 +283,57 @@ export function readLocalExports(page: Page) {
   });
 }
 
+/**
+ * The master recordings actually in the `recordings` object store.
+ *
+ * Read straight out of IndexedDB rather than off the Library UI, so "the
+ * library contains exactly one recording" is a row count. Reading the UI would
+ * let a duplicated row hide behind a card that had not finished rendering.
+ */
+export function readMasterRecordings(page: Page) {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open('sxs-studio', 2);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    if (!db.objectStoreNames.contains('recordings')) {
+      db.close();
+      return [];
+    }
+    return new Promise<Array<{ id: string; createdAt: string; size: number }>>((resolve) => {
+      const tx = db.transaction('recordings', 'readonly');
+      const all = tx.objectStore('recordings').getAll();
+      all.onsuccess = () => {
+        db.close();
+        resolve(
+          all.result
+            .filter((r) => new Date(r.expiresAt as unknown as string) >= new Date())
+            .map((r) => ({ id: r.id, createdAt: r.createdAt as unknown as string, size: (r.blob as Blob).size })),
+        );
+      };
+      all.onerror = () => {
+        db.close();
+        resolve([]);
+      };
+    });
+  });
+}
+
+/**
+ * "New Video" in the desktop side rail, "Studio" in the compact bottom nav.
+ * Both are `<nav>` buttons and exactly one is laid out on any given viewport,
+ * so the visible one is the real entry point.
+ */
+export function newVideoButton(page: Page) {
+  return page.locator('nav button:visible').filter({ hasText: /^(New Video|Studio)$/ }).first();
+}
+
+/** The Recordings panel in either rail. */
+export function recordingsNav(page: Page) {
+  return page.locator('nav button:visible').filter({ hasText: /^Recordings$/ }).first();
+}
+
 // ---------------------------------------------------------------------------
 // Local dev database (used to mint and clean up throwaway Free accounts).
 // ---------------------------------------------------------------------------
