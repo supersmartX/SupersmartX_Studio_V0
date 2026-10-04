@@ -12,6 +12,7 @@ import {
 import { isAccountLocked, recordFailedLogin, resetFailedLogins } from './lib/db';
 import { resolveSessionUser } from './lib/auth-identity';
 import { reconcileSessionVersion } from './lib/session-version';
+import { emitAuthJwtDiagnostic, newAuthJwtDiagnostic } from './lib/auth-diagnostics';
 import { isPlanActive } from './lib/entitlements';
 import { validatePassword } from './lib/validation';
 
@@ -104,73 +105,102 @@ const fullAuthConfig = {
   callbacks: {
     ...authConfig.callbacks,
     async jwt({ token, user, account }: { token: JWT; user: User | null; account?: any }) {
-      if (user) {
-        token.id = user.id as string;
-        token.image = user.image;
-        // OAuth first login: ensure DB user exists to satisfy pending_orders FK
-        if (account && account.provider !== 'credentials' && token.email) {
-          try {
-            await ensureMigration();
-            const existing = await findUserByEmail(token.email as string);
-            if (!existing) {
-              const { getDb } = await import('./lib/db/driver');
-              const { ensureMigrated } = await import('./lib/db');
-              await ensureMigrated();
-              const db = getDb();
-              const stubHash = `$oauth$${(globalThis.crypto?.randomUUID?.() || Date.now().toString(36))}`;
-              try {
-                await db.execute({
-                  sql: 'INSERT OR IGNORE INTO users (id, email, name, password_hash, created_at, plan) VALUES (?, ?, ?, ?, ?, ?)',
-                  args: [token.id as string, (token.email as string).toLowerCase(), (user.name || token.name || 'User') as string, stubHash, new Date().toISOString(), 'free'],
-                });
-              } catch {}
-            } else if (existing.id !== token.id) {
-              // Align token.id to DB id for FK consistency
-              token.id = existing.id;
-            }
-          } catch {}
+      // TEMPORARY diagnostic (src/lib/auth-diagnostics.ts): records which branch
+      // retires the session. Observe-only — it never alters the token, the return
+      // value, or the control flow.
+      const diag = newAuthJwtDiagnostic(user);
+      try {
+        if (user) {
+          token.id = user.id as string;
+          token.image = user.image;
+          // OAuth first login: ensure DB user exists to satisfy pending_orders FK
+          if (account && account.provider !== 'credentials' && token.email) {
+            try {
+              await ensureMigration();
+              const existing = await findUserByEmail(token.email as string);
+              if (!existing) {
+                const { getDb } = await import('./lib/db/driver');
+                const { ensureMigrated } = await import('./lib/db');
+                await ensureMigrated();
+                const db = getDb();
+                const stubHash = `$oauth$${(globalThis.crypto?.randomUUID?.() || Date.now().toString(36))}`;
+                try {
+                  await db.execute({
+                    sql: 'INSERT OR IGNORE INTO users (id, email, name, password_hash, created_at, plan) VALUES (?, ?, ?, ?, ?, ?)',
+                    args: [token.id as string, (token.email as string).toLowerCase(), (user.name || token.name || 'User') as string, stubHash, new Date().toISOString(), 'free'],
+                  });
+                } catch {}
+              } else if (existing.id !== token.id) {
+                // Align token.id to DB id for FK consistency
+                token.id = existing.id;
+              }
+            } catch {}
+          }
         }
+        diag.emailClaimPresent = typeof token.email === 'string' && token.email.length > 0;
+        if (token.email) {
+          await ensureMigration();
+          diag.idClaimPresent = typeof token.id === 'string' && token.id.length > 0;
+          const fullUser = await resolveSessionUser(token.id as string | undefined, token.email as string);
+          diag.fullUserFound = Boolean(fullUser);
+          if (!fullUser) {
+            // Orphaned session: the signature is valid but no user row exists
+            // by id or email. End the session so the user re-authenticates
+            // instead of failing every API call with "User not found".
+            diag.rejection = 'missing_full_user';
+            await emitAuthJwtDiagnostic(diag);
+            return null;
+          }
+          if (fullUser.id !== token.id) {
+            // Session id diverged from the durable row (e.g. OAuth subject vs
+            // stored id across an upgrade flow): realign permanently so all
+            // id-scoped export/download endpoints resolve again.
+            console.warn('[Auth] Realigning diverged session id to DB user');
+            token.id = fullUser.id;
+          }
+          if (!isPlanActive(fullUser.planExpiresAt, fullUser.plan)) {
+            token.plan = 'free';
+          } else {
+            token.plan = fullUser.plan || 'free';
+          }
+          // Session version check: a JWT minted against an older row version is
+          // retired. This is what ends every existing session on password reset
+          // and on account deletion (the row is gone, and a re-registration starts
+          // above the deleted identity's high-water mark). A token with no version
+          // at all predates the claim and adopts the current one once.
+          diag.versionClaimPresent = token.sessionVersion !== undefined && token.sessionVersion !== null;
+          diag.dbVersionPresent = Number.isInteger(fullUser.sessionVersion);
+          diag.versionMatches = diag.versionClaimPresent
+            ? token.sessionVersion === fullUser.sessionVersion
+            : null;
+          const sessionVersion = reconcileSessionVersion(token.sessionVersion, fullUser.sessionVersion);
+          if (sessionVersion === null) {
+            diag.rejection = 'session_version_mismatch';
+            await emitAuthJwtDiagnostic(diag);
+            return null; // Token rejected — forces re-login
+          }
+          token.sessionVersion = sessionVersion;
+        }
+        // Sliding window: extend token expiry if more than 7 days remain
+        if (token.exp && typeof token.exp === 'number') {
+          const expiresIn = token.exp - Math.floor(Date.now() / 1000);
+          if (expiresIn > 7 * 24 * 60 * 60) {
+            token.exp = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+          }
+        }
+        diag.rejection = null;
+        await emitAuthJwtDiagnostic(diag);
+        return token;
+      } catch (error) {
+        // A throw is the third way this callback retires a session, and Auth.js
+        // folds it into the same cookie wipe as a null return
+        // (@auth/core/src/lib/actions/session.ts:82-89). Auth.js logs the
+        // underlying JWTSessionError itself, so the cause lands in the platform
+        // logs on its own.
+        diag.rejection = 'other';
+        await emitAuthJwtDiagnostic(diag);
+        throw error;
       }
-      if (token.email) {
-        await ensureMigration();
-        const fullUser = await resolveSessionUser(token.id as string | undefined, token.email as string);
-        if (!fullUser) {
-          // Orphaned session: the signature is valid but no user row exists
-          // by id or email. End the session so the user re-authenticates
-          // instead of failing every API call with "User not found".
-          return null;
-        }
-        if (fullUser.id !== token.id) {
-          // Session id diverged from the durable row (e.g. OAuth subject vs
-          // stored id across an upgrade flow): realign permanently so all
-          // id-scoped export/download endpoints resolve again.
-          console.warn('[Auth] Realigning diverged session id to DB user');
-          token.id = fullUser.id;
-        }
-        if (!isPlanActive(fullUser.planExpiresAt, fullUser.plan)) {
-          token.plan = 'free';
-        } else {
-          token.plan = fullUser.plan || 'free';
-        }
-        // Session version check: a JWT minted against an older row version is
-        // retired. This is what ends every existing session on password reset
-        // and on account deletion (the row is gone, and a re-registration starts
-        // above the deleted identity's high-water mark). A token with no version
-        // at all predates the claim and adopts the current one once.
-        const sessionVersion = reconcileSessionVersion(token.sessionVersion, fullUser.sessionVersion);
-        if (sessionVersion === null) {
-          return null; // Token rejected — forces re-login
-        }
-        token.sessionVersion = sessionVersion;
-      }
-      // Sliding window: extend token expiry if more than 7 days remain
-      if (token.exp && typeof token.exp === 'number') {
-        const expiresIn = token.exp - Math.floor(Date.now() / 1000);
-        if (expiresIn > 7 * 24 * 60 * 60) {
-          token.exp = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
-        }
-      }
-      return token;
     },
   },
 };
