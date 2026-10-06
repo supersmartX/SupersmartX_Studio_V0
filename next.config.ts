@@ -5,8 +5,11 @@ const r2PublicUrl = process.env.R2_PUBLIC_URL || '';
 const r2Domain = r2PublicUrl ? new URL(r2PublicUrl).hostname : '';
 
 const requiredEnvVars = ['NEXTAUTH_SECRET', 'CASHFREE_SECRET_KEY'];
+// Storybook evaluates this file outside Next's .env pipeline, where server
+// secrets are legitimately absent — warn only under real Next dev/build.
+const isStorybook = process.env.STORYBOOK === 'true';
 for (const envVar of requiredEnvVars) {
-  if (!process.env[envVar]) {
+  if (!process.env[envVar] && !isStorybook) {
     console.warn(`Missing required environment variable: ${envVar}`);
   }
 }
