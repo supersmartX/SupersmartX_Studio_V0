@@ -213,6 +213,45 @@ export async function headObject(key: string): Promise<{ size: number; contentTy
   }
 }
 
+/**
+ * Phase 3 — reads a byte range of a private object (S3 `Range` GET).
+ *
+ * This is what lets artifact verification parse a stored MP4 without ever
+ * buffering the whole artifact: the caller requests 8-byte box headers, the
+ * 16 KiB head probe, and the moov box — never the up-to-2 GiB mdat payload.
+ *
+ * `ifMatch` pins the read to the exact ETag returned by `headObject`, so an
+ * object swapped between HeadObject and the range GET fails the precondition
+ * (throwing, i.e. retryable) instead of verifying bytes from a different
+ * object. Returns null when the object no longer exists; any other failure
+ * propagates so callers can distinguish "artifact invalid" from "read
+ * unavailable".
+ */
+export async function getObjectRange(
+  key: string,
+  start: number,
+  endInclusive: number,
+  ifMatch?: string,
+): Promise<Uint8Array | null> {
+  const client = requireR2Client();
+  const bucket = getBucketName();
+  try {
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Range: `bytes=${start}-${endInclusive}`,
+      ...(ifMatch ? { IfMatch: ifMatch } : {}),
+    });
+    const result = await client.send(command);
+    const bytes = await result.Body?.transformToByteArray();
+    if (!bytes) return null;
+    return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  } catch (e: unknown) {
+    if (e instanceof Error && (e.name === 'NotFound' || e.name === 'NoSuchKey' || (e as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404)) return null;
+    throw e;
+  }
+}
+
 export function generateExportKey(userId: string): string {
   const uuid = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `exports/${userId}/${uuid}.mp4`;

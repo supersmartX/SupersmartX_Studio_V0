@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 import { dismissWelcomeModal, grantMediaPermissions, openAuthFromLanding } from './helpers';
+import { readMp4Artifact } from '../src/lib/export/mp4-metadata';
 import type { Page } from '@playwright/test';
 
 // Rendered text only: textContent('body') includes inline <script>/<style>
@@ -651,5 +653,22 @@ test.describe('Smoke Test - Camera Journey (chromium)', () => {
     ]);
     const filePath = await download.path();
     expect(filePath).toBeTruthy();
+
+    // PHASE 3 — the bytes on disk are parsed HERE in Node with the SAME
+    // production parser the server verifies with: a real ISO-BMFF container
+    // (ftyp first), moov and mdat present, a real video sample entry, the
+    // Free-clamped 16:9 frame this journey exported, and a positive-finite
+    // container duration — not merely a file that exists.
+    const fileBytes = new Uint8Array(await readFile(filePath!));
+    expect(fileBytes.byteLength, 'the download must carry real bytes').toBeGreaterThan(1000);
+    const artifact = readMp4Artifact(fileBytes.buffer as ArrayBuffer);
+    expect(artifact, 'the downloaded export must be a parseable MP4').not.toBeNull();
+    expect(artifact?.hasFtyp, 'ftyp must be the first box').toBe(true);
+    expect(artifact?.hasMoov).toBe(true);
+    expect(artifact?.hasMdat).toBe(true);
+    expect(artifact?.videoTrackCount).toBeGreaterThanOrEqual(1);
+    expect({ width: artifact?.width, height: artifact?.height }).toEqual({ width: 1280, height: 720 });
+    expect(artifact?.durationSeconds ?? 0, 'container duration must be positive').toBeGreaterThan(0);
+    expect(Number.isFinite(artifact?.durationSeconds), 'container duration must be finite').toBe(true);
   });
 });

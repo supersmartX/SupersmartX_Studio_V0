@@ -314,7 +314,9 @@ describe('payment fulfilment is driven by authoritative state, not the return UR
 
     const res = await verifyPOST(verifyRequest(orderId));
 
-    expect(res.status).toBe(403);
+    // Phase 2.10: 404 (not 403) so a foreign order is indistinguishable from
+    // an unknown one — the ownership rejection itself is unchanged.
+    expect(res.status).toBe(404);
     expect((await findUserById(owner.id))?.plan).toBe('free');
     expect((await findUserById(attacker.id))?.plan).toBe('free');
   });

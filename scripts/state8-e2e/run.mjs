@@ -37,6 +37,13 @@ const MASTERS = [
 const EDGE_TOLERANCE = 0.012;
 /** Marker centroid tolerance, as a fraction of the output frame. */
 const FACE_TOLERANCE = 0.02;
+/**
+ * Phase 3 — harness-side duration evidence. Production accepts |artifact -
+ * claim| <= max(1s, 1%); this much tighter bound shows real encodes land far
+ * inside that window (the claim itself is asserted through the production
+ * verifier below).
+ */
+const DURATION_SLACK_SECONDS = 0.15;
 
 const bundle = await esbuild.build({
   entryPoints: [path.join(here, 'driver.ts')],
@@ -144,11 +151,139 @@ try {
         }
       }
 
+      // PHASE 3 — the actual bytes through the ONE production parser and
+      // verifier. Nothing here trusts a happy-path return: the file must have
+      // ftyp-first, moov, mdat, a video entry, a positive-finite container
+      // duration hugging the claim, a plausible size, no audio a silent
+      // master never had, and an accepted verdict — while demanding audio
+      // (noAudioControl) MUST be rejected with exactly missing_audio.
+      if (!r.artifact) {
+        problems.push('readMp4Artifact could not parse the produced file');
+      } else {
+        const a = r.artifact;
+        if (!a.hasFtyp) problems.push('ftyp is not the first box');
+        if (!a.hasMoov) problems.push('no moov box (artifact parse)');
+        if (!a.hasMdat) problems.push('no mdat box');
+        if (a.videoTrackCount < 1) problems.push(`video sample entries: ${a.videoTrackCount}, expected >= 1`);
+        if (a.audioTrackCount !== 0) problems.push(`silent master produced ${a.audioTrackCount} audio tracks`);
+        if (a.durationSeconds === null || !Number.isFinite(a.durationSeconds) || a.durationSeconds <= 0) {
+          problems.push(`container duration is ${a.durationSeconds}, expected positive finite`);
+        } else if (Math.abs(a.durationSeconds - r.claimedDuration) > DURATION_SLACK_SECONDS) {
+          problems.push(
+            `container duration ${a.durationSeconds.toFixed(3)}s vs claim ${r.claimedDuration}s ` +
+              `(harness slack ${DURATION_SLACK_SECONDS}s, production floor 1s)`
+          );
+        }
+        if (r.sizeBytes <= 0) problems.push('zero-byte artifact');
+        if (r.sizeBytes > r.capBytes) problems.push(`artifact ${r.sizeBytes}B exceeds cap ${r.capBytes}B`);
+        if (r.engineHasAudio) problems.push('engine claimed audio ground truth for a silent master');
+        if (!r.verification || !r.verification.ok) {
+          problems.push(`verifyExportArtifact rejected the real file: ${r.verification && r.verification.code}`);
+        }
+        if (!r.noAudioControl || r.noAudioControl.ok) {
+          problems.push('audio check is toothless: hasAudio:true accepted on a silent artifact');
+        } else if (r.noAudioControl.code !== 'missing_audio') {
+          problems.push(`audio check failed for the wrong reason: ${r.noAudioControl.code}`);
+        }
+      }
+
       ran += 1;
       if (problems.length) failures += 1;
-      console.log(`  ${problems.length ? 'FAIL' : 'ok  '} ${p.id.padEnd(20)} ${p.w}x${p.h}`);
+      const dur =
+        r.artifact && r.artifact.durationSeconds !== null && Number.isFinite(r.artifact.durationSeconds)
+          ? r.artifact.durationSeconds.toFixed(3)
+          : 'n/a';
+      console.log(
+        `  ${problems.length ? 'FAIL' : 'ok  '} ${p.id.padEnd(20)} ${p.w}x${p.h}` +
+          ` dur ${dur}s size ${(r.sizeBytes / 1024).toFixed(0)}KB`
+      );
       for (const problem of problems) console.log(`         - ${problem}`);
     }
+  }
+
+  // PHASE 3 — audio-when-expected, end to end against the real artifact:
+  // an AAC-bearing master must yield engine hasAudio=true, an audio sample
+  // entry in the container, and a passing verdict under that claim.
+  {
+    const problems = [];
+    try {
+      const a = await page.evaluate(`(async () => {
+        const { buildMasterWithAudio, inspectAudioRoundTrip } = State8;
+        const { blob, duration } = await buildMasterWithAudio(1280, 720);
+        const master = {
+          id: 'm-audio', blob, duration, hasAudio: true, url: '',
+          sourceWidth: 1280, sourceHeight: 720,
+          createdAt: Date.now(), sizeBytes: blob.size,
+        };
+        return await inspectAudioRoundTrip(master, 'youtube-landscape');
+      })()`);
+      if (!a.engineHasAudio) problems.push('engine reported hasAudio=false for an AAC-bearing master');
+      if (!(a.artifactAudioTracks >= 1)) {
+        problems.push(`artifact carries ${a.artifactAudioTracks} audio sample entries, expected >= 1`);
+      }
+      if (!(a.artifactVideoTracks >= 1)) problems.push('audio-bearing artifact lost its video stream');
+      if (a.durationSeconds === null || !Number.isFinite(a.durationSeconds) || a.durationSeconds <= 0) {
+        problems.push(`audio artifact duration is ${a.durationSeconds}`);
+      }
+      if (!a.verification || !a.verification.ok) {
+        problems.push(`verifier rejected the audio artifact: ${a.verification && a.verification.code}`);
+      }
+      ran += 1;
+      if (problems.length) failures += 1;
+      console.log(
+        `  ${problems.length ? 'FAIL' : 'ok  '} audio round-trip        ` +
+          `tracks v${a.artifactVideoTracks}/a${a.artifactAudioTracks} dur ${
+            a.durationSeconds === null ? 'n/a' : a.durationSeconds.toFixed(3)
+          }s`
+      );
+    } catch (e) {
+      problems.push('threw: ' + (e && e.message ? e.message : String(e)));
+      ran += 1;
+      failures += 1;
+      console.log('  FAIL audio round-trip');
+    }
+    for (const problem of problems) console.log(`         - ${problem}`);
+  }
+
+  // PHASE 3 — the watermark lives in the decoded pixels of the artifact:
+  // same master encoded twice, pill-region difference must dominate a
+  // control region, and both files must be structurally real artifacts.
+  {
+    const problems = [];
+    try {
+      const w = await page.evaluate(`(async () => {
+        const { buildMaster, compareWatermark } = State8;
+        const { blob, duration } = await buildMaster(1280, 720);
+        const master = {
+          id: 'm-wm', blob, duration, hasAudio: false, url: '',
+          sourceWidth: 1280, sourceHeight: 720,
+          createdAt: Date.now(), sizeBytes: blob.size,
+        };
+        return await compareWatermark(master, 'youtube-landscape');
+      })()`);
+      if (!w.wmIsArtifact) problems.push('watermarked file is not a parseable artifact');
+      if (!w.plainIsArtifact) problems.push('plain file is not a parseable artifact');
+      if (!(w.pillMeanDiff > 15)) {
+        problems.push(`pill region mean diff ${w.pillMeanDiff.toFixed(2)} <= 15 — watermark not in the pixels`);
+      }
+      if (w.pillMeanDiff < 5 * Math.max(w.controlMeanDiff, 1)) {
+        problems.push(
+          `pill diff ${w.pillMeanDiff.toFixed(2)} does not dominate control ${w.controlMeanDiff.toFixed(2)}`
+        );
+      }
+      ran += 1;
+      if (problems.length) failures += 1;
+      console.log(
+        `  ${problems.length ? 'FAIL' : 'ok  '} watermark in artifact    ` +
+          `pill Δ ${w.pillMeanDiff.toFixed(1)} vs control Δ ${w.controlMeanDiff.toFixed(1)}`
+      );
+    } catch (e) {
+      problems.push('threw: ' + (e && e.message ? e.message : String(e)));
+      ran += 1;
+      failures += 1;
+      console.log('  FAIL watermark in artifact');
+    }
+    for (const problem of problems) console.log(`         - ${problem}`);
   }
 } catch (e) {
   console.log('ERROR: ' + (e && e.message ? e.message : String(e)));

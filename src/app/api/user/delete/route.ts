@@ -3,6 +3,13 @@ import { auth } from '@/auth';
 import { findUserById, ensureMigrated, recordDeletedIdentity } from '@/lib/db';
 import { getDb } from '@/lib/db/driver';
 import { listUserRecordings, deleteRecording } from '@/lib/r2';
+import { rateLimit } from '@/lib/rate-limit';
+
+// Phase 2.9: account deletion is the most destructive account-sensitive
+// mutation, so it carries an explicit per-user boundary regardless of session
+// validity (the password gate lives in the client flow, not this route).
+const DELETE_RATE_LIMIT_MAX = 5;
+const DELETE_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 // Both cookie names must be cleared: NextAuth issues the `__Secure-` prefixed
 // cookie in production and the bare name everywhere else.
@@ -17,6 +24,15 @@ export async function DELETE(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const rl = rateLimit(`user-delete:${session.user.id}`, DELETE_RATE_LIMIT_MAX, DELETE_RATE_LIMIT_WINDOW_MS);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      );
+    }
+
     const user = await findUserById(session.user.id);
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 401 });
 

@@ -301,17 +301,23 @@ export function readMasterRecordings(page: Page) {
       db.close();
       return [];
     }
-    return new Promise<Array<{ id: string; createdAt: string; size: number }>>((resolve) => {
-      const tx = db.transaction('recordings', 'readonly');
-      const all = tx.objectStore('recordings').getAll();
-      all.onsuccess = () => {
-        db.close();
-        resolve(
-          all.result
-            .filter((r) => new Date(r.expiresAt as unknown as string) >= new Date())
-            .map((r) => ({ id: r.id, createdAt: r.createdAt as unknown as string, size: (r.blob as Blob).size })),
-        );
-      };
+    return new Promise<Array<{ id: string; createdAt: string; size: number; duration: number }>>(
+      (resolve) => {
+        const tx = db.transaction('recordings', 'readonly');
+        const all = tx.objectStore('recordings').getAll();
+        all.onsuccess = () => {
+          db.close();
+          resolve(
+            all.result
+              .filter((r) => new Date(r.expiresAt as unknown as string) >= new Date())
+              .map((r) => ({
+                id: r.id,
+                createdAt: r.createdAt as unknown as string,
+                size: (r.blob as Blob).size,
+                duration: r.duration as unknown as number,
+              })),
+          );
+        };
       all.onerror = () => {
         db.close();
         resolve([]);
@@ -321,12 +327,18 @@ export function readMasterRecordings(page: Page) {
 }
 
 /**
- * "New Video" in the desktop side rail, "Studio" in the compact bottom nav.
- * Both are `<nav>` buttons and exactly one is laid out on any given viewport,
- * so the visible one is the real entry point.
+ * The explicit "New Video" control — the desktop side rail's entry and the
+ * compact bottom nav's entry now both carry that exact label (DC-3). The
+ * compact "Studio" tab is a pure panel switch and is deliberately NOT
+ * matched here: clicking it must never count as starting a new workflow.
  */
 export function newVideoButton(page: Page) {
-  return page.locator('nav button:visible').filter({ hasText: /^(New Video|Studio)$/ }).first();
+  return page.locator('nav button:visible').filter({ hasText: /^New Video$/ }).first();
+}
+
+/** The compact bottom nav's "Studio" tab — navigation only (DC-3). */
+export function compactStudioTab(page: Page) {
+  return page.getByRole('navigation', { name: 'Compact navigation' }).getByRole('button', { name: 'Studio' });
 }
 
 /** The Recordings panel in either rail. */

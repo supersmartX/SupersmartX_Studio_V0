@@ -3,10 +3,14 @@ import { auth } from '@/auth';
 import { findExportJobByIdAndUser, updateExportJobStatus } from '@/lib/db';
 import type { ExportJobStatus } from '@/types/db';
 
+// Phase 2.2: `completed` is deliberately absent — completion is written only
+// by the server (/api/exports/complete via atomicFinalizeExport, or the legacy
+// export-upload route). A client claiming `uploading → completed` here would
+// make client state authoritative for completion, which the contract forbids.
 const VALID_TRANSITIONS: Record<string, ExportJobStatus[]> = {
   pending: ['encoding', 'failed'],
   encoding: ['uploading', 'failed'],
-  uploading: ['completed', 'failed'],
+  uploading: ['failed'],
 };
 
 export async function PATCH(
@@ -26,7 +30,12 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { status, progress, resultR2Key, resultExportId, resultFileSize, errorMessage } = body;
+    // Phase 2.2: client-authored completion metadata is never accepted. Result
+    // fields (resultR2Key / resultExportId / resultFileSize) are written only
+    // by the server's completion path, so a PATCH that carried them is ignored
+    // rather than persisted — the client may report progress and failures, not
+    // completion, ownership, or verified file state.
+    const { status, progress, errorMessage } = body;
 
     // Progress reporting re-sends the CURRENT status (e.g. encoding +
     // progress 10/20/30). Same-state updates are progress writes, not state
@@ -44,22 +53,6 @@ export async function PATCH(
     if (progress !== undefined && (typeof progress !== 'number' || progress < 0 || progress > 100)) {
       return NextResponse.json({ error: 'Progress must be a number between 0 and 100' }, { status: 400 });
     }
-    if (resultFileSize !== undefined && (typeof resultFileSize !== 'number' || resultFileSize < 0)) {
-      return NextResponse.json({ error: 'Invalid file size' }, { status: 400 });
-    }
-    // resultR2Key is owner-namespaced storage state: clients must not point a
-    // job at another user's object or an arbitrary key. The authoritative key
-    // binding happens in /api/exports/complete (key-match check); this prefix
-    // check is defense-in-depth at the earliest write.
-    if (resultR2Key !== undefined) {
-      const expectedPrefix = `exports/${session.user.id}/`;
-      if (typeof resultR2Key !== 'string' || !resultR2Key.startsWith(expectedPrefix)) {
-        return NextResponse.json({ error: 'Invalid result key' }, { status: 400 });
-      }
-    }
-    if (resultExportId !== undefined && (typeof resultExportId !== 'string' || resultExportId.length > 200)) {
-      return NextResponse.json({ error: 'Invalid export id' }, { status: 400 });
-    }
 
     // Sanitize errorMessage
     const sanitizedError = typeof errorMessage === 'string'
@@ -68,9 +61,6 @@ export async function PATCH(
 
     await updateExportJobStatus(id, status || job.status, {
       progress,
-      resultR2Key,
-      resultExportId,
-      resultFileSize,
       errorMessage: sanitizedError,
     }, session.user.id);
 

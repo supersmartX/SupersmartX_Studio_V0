@@ -11,6 +11,11 @@ import {
 } from '@/lib/cashfree-fulfillment';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
 
+// Phase 2.6: signed webhooks older than this are treated as replays. Cashfree
+// signs each delivery at send time, so live deliveries arrive within seconds;
+// 5 minutes only excludes captured-and-replayed traffic.
+const WEBHOOK_TIMESTAMP_MAX_SKEW_SECONDS = 300;
+
 /**
  * Cashfree signs every webhook with the PG client secret key — the same value
  * sent as `x-client-secret` on API calls. There is no separate webhook secret,
@@ -70,6 +75,18 @@ export async function POST(request: NextRequest) {
 
     if (!signature || !timestamp) {
       return NextResponse.json({ error: 'Missing signature headers' }, { status: 400 });
+    }
+
+    // Phase 2.6 replay handling: a captured delivery must not remain valid
+    // indefinitely — the HMAC alone proves origin, not freshness. Seconds-only
+    // (a millisecond or non-numeric timestamp fails the skew check and is
+    // rejected exactly like a bad signature, so no oracle is introduced).
+    const timestampSeconds = Number(timestamp);
+    if (
+      !Number.isFinite(timestampSeconds) ||
+      Math.abs(Date.now() / 1000 - timestampSeconds) > WEBHOOK_TIMESTAMP_MAX_SKEW_SECONDS
+    ) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
     }
 
     if (!verifyWebhookSignature(rawBody, signature, timestamp)) {
@@ -138,13 +155,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: fulfillmentErrorMessage(result.reason) }, { status: 400 });
     }
 
+    // Phase 2.6: the plan write is done. The claim must never be released by a
+    // later throw, or Cashfree's retry would re-run fulfilment — the expiry is
+    // computed from `new Date()`, so a released claim could extend an already
+    // correct entitlement again. A duplicate must lose the race, not win it back.
+    claimedOrderId = null;
+
     // Receipt after the plan is active, so the email can never describe an
     // entitlement the buyer does not have.
     await sendOrderReceiptOnce(pendingOrder, order);
 
     logger.info('payment.order_fulfilled', { route: '/api/cashfree/webhook', requestId, userIdHash: hashUserId(pendingOrder.userId), orderId, plan: pendingOrder.plan });
 
-    claimedOrderId = null;
     return NextResponse.json({ status: 'ok' });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';

@@ -8,9 +8,34 @@ import { encodeExport } from '@/lib/export/export-engine';
 import { uploadCreatorExportToR2, ExportUploadError, describeUploadError } from '@/lib/export/export-upload';
 import { generateExportThumbnail } from '@/lib/export/export-thumbnail';
 import { assertEncodedFrame } from '@/lib/export/mp4-metadata';
+import { describeArtifactFailureForClient, verifyExportArtifact } from '@/lib/export/artifact-verification';
 import { assertExportSupported, UnsupportedBrowserError } from '@/lib/export/browser-support';
 
 export { drawWatermark } from '@/lib/export/export-watermark';
+
+/**
+ * PHASE 3 — parses the actual encoded bytes and applies the full artifact
+ * contract: ftyp/moov/mdat, video stream, coded dimensions, finite container
+ * duration within tolerance of the authoritative master duration, and the
+ * audio stream the encoder really muxed. Same verifier the server runs
+ * (`verifyExportArtifact` — one authoritative path); this local gate means a
+ * wrong file is caught BEFORE it is saved to the Library (Free local) or
+ * uploaded (Creator), not after.
+ */
+async function verifyEncodedArtifact(
+  blob: Blob,
+  expected: { width: number; height: number; durationSeconds?: number | null; hasAudio?: boolean | null },
+): Promise<void> {
+  const buffer = await blob.arrayBuffer();
+  const result = verifyExportArtifact(buffer, {
+    width: expected.width,
+    height: expected.height,
+    durationSeconds: expected.durationSeconds,
+    hasAudio: expected.hasAudio,
+    sizeBytes: blob.size,
+  });
+  if (!result.ok) throw new Error(describeArtifactFailureForClient(result.code));
+}
 
 function newJobId(): string {
   const rand = globalThis.crypto?.randomUUID?.().slice(0, 8) ?? Math.random().toString(36).slice(2, 8);
@@ -142,10 +167,11 @@ export function useExportPipeline(): UseExportPipelineReturn {
       if (serverJobId) await fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding' }), signal: abortController.signal }).catch(() => {});
       setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'encoding', serverJobId, progress: 0 } : item));
 
-      const resultBlob = await encodeExport({ master, config: exportConfig, signal: abortController.signal, watermarkRequired: watermarkRequired || false, onProgress: (progress) => {
+      const encoded = await encodeExport({ master, config: exportConfig, signal: abortController.signal, watermarkRequired: watermarkRequired || false, onProgress: (progress) => {
         onProgress?.(progress);
         if (serverJobId && Math.round(progress * 100) % 10 === 0) fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding', progress: Math.round(progress * 100) }), signal: abortController.signal }).catch(() => {});
       }});
+      const resultBlob = encoded.blob;
 
       if (!mountedRef.current) { abortControllerRef.current.delete(jobId); return job; }
       if (resultBlob.size < 100) {
@@ -159,8 +185,19 @@ export function useExportPipeline(): UseExportPipelineReturn {
       // STATE 7: the requested frame is an intention; these are the bytes the
       // user would actually download. A mismatch is rejected here so the object
       // is never uploaded and the quota is never spent on a wrong file.
+      // PHASE 3: the same block then runs the FULL artifact verification —
+      // container, streams, duration vs the authoritative master duration,
+      // audio the encoder really muxed — so an artifact that parses but is
+      // wrong (silent, wrong length, truncated) also dies here, for Free
+      // local saves and Creator uploads alike.
       try {
         await assertEncodedFrame(resultBlob, { width: exportConfig.outputWidth, height: exportConfig.outputHeight }, exportConfig.platformId);
+        await verifyEncodedArtifact(resultBlob, {
+          width: exportConfig.outputWidth,
+          height: exportConfig.outputHeight,
+          durationSeconds: master.duration,
+          hasAudio: encoded.hasAudio,
+        });
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Export failed verification';
         const failedJob: ExportJob = { ...job, status: 'error', error: message, serverJobId };
@@ -176,7 +213,7 @@ export function useExportPipeline(): UseExportPipelineReturn {
       if (watermarkRequired) {
         try { await saveLocalExport({ id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, blob: resultBlob, platform: exportConfig.platformId, outputWidth: exportConfig.outputWidth, outputHeight: exportConfig.outputHeight, fileSize: resultBlob.size }); } catch {}
       } else {
-        const uploaded = await uploadCreatorExportToR2(resultBlob, exportConfig, master.duration, abortController.signal, serverJobId);
+        const uploaded = await uploadCreatorExportToR2(resultBlob, exportConfig, master.duration, abortController.signal, serverJobId, encoded.hasAudio);
         exportId = uploaded.exportId;
         r2Key = uploaded.r2Key;
         if (uploaded.serverJobId) serverJobId = uploaded.serverJobId;
@@ -214,18 +251,26 @@ export function useExportPipeline(): UseExportPipelineReturn {
         if (createResponse.ok) { const data = await createResponse.json(); if (typeof data.jobId === 'string' && data.jobId.length > 0) serverJobId = data.jobId; }
         if (serverJobId) await fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding' }), signal: abortController.signal }).catch(() => {});
         setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'encoding', serverJobId, progress: 0 } : item));
-        const resultBlob = await encodeExport({ master, config, signal: abortController.signal, watermarkRequired: watermarkRequired || false, onProgress: (progress) => { onProgress?.(index, progress); if (serverJobId && Math.round(progress * 100) % 10 === 0) fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding', progress: Math.round(progress * 100) }), signal: abortController.signal }).catch(() => {}); } });
+        const encoded = await encodeExport({ master, config, signal: abortController.signal, watermarkRequired: watermarkRequired || false, onProgress: (progress) => { onProgress?.(index, progress); if (serverJobId && Math.round(progress * 100) % 10 === 0) fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding', progress: Math.round(progress * 100) }), signal: abortController.signal }).catch(() => {}); } });
+        const resultBlob = encoded.blob;
         if (!mountedRef.current) break;
         // STATE 7: same real-byte gate as the single-export path. Throwing here
         // lands in the catch below, which reports the server job as failed.
+        // PHASE 3: followed by the same full artifact verification.
         await assertEncodedFrame(resultBlob, { width: config.outputWidth, height: config.outputHeight }, config.platformId);
+        await verifyEncodedArtifact(resultBlob, {
+          width: config.outputWidth,
+          height: config.outputHeight,
+          durationSeconds: master.duration,
+          hasAudio: encoded.hasAudio,
+        });
         setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'uploading' } : item));
         let exportId: string | undefined;
         let r2Key: string | undefined;
         if (watermarkRequired) {
           try { await saveLocalExport({ id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, blob: resultBlob, platform: config.platformId, outputWidth: config.outputWidth, outputHeight: config.outputHeight, fileSize: resultBlob.size }); } catch {}
         } else {
-          const uploaded = await uploadCreatorExportToR2(resultBlob, config, master.duration, abortController.signal, serverJobId);
+          const uploaded = await uploadCreatorExportToR2(resultBlob, config, master.duration, abortController.signal, serverJobId, encoded.hasAudio);
           exportId = uploaded.exportId; r2Key = uploaded.r2Key; if (uploaded.serverJobId) serverJobId = uploaded.serverJobId;
         }
         if (!mountedRef.current) break;

@@ -2,17 +2,30 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createExportJob, findUserById, ensureUserStatsRow, getActiveExportJobCount } from '@/lib/db';
 import { getEntitlements, isPlanActive, isPlatformLockedForUser, clampResolution } from '@/lib/entitlements';
+import { rateLimit } from '@/lib/rate-limit';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
 
 const MAX_CONCURRENT_JOBS = 3;
+// Phase 2.9: export creation is a high-risk mutation (job + quota lifecycle),
+// so it gets an explicit per-user boundary on top of the concurrency cap.
+const CREATE_RATE_LIMIT_MAX = 30;
+const CREATE_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const rl = rateLimit(`export-jobs:create:${session.user.id}`, CREATE_RATE_LIMIT_MAX, CREATE_RATE_LIMIT_WINDOW_MS);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      );
     }
 
     const user = await findUserById(session.user.id);

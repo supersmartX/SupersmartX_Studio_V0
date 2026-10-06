@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { auth } from '@/auth';
 import { uploadRecording, isR2Configured } from '@/lib/r2';
-import { createExport, findUserById, ensureUserStatsRow, findExportJobByIdAndUser, updateExportJobStatus, atomicIncrementUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, atomicTryConsumeRecordingSeconds, atomicRevertRecordingSeconds, getCurrentPeriod } from '@/lib/db';
+import { describeArtifactFailure, normalizeClaimedDuration, normalizeClaimedHasAudio, verifyExportArtifact } from '@/lib/export/artifact-verification';
+import { createExport, findUserById, ensureUserStatsRow, findExportJobByIdAndUser, updateExportJobStatus, atomicIncrementUploadCount, atomicRevertUploadCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, atomicTryConsumeRecordingSeconds, atomicRevertRecordingSeconds, getCurrentPeriod } from '@/lib/db';
 import { getEntitlements, isPlanActive, clampResolution, isPlatformLockedForUser, getDailyRecordingAllowanceSeconds, computeRecordingChargeSeconds } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
@@ -101,7 +102,34 @@ export async function POST(request: NextRequest) {
       if (!job) {
         return NextResponse.json({ error: 'Invalid job' }, { status: 400 });
       }
-      await updateExportJobStatus(jobId, 'uploading', {}, session.user.id);
+      // Phase 2.2/2.11: a terminal (completed/failed) or non-transitionable
+      // (finalizing) job must not be replayed through upload — that would
+      // re-consume quota and re-point the job at a second export row. False
+      // means the shared transition guard refused the move.
+      const moved = await updateExportJobStatus(jobId, 'uploading', {}, session.user.id);
+      if (!moved) {
+        return NextResponse.json({ error: 'Job is not available for upload' }, { status: 409 });
+      }
+    }
+
+    // PHASE 3 — parse the ACTUAL uploaded bytes before a single quota unit is
+    // taken. The received file is read once here and the same buffer is
+    // uploaded below (a Blob over it shares the memory), so verification adds
+    // no second full read of the artifact. Dimensions come from the preset
+    // clamp above — never from the form. A rejected artifact consumes no
+    // quota, writes no row, and leaves the job in `uploading` so a corrected
+    // re-upload can retry (the transition guard allows the self-move).
+    const artifactBytes = await file.arrayBuffer();
+    const verification = verifyExportArtifact(artifactBytes, {
+      width: outputWidth,
+      height: outputHeight,
+      durationSeconds: normalizeClaimedDuration(formData.get('duration')),
+      hasAudio: normalizeClaimedHasAudio(formData.get('hasAudio')),
+      sizeBytes: file.size,
+    });
+    if (!verification.ok) {
+      console.warn(`export-upload: artifact verification failed (${verification.code}) for user ${session.user.id}`);
+      return NextResponse.json({ error: describeArtifactFailure(verification.code) }, { status: 400 });
     }
 
     await ensureUserStatsRow(session.user.id);
@@ -196,7 +224,9 @@ export async function POST(request: NextRequest) {
 
     try {
       if (isR2Configured()) {
-        await uploadRecording(r2Key, file, {
+        // Upload the same buffer that was verified — one full read, and what
+        // lands in R2 is byte-for-byte what passed verification.
+        await uploadRecording(r2Key, new Blob([artifactBytes], { type: 'video/mp4' }), {
           userId: session.user.id,
           platform: platformId,
           outputWidth: String(outputWidth),
@@ -205,8 +235,16 @@ export async function POST(request: NextRequest) {
         });
       }
     } catch (uploadErr) {
+      // Phase 2.11: every debit taken above is returned when the upload never
+      // lands, and the job is moved to `failed` instead of being left stuck in
+      // `uploading` (which would hold a concurrency slot until the stale-job
+      // cutoff). Rethrown below, so the outer handler still answers 500.
+      await atomicRevertUploadCount(session.user.id, file.size);
       if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
       if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
+      if (jobId) {
+        await updateExportJobStatus(jobId, 'failed', { errorMessage: 'Export upload failed' }, session.user.id).catch(() => {});
+      }
       throw uploadErr;
     }
 
@@ -224,8 +262,12 @@ export async function POST(request: NextRequest) {
         jobId: jobId ?? undefined,
       });
     } catch (e) {
+      await atomicRevertUploadCount(session.user.id, file.size);
       if (quotaConsumed) await atomicRevertMonthlyExport(session.user.id);
       if (recordingConsumedSeconds > 0) await atomicRevertRecordingSeconds(session.user.id, recordingConsumedSeconds);
+      if (jobId) {
+        await updateExportJobStatus(jobId, 'failed', { errorMessage: 'Export record creation failed' }, session.user.id).catch(() => {});
+      }
       throw e;
     }
 

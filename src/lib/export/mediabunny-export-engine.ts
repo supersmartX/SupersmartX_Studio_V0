@@ -3,7 +3,7 @@
 import { computeCodedSourceRect } from '@/lib/composition';
 import { drawWatermark } from './export-watermark';
 import { EXPORT_AUDIO_BITRATE, EXPORT_VIDEO_BITRATE } from './export-limits';
-import type { ExportEngineOptions } from './export-types';
+import type { EncodeResult, ExportEngineOptions } from './export-types';
 import type { Conversion as ConversionInstance } from 'mediabunny';
 
 // Maps a source-space crop rect to Mediabunny's CropRectangle. Values are
@@ -26,16 +26,17 @@ function mapExportError(error: unknown): Error {
 }
 
 // Mediabunny production engine. Same contract as the legacy WebCodecs engine:
-// same options in, same video/mp4 Blob out. Composition (computeCanvasSourceRect)
-// and watermark (drawWatermark) behavior are reused unchanged.
-export async function encodeExportMediabunny({ master, config, signal, onProgress, watermarkRequired = false }: ExportEngineOptions): Promise<Blob> {
+// same options in, video/mp4 Blob out (plus the ground-truth audio decision
+// for Phase 3 verification). Composition (computeCanvasSourceRect) and
+// watermark (drawWatermark) behavior are reused unchanged.
+export async function encodeExportMediabunny({ master, config, signal, onProgress, watermarkRequired = false }: ExportEngineOptions): Promise<EncodeResult> {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   const { crop, outputWidth, outputHeight } = config;
 
   // Dynamic import: mediabunny is browser-only. This keeps it out of the main
   // bundle (code-split chunk) and out of the unit-test module graph. The
   // encode path only ever runs in browsers.
-  const { ALL_FORMATS, BlobSource, BufferTarget, Conversion, Input, Mp4OutputFormat, Output } = await import('mediabunny');
+  const { ALL_FORMATS, BlobSource, BufferTarget, Conversion, Input, InputAudioTrack, Mp4OutputFormat, Output } = await import('mediabunny');
 
   const input = new Input({ source: new BlobSource(master.blob), formats: ALL_FORMATS });
 
@@ -131,6 +132,13 @@ export async function encodeExportMediabunny({ master, config, signal, onProgres
     console.error('[Export] Mediabunny conversion invalid:', reasons || 'unknown reason');
     throw new Error('This recording format is not supported for export.');
   }
+  // Ground truth for Phase 3 verification: which tracks the conversion will
+  // actually mux — evaluated AFTER mediabunny applied its discards, so a
+  // source whose audio turned out undecodable/unencodable claims no audio
+  // instead of making every export fail an audio check it could never pass.
+  // This is what gets uploaded with the claim, never the recorder's hasAudio
+  // hint or a UI badge.
+  const hasAudio = conversion.utilizedTracks.some((track) => track instanceof InputAudioTrack);
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
   conversion.onProgress = (progress: number) => {
@@ -155,5 +163,5 @@ export async function encodeExportMediabunny({ master, config, signal, onProgres
 
   const buffer = output.target.buffer;
   if (!buffer || buffer.byteLength < 100) throw new Error('Export produced an empty file.');
-  return new Blob([buffer], { type: 'video/mp4' });
+  return { blob: new Blob([buffer], { type: 'video/mp4' }), hasAudio };
 }

@@ -6,6 +6,11 @@ import { join } from 'path';
 process.env.TURSO_DATABASE_URL = 'file::memory:';
 
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
+// Phase 3: /api/exports/complete parses the stored object's actual bytes, so
+// the r2 mock serves a structurally real synthetic artifact for the platform
+// under test (sliced as a true byte range). This keeps verification running
+// for real here instead of stubbing it out.
+const r2State = vi.hoisted(() => ({ artifact: null as Uint8Array | null }));
 vi.mock('@/lib/r2', () => ({
   isR2Configured: () => true,
   getR2ConfigurationError: () => null,
@@ -19,9 +24,15 @@ vi.mock('@/lib/r2', () => ({
   copyRecording: vi.fn().mockResolvedValue(undefined),
   deleteRecording: vi.fn(),
   deleteObject: vi.fn(),
+  getObjectRange: vi.fn(async (_key: string, start: number, endInclusive: number) => {
+    const bytes = r2State.artifact;
+    if (!bytes) throw new Error('artifact bytes were not set for this test');
+    return bytes.subarray(start, endInclusive + 1);
+  }),
 }));
 
 import { auth } from '@/auth';
+import { headObject } from '@/lib/r2';
 import { POST as presignedPOST } from '@/app/api/exports/presigned-put/route';
 import { POST as completePOST } from '@/app/api/exports/complete/route';
 import { resetDb } from '@/lib/db/driver';
@@ -296,12 +307,20 @@ describe('the server records the frame it will serve back', () => {
       expect(outputWidth).toBe(width);
       expect(outputHeight).toBe(height);
 
+      // Phase 3: completion verifies the stored artifact's real bytes, and the
+      // ranged box walk trusts HeadObject's size — so both must describe the
+      // same object. Serve a genuine synthetic MP4 at this platform's frame
+      // and claim exactly its byte length (no size fiction to reconcile).
+      const artifact = new Uint8Array(buildSyntheticMp4(width, height, { durationSeconds: 2 }));
+      r2State.artifact = artifact;
+      vi.mocked(headObject).mockResolvedValue({ size: artifact.byteLength, contentType: 'video/mp4', eTag: '"source-etag"' });
+
       const done = await completePOST(
         new NextRequest('http://localhost/api/exports/complete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            jobId, key, fileSize: 2_000_000, mimeType: 'video/mp4',
+            jobId, key, fileSize: artifact.byteLength, mimeType: 'video/mp4',
             platformId: id, outputWidth, outputHeight,
           }),
         })

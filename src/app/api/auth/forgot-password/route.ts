@@ -9,8 +9,10 @@ const TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
 export async function POST(request: NextRequest) {
   try {
-    // Rate limit: 3 requests per minute per IP
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    // Rate limit: 3 requests per minute per IP. Last XFF entry (the
+    // proxy-appended peer), matching the login limiter — a client-supplied
+    // prefix entry would otherwise let callers pick their own rate-limit key.
+    const ip = request.headers.get('x-forwarded-for')?.split(',').pop()?.trim() || 'unknown';
     const { allowed, retryAfterMs } = rateLimit(`forgot:${ip}`, 3, 60_000);
     if (!allowed) {
       return NextResponse.json(
@@ -35,30 +37,36 @@ export async function POST(request: NextRequest) {
     const rawToken = randomBytes(32).toString('hex');
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
-    // Save token (replaces any existing token for this email)
-    await saveResetToken({
-      tokenHash,
-      email: email.toLowerCase(),
-      expiresAt: new Date(Date.now() + TOKEN_EXPIRY_MS).toISOString(),
-    });
+    // Phase 2.10: everything below runs only for an address that exists, so it
+    // must respond EXACTLY like the no-account path above. Any divergence
+    // (500 on a send failure, a different body when the mail key is missing)
+    // is an enumeration oracle: same 200, same {ok:true}, details stay in the
+    // server log.
+    try {
+      // Save token (replaces any existing token for this email)
+      await saveResetToken({
+        tokenHash,
+        email: email.toLowerCase(),
+        expiresAt: new Date(Date.now() + TOKEN_EXPIRY_MS).toISOString(),
+      });
 
-    // Send email
-    const apiKey = process.env.RESEND_API_KEY;
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'SupersmartX Studio <noreply@supersmartx.com>';
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.supersmartx.com';
-    const resetUrl = `${appUrl}/auth/reset-password?token=${rawToken}`;
+      // Send email
+      const apiKey = process.env.RESEND_API_KEY;
+      const fromEmail = process.env.RESEND_FROM_EMAIL || 'SupersmartX Studio <noreply@supersmartx.com>';
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.supersmartx.com';
+      const resetUrl = `${appUrl}/auth/reset-password?token=${rawToken}`;
 
-    if (!apiKey) {
-      console.error('RESEND_API_KEY is not set — cannot send password reset email');
-      return NextResponse.json({ success: true, message: 'If an account exists, a reset email was sent.' }, { status: 200 });
-    }
+      if (!apiKey) {
+        console.error('RESEND_API_KEY is not set — cannot send password reset email');
+        return NextResponse.json({ ok: true });
+      }
 
-    const resend = new Resend(apiKey);
-    await resend.emails.send({
-      from: fromEmail,
-      to: email,
-      subject: 'Reset your password — SupersmartX Studio',
-      html: `
+      const resend = new Resend(apiKey);
+      await resend.emails.send({
+        from: fromEmail,
+        to: email,
+        subject: 'Reset your password — SupersmartX Studio',
+        html: `
         <!DOCTYPE html>
         <html>
         <head><meta charset="utf-8"></head>
@@ -78,10 +86,17 @@ export async function POST(request: NextRequest) {
         </body>
         </html>
       `,
-      text: `Reset your password\n\nClick this link to set a new password (expires in 1 hour):\n${resetUrl}\n\nIf you didn't request this, ignore this email.`,
-    });
+        text: `Reset your password\n\nClick this link to set a new password (expires in 1 hour):\n${resetUrl}\n\nIf you didn't request this, ignore this email.`,
+      });
 
-    return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true });
+    } catch (error) {
+      // A failure on the existing-account path must respond exactly like the
+      // no-account path — 500-vs-200 is an enumeration oracle. Details stay in
+      // the server log; the body is identical either way.
+      console.error('Password reset email failed:', error instanceof Error ? error.message : 'unknown');
+      return NextResponse.json({ ok: true });
+    }
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }

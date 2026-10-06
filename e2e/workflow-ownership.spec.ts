@@ -38,6 +38,7 @@ import {
   dismissWelcomeModal,
   readMasterRecordings,
   newVideoButton,
+  compactStudioTab,
   recordingsNav,
   grantMediaPermissions,
 } from './helpers';
@@ -288,5 +289,95 @@ test.describe('TEST 7 — a reload restores the take instead of creating one', (
     expect(after, 'a reload must not turn a stored take into a new recording').toHaveLength(1);
     expect(after[0].id).toBe(before[0].id);
     expect(after[0].size, 'the same bytes, byte-for-byte').toBe(before[0].size);
+  });
+});
+
+test.describe('TEST 8 — "Record Again" on a library original keeps the row', () => {
+  test('Library → open A → export → Record Again detaches; A survives', async ({ page }) => {
+    await page.goto('/studio');
+    await dismissWelcomeModal(page);
+    await recordTake(page);
+    await expectReview(page);
+
+    const afterA = await readMasterRecordings(page);
+    expect(afterA).toHaveLength(1);
+    const masterA = afterA[0].id;
+
+    await gotoLibrary(page);
+    const existing = await openExistingRecording(page);
+    await existing.getByRole('button', { name: /^Export this video/ }).click();
+
+    // The success screen is where "Record Again" lives.
+    const dialog = page.getByRole('dialog', { name: 'Export recording' });
+    await expect(dialog).toBeVisible({ timeout: 30_000 });
+    const exportButton = dialog.getByRole('button', { name: /^Export YouTube · 1280×720$/ });
+    await expect(exportButton).toBeVisible({ timeout: 30_000 });
+    await exportButton.click();
+    await expect(dialog.getByRole('heading', { name: 'Video exported' })).toBeVisible({ timeout: 180_000 });
+
+    await dialog.getByRole('button', { name: 'Record Again' }).click();
+
+    // Detached into a clean creation session — no discard, no confirmation:
+    // a library original is not this session's to destroy. The final library
+    // check below is the race-free proof (the old path deleted the row).
+    await expectCleanCreationSession(page);
+
+    const after = await readMasterRecordings(page);
+    expect(after, 'Record Again must never delete a library original').toHaveLength(1);
+    expect(after[0].id, 'the very same row, not a copy').toBe(masterA);
+
+    // ...and it is still reachable through the library.
+    await gotoLibrary(page);
+    await expect(libraryCards(page)).toHaveCount(1);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * TEST 9 — FC-1.0 DC-3: compact (mobile) navigation is NAVIGATION.
+ *
+ * The bottom nav's "Studio" tab used to run the full New Video transition,
+ * so tapping a tab labeled "Studio" silently created a new workflow — it
+ * cleared the current recording and released the master as a side effect of
+ * switching panels. On compact layouts the tab must be a pure switch; the
+ * explicit, honestly-labeled "New Video" control is the only fresh-workflow
+ * action. Proven at a compact Chromium viewport against real IndexedDB rows.
+ * ------------------------------------------------------------------ */
+test.describe('TEST 9 — compact navigation: the Studio tab never resets the session (DC-3)', () => {
+  test.use({ viewport: { width: 1100, height: 800 } });
+
+  test('the Studio tab preserves the take; only the New Video control starts fresh', async ({ page }) => {
+    await page.goto('/studio');
+    await dismissWelcomeModal(page);
+
+    await recordTake(page);
+    await expectReview(page);
+    expect(await readMasterRecordings(page)).toHaveLength(1);
+
+    // Navigate away through the compact nav and come back: navigation only.
+    await gotoLibrary(page);
+    await compactStudioTab(page).click();
+
+    // The take is still under review — no silent New Video on a tab click.
+    await expect(page.getByText('Preview as', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expectReview(page);
+    expect(
+      await readMasterRecordings(page),
+      'a panel switch must never clear the recording or release the master',
+    ).toHaveLength(1);
+
+    // The explicit control — labeled "New Video" in the compact nav — is
+    // what starts a fresh workflow, and it detaches rather than deletes.
+    await newVideoButton(page).click();
+    await expectCleanCreationSession(page);
+    expect(
+      await readMasterRecordings(page),
+      'New Video detaches the take; the library keeps it',
+    ).toHaveLength(1);
+
+    // Switching tabs afterwards stays navigation, never a resurrection.
+    await recordingsNav(page).click();
+    await compactStudioTab(page).click();
+    await expect(page.getByText('Preview as', { exact: true })).toHaveCount(0, { timeout: 30_000 });
+    expect(await readMasterRecordings(page)).toHaveLength(1);
   });
 });

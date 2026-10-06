@@ -110,6 +110,10 @@ RealURL.revokeObjectURL = vi.fn();
 
 beforeEach(() => {
   db.reset();
+  // The Workflow B mark (`sxs-master-origin`) and the New Video latch live in
+  // sessionStorage and persist across tests in this file. Each test models a
+  // fresh document, so leftovers must not decide another test's origin.
+  window.sessionStorage.clear();
   // fetch is only reached by the cloud-exports list, which needs auth.
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ exports: [] }) })));
 });
@@ -152,6 +156,27 @@ describe('TEST 1 — "New Video" starts a clean session and keeps A in the libra
     });
     expect(result.current.masterRecording).toBeNull();
     expect(rowCount()).toBe(1);
+  });
+
+  it('a take recorded in this session is never a library original', async () => {
+    const { result } = renderHook(() => useMasterRecording());
+
+    act(() => {
+      result.current.createMasterRecording(TAKE_A, 6.4, true, 1920, 1080);
+    });
+    expect(
+      result.current.isLibraryOriginal,
+      "Workflow A's take is the session's own — discardable, not protected",
+    ).toBe(false);
+
+    // A document hop restores it as an ordinary take: still not a library
+    // original, so "Record Again" after a reload keeps deleting it.
+    const reloaded = renderHook(() => useMasterRecording());
+    await act(async () => {
+      await reloaded.result.current.restoreMasterRecording();
+    });
+    expect(reloaded.result.current.masterRecording, 'the take waits after the hop').toBeTruthy();
+    expect(reloaded.result.current.isLibraryOriginal).toBe(false);
   });
 
   it('release is NOT the discard: only a held take is destroyed by clearMasterRecording', () => {
@@ -209,6 +234,33 @@ describe('TEST 2 — exporting an existing recording adds nothing to the library
 
     expect(rowCount()).toBe(1);
     expect(result.current.masterRecording?.id).toBe('master-A');
+  });
+
+  it('marks the opened take as a library original, and the mark survives a reload', async () => {
+    await db.save(storedRow('master-A', TAKE_A, '2026-01-01T00:00:00.000Z'));
+    const { result } = renderHook(() => useMasterRecording());
+
+    act(() => {
+      result.current.openStoredRecording(storedRow('master-A', TAKE_A, '2026-01-01T00:00:00.000Z'));
+    });
+    expect(
+      result.current.isLibraryOriginal,
+      'an opened library row is not this session’s to delete',
+    ).toBe(true);
+
+    // A document hop (reload / OAuth / payment return) keeps the mark, so the
+    // discard decision on the far side still protects the row.
+    const reloaded = renderHook(() => useMasterRecording());
+    await act(async () => {
+      await reloaded.result.current.restoreMasterRecording();
+    });
+    expect(reloaded.result.current.masterRecording?.id).toBe('master-A');
+    expect(reloaded.result.current.isLibraryOriginal, 'the mark crosses the document hop').toBe(true);
+
+    // The mark is about the ACTIVE take only: New Video detaches from it.
+    act(() => reloaded.result.current.releaseMasterRecording());
+    expect(reloaded.result.current.isLibraryOriginal, 'New Video ends the marked session').toBe(false);
+    expect(rowIds(), 'detaching never deletes the original').toEqual(['master-A']);
   });
 });
 
@@ -394,6 +446,101 @@ describe('TEST 7 — reloading restores identity instead of creating a session',
 });
 
 /* ------------------------------------------------------------------ *
+ * TEST 8 — script snapshot (FC-1.0 DC-1, Phase 1 item 7).
+ *
+ * The script is stored PER VIDEO: captured when the master is created,
+ * carried on the row, and displayed again whenever that video is opened or
+ * restored. New Video starts empty; draft edits live only in the editor's
+ * own draft area and never reach the saved snapshot.
+ * ------------------------------------------------------------------ */
+describe('TEST 8 — each video keeps its own script snapshot', () => {
+  it('creating a master snapshots the script onto its row, and a reload restores it', async () => {
+    const { result } = renderHook(() => useMasterRecording());
+
+    let created: MasterRecording | null = null;
+    await act(async () => {
+      created = result.current.createMasterRecording(TAKE_A, 6, true, 1920, 1080, 'script for video A');
+    });
+
+    expect(created!.script).toBe('script for video A');
+    expect(
+      (db.rows.get(created!.id) as { script?: string }).script,
+      'the row is the snapshot\'s permanent home',
+    ).toBe('script for video A');
+
+    // Model a document hop: a fresh hook over the same store restores the
+    // take WITH its snapshot — this is "reload → script restored".
+    const reload = renderHook(() => useMasterRecording());
+    await act(async () => {
+      await reload.result.current.restoreMasterRecording();
+    });
+    expect(reload.result.current.masterRecording?.id).toBe(created!.id);
+    expect(
+      reload.result.current.masterRecording?.script,
+      'the restored take must come back with its script',
+    ).toBe('script for video A');
+    expect(rowCount(), 'restore saves nothing').toBe(1);
+  });
+
+  it('opening a library video displays its saved script', async () => {
+    await db.save({
+      ...storedRow('master-A', TAKE_A, '2026-01-01T00:00:00.000Z'),
+      script: 'the original script',
+    } as StoredRecording);
+    const { result } = renderHook(() => useMasterRecording());
+
+    await act(async () => {
+      await result.current.openStoredRecording(db.rows.get('master-A') as StoredRecording);
+    });
+
+    expect(result.current.masterRecording?.id).toBe('master-A');
+    expect(result.current.masterRecording?.script).toBe('the original script');
+  });
+
+  it('draft edits after recording do not mutate the saved snapshot', async () => {
+    const { result } = renderHook(() => useMasterRecording());
+
+    let created: MasterRecording | null = null;
+    await act(async () => {
+      created = result.current.createMasterRecording(TAKE_B, 4, true, 1280, 720, 'take one script');
+    });
+
+    // The global editor only ever writes its own draft area (localStorage).
+    window.localStorage.setItem('sxs-studio-script', 'draft v2 — edited after recording');
+    try {
+      expect(
+        (db.rows.get(created!.id) as { script?: string }).script,
+        'the stored snapshot must be untouched by editor edits',
+      ).toBe('take one script');
+      expect(created!.script).toBe('take one script');
+
+      // Reopening the same take shows the SNAPSHOT, not the later draft.
+      const reopen = renderHook(() => useMasterRecording());
+      await act(async () => {
+        await reopen.result.current.openStoredRecording(db.rows.get(created!.id) as StoredRecording);
+      });
+      expect(reopen.result.current.masterRecording?.script).toBe('take one script');
+    } finally {
+      window.localStorage.removeItem('sxs-studio-script');
+    }
+  });
+
+  it('a legacy row without a snapshot opens without inventing one', async () => {
+    // Rows written before this contract have no `script` field. Opening one
+    // must leave the script undefined so the editor keeps its draft instead
+    // of being force-cleared.
+    await db.save(storedRow('master-legacy', TAKE_A, '2026-01-01T00:00:00.000Z'));
+    const { result } = renderHook(() => useMasterRecording());
+
+    await act(async () => {
+      await result.current.openStoredRecording(db.rows.get('master-legacy') as StoredRecording);
+    });
+
+    expect(result.current.masterRecording?.script).toBeUndefined();
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * The Studio page owns both transitions. Asserted on shipped source, the
  * same technique the state-machine certification already uses.
  * ------------------------------------------------------------------ */
@@ -415,11 +562,61 @@ describe('the studio page owns both transitions', () => {
     expect(newVideo).toContain('setPreviewPlatformId(DEFAULT_PLATFORM_ID)');
     expect(newVideo, 'New Video must not destroy a library recording').not.toContain('clearMasterRecording');
     expect(newVideo, 'New Video must not delete the stored take').not.toContain('deleteRecording');
+    expect(newVideo, 'DC-1: New Video starts with an empty script').toContain('scriptStorage.clearScript');
   });
 
-  it('both rails route the studio entry through the New Video transition', () => {
+  it('the desktop rail routes its studio entry through the New Video transition', () => {
+    // The IconRail button is explicitly LABELED "New Video" — it promises
+    // the reset and must keep running it.
     const panelChange = handler('handlePanelChange');
     expect(panelChange).toContain('handleNewVideo');
+  });
+
+  it('the compact "Studio" tab is a pure panel switch (DC-3)', () => {
+    // BottomNav's Studio tab is navigation: tapping it used to run the full
+    // session reset, silently creating a New Video (clearing the recording,
+    // releasing the master) as a side effect of switching panels.
+    const compactNav = handler('handleCompactNav');
+    expect(compactNav, 'the compact tab only switches panels').toContain('setActivePanel(panel)');
+    expect(compactNav, 'the compact tab never starts a new workflow').not.toContain('handleNewVideo');
+    expect(compactNav, 'the compact tab never clears a recording').not.toContain('resetRecording');
+    expect(compactNav, 'the compact tab never releases the master').not.toContain('releaseMasterRecording');
+    expect(compactNav, 'the compact tab never deletes anything').not.toContain('clearMasterRecording');
+
+    // The reset stays reachable on compact layouts — through a control
+    // explicitly LABELED "New Video", wired to the same transition.
+    expect(source, 'BottomNav must carry the explicit New Video action').toContain(
+      'onNewVideo={handleNewVideo}',
+    );
+    expect(source, 'BottomNav must not receive the reset via the panel switch').toContain(
+      'onPanelChange={handleCompactNav}',
+    );
+  });
+
+  it('capturing a take snapshots the current script into the master (DC-1)', () => {
+    // Completion captures the editor's script and passes it into the master,
+    // which persists it on the row.
+    expect(source, 'completion must capture the script snapshot').toContain('scriptSnapshot');
+    expect(source, 'both probe paths must carry the snapshot').toMatch(
+      /createMasterRecording\(\s*result\.blob,\s*mediaDuration,[\s\S]{0,200}?scriptSnapshot/,
+    );
+    expect(source).toMatch(
+      /createMasterRecording\(\s*result\.blob,\s*result\.duration,[\s\S]{0,200}?scriptSnapshot/,
+    );
+    // Attaching any master (completion, library open, reload restore) loads
+    // its snapshot back into the editor; draft-only edits do nothing here.
+    expect(source, 'the attached take\'s snapshot must drive the editor').toContain(
+      'applyMasterScriptSnapshot(masterRecordingData.script)',
+    );
+  });
+
+  it('start passes the countdown setting and the script-end announcement (items 2 + 8)', () => {
+    const start = handler('handleRecordStart');
+    expect(start, 'countdown follows the user setting').toContain('countdown: settings.countdownEnabled');
+    expect(start, 'the teleprompter end-stop announces itself with FC copy').toContain(
+      "showToast('Script ended — recording stopped')",
+    );
+    expect(start, 'the callback must be the recorder option, not a stray call').toContain('onScriptEnd:');
   });
 
   it('opening a library recording adopts the stored master instead of creating one', () => {
@@ -427,6 +624,18 @@ describe('the studio page owns both transitions', () => {
       /onExportRecording=\{\(recording\) => \{[^}]*createMasterRecording/,
     );
     expect(source).toContain('openStoredRecording(recording)');
+  });
+
+  it('"Record Again" protects a library original and confirms the discard it does make', () => {
+    const practiceAgain = handler('handlePracticeAgain');
+    // Workflow B: the take is a library original — detach via the New Video
+    // transition, never through the delete path.
+    expect(practiceAgain, 'the discard decision must branch on the origin').toContain('isLibraryOriginal');
+    expect(practiceAgain, 'Workflow B must route through the New Video transition').toContain('handleNewVideo');
+    // Workflow A: the only branch allowed to delete says so before destroying
+    // the single copy of the bytes.
+    expect(practiceAgain, 'the delete branch must be confirmed, not silent').toContain('window.confirm');
+    expect(practiceAgain).toContain('clearMasterRecording');
   });
 
   it('still routes the recorder completion through createMasterRecording', () => {

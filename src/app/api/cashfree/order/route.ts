@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { getServerPrice, getServerPricingForCountry, ALL_COUNTRIES } from '@/lib/pricing';
-import { getCashfreeEnv, isCashfreeEnvConsistent, cashfreeBaseUrl, isCashfreeEnvUsable } from '@/lib/cashfree-fulfillment';
-import { createPendingOrder, findUserById, findUserByEmail, ensureMigrated } from '@/lib/db';
+import {
+  getCashfreeEnv,
+  isCashfreeEnvConsistent,
+  cashfreeBaseUrl,
+  isCashfreeEnvUsable,
+  fetchCashfreeOrder,
+  isCashfreeOrderTerminalFailure,
+} from '@/lib/cashfree-fulfillment';
+import { createPendingOrder, findUserById, findUserByEmail, ensureMigrated, findRecentUnsettledPendingOrder } from '@/lib/db';
 import { getDb } from '@/lib/db/driver';
 import { isCreatorPlan, isPlanActive } from '@/lib/entitlements';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
@@ -18,6 +25,11 @@ function cashfreeBaseUrlForRequest(): string {
 const VALID_CURRENCIES = [...new Set(ALL_COUNTRIES.map(c => c.currency))];
 
 const VALID_PLANS = ['free', 'creator_monthly', 'creator_yearly'];
+
+// Phase 2.6: how long an unsettled order blocks a new one (the probe below
+// releases the block immediately for terminal-failed orders, so this only
+// bounds rows whose authoritative state is unreachable or still payable).
+const PENDING_ORDER_OVERLAP_WINDOW_MS = 60 * 60 * 1000;
 
 interface CashfreeOrderRequest {
   plan: string;
@@ -165,7 +177,9 @@ export async function POST(request: NextRequest) {
     }
 
     const forwarded = request.headers.get('x-forwarded-for');
-    const ip = forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip') || 'unknown';
+    // Last entry, matching the login limiter: a client-supplied XFF prefix is
+    // spoofable, while the proxy-appended tail is the received peer.
+    const ip = forwarded ? forwarded.split(',').pop()?.trim() || 'unknown' : request.headers.get('x-real-ip') || 'unknown';
 
     const { allowed, retryAfter } = checkRateLimit(ip);
     if (!allowed) {
@@ -193,20 +207,60 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'An active Creator plan already exists' }, { status: 409 });
     }
 
+    // Phase 2.6: one payable order at a time. A second order created while an
+    // earlier one is still payable could be PAID after the first one already
+    // activated the plan; fulfilment would then reject it (active_plan_exists)
+    // and the buyer would have paid for nothing. The authoritative Cashfree
+    // state decides whether the earlier order still blocks: a terminal-failed
+    // order never becomes payable again, so a retry proceeds. If that state
+    // cannot be read, fail closed rather than open the overlap.
+    const identityId = purchaseOwner?.id ?? session.user.id;
+    const unsettled = await findRecentUnsettledPendingOrder(identityId, PENDING_ORDER_OVERLAP_WINDOW_MS);
+    if (unsettled) {
+      try {
+        const prior = await fetchCashfreeOrder(unsettled.orderId);
+        if (!isCashfreeOrderTerminalFailure(prior)) {
+          return NextResponse.json(
+            { error: 'An earlier checkout is still in progress. Complete or cancel it before starting a new one.' },
+            { status: 409, headers: { 'x-request-id': requestId } },
+          );
+        }
+      } catch {
+        logger.error('payment.order_failed', { route: '/api/cashfree/order', requestId, errorCode: 'pending_order_probe_failed' });
+        return NextResponse.json(
+          { error: 'Payment is temporarily unavailable. Please try again shortly.' },
+          { status: 503, headers: { 'x-request-id': requestId } },
+        );
+      }
+    }
+
     // Resolve pricing by server-verified country (prevents client arbitrage).
-    // Vercel/Cloudflare provide geo header; fallback to client country only in dev.
+    // Production trusts ONLY the platform geo header (Vercel/Cloudflare); the
+    // client country/currency are a dev-only fallback, as documented in
+    // docs/ENTITLEMENTS.md. With no usable header in production the server's
+    // default region prices the order — the client's values are ignored and no
+    // new geo source is invented (the unresolved deployment is reported here).
+    const isProduction = process.env.NODE_ENV === 'production';
     const serverCountry = request.headers.get('x-vercel-ip-country') || request.headers.get('cf-ipcountry') || null;
     const serverCountryValid = serverCountry && getServerPricingForCountry(serverCountry) ? serverCountry : null;
-    const clientCountryValid = typeof country === 'string' && getServerPricingForCountry(country) ? country : null;
-    // Prefer server geo when available (production), else client (local dev)
+    const clientCountryValid = !isProduction && typeof country === 'string' && getServerPricingForCountry(country) ? country : null;
     const resolvedCountry = serverCountryValid || clientCountryValid;
+    if (isProduction && !serverCountryValid) {
+      logger.warn('payment.geo_unresolved', { route: '/api/cashfree/order', requestId, userIdHash: hashUserId(session.user.id) });
+    }
     if (serverCountryValid && clientCountryValid && serverCountryValid !== clientCountryValid) {
-      console.warn(`[PAYMENT] Country mismatch: server=${serverCountryValid} client=${clientCountryValid} user=${session.user.id}`);
+      logger.warn('payment.country_mismatch', {
+        route: '/api/cashfree/order',
+        requestId,
+        userIdHash: hashUserId(session.user.id),
+        serverCountry: serverCountryValid,
+        clientCountry: clientCountryValid,
+      });
     }
     const countryPricing = resolvedCountry ? getServerPricingForCountry(resolvedCountry) : null;
     const finalCurrency = countryPricing
       ? countryPricing.currency
-      : currency && VALID_CURRENCIES.includes(currency)
+      : !isProduction && currency && VALID_CURRENCIES.includes(currency)
         ? currency
         : 'USD';
     const serverAmount = resolvedCountry && countryPricing

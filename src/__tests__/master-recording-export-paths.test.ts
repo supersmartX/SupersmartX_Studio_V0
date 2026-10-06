@@ -46,6 +46,14 @@ vi.mock('@/lib/export/browser-support', () => ({
 // The real byte gate is covered by state7-platform-matrix; here it would only
 // need a hand-built MP4 to let a synthetic blob through.
 vi.mock('@/lib/export/mp4-metadata', () => ({ assertEncodedFrame: vi.fn().mockResolvedValue(undefined) }));
+// Phase 3: same reasoning for the full artifact verification — its real
+// coverage lives in artifact-verification.test.ts and the server routes. What
+// is under test here is that the take survives every outcome, so the verifier
+// is stubbed to pass (and its client message mapper is stubbed for shape).
+vi.mock('@/lib/export/artifact-verification', () => ({
+  verifyExportArtifact: vi.fn(() => ({ ok: true, artifact: {} })),
+  describeArtifactFailureForClient: vi.fn((code: string) => `Export failed verification: ${code}`),
+}));
 vi.mock('@/lib/local-exports-store', () => ({ saveLocalExport: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('@/lib/export/export-upload', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/export/export-upload')>()),
@@ -79,9 +87,10 @@ function storedRecording() {
   };
 }
 
-/** Large enough to clear the pipeline's `size < 100` empty-file check. */
-function encodedMp4(): Blob {
-  return new Blob([new Uint8Array(2048)], { type: 'video/mp4' });
+/** Large enough to clear the pipeline's `size < 100` empty-file check; the
+ * shape is the engine's EncodeResult contract (Phase 3). */
+function encodedMp4(): { blob: Blob; hasAudio: boolean } {
+  return { blob: new Blob([new Uint8Array(2048)], { type: 'video/mp4' }), hasAudio: false };
 }
 
 function hangingEncode() {

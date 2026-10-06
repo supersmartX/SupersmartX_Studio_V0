@@ -11,6 +11,20 @@ vi.mock('@/lib/r2', () => ({
   copyRecording: vi.fn(async () => undefined),
   generateFinalExportKey: (userId: string, jobId: string) => `exports/${userId}/${jobId}.mp4`,
   deleteRecording: vi.fn(),
+  // Present so the route's import binding resolves; the stubbed verifier
+  // below never calls it.
+  getObjectRange: vi.fn(),
+}));
+// Phase 3: the complete route now parses the artifact's real bytes. Parsing
+// itself is covered exhaustively by artifact-verification.test.ts and runs for
+// real in state7; these tests are about SIZE authority, the daily ledger and
+// replay — so the two decision functions are stubbed to pass (everything else
+// stays real, including the claim normalizers and message mapping), keeping
+// the tested variables unchanged.
+vi.mock('@/lib/export/artifact-verification', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/export/artifact-verification')>()),
+  collectMp4Metadata: vi.fn(async () => ({ combined: new ArrayBuffer(8), ftypSeen: true, mdatSeen: true })),
+  verifyExportArtifact: vi.fn(() => ({ ok: true, artifact: {} })),
 }));
 
 import { auth } from '@/auth';

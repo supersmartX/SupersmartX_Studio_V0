@@ -3,11 +3,26 @@ import { auth } from '@/auth';
 import { findExportByIdAndUser, findUserById, ensureMigrated } from '@/lib/db';
 import { deleteRecording } from '@/lib/r2';
 import { getDb } from '@/lib/db/driver';
+import { rateLimit } from '@/lib/rate-limit';
+
+// Phase 2.9: deletion is a high-risk export mutation (DB row + R2 object), so
+// it carries the same per-user boundary as export creation (30/h).
+const DELETE_RATE_LIMIT_MAX = 30;
+const DELETE_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth();
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const rl = rateLimit(`export-delete:${session.user.id}`, DELETE_RATE_LIMIT_MAX, DELETE_RATE_LIMIT_WINDOW_MS);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      );
+    }
+
     const { id } = await params;
     const user = await findUserById(session.user.id);
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 401 });

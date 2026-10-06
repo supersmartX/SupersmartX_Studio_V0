@@ -18,6 +18,12 @@ export interface StoredRecording {
   aspectRatio: string;
   createdAt: string;
   expiresAt: string;
+  /**
+   * Script snapshot captured when the take was created (DC-1). Optional:
+   * rows persisted before this field existed have none, and object-store
+   * schema is untouched (record-level field, no version bump).
+   */
+  script?: string;
 }
 
 function openDB(): Promise<IDBDatabase> {

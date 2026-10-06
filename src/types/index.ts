@@ -54,6 +54,13 @@ export interface MasterRecording {
   sourceWidth: number;
   sourceHeight: number;
   createdAt: string;
+  /**
+   * The script as it was when this master was created (DC-1). Snapshotted
+   * once onto the row; the global editor's later edits never touch it, and
+   * opening/restoring this take loads it back into the editor. Absent on rows
+   * written before this contract existed.
+   */
+  script?: string;
 }
 
 export interface CropConfig {

@@ -33,6 +33,7 @@ import {
 } from '@/lib/db';
 import { getEntitlements, isPlanActive } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
+import { buildSyntheticMp4 } from '@/lib/export/mp4-metadata';
 import type { PlanType } from '@/types/db';
 
 // `@/lib/r2` is mocked above for the route-level tests, so the real key
@@ -100,7 +101,9 @@ describe('security', () => {
       vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
 
       const res = await exportUploadPOST(exportUploadRequest({
-        file: new File(['video'], 'creator-export.mp4', { type: 'video/mp4' }),
+        // Phase 3: the route parses the real bytes, so a valid creator upload
+        // must be a structurally real MP4 at the server-authoritative frame.
+        file: new File([buildSyntheticMp4(1920, 1080)], 'creator-export.mp4', { type: 'video/mp4' }),
         platformId: 'youtube-landscape',
       }));
 

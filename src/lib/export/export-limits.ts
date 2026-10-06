@@ -43,6 +43,26 @@ export const MAX_EXPORT_SIZE_BYTES = MAX_EXPORT_SIZE_MB * 1024 * 1024;
  */
 export const MAX_EXPORT_DURATION_SECONDS = Math.floor(MAX_EXPORT_SIZE_BYTES / EXPORT_BYTES_PER_SECOND);
 
+/**
+ * Phase 3 — how far the encoded artifact's container duration (mvhd) may
+ * deviate from the authoritative recording duration (the master's active-clock
+ * / media-derived duration, C2.7) and still be accepted.
+ *
+ * The repository defines no prior duration tolerance for exports (FC-1.1 has
+ * none), so this is the first and only one. Derivation: MediaRecorder
+ * start/stop overhead (~0-500ms), frame quantization at 60fps (~17ms),
+ * container timescale rounding (~1ms), plus active-clock vs media-clock drift
+ * over a long take, which is bounded by 1% of the duration. Two otherwise
+ * identical recordings can therefore differ by at most this window; a
+ * truncated, swapped, or empty artifact deviates by far more and is rejected.
+ */
+export const EXPORT_DURATION_TOLERANCE_SECONDS = 1;
+
+/** Acceptance window for a claimed duration: max(1s, 1% of the claim). */
+export function exportDurationToleranceSeconds(claimedSeconds: number): number {
+  return Math.max(EXPORT_DURATION_TOLERANCE_SECONDS, Math.abs(claimedSeconds) * 0.01);
+}
+
 /** User-facing rejection text for a recording too long to export at this bitrate. */
 export function describeExportDurationLimit(): string {
   const minutes = Math.floor(MAX_EXPORT_DURATION_SECONDS / 60);

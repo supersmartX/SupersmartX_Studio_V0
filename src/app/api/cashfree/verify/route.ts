@@ -12,6 +12,13 @@ import {
   sendOrderReceiptOnce,
 } from '@/lib/cashfree-fulfillment';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
+import { rateLimit } from '@/lib/rate-limit';
+
+// Phase 2.9: verification hits Cashfree's order API (merchant-wide quota) and
+// can write entitlements, so it carries a per-user boundary. 30/min is far
+// above the client's 15-poll activation loop.
+const VERIFY_RATE_LIMIT_MAX = 30;
+const VERIFY_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
 /**
  * Server-side verification of a Cashfree payment on the browser return trip.
@@ -36,6 +43,14 @@ export async function POST(request: NextRequest) {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const rl = rateLimit(`cashfree-verify:${session.user.id}`, VERIFY_RATE_LIMIT_MAX, VERIFY_RATE_LIMIT_WINDOW_MS);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      );
     }
 
     if (!isCashfreeConfigured()) {
@@ -68,8 +83,11 @@ export async function POST(request: NextRequest) {
       pendingOrder.userId === session.user.id ||
       (owner?.email?.toLowerCase() === session.user.email?.toLowerCase());
     if (!sameAccount) {
+      // Phase 2.10: a foreign order must be indistinguishable from an unknown
+      // one — 403-vs-404 would let an authenticated caller confirm that someone
+      // else's order id exists. The rejection itself is unchanged.
       logger.warn('payment.verify_forbidden', { route: '/api/cashfree/verify', requestId, userIdHash: hashUserId(session.user.id), orderId });
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return NextResponse.json({ error: 'Unknown order' }, { status: 404 });
     }
 
     const order = await fetchCashfreeOrder(orderId);
@@ -114,9 +132,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: fulfillmentErrorMessage(result.reason) }, { status: 400 });
     }
 
+    // Phase 2.6: the plan write is done. The claim must never be released by a
+    // later throw, or Cashfree's retry would re-run fulfilment — the expiry is
+    // computed from `new Date()`, so a released claim could extend an already
+    // correct entitlement again. Losing the race is what a duplicate must do.
+    claimedOrderId = null;
+
     await sendOrderReceiptOnce(pendingOrder, order);
 
-    claimedOrderId = null;
     logger.info('payment.verify_activated', { route: '/api/cashfree/verify', requestId, userIdHash: hashUserId(pendingOrder.userId), orderId, plan: pendingOrder.plan });
     return NextResponse.json({ status: 'activated' });
   } catch (error) {

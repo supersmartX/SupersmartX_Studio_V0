@@ -13,6 +13,7 @@ import {
   createUser,
   createExportJob,
   findExportJobByIdAndUser,
+  updateExportJobStatus,
 } from '@/lib/db';
 
 function cleanTestData() {
@@ -87,21 +88,46 @@ describe('PATCH /api/export-jobs/[id] transitions', () => {
     expect((await findExportJobByIdAndUser(job.id, user.id))?.status).toBe('uploading');
   });
 
-  it('uploading → completed returns 200', async () => {
+  it('client cannot claim completed — completion is server-authored (Phase 2.2)', async () => {
     const { user, job } = await setupJob();
-    for (const status of ['encoding', 'uploading', 'completed']) {
+    for (const status of ['encoding', 'uploading']) {
       const { req, params } = patchReq(job.id, { status });
       expect((await PATCH(req, { params })).status).toBe(200);
     }
-    expect((await findExportJobByIdAndUser(job.id, user.id))?.status).toBe('completed');
+    const claim = patchReq(job.id, { status: 'completed' });
+    const res = await PATCH(claim.req, { params: claim.params });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Invalid transition: uploading/);
+    // The job is untouched — completion can only be written by the server's
+    // completion paths (/api/exports/complete, export-upload), never by the client.
+    expect((await findExportJobByIdAndUser(job.id, user.id))?.status).toBe('uploading');
+  });
+
+  it('client-supplied result fields are never persisted (Phase 2.2)', async () => {
+    const { user, job } = await setupJob();
+    const { req, params } = patchReq(job.id, {
+      status: 'encoding',
+      progress: 50,
+      resultExportId: 'forged-export-id',
+      resultR2Key: `exports/${user.id}/forged.mp4`,
+      resultFileSize: 12345,
+    });
+    expect((await PATCH(req, { params })).status).toBe(200);
+    const stored = await findExportJobByIdAndUser(job.id, user.id);
+    expect(stored?.status).toBe('encoding');
+    expect(stored?.progress).toBe(50);
+    expect(stored?.resultExportId).toBeNull();
+    expect(stored?.resultR2Key).toBeNull();
+    expect(stored?.resultFileSize).toBe(0);
   });
 
   it('completed → encoding/uploading/failed all return 400', async () => {
-    const { job } = await setupJob();
-    for (const warm of ['encoding', 'uploading', 'completed']) {
-      const { req, params } = patchReq(job.id, { status: warm });
-      await PATCH(req, { params });
-    }
+    const { user, job } = await setupJob();
+    // Reach `completed` through the server-side DB helper (the PATCH route can
+    // no longer claim it), then prove the terminal state still refuses exits.
+    await updateExportJobStatus(job.id, 'encoding', {}, user.id);
+    await updateExportJobStatus(job.id, 'uploading', {}, user.id);
+    expect(await updateExportJobStatus(job.id, 'completed', {}, user.id)).toBe(true);
     for (const status of ['encoding', 'uploading', 'failed']) {
       const { req, params } = patchReq(job.id, { status });
       const res = await PATCH(req, { params });

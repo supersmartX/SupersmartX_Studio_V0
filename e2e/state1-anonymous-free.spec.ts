@@ -7,7 +7,7 @@
  * is actively ABORTED at the network layer, so a pass proves the local export
  * path is genuinely independent rather than accidentally reaching a bucket.
  */
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import {
   test,
   expect,
@@ -25,9 +25,11 @@ import {
   readTimer,
   trackState,
   readLocalExports,
+  readMasterRecordings,
   LOCKED_PLATFORMS,
   grantMediaPermissions,
 } from './helpers';
+import { readMp4Artifact } from '../src/lib/export/mp4-metadata';
 
 test.use({
   viewport: { width: 1440, height: 900 },
@@ -175,6 +177,10 @@ test.describe('STATE 1 — Anonymous Free', () => {
     // RECORD
     await transport(page).getByRole('button', { name: 'Start Recording' }).click();
     await transport(page).getByRole('button', { name: 'Stop Recording' }).waitFor({ state: 'visible', timeout: 30_000 });
+    // Capture started the moment Stop appeared (the countdown is over and is
+    // itself never recorded) — this is the wall-clock reference the paused
+    // seconds must be excluded from.
+    const captureStart = Date.now();
     await expect(page.getByRole('status').getByText('REC', { exact: true })).toBeVisible();
     await page.waitForTimeout(2500);
     expect(await readTimer(page), 'recording timer must advance').not.toBe('00:00');
@@ -204,6 +210,30 @@ test.describe('STATE 1 — Anonymous Free', () => {
     expect(review.w, 'review video must have decoded real dimensions').toBeGreaterThan(0);
     expect(review.h).toBeGreaterThan(0);
     expect(review.duration, 'review video must have a real duration').toBeGreaterThan(0);
+
+    // PAUSE-AWARE ACCOUNTING (Phase 1 item 1): the take above captured
+    // ~7s of media behind a 2.5s pause. The Free daily budget must be
+    // charged ACTIVE time only — wall-clock billing would make the charged
+    // figure track the total elapsed time instead. `charged` was 0 before
+    // this take (fresh context), so it is exactly this take's charge.
+    const charged = Number(await page.evaluate(() => localStorage.getItem('sxs-record-secs') ?? '0'));
+    const wallSecs = (Date.now() - captureStart) / 1000;
+    expect(charged, 'the take must be charged for what it actually recorded').toBeGreaterThanOrEqual(5);
+    expect(
+      wallSecs - charged,
+      `charge must exclude the paused time (wall ${wallSecs.toFixed(1)}s, charged ${charged}s)`,
+    ).toBeGreaterThanOrEqual(2);
+    // The reviewed asset's media duration agrees with the charged figure —
+    // both describe active capture, not paused wall time. (Read from the
+    // stored row: Chromium reports `duration: Infinity` for MediaRecorder
+    // webm blobs, which is precisely why the completion probe falls back to
+    // the recorder's active-clock figure.)
+    const storedRows = await readMasterRecordings(page);
+    expect(storedRows).toHaveLength(1);
+    expect(
+      Math.abs(storedRows[0].duration - charged),
+      `stored duration ${storedRows[0].duration}s ≈ charged ${charged}s`,
+    ).toBeLessThanOrEqual(1.5);
 
     // CAMERA ACTUALLY STOPS — every track the app acquired must be ended.
     // (Also proves tracks really were acquired: a vacuous "0 live" is a bug.)
@@ -308,6 +338,26 @@ test.describe('STATE 1 — Anonymous Free', () => {
     expect(locals[0].outputWidth).toBe(1280);
     expect(locals[0].outputHeight).toBe(720);
     expect(locals[0].fileSize).toBeGreaterThan(1000);
+
+    // PHASE 3 — the downloaded bytes are parsed HERE in Node with the SAME
+    // production parser the server verifies with, and must agree with the
+    // record the local store just claimed: a real ISO-BMFF container (ftyp
+    // first), moov and mdat present, a video sample entry, the exact frame
+    // the store records, and a positive-finite container duration.
+    const fileBytes = new Uint8Array(await readFile(filePath!));
+    const artifact = readMp4Artifact(fileBytes.buffer as ArrayBuffer);
+    expect(artifact, 'the downloaded export must be a parseable MP4').not.toBeNull();
+    expect(artifact?.hasFtyp, 'ftyp must be the first box').toBe(true);
+    expect(artifact?.hasMoov).toBe(true);
+    expect(artifact?.hasMdat).toBe(true);
+    expect(artifact?.videoTrackCount).toBeGreaterThanOrEqual(1);
+    expect({ width: artifact?.width, height: artifact?.height }).toEqual({
+      width: locals[0].outputWidth,
+      height: locals[0].outputHeight,
+    });
+    expect(artifact?.durationSeconds ?? 0, 'container duration must be positive').toBeGreaterThan(0);
+    expect(Number.isFinite(artifact?.durationSeconds), 'container duration must be finite').toBe(true);
+    expect(fileBytes.byteLength, 'byte count must match the store\u2019s claim').toBe(locals[0].fileSize);
     expect(cloudAttempts, `anonymous Free must never reach the cloud: ${cloudAttempts.join(', ')}`).toEqual([]);
   });
 });

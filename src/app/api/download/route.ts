@@ -68,7 +68,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Export is not available for download' }, { status: 404 });
     }
 
+    // Phase 2.4/2.5: never sign a key that is not a cloud object inside this
+    // user's namespace. `local/` rows have no R2 object (their signed URL only
+    // 404s at the bucket), and an exports/ key under any other user's prefix
+    // must never be turned into an access URL — both answer like a missing
+    // export so no cross-user existence is revealed.
+    const key = exportRecord.r2Key;
+    if (
+      key.startsWith('local/') ||
+      (key.startsWith('exports/') && !key.startsWith(`exports/${session.user.id}/`))
+    ) {
+      return NextResponse.json({ error: 'Export not found' }, { status: 404 });
+    }
+
     await ensureUserStatsRow(session.user.id);
+
+    // Phase 2.11: sign BEFORE consuming a download credit, so an R2 failure
+    // cannot burn a limited-plan download. The URL is discarded and never
+    // returned when any check below denies the request.
+    const url = await getSignedDownloadUrl(key, SIGNED_URL_TTL_SECONDS);
 
     if (entitlements.maxDownloads !== null) {
       const success = await atomicIncrementDownloadCount(session.user.id, entitlements.maxDownloads);
@@ -82,8 +100,6 @@ export async function GET(request: NextRequest) {
       const { incrementDownloadCount } = await import('@/lib/db');
       await incrementDownloadCount(session.user.id);
     }
-
-    const url = await getSignedDownloadUrl(exportRecord.r2Key, SIGNED_URL_TTL_SECONDS);
 
     return NextResponse.json({ url, expiresIn: SIGNED_URL_TTL_SECONDS });
   } catch (error) {

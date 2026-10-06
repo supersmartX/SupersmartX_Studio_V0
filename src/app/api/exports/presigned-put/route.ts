@@ -4,6 +4,7 @@ import { findUserById, createExportJob, updateExportJobStatus, getActiveExportJo
 import { getEntitlements, isPlanActive, clampResolution, exceedsResolutionLimit } from '@/lib/entitlements';
 import { getSignedUploadUrl, generateExportStagingKey, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
 import { MAX_EXPORT_DURATION_SECONDS, describeExportDurationLimit } from '@/lib/export/export-limits';
+import { normalizeClaimedHasAudio } from '@/lib/export/artifact-verification';
 import { rateLimit } from '@/lib/rate-limit';
 import { findExportJobByIdAndUser, setExportJobStagingKey } from '@/lib/db';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
@@ -42,10 +43,11 @@ export async function POST(request: NextRequest) {
     if (!isR2Configured()) return NextResponse.json({ error: `Storage not configured: ${getR2ConfigurationError()}` }, { status: 503 });
 
     const body = await request.json();
-    const { platformId, duration, crop, jobId: existingJobId } = body as {
+    const { platformId, duration, crop, hasAudio, jobId: existingJobId } = body as {
       platformId: PlatformId;
       duration?: number;
       crop?: { x?: number; y?: number; zoom?: number };
+      hasAudio?: unknown;
       jobId?: string;
     };
 
@@ -108,7 +110,17 @@ export async function POST(request: NextRequest) {
       }
       jobId = existing.id;
     } else {
-      const configJson = JSON.stringify({ platformId, outputWidth: clampedW, outputHeight: clampedH, duration, crop });
+      // Phase 3: `hasAudio` is the encoder's ground-truth probe of the source
+      // blob, stored server-side so /api/exports/complete can require the
+      // artifact to actually contain the audio stream when the source had one.
+      const configJson = JSON.stringify({
+        platformId,
+        outputWidth: clampedW,
+        outputHeight: clampedH,
+        duration,
+        crop,
+        hasAudio: normalizeClaimedHasAudio(hasAudio) ?? undefined,
+      });
       const job = await createExportJob(session.user.id, configJson);
       jobId = job.id;
     }

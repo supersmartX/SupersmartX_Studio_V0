@@ -143,6 +143,36 @@ describe('useRecordingTimer — approval wording locks', () => {
     expect(result.current.elapsedSeconds).toBe(5);
   });
 
+  it('consumes no recorded time during the countdown', () => {
+    // FC-1.0 countdown rule: the 3-2-1 count is not recording — the timer
+    // (and therefore quota burn) must stay at zero until capture begins.
+    const stopRecording = vi.fn();
+    const showToast = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ state }) =>
+        useRecordingTimer({
+          recordingState: state,
+          stopRecording,
+          showToast,
+          maxDurationSeconds: 600,
+          resetOnComplete: false,
+        }),
+      { initialProps: { state: 'countdown' as RecordingState } },
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(result.current.elapsedSeconds).toBe(0);
+
+    rerender({ state: 'recording' });
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(result.current.elapsedSeconds).toBe(2);
+  });
+
   it('resets elapsed on recording completion when resetOnComplete is true', () => {
     const stopRecording = vi.fn();
     const showToast = vi.fn();

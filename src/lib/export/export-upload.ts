@@ -38,10 +38,13 @@ function isNetworkFailure(error: unknown): boolean {
   return false;
 }
 
-export async function uploadCreatorExportToR2(resultBlob: Blob, config: ExportConfig, duration: number, signal: AbortSignal, serverJobId?: string): Promise<CreatorUploadResult> {
+export async function uploadCreatorExportToR2(resultBlob: Blob, config: ExportConfig, duration: number, signal: AbortSignal, serverJobId?: string, hasAudio?: boolean): Promise<CreatorUploadResult> {
   let stage: UploadStage = 'requesting upload URL';
   try {
-    const presignedRes = await fetch('/api/exports/presigned-put', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platformId: config.platformId, outputWidth: config.outputWidth, outputHeight: config.outputHeight, duration, crop: config.crop, jobId: serverJobId }), signal });
+    // Phase 3: `hasAudio` (the encoder's utilized-track ground truth) rides
+    // along on both server calls so the job config and the completion check
+    // can require the stored artifact to actually contain that audio stream.
+    const presignedRes = await fetch('/api/exports/presigned-put', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platformId: config.platformId, outputWidth: config.outputWidth, outputHeight: config.outputHeight, duration, crop: config.crop, hasAudio, jobId: serverJobId }), signal });
     if (!presignedRes.ok) { const error = await presignedRes.json().catch(() => ({ error: 'Failed to get upload URL' })); throw new ExportUploadError(stage, error.error || `presigned URL request returned status ${presignedRes.status}`, false); }
     const data = await presignedRes.json();
     const key: string = data.key;
@@ -50,7 +53,7 @@ export async function uploadCreatorExportToR2(resultBlob: Blob, config: ExportCo
     const putRes = await fetch(data.uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'video/mp4' }, body: resultBlob, signal });
     if (!putRes.ok) throw new ExportUploadError(stage, `storage rejected the upload (status ${putRes.status})`, false);
     stage = 'finalizing export';
-    const completeRes = await fetch('/api/exports/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobId: serverJobId, key, fileSize: resultBlob.size, mimeType: 'video/mp4', platformId: config.platformId, outputWidth: config.outputWidth, outputHeight: config.outputHeight, duration }), signal });
+    const completeRes = await fetch('/api/exports/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobId: serverJobId, key, fileSize: resultBlob.size, mimeType: 'video/mp4', platformId: config.platformId, outputWidth: config.outputWidth, outputHeight: config.outputHeight, duration, hasAudio }), signal });
     if (!completeRes.ok) { const error = await completeRes.json().catch(() => ({ error: 'Completion failed' })); throw new ExportUploadError(stage, error.error || `completion returned status ${completeRes.status}`, false); }
     const completed = await completeRes.json();
     return { exportId: completed.exportId, r2Key: completed.r2Key, serverJobId };

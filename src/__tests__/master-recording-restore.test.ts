@@ -46,6 +46,11 @@ function storedRecording(id = 'master-1') {
 }
 
 beforeEach(() => {
+  // sessionStorage is per-document in the browser and per-test-file here, but
+  // it persists BETWEEN tests inside this file. Each test models its own
+  // fresh document (the latch is deliberately cross-document state), so any
+  // leftover latch would leak one test's intent into the next.
+  window.sessionStorage.clear();
   store.latest = null;
   store.getLatestRecording.mockClear();
   store.saveRecording.mockClear();
@@ -192,5 +197,59 @@ describe('a discarded take is gone, not merely hidden', () => {
     act(() => result.current.clearMasterRecording());
     expect(store.deleteRecording).not.toHaveBeenCalled();
     expect(result.current.masterRecording).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * The New Video intent latch is PERSISTED (sessionStorage) so it also
+ * guards the cross-document hop. That persistence cuts both ways: the take
+ * that replaces a New Video session must clear it, or the very next reload
+ * refuses to restore the take the user just recorded (F-01).
+ * ------------------------------------------------------------------ */
+describe('the New Video latch spans the document hop it guards', () => {
+  it('records after New Video and restores that take on the FIRST reload', async () => {
+    // New Video latches the intent so an in-flight restore cannot drag the
+    // old take into the new session.
+    const first = renderHook(() => useMasterRecording());
+    act(() => first.result.current.releaseMasterRecording());
+    expect(window.sessionStorage.getItem('sxs-new-session-intent')).toBe('1');
+
+    // The take that replaces it is authoritative — creating it must clear
+    // the persisted latch.
+    act(() => {
+      first.result.current.createMasterRecording(NEW_BLOB, 3, true, 1280, 720);
+    });
+    expect(window.sessionStorage.getItem('sxs-new-session-intent')).toBeNull();
+
+    // "First reload": a fresh hook instance over the same storage — exactly
+    // what the page gets after a document hop.
+    store.latest = storedRecording('master-after-new-video');
+    const second = renderHook(() => useMasterRecording());
+    let restored = false;
+    await act(async () => {
+      restored = await second.result.current.restoreMasterRecording();
+    });
+
+    expect(restored, 'the freshly recorded take must come back out of storage').toBe(true);
+    expect(second.result.current.masterRecording?.id).toBe('master-after-new-video');
+    expect(second.result.current.isRestored).toBe(true);
+  });
+
+  it('New Video without a take still blocks resurrection on the next document', async () => {
+    const first = renderHook(() => useMasterRecording());
+    act(() => first.result.current.releaseMasterRecording());
+
+    store.latest = storedRecording();
+    const second = renderHook(() => useMasterRecording());
+    let restored = true;
+    await act(async () => {
+      restored = await second.result.current.restoreMasterRecording();
+    });
+
+    expect(restored, 'the take left behind must stay behind').toBe(false);
+    expect(second.result.current.masterRecording).toBeNull();
+    // Blocked before the read, and the latch is consumed by the attempt.
+    expect(store.getLatestRecording).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('sxs-new-session-intent')).toBeNull();
   });
 });

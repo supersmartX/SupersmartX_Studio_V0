@@ -15,6 +15,7 @@ import { useShare } from '@/hooks/useShare';
 import { useMasterRecording } from '@/hooks/useMasterRecording';
 import { useExportPipeline } from '@/hooks/useExportPipeline';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useMicMuteSync } from '@/hooks/useMicMuteSync';
 
 import { useStudioConfig } from '@/hooks/useStudioConfig';
 import { useStudioCamera } from '@/hooks/useStudioCamera';
@@ -91,6 +92,7 @@ export default function HomePage() {
     clearMasterRecording,
     restoreMasterRecording,
     isRestored,
+    isLibraryOriginal,
   } = useMasterRecording();
   // Guard: completion effect must run once per recording blob.
   // `ui` is a new object every render, so including it in deps would
@@ -340,6 +342,11 @@ export default function HomePage() {
   const isCompactLayout = useMediaQuery('(max-width: 1279px)');
   const [activePanel, setActivePanel] = useState<TabType | 'record' | 'share'>('studio');
   const [isMicMuted, setIsMicMuted] = useState(false);
+  // The mute state is pushed onto whatever stream is live AT THE MOMENT of the
+  // change — including a stream acquired after the toggle (Stop → Start, a
+  // device switch), whose fresh tracks arrive enabled. Without this the button
+  // reported "muted" while the recording captured live audio.
+  useMicMuteSync(isMicMuted, camera.stream);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   // Preview as — separate from export platform. Declared up here because
   // "New Video" resets it as part of ending the creation session.
@@ -382,7 +389,10 @@ export default function HomePage() {
     setExportConfig(null);
     setPreviewPlatformId(DEFAULT_PLATFORM_ID);
     setActivePanel('studio');
-  }, [ui, recorder, releaseMasterRecording, clearJobs, setExportConfig]);
+    // DC-1: a new video starts with an empty script. The outgoing take keeps
+    // ITS script in its own row; the editor is a fresh draft area from here.
+    scriptStorage.clearScript();
+  }, [ui, recorder, releaseMasterRecording, clearJobs, setExportConfig, scriptStorage.clearScript]);
 
   // Restore the master recording from IndexedDB. This is the only thing that
   // carries a take across a cross-document navigation (Google OAuth, the
@@ -394,6 +404,19 @@ export default function HomePage() {
       restoreMasterRecording();
     }
   }, [masterRecordingData, restoreMasterRecording]);
+
+  // DC-1 — the attached video's script SNAPSHOT is authoritative for that
+  // video. Fires whenever a master attaches (fresh completion, library open,
+  // cross-document restore): whatever the global editor held as a draft is
+  // replaced by the take's own saved script. Editing the editor afterwards
+  // only changes the draft — this effect does not re-run, and the row's
+  // snapshot was written once at creation, so the saved copy never mutates.
+  const applyMasterScriptSnapshot = scriptStorage.setScript;
+  useEffect(() => {
+    if (masterRecordingData && typeof masterRecordingData.script === 'string') {
+      applyMasterScriptSnapshot(masterRecordingData.script);
+    }
+  }, [masterRecordingData, applyMasterScriptSnapshot]);
 
   // Handle recording completion → create master recording (once per blob)
   useEffect(() => {
@@ -410,6 +433,8 @@ export default function HomePage() {
       // Free: accumulate finished recording time toward the 10 min/day budget.
       // Downloads are unlimited and never consume recording time. The teleprompter has a
       // per-recording allowance and is never banked separately.
+      // `result.duration` is ACTIVE capture time (paused seconds excluded),
+      // so the budget is charged for what was actually recorded.
       if (!isCreatorUser && recorder.recordingResult?.duration) {
         addDailyRecordingSeconds(recorder.recordingResult.duration);
       }
@@ -418,6 +443,9 @@ export default function HomePage() {
         // Extract actual video dimensions from the recorded blob
         // Camera track settings can differ from actual MediaRecorder output
         const result = recorder.recordingResult;
+        // DC-1: the script as it stands at completion is this video's
+        // snapshot. It rides along into the master + its stored row.
+        const scriptSnapshot = scriptStorage.script;
         const videoEl = document.createElement('video');
         const blobUrl = URL.createObjectURL(result.blob);
         videoEl.preload = 'metadata';
@@ -434,13 +462,20 @@ export default function HomePage() {
         videoEl.onloadedmetadata = () => {
           const actualWidth = videoEl.videoWidth || recordingConfig.width;
           const actualHeight = videoEl.videoHeight || recordingConfig.height;
+          // Authoritative media duration: what actually plays back. The
+          // recorder's active-clock figure (also pause-aware) is the
+          // fallback when the container reports a non-finite duration.
+          const mediaDuration = Number.isFinite(videoEl.duration) && videoEl.duration > 0
+            ? videoEl.duration
+            : result.duration;
           cleanupProbe();
           createMasterRecording(
             result.blob,
-            result.duration,
+            mediaDuration,
             result.hasAudio,
             actualWidth,
-            actualHeight
+            actualHeight,
+            scriptSnapshot
           );
         };
 
@@ -452,13 +487,14 @@ export default function HomePage() {
             result.duration,
             result.hasAudio,
             recordingConfig.width,
-            recordingConfig.height
+            recordingConfig.height,
+            scriptSnapshot
           );
         };
       }
 
     resetTimer();
-  }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height, isCreatorUser, setDrawerVisible, resetTimer]);
+  }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height, isCreatorUser, setDrawerVisible, resetTimer, scriptStorage.script]);
 
   // Free: the teleprompter allowance runs per recording (3 min, capped by the recording
   // budget). When it runs out mid-take the prompter hides — but the CAMERA KEEPS RECORDING.
@@ -528,8 +564,14 @@ export default function HomePage() {
       return scrolledHeight >= scrollableHeight - 5;
     };
 
-    recorder.startRecording(scrollCallback, checkEndCallback, liveStream);
-  }, [camera, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, resetTimer, isCreatorUser, showToast, ui, handleCameraInitialize, isReview]);
+    // FC-1.0 countdown + DC-2: the countdown setting decides whether capture
+    // waits; the teleprompter's auto-stop is the only stop that announces
+    // itself with a toast (an ordinary Stop never reaches this callback).
+    recorder.startRecording(scrollCallback, checkEndCallback, liveStream, {
+      countdown: settings.countdownEnabled,
+      onScriptEnd: () => showToast('Script ended — recording stopped'),
+    });
+  }, [camera, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, settings.countdownEnabled, resetTimer, isCreatorUser, showToast, ui, handleCameraInitialize, isReview]);
 
   const handleRecordStop = useCallback(() => {
     if (recorder.recordingState === 'recording' || recorder.recordingState === 'paused') {
@@ -554,13 +596,30 @@ export default function HomePage() {
     ui.setIsDrawerVisible(false);
   }, [ui]);
 
+  // "Record Again" — one label, two workflows.
+  //
+  //   Workflow B (`isLibraryOriginal`): the take is a library original — the
+  //   user's existing video, promised to stay the same (LibraryPanel). It is
+  //   not this session's to destroy, so Record Again runs the New Video
+  //   transition: detach into a clean creation session, row stays in the
+  //   library. The success screen's "Open My Library" button remains the way
+  //   back to it.
+  //
+  //   Workflow A: the explicit discard of the take recorded in this session.
+  //   It deletes the only copy of the bytes, so it says so first; cancelling
+  //   leaves the take, the sheet and the review exactly as they were.
   const handlePracticeAgain = useCallback(() => {
+    if (isLibraryOriginal) {
+      handleNewVideo();
+      return;
+    }
+    if (!window.confirm('Record Again discards this take and deletes it from your library. Continue?')) return;
     ui.setIsDrawerVisible(false);
     recorder.resetRecording();
     clearMasterRecording();
     clearJobs();
     setExportConfig(null);
-  }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
+  }, [isLibraryOriginal, handleNewVideo, ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
 
   // "Open My Library" is a navigation, not a discard. It must leave the master
   // recording untouched: this button sits on the post-export success screen, so
@@ -568,8 +627,8 @@ export default function HomePage() {
   // "change platform and export again" (Reels -> back to Review -> TikTok)
   // impossible without re-recording. The restore effect re-surfaces the take
   // when the user returns to Studio, which is the correct outcome.
-  // Deleting the IndexedDB row is correct ONLY for an explicit discard
-  // ("Record Again"), which is handlePracticeAbove.
+  // Deleting the IndexedDB row belongs to the explicit discard only — the
+  // Workflow A branch of handlePracticeAgain above, behind its confirmation.
   const handleOpenLibrary = useCallback(() => {
     ui.setIsDrawerVisible(false);
     setActivePanel('library');
@@ -593,21 +652,26 @@ export default function HomePage() {
     }
   }, []);
 
+  // The toggle only flips state: useMicMuteSync is the single writer of
+  // track.enabled, so the button (and its aria-pressed) can never disagree
+  // with the audio actually being recorded — including on a re-acquired
+  // stream, where the tracks start enabled again.
   const handleMicToggle = useCallback(() => {
-    setIsMicMuted((prev) => {
-      const nextMuted = !prev;
-      if (camera.stream) {
-        camera.stream.getAudioTracks().forEach((track) => {
-          track.enabled = !nextMuted;
-        });
-      }
-      return nextMuted;
-    });
-  }, [camera.stream]);
+    setIsMicMuted((prev) => !prev);
+  }, []);
 
-  // Both rails label the studio entry "New Video" / "Studio"; either one means
-  // "start creating", so it runs the full session reset rather than just
-  // swapping panels.
+  // DC-3 — the two navs mean different things and must not share a handler:
+  //
+  //   Desktop IconRail's entry is explicitly LABELED "New Video", so tapping
+  //   it runs the full session reset (this was the pre-existing, correct
+  //   behavior — the label promises it).
+  //
+  //   Compact BottomNav's "Studio" tab is a NAVIGATION tab. It used to run
+  //   the same reset, so tapping a tab labeled "Studio" silently created a
+  //   New Video: it cleared the current recording and released the master as
+  //   a side effect of switching panels. It is now a pure panel switch; the
+  //   BottomNav's explicit "New Video" button (onNewVideo) owns the reset on
+  //   compact layouts.
   const handlePanelChange = useCallback((panel: TabType | 'record' | 'share') => {
     if (panel === 'studio') {
       handleNewVideo();
@@ -615,6 +679,10 @@ export default function HomePage() {
     }
     setActivePanel(panel);
   }, [handleNewVideo]);
+
+  const handleCompactNav = useCallback((panel: TabType | 'record' | 'share') => {
+    setActivePanel(panel);
+  }, []);
 
   const handleToggleInspector = useCallback(() => {
     setIsInspectorOpen((prev) => !prev);
@@ -671,6 +739,23 @@ export default function HomePage() {
         previewPreset.height,
       ).style
     : undefined;
+
+  // Dimension accuracy: the badge shows what capture ACTUALLY is, never the
+  // configured target dressed up as a captured resolution.
+  //   - review      → the take's probed (real) dimensions;
+  //   - live camera → the active MediaStream track's own settings;
+  //   - no stream   → null, so Canvas labels the configured target as a
+  //                   target rather than claiming it as capture.
+  const activeVideoTrack = camera.stream?.getVideoTracks?.()[0];
+  const trackSettings = activeVideoTrack?.getSettings?.();
+  const liveCaptureSize =
+    trackSettings && trackSettings.width && trackSettings.height
+      ? { width: trackSettings.width, height: trackSettings.height }
+      : null;
+  const captureSize =
+    isReview && masterRecordingData && masterRecordingData.sourceWidth > 0 && masterRecordingData.sourceHeight > 0
+      ? { width: masterRecordingData.sourceWidth, height: masterRecordingData.sourceHeight }
+      : liveCaptureSize;
 
   const inspectorProps = {
     settings: settings.teleprompter,
@@ -745,6 +830,8 @@ export default function HomePage() {
                 reviewVideoUrl={isReview && masterRecordingData ? masterRecordingData.url : undefined}
                 reviewAspectRatio={isReview ? previewPreset.aspectRatio : undefined}
                 reviewVideoStyle={reviewCropStyle}
+                reviewHasAudio={isReview && masterRecordingData ? masterRecordingData.hasAudio : false}
+                captureSize={captureSize}
               >
                 <CameraPreview
                   stream={camera.stream}
@@ -788,7 +875,10 @@ export default function HomePage() {
 
                 <CountdownOverlay
                   countdownText={recorder.countdownText}
-                  isVisible={recorder.recordingState === 'countdown' && settings.countdownEnabled}
+                  // The state itself is the truth: `countdown` is only ever
+                  // entered when the countdown setting is on (FC-1.0).
+                  isVisible={recorder.recordingState === 'countdown'}
+                  onCancel={recorder.cancelCountdown}
                 />
 
                 {!camera.isInitialized && !camera.hasInitialized && (
@@ -924,7 +1014,8 @@ export default function HomePage() {
 
         <BottomNav
           activePanel={activePanel}
-          onPanelChange={handlePanelChange}
+          onPanelChange={handleCompactNav}
+          onNewVideo={handleNewVideo}
           onSettingsToggle={handleToggleInspector}
         />
 

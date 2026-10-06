@@ -15,7 +15,9 @@
 import { createExportConfig } from '@/lib/export/export-config';
 import { encodeExportMediabunny } from '@/lib/export/mediabunny-export-engine';
 import { computeCodedSourceRect } from '@/lib/composition';
-import { readMp4DimensionsFromBlob } from '@/lib/export/mp4-metadata';
+import { readMp4DimensionsFromBlob, readMp4Artifact } from '@/lib/export/mp4-metadata';
+import { verifyExportArtifact } from '@/lib/export/artifact-verification';
+import { MAX_EXPORT_SIZE_BYTES } from '@/lib/export/export-limits';
 import type { MasterRecording } from '@/types';
 
 /** Marker fraction within the source frame. */
@@ -124,20 +126,40 @@ export async function buildMaster(
 export async function runProductionExport(
   master: MasterRecording,
   platformId: string
-): Promise<{ blob: Blob; outputWidth: number; outputHeight: number }> {
+): Promise<{ blob: Blob; hasAudio: boolean; outputWidth: number; outputHeight: number }> {
   const config = createExportConfig(
     platformId as never,
     master.sourceWidth,
     master.sourceHeight
   );
-  const blob = await encodeExportMediabunny({
+  const { blob, hasAudio } = await encodeExportMediabunny({
     master,
     config,
     signal: undefined,
     onProgress: undefined,
     watermarkRequired: false,
   });
-  return { blob, outputWidth: config.outputWidth, outputHeight: config.outputHeight };
+  return { blob, hasAudio, outputWidth: config.outputWidth, outputHeight: config.outputHeight };
+}
+
+/** Runs the production encode with the watermark applied (Phase 3 watermark artifact proof). */
+export async function runProductionExportWatermarked(
+  master: MasterRecording,
+  platformId: string
+): Promise<{ blob: Blob; hasAudio: boolean; outputWidth: number; outputHeight: number }> {
+  const config = createExportConfig(
+    platformId as never,
+    master.sourceWidth,
+    master.sourceHeight
+  );
+  const { blob, hasAudio } = await encodeExportMediabunny({
+    master,
+    config,
+    signal: undefined,
+    onProgress: undefined,
+    watermarkRequired: true,
+  });
+  return { blob, hasAudio, outputWidth: config.outputWidth, outputHeight: config.outputHeight };
 }
 
 /**
@@ -255,10 +277,45 @@ export async function inspectPlatform(
   face: { u: number; v: number } | null;
   predictedFace: { u: number; v: number };
   edgeContent: boolean;
+  claimedDuration: number;
+  sizeBytes: number;
+  capBytes: number;
+  engineHasAudio: boolean;
+  artifact: {
+    width: number;
+    height: number;
+    hasFtyp: boolean;
+    hasMoov: boolean;
+    hasMdat: boolean;
+    videoTrackCount: number;
+    audioTrackCount: number;
+    durationSeconds: number | null;
+  } | null;
+  verification: { ok: boolean; code?: string };
+  noAudioControl: { ok: boolean; code?: string };
 }> {
   const config = createExportConfig(platformId as never, master.sourceWidth, master.sourceHeight);
-  const { blob } = await runProductionExport(master, platformId);
+  const { blob, hasAudio } = await runProductionExport(master, platformId);
   const meta = await readMp4DimensionsFromBlob(blob);
+
+  // PHASE 3 — the bytes through the ONE production parser and verifier. The
+  // expectations are exactly what production passes: the server-authoritative
+  // frame, the master's duration claim, the engine's ground-truth audio
+  // decision, and the real byte count. `noAudioControl` re-runs the verdict
+  // demanding audio — on a silent master it MUST fail with missing_audio,
+  // which is what proves the audio check actually bites.
+  const buffer = await blob.arrayBuffer();
+  const parsed = readMp4Artifact(buffer);
+  const expectations = {
+    width: config.outputWidth,
+    height: config.outputHeight,
+    durationSeconds: master.duration,
+    hasAudio,
+    sizeBytes: blob.size,
+  };
+  const verification = verifyExportArtifact(buffer, expectations);
+  const noAudioControl = verifyExportArtifact(buffer, { ...expectations, hasAudio: true });
+
   const { canvas, ctx } = await decodeFrameFor(blob, 0.15);
   const w = canvas.width;
   const h = canvas.height;
@@ -338,5 +395,204 @@ export async function inspectPlatform(
       v: (FACE_V * master.sourceHeight - predicted.top) / predicted.height,
     },
     edgeContent,
+    claimedDuration: master.duration,
+    sizeBytes: blob.size,
+    capBytes: MAX_EXPORT_SIZE_BYTES,
+    engineHasAudio: hasAudio,
+    artifact: parsed
+      ? {
+          width: parsed.width,
+          height: parsed.height,
+          hasFtyp: parsed.hasFtyp,
+          hasMoov: parsed.hasMoov,
+          hasMdat: parsed.hasMdat,
+          videoTrackCount: parsed.videoTrackCount,
+          audioTrackCount: parsed.audioTrackCount,
+          durationSeconds: parsed.durationSeconds,
+        }
+      : null,
+    verification: verification.ok ? { ok: true } : { ok: false, code: verification.code },
+    noAudioControl: noAudioControl.ok ? { ok: true } : { ok: false, code: noAudioControl.code },
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * PHASE 3 — audio-when-expected, proven from the artifact's bytes
+ * ------------------------------------------------------------------ */
+
+/**
+ * Like `buildMaster`, but muxes a real AAC track (440 Hz sine) alongside the
+ * calibration grid, so the export has genuine audio to be expected from.
+ */
+export async function buildMasterWithAudio(
+  width: number,
+  height: number
+): Promise<{ blob: Blob; duration: number }> {
+  const { AudioBufferSource, Mp4OutputFormat, BufferTarget, CanvasSource, Output } = await import(
+    'mediabunny'
+  );
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+
+  const target = new BufferTarget();
+  const output = new Output({ format: new Mp4OutputFormat(), target });
+  const source = new CanvasSource(canvas, { codec: 'avc', bitrate: 8_000_000 });
+  output.addVideoTrack(source, { frameRate: FPS });
+
+  const audioSource = new AudioBufferSource({ codec: 'aac', bitrate: 96_000 });
+  output.addAudioTrack(audioSource);
+
+  await output.start();
+  for (let i = 0; i < FRAMES; i += 1) {
+    drawMaster(ctx, width, height);
+    await source.add(i / FPS + 0.001);
+  }
+  // Exactly as long as the video track: a sine over the full 0.5 s.
+  const sampleRate = 44_100;
+  const frames = Math.round((FRAMES / FPS) * sampleRate);
+  const audioCtx = new OfflineAudioContext(1, frames, sampleRate);
+  const audioBuffer = audioCtx.createBuffer(1, frames, sampleRate);
+  const channel = audioBuffer.getChannelData(0);
+  for (let i = 0; i < frames; i += 1) {
+    channel[i] = 0.3 * Math.sin((2 * Math.PI * 440 * i) / sampleRate);
+  }
+  await audioSource.add(audioBuffer);
+  await output.finalize();
+
+  return {
+    blob: new Blob([target.buffer as ArrayBuffer], { type: 'video/mp4' }),
+    duration: FRAMES / FPS,
+  };
+}
+
+/**
+ * Encodes an audio-bearing master through the production path and reports the
+ * ground-truth chain: the engine's own `hasAudio` decision, the audio sample
+ * entries actually present in the container, and the ONE verifier's verdict
+ * under that claim.
+ */
+export async function inspectAudioRoundTrip(
+  master: MasterRecording,
+  platformId: string
+): Promise<{
+  engineHasAudio: boolean;
+  artifactAudioTracks: number;
+  artifactVideoTracks: number;
+  durationSeconds: number | null;
+  sizeBytes: number;
+  verification: { ok: boolean; code?: string };
+}> {
+  const config = createExportConfig(platformId as never, master.sourceWidth, master.sourceHeight);
+  const { blob, hasAudio } = await runProductionExport(master, platformId);
+  const buffer = await blob.arrayBuffer();
+  const parsed = readMp4Artifact(buffer);
+  const verification = verifyExportArtifact(buffer, {
+    width: config.outputWidth,
+    height: config.outputHeight,
+    durationSeconds: master.duration,
+    hasAudio,
+    sizeBytes: blob.size,
+  });
+  return {
+    engineHasAudio: hasAudio,
+    artifactAudioTracks: parsed?.audioTrackCount ?? -1,
+    artifactVideoTracks: parsed?.videoTrackCount ?? -1,
+    durationSeconds: parsed?.durationSeconds ?? null,
+    sizeBytes: blob.size,
+    verification: verification.ok ? { ok: true } : { ok: false, code: verification.code },
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * PHASE 3 — watermark proven from decoded pixels of the artifact
+ * ------------------------------------------------------------------ */
+
+/** Mean absolute per-channel difference over a rectangle of two decoded frames. */
+function regionMeanDiff(
+  a: ImageData,
+  b: ImageData,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number
+): number {
+  let total = 0;
+  let count = 0;
+  const xa = Math.max(0, Math.floor(x0));
+  const ya = Math.max(0, Math.floor(y0));
+  const xb = Math.min(a.width, Math.ceil(x1));
+  const yb = Math.min(a.height, Math.ceil(y1));
+  for (let y = ya; y < yb; y += 1) {
+    for (let x = xa; x < xb; x += 1) {
+      const i = (y * a.width + x) * 4;
+      total += Math.abs(a.data[i] - b.data[i]);
+      total += Math.abs(a.data[i + 1] - b.data[i + 1]);
+      total += Math.abs(a.data[i + 2] - b.data[i + 2]);
+      count += 3;
+    }
+  }
+  return count === 0 ? 0 : total / count;
+}
+
+/**
+ * Encodes the SAME master twice — once with the watermark, once without —
+ * decodes both real artifacts, and measures the pixel difference inside the
+ * watermark pill's rectangle (geometry from `drawWatermark`) against a control
+ * rectangle in the top-left. If the watermark were dropped anywhere between
+ * the flag and the file, the two decoded frames would be statistically
+ * identical everywhere and this fails.
+ */
+export async function compareWatermark(
+  master: MasterRecording,
+  platformId: string
+): Promise<{
+  pillMeanDiff: number;
+  controlMeanDiff: number;
+  wmIsArtifact: boolean;
+  plainIsArtifact: boolean;
+  pillRect: { x0: number; y0: number; x1: number; y1: number };
+}> {
+  const wm = await runProductionExportWatermarked(master, platformId);
+  const plain = await runProductionExport(master, platformId);
+
+  const wmBuffer = await wm.blob.arrayBuffer();
+  const plainBuffer = await plain.blob.arrayBuffer();
+  const wmArtifact = readMp4Artifact(wmBuffer);
+  const plainArtifact = readMp4Artifact(plainBuffer);
+
+  const wmFrame = await decodeFrameFor(wm.blob, 0.15);
+  const plainFrame = await decodeFrameFor(plain.blob, 0.15);
+  const w = wmFrame.canvas.width;
+  const h = wmFrame.canvas.height;
+  const wmData = wmFrame.ctx.getImageData(0, 0, w, h);
+  const plainData = plainFrame.ctx.getImageData(0, 0, plainFrame.canvas.width, plainFrame.canvas.height);
+  if (w !== plainFrame.canvas.width || h !== plainFrame.canvas.height) {
+    throw new Error('watermark/no-watermark decodes disagree on frame size');
+  }
+
+  // Reproduce drawWatermark's pill rectangle from its own geometry rules so
+  // the measured region is exactly what the watermark paints over.
+  const fontSize = Math.max(14, Math.round(w * 0.035));
+  const measure = document.createElement('canvas').getContext('2d')!;
+  measure.font = `bold ${fontSize}px Inter, sans-serif`;
+  const textWidth = measure.measureText('SupersmartX').width;
+  const bgWidth = textWidth + 16; // padding 8 each side
+  const bgHeight = fontSize + 8; // padding 8
+  const pillRect = {
+    x0: w - bgWidth - 12,
+    y0: h - bgHeight - 12,
+    x1: w - 12 + 1, // fillRect spans to width - 12
+    y1: h - 12 + 1,
+  };
+
+  return {
+    pillMeanDiff: regionMeanDiff(wmData, plainData, pillRect.x0, pillRect.y0, pillRect.x1, pillRect.y1),
+    controlMeanDiff: regionMeanDiff(wmData, plainData, 0, 0, w / 4, h / 4),
+    wmIsArtifact: !!wmArtifact && wmArtifact.hasMoov && wmArtifact.hasMdat && wmArtifact.width > 0,
+    plainIsArtifact: !!plainArtifact && plainArtifact.hasMoov && plainArtifact.hasMdat && plainArtifact.width > 0,
+    pillRect,
   };
 }

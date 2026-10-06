@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useRecorder } from '@/hooks/useRecorder';
 
-// Regression test for a live-probe-proven defect: when the audio-only
-// re-encode failed to start inside MediaRecorder.onstop, the exception
-// skipped setRecordingState('completed') — stranding the UI in "recording"
-// with no review, no blob, and a released camera. The take must complete
-// even when the audio extra cannot start.
-describe('useRecorder completion survives audio-extra start failure', () => {
+// End-to-end completion of the recorder state machine through the real hook:
+// countdown → capture → stop → completed with a playable result.
+//
+// (The audio-only "extra" MediaRecorder this file once protected against
+// was removed in Phase 1 item 5 — it was a dead surface: no consumer ever
+// read `audioUrl`, and export takes audio from the muxed video track. The
+// completion flow it happened to cover is pinned here on its own merits.)
+describe('useRecorder completes a take through countdown → capture → stop', () => {
   beforeEach(() => {
     vi.stubGlobal('URL', {
       createObjectURL: vi.fn(() => `blob:http://localhost/${Math.random().toString(36).slice(2)}`),
@@ -24,19 +26,15 @@ describe('useRecorder completion survives audio-extra start failure', () => {
       ondataavailable: Handler = null;
       onstop: Handler = null;
       onerror: Handler = null;
-      mime: string;
-      constructor(_stream: unknown, opts?: { mimeType?: string }) {
-        this.mime = opts?.mimeType || '';
-      }
+      constructor(_stream: unknown, _opts?: { mimeType?: string }) {}
       start() {
-        if (this.mime.startsWith('audio/')) {
-          throw new Error('There was an error starting the MediaRecorder.');
-        }
         this.state = 'recording';
         this.ondataavailable?.({ data: new Blob(['chunk']) } as unknown);
       }
       stop() {
+        if (this.state === 'inactive') return;
         this.state = 'inactive';
+        this.ondataavailable?.({ data: new Blob(['final']) } as unknown);
         this.onstop?.();
       }
       pause() {
@@ -61,7 +59,7 @@ describe('useRecorder completion survives audio-extra start failure', () => {
     } as unknown as MediaStream;
   }
 
-  it('reaches completed with a result when the audio extra throws on start', async () => {
+  it('reaches completed with a result', async () => {
     const { result } = renderHook(({ s }: { s: MediaStream | null }) => useRecorder(s), {
       initialProps: { s: fakeStream() },
     });
@@ -85,5 +83,8 @@ describe('useRecorder completion survives audio-extra start failure', () => {
     expect(result.current.recordingResult).not.toBeNull();
     expect(result.current.recordingResult?.blob.size).toBeGreaterThan(0);
     expect(result.current.videoUrl.startsWith('blob:')).toBe(true);
+    // Duration must be a positive, finite active-time figure even with no pause.
+    expect(result.current.recordingResult?.duration).toBeGreaterThan(0);
+    expect(Number.isFinite(result.current.recordingResult?.duration)).toBe(true);
   });
 });

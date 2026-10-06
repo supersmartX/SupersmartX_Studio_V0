@@ -12,8 +12,11 @@ Two layers, both mandatory:
 
 No route trusts client-supplied user ids. R2 keys are validated against the
 `exports/{userId}/` prefix in `/api/exports/complete`, and
-`PATCH /api/export-jobs/[id]` rejects `resultR2Key` values outside the
-caller's prefix. `exportId` path/query params reject `..` traversal.
+`PATCH /api/export-jobs/[id]` accepts only progress/failure reporting:
+completion status and result fields (`resultR2Key`, `resultExportId`,
+`resultFileSize`) are written exclusively by the server's completion paths, and
+a completed job's identifiers are verified against an owned export row before
+being echoed back. `exportId` path/query params reject `..` traversal.
 
 Verified pattern (example: `GET /api/download?exportId=`): 401 unauthenticated
 → 503 storage unconfigured → 429 rate-limited → 401 unknown user → 403

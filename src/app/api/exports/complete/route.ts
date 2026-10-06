@@ -11,6 +11,7 @@ import {
   atomicFinalizeExport,
   claimExportJobFinalization,
   ensureUserStatsRow,
+  findExportByIdAndUser,
   findExportJobByIdAndUser,
   findUserById,
   releaseExportJobFinalization,
@@ -29,15 +30,22 @@ import {
   deleteRecording,
   generateFinalExportKey,
   getR2ConfigurationError,
+  getObjectRange,
   headObject,
   isR2Configured,
 } from '@/lib/r2';
+import { collectMp4Metadata, describeArtifactFailure, normalizeClaimedDuration, normalizeClaimedHasAudio, verifyExportArtifact } from '@/lib/export/artifact-verification';
 import { MAX_EXPORT_SIZE_BYTES, MAX_EXPORT_SIZE_MB } from '@/lib/export/export-limits';
+import { rateLimit } from '@/lib/rate-limit';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
 
 const ALLOWED_EXPORT_CONTENT_TYPES = ['video/mp4', 'application/mp4'];
+// Phase 2.9: export completion is a high-risk mutation (quota consume + R2
+// finalize), so it carries the same per-user boundary as download (30/h).
+const COMPLETE_RATE_LIMIT_MAX = 30;
+const COMPLETE_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 function jobClaimedDurationSeconds(configJson: string | null | undefined): unknown {
   if (!configJson) return undefined;
@@ -62,6 +70,14 @@ export async function POST(request: NextRequest) {
     const session = await auth();
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+    const rl = rateLimit(`export-complete:${session.user.id}`, COMPLETE_RATE_LIMIT_MAX, COMPLETE_RATE_LIMIT_WINDOW_MS);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      );
+    }
+
     const user = await findUserById(session.user.id);
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 401 });
     if (!isPlanActive(user.planExpiresAt, user.plan)) return NextResponse.json({ error: 'Plan has expired' }, { status: 403 });
@@ -70,7 +86,7 @@ export async function POST(request: NextRequest) {
     if (!entitlements.canExport) return NextResponse.json({ error: 'Upgrade required' }, { status: 403 });
 
     const body = await request.json();
-    const { jobId, key, fileSize, mimeType, platformId, outputWidth, outputHeight, duration } = body as {
+    const { jobId, key, fileSize, mimeType, platformId, outputWidth, outputHeight, duration, hasAudio } = body as {
       jobId: string;
       key: string;
       fileSize: number;
@@ -79,6 +95,7 @@ export async function POST(request: NextRequest) {
       outputWidth: number;
       outputHeight: number;
       duration?: unknown;
+      hasAudio?: unknown;
     };
 
     if (!jobId || !key || !fileSize || !platformId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
@@ -93,7 +110,13 @@ export async function POST(request: NextRequest) {
       job.resultR2Key &&
       (job.stagingR2Key === key || (!job.stagingR2Key && job.resultR2Key === key))
     ) {
-      return NextResponse.json({ exportId: job.resultExportId, r2Key: job.resultR2Key });
+      // Phase 2.2/2.3: the replay echo must reference an export row that
+      // actually exists for THIS user. Client PATCHes can no longer write
+      // result fields, but a legacy/tampered row claiming a fabricated
+      // resultExportId must not be echoed back as authoritative completion.
+      const owned = await findExportByIdAndUser(job.resultExportId, session.user.id);
+      if (owned) return NextResponse.json({ exportId: job.resultExportId, r2Key: job.resultR2Key });
+      return NextResponse.json({ error: 'Job is not available for completion' }, { status: 409 });
     }
     if (job.status === 'completed') return NextResponse.json({ error: 'Job already completed' }, { status: 409 });
     if (job.status === 'failed') return NextResponse.json({ error: 'Job is not available for completion' }, { status: 409 });
@@ -118,7 +141,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'This format requires the Creator plan' }, { status: 403 });
     }
 
-    const jobConfig = JSON.parse(job.configJson || '{}') as { platformId?: PlatformId };
+    const jobConfig = JSON.parse(job.configJson || '{}') as { platformId?: PlatformId; duration?: unknown; hasAudio?: unknown };
     const authoritativePlatformId = jobConfig.platformId;
     const preset = LAUNCH_PLATFORM_PRESETS.find((item) => item.id === authoritativePlatformId);
     if (!preset) return NextResponse.json({ error: 'Invalid platformId' }, { status: 400 });
@@ -146,6 +169,47 @@ export async function POST(request: NextRequest) {
     }
     if (!source.eTag) return NextResponse.json({ error: 'Uploaded object cannot be finalized' }, { status: 503 });
 
+    // PHASE 3 — parse the ACTUAL artifact, before any claim, quota or DB
+    // write exists. `collectMp4Metadata` walks the stored object with bounded
+    // ranged reads pinned to the eTag above: 16 KiB head, 8-byte box headers,
+    // the moov box — the mdat payload (up to 2 GiB) is never buffered.
+    // Duration precedence mirrors the recording charge (body, then job
+    // config); hasAudio is the encoder's ground-truth probe, not a badge.
+    // A structural failure deletes the staging object (no invalid artifact
+    // lingers) and leaves the job in 'uploading', so a corrected re-upload +
+    // complete can retry. Reader/IO errors are NOT caught here on purpose:
+    // they propagate to the outer handler as a retryable 500 with the staging
+    // object intact, because they are not evidence against the artifact.
+    const claimedDuration = normalizeClaimedDuration(duration) ?? normalizeClaimedDuration(jobClaimedDurationSeconds(job.configJson));
+    const claimedHasAudio = normalizeClaimedHasAudio(hasAudio) ?? normalizeClaimedHasAudio(jobConfig.hasAudio);
+    const collected = await collectMp4Metadata(
+      async (offset, length) => {
+        const bytes = await getObjectRange(stagingKey, offset, offset + length - 1, source.eTag);
+        // A vanished/changed object is a read failure, not artifact evidence:
+        // let it propagate to the outer handler as a retryable 500 with the
+        // staging object intact.
+        if (!bytes) throw new Error('artifact range read returned nothing');
+        return bytes;
+      },
+      source.size,
+    );
+    const verification = verifyExportArtifact(
+      collected ? collected.combined : null,
+      {
+        width: expectedDimensions.width,
+        height: expectedDimensions.height,
+        durationSeconds: claimedDuration,
+        hasAudio: claimedHasAudio,
+        sizeBytes: source.size,
+      },
+      collected ? { ftypSeen: collected.ftypSeen, mdatSeen: collected.mdatSeen } : undefined,
+    );
+    if (!verification.ok) {
+      console.warn(`complete: artifact verification failed (${verification.code}) for job ${jobId}`);
+      try { await deleteRecording(stagingKey); } catch {}
+      return NextResponse.json({ error: describeArtifactFailure(verification.code) }, { status: 400 });
+    }
+
     const dailyAllowance = getDailyRecordingAllowanceSeconds(user.plan);
     const recordingCharge = dailyAllowance === null
       ? 0
@@ -157,7 +221,8 @@ export async function POST(request: NextRequest) {
     if (!await claimExportJobFinalization(jobId, session.user.id, stagingKey, finalizationToken)) {
       const latest = await findExportJobByIdAndUser(jobId, session.user.id);
       if (latest?.status === 'completed' && latest.resultExportId && latest.resultR2Key && latest.stagingR2Key === stagingKey) {
-        return NextResponse.json({ exportId: latest.resultExportId, r2Key: latest.resultR2Key });
+        const owned = await findExportByIdAndUser(latest.resultExportId, session.user.id);
+        if (owned) return NextResponse.json({ exportId: latest.resultExportId, r2Key: latest.resultR2Key });
       }
       return NextResponse.json({ error: 'Export is already being finalized. Retry shortly.' }, { status: 409 });
     }
@@ -238,7 +303,8 @@ export async function POST(request: NextRequest) {
         try { await deleteRecording(finalKey); } catch {}
         const latest = await findExportJobByIdAndUser(jobId, session.user.id);
         if (latest?.status === 'completed' && latest.resultExportId && latest.resultR2Key && latest.stagingR2Key === stagingKey) {
-          return NextResponse.json({ exportId: latest.resultExportId, r2Key: latest.resultR2Key });
+          const owned = await findExportByIdAndUser(latest.resultExportId, session.user.id);
+          if (owned) return NextResponse.json({ exportId: latest.resultExportId, r2Key: latest.resultR2Key });
         }
         return NextResponse.json({ error: 'Export is already being finalized. Retry shortly.' }, { status: 409 });
       }

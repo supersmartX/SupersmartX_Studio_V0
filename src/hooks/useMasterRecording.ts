@@ -11,8 +11,13 @@ interface UseMasterRecordingReturn {
    * Workflow A only. A NEW master: mints an id and persists a new row.
    * Never use this to attach to a take that is already in the library — that
    * would duplicate the recording (see `openStoredRecording`).
+   *
+   * `script` is the DC-1 snapshot: the script exactly as it is when this
+   * master comes into being, stored ON THE ROW so the video keeps its own
+   * script for the rest of its life regardless of what the global editor
+   * does afterwards.
    */
-  createMasterRecording: (blob: Blob, duration: number, hasAudio: boolean, sourceWidth?: number, sourceHeight?: number) => MasterRecording;
+  createMasterRecording: (blob: Blob, duration: number, hasAudio: boolean, sourceWidth?: number, sourceHeight?: number, script?: string) => MasterRecording;
   /**
    * Workflow B only. Attach an EXISTING library recording: adopts the stored
    * row's identity verbatim and never writes a new row, so previewing or
@@ -25,7 +30,9 @@ interface UseMasterRecordingReturn {
    */
   releaseMasterRecording: () => void;
   /**
-   * Explicit discard ("Record Again"). Destroys the stored bytes.
+   * Explicit discard. Destroys the stored bytes — so it must ONLY be called
+   * for a take recorded in this session, never while `isLibraryOriginal` is
+   * true (the row is the user's only copy of an existing video).
    */
   clearMasterRecording: () => void;
   restoreMasterRecording: () => Promise<boolean>;
@@ -37,6 +44,16 @@ interface UseMasterRecordingReturn {
    * finished take is waiting to be reviewed again.
    */
   isRestored: boolean;
+  /**
+   * Workflow B marker: the active take is a library ORIGINAL — a row the user
+   * already owns, opened from the Library (or restored after a document hop
+   * that began that way). It survives in sessionStorage so the mark is still
+   * known after a reload / OAuth / payment return. "Record Again" on such a
+   * take must never call `clearMasterRecording` — it detaches into a clean
+   * session and leaves the row in the library. Workflow A takes (recorded in
+   * this session) are false, so the explicit discard still destroys them.
+   */
+  isLibraryOriginal: boolean;
 }
 
 export function useMasterRecording(): UseMasterRecordingReturn {
@@ -52,11 +69,18 @@ export function useMasterRecording(): UseMasterRecordingReturn {
   // flight when "New Video" was clicked would land afterwards and re-attach the
   // very take the user just asked to leave behind.
   const newSessionRef = useRef(false);
+  const NEW_SESSION_KEY = 'sxs-new-session-intent';
+  // Workflow B's mark. Persisted like the intent key, because the question
+  // "is this take a library original?" must still have the right answer in the
+  // NEXT document (reload, OAuth return, payment return) — that is exactly
+  // where the discard decision used to destroy the row.
+  const ORIGIN_KEY = 'sxs-master-origin';
+  const [isLibraryOriginal, setIsLibraryOriginal] = useState(false);
 
   masterRef.current = masterRecording;
 
   const createMasterRecording = useCallback(
-    (blob: Blob, duration: number, hasAudio: boolean, sourceWidth = 0, sourceHeight = 0): MasterRecording => {
+    (blob: Blob, duration: number, hasAudio: boolean, sourceWidth = 0, sourceHeight = 0, script?: string): MasterRecording => {
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
       }
@@ -75,11 +99,32 @@ export function useMasterRecording(): UseMasterRecordingReturn {
         sourceWidth,
         sourceHeight,
         createdAt: new Date().toISOString(),
+        // The snapshot belongs to THIS video from now on: the row below
+        // carries it, and later edits to the global script editor must not
+        // reach it (DC-1).
+        script,
       };
 
       // A take finished in this document is authoritative: it clears the
       // "clean new session" latch so the pending restore path stays usable.
       newSessionRef.current = false;
+      // ...and the same must hold for the PERSISTED latch. "New Video" wrote
+      // `sxs-new-session-intent`; leaving it set meant the reload after
+      // "New Video → record" refused to restore the very take just recorded:
+      // the row was in IndexedDB but never came back out of it.
+      try {
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.removeItem(NEW_SESSION_KEY);
+        }
+      } catch {}
+      // A brand-new take is Workflow A: it can never BE a library original,
+      // so it must not inherit the previous session's mark.
+      try {
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.removeItem(ORIGIN_KEY);
+        }
+      } catch {}
+      setIsLibraryOriginal(false);
 
       setMasterRecording(recording);
       masterRef.current = recording;
@@ -98,6 +143,9 @@ export function useMasterRecording(): UseMasterRecordingReturn {
         aspectRatio: '16:9',
         createdAt: recording.createdAt,
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        // DC-1: the row is the snapshot's permanent home — reopening this
+        // video after any document hop brings the same script back.
+        script: recording.script,
       }).catch(() => {});
 
       cleanupExpired().catch(() => {});
@@ -134,6 +182,10 @@ export function useMasterRecording(): UseMasterRecordingReturn {
       sourceWidth: stored.width,
       sourceHeight: stored.height,
       createdAt: stored.createdAt,
+      // Opening a library video must restore ITS script (DC-1): the stored
+      // row's snapshot is authoritative for this video, not the editor's
+      // current draft.
+      script: stored.script,
     };
 
     // The user deliberately selected this take, so the "clean new session"
@@ -142,6 +194,20 @@ export function useMasterRecording(): UseMasterRecordingReturn {
     // storage and reviews exactly like a restored one.
     newSessionRef.current = false;
     restoreStartedRef.current = true;
+    try {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.removeItem(NEW_SESSION_KEY);
+      }
+    } catch {}
+    // Workflow B: this row IS a library original. Marked (persisted) so that
+    // if the next document restores this take, its discard still knows the row
+    // is not this session's to destroy.
+    try {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem(ORIGIN_KEY, 'library');
+      }
+    } catch {}
+    setIsLibraryOriginal(true);
 
     setMasterRecording(recording);
     masterRef.current = recording;
@@ -160,9 +226,22 @@ export function useMasterRecording(): UseMasterRecordingReturn {
       blobUrlRef.current = '';
     }
     newSessionRef.current = true;
+    try {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem(NEW_SESSION_KEY, '1');
+      }
+    } catch {}
+    // The session is over: whatever take comes next is not this library
+    // original, so the mark goes with it.
+    try {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.removeItem(ORIGIN_KEY);
+      }
+    } catch {}
     setMasterRecording(null);
     masterRef.current = null;
     setIsRestored(false);
+    setIsLibraryOriginal(false);
   }, []);
 
   const clearMasterRecording = useCallback(() => {
@@ -172,9 +251,22 @@ export function useMasterRecording(): UseMasterRecordingReturn {
       blobUrlRef.current = '';
     }
     newSessionRef.current = true;
+    try {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem(NEW_SESSION_KEY, '1');
+      }
+    } catch {}
+    // The take is gone, so is the mark that protected it. (The caller must
+    // have checked `isLibraryOriginal` first — this is the Workflow A path.)
+    try {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.removeItem(ORIGIN_KEY);
+      }
+    } catch {}
     setMasterRecording(null);
     masterRef.current = null;
     setIsRestored(false);
+    setIsLibraryOriginal(false);
     // The IndexedDB row is the only copy of these bytes. Leaving it behind
     // meant "record again" / "open library" merely HID the take: the next
     // restore pulled the very same recording straight back out of storage.
@@ -186,7 +278,21 @@ export function useMasterRecording(): UseMasterRecordingReturn {
   const restoreMasterRecording = useCallback(async (): Promise<boolean> => {
     // "New Video" ended the previous session. A restore that was already in
     // flight must not resurrect the take the user just walked away from.
-    if (newSessionRef.current) return false;
+    let hasNewSessionIntent = false;
+    try {
+      if (typeof window !== 'undefined') {
+        hasNewSessionIntent = window.sessionStorage.getItem(NEW_SESSION_KEY) === '1';
+      }
+    } catch {}
+    if (newSessionRef.current || hasNewSessionIntent) {
+      try {
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.removeItem(NEW_SESSION_KEY);
+        }
+      } catch {}
+      newSessionRef.current = true;
+      return false;
+    }
     // One attempt per document. Without this an explicit discard re-triggers
     // the page's restore effect, which resurrects the take the user just threw
     // away — and lands them back in review with no way to leave.
@@ -218,7 +324,22 @@ export function useMasterRecording(): UseMasterRecordingReturn {
         sourceWidth: stored.width,
         sourceHeight: stored.height,
         createdAt: stored.createdAt,
+        // Cross-document restore (reload / OAuth / payment return): the take
+        // comes back WITH its snapshot, so the editor shows this video's
+        // script — never a stale draft (DC-1).
+        script: stored.script,
       };
+
+      // Only a restore that actually ATTACHES the take reads the mark: a
+      // blocked or empty restore never reaches here, so no stale origin can
+      // leak into a session that ends up holding a different take.
+      let fromLibrary = false;
+      try {
+        if (typeof window !== 'undefined') {
+          fromLibrary = window.sessionStorage.getItem(ORIGIN_KEY) === 'library';
+        }
+      } catch {}
+      setIsLibraryOriginal(fromLibrary);
 
       setMasterRecording(recording);
       masterRef.current = recording;
@@ -246,5 +367,6 @@ export function useMasterRecording(): UseMasterRecordingReturn {
     clearMasterRecording,
     restoreMasterRecording,
     isRestored,
+    isLibraryOriginal,
   };
 }

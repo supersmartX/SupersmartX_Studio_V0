@@ -371,12 +371,30 @@ export async function atomicIncrementUploadCount(
     if (maxStorageBytes !== null && currentStats.storageBytes + fileSize > maxStorageBytes) {
       return { allowed: false, reason: `Storage limit reached`, stats: currentStats };
     }
-    // Row doesn't exist yet — create it and allow
+    // Row doesn't exist yet — create it, then RE-RUN the same conditional
+    // increment. Phase 2.11: the old unconditional `SET upload_count = 1` here
+    // raced a concurrent first upload and overwrote its increment (lost update
+    // → under-counted uploads/storage, i.e. quota could be bypassed).
     await ensureUserStatsRow(userId);
-    await db.execute({
-      sql: `UPDATE user_stats SET upload_count = 1, storage_bytes = ? WHERE user_id = ?`,
-      args: [fileSize, userId],
+    const retry = await db.execute({
+      sql: `UPDATE user_stats
+            SET upload_count = upload_count + 1, storage_bytes = storage_bytes + ?
+            WHERE user_id = ? ${whereClause}`,
+      args,
     });
+    if (retry.rowsAffected === 0) {
+      // The row now exists but a limit was hit between the two attempts.
+      const racedStats = await getUserStats(userId);
+      if (maxUploads !== null && racedStats.uploadCount >= maxUploads) {
+        return { allowed: false, reason: `Upload limit reached (${maxUploads} files)`, stats: racedStats };
+      }
+      if (maxStorageBytes !== null && racedStats.storageBytes + fileSize > maxStorageBytes) {
+        return { allowed: false, reason: `Storage limit reached`, stats: racedStats };
+      }
+      // Neither limit explains the miss — refuse rather than risk an
+      // unbounded write (the caller reports this as a quota denial).
+      return { allowed: false, reason: `Storage limit reached`, stats: racedStats };
+    }
     const newStats = await getUserStats(userId);
     return { allowed: true, stats: newStats };
   }
@@ -1098,6 +1116,38 @@ export async function createPendingOrder(order: {
     }
     throw e;
   }
+}
+
+/**
+ * Most recent pending order for a user that has NOT been claimed by
+ * fulfilment (processed_webhooks) and was created within `windowMs`.
+ *
+ * Phase 2.6 uses this to refuse a second payable order while an earlier one
+ * could still settle — paying both would leave the second payment rejected
+ * with `active_plan_exists` and no entitlement. Whether the returned order
+ * still blocks is decided by the caller's authoritative Cashfree probe
+ * (terminal-failed orders release the block immediately).
+ */
+export async function findRecentUnsettledPendingOrder(
+  userId: string,
+  windowMs: number,
+): Promise<{ orderId: string; createdAt: string } | null> {
+  await ensureMigrated();
+  const db = getDb();
+  const since = new Date(Date.now() - windowMs).toISOString();
+  const result = await db.execute({
+    sql: `SELECT p.order_id, p.created_at
+          FROM pending_orders p
+          LEFT JOIN processed_webhooks w ON w.order_id = p.order_id
+          WHERE p.user_id = ? AND w.order_id IS NULL
+            AND datetime(p.created_at) > datetime(?)
+          ORDER BY datetime(p.created_at) DESC
+          LIMIT 1`,
+    args: [userId, since],
+  });
+  const row = result.rows[0];
+  if (!row) return null;
+  return { orderId: String(row.order_id), createdAt: String(row.created_at) };
 }
 
 export async function findPendingOrder(orderId: string): Promise<{

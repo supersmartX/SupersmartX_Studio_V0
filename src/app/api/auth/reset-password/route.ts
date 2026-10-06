@@ -7,8 +7,10 @@ import { validatePassword } from '@/lib/validation';
 
 export async function POST(request: NextRequest) {
   try {
-    // Rate limit: 5 requests per minute per IP
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    // Rate limit: 5 requests per minute per IP. Last XFF entry (the
+    // proxy-appended peer), matching the login limiter — a client-supplied
+    // prefix entry would otherwise let callers pick their own rate-limit key.
+    const ip = request.headers.get('x-forwarded-for')?.split(',').pop()?.trim() || 'unknown';
     const { allowed, retryAfterMs } = rateLimit(`reset:${ip}`, 5, 60_000);
     if (!allowed) {
       return NextResponse.json(
