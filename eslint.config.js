@@ -7,7 +7,7 @@ const reactHooksPlugin = require('eslint-plugin-react-hooks');
 const jsxA11yPlugin = require('eslint-plugin-jsx-a11y');
 
 module.exports = [
-  { ignores: ['.next/**', 'node_modules/**', 'next.config.ts'] },
+  { ignores: ['.next/**', 'node_modules/**', 'next.config.ts', 'storybook-static/**'] },
   // Base config for JS/TS files
   {
     files: ['src/**/*.{js,jsx,ts,tsx}'],
