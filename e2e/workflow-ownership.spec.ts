@@ -232,7 +232,7 @@ test.describe('TEST 6 — the platform lock is not weakened in the existing-reco
 
     const upgrade = page.getByRole('dialog', { name: 'Create for TikTok with Creator' });
     await expect(upgrade).toBeVisible({ timeout: 30_000 });
-    await expect(upgrade.getByRole('button', { name: /^(Continue|Buy Creator access)$/ })).toBeVisible();
+    await expect(upgrade.getByRole('button', { name: /^(Create account to purchase|Buy Creator access)$/ })).toBeVisible();
 
     // Refusing the change must not quietly switch the platform behind the
     // user's back, and must not disturb the recording it was opened for.

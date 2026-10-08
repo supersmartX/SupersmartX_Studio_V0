@@ -125,6 +125,9 @@ export default function HomePage() {
   // Checkout intent from landing page (e.g. ?checkout=creator_monthly → open payment form directly)
   const [checkoutIntent, setCheckoutIntent] = useState<{ tier: 'creator'; billingPeriod: 'monthly' | 'yearly' } | null>(null);
   const [pricingInitialStep, setPricingInitialStep] = useState<'select' | 'form'>('select');
+  // UX-005: which AuthModal screen to open — 'login' for header "Log in",
+  // 'register' (default) for every purchase/guard flow, set at open time.
+  const [authIntent, setAuthIntent] = useState<'register' | 'login'>('register');
 
   const handlePricingClick = useCallback(() => {
     setPricingInitialStep('select');
@@ -185,6 +188,7 @@ export default function HomePage() {
     if (!session?.user) {
       // Guest: auth first, then pricing after login
       setPendingPricingAfterAuth(true);
+      setAuthIntent('register');
       ui.setIsAuthModalOpen(true);
     } else {
       // Free logged-in user: go directly to pricing/checkout
@@ -197,6 +201,7 @@ export default function HomePage() {
   const handlePricingAuthRequired = useCallback(() => {
     setPendingPricingAfterAuth(true);
     ui.setIsPricingModalOpen(false);
+    setAuthIntent('register');
     ui.setIsAuthModalOpen(true);
   }, [ui]);
 
@@ -245,6 +250,7 @@ export default function HomePage() {
       return () => clearTimeout(t);
     } else {
       setPendingPricingAfterAuth(true);
+      setAuthIntent('register');
       const t = setTimeout(() => ui.setIsAuthModalOpen(true), 400);
       return () => clearTimeout(t);
     }
@@ -796,7 +802,10 @@ export default function HomePage() {
           onExport={() => ui.setIsDrawerVisible(true)}
           onShare={share}
           onToggleInspector={handleToggleInspector}
-          onSignIn={ui.handleAuthRequired}
+          onSignIn={() => {
+            setAuthIntent('login');
+            ui.handleAuthRequired();
+          }}
           userPlan={userPlan}
           onPricingClick={handlePricingClick}
         />
@@ -937,7 +946,10 @@ export default function HomePage() {
                   isAuthenticated={!!session?.user}
                   userPlan={userPlan}
                   refreshKey={exportJobs.length}
-                  onAuthRequired={ui.handleAuthRequired}
+                  onAuthRequired={() => {
+                    setAuthIntent('register');
+                    ui.handleAuthRequired();
+                  }}
                   // Workflow B: attach the EXISTING master. This used to call
                   // createMasterRecording, which minted a fresh
                   // `master-<ts>-<rand>` id and re-saved the row — so opening a
@@ -1033,7 +1045,10 @@ export default function HomePage() {
         showToast={showToast}
         isAuthenticated={!!session?.user}
         userPlan={session?.user?.plan || 'free'}
-        onAuthRequired={ui.handleAuthRequired}
+        onAuthRequired={() => {
+          setAuthIntent('register');
+          ui.handleAuthRequired();
+        }}
         onDownloadLimitReached={handleUpgradeClick}
         exportConfig={exportConfig}
         onSelectPlatform={selectPlatform}
@@ -1071,6 +1086,7 @@ export default function HomePage() {
 
       <AuthModal
         isOpen={ui.isAuthModalOpen}
+        intent={authIntent}
         onClose={() => {
           setPendingPricingAfterAuth(false);
           ui.setIsAuthModalOpen(false);

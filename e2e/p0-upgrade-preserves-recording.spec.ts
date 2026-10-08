@@ -346,11 +346,12 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       // The prompt is format-specific, so this is also the proof that the tap
       // registered on Reels and not on some neighbouring button.
       await expect(upgradePrompt.getByRole('heading', { name: `Create for ${REELS.label}` })).toBeVisible();
-      // Guests get "Continue"; only signed-in Free users get "Buy Creator access".
-      await upgradePrompt.getByRole('button', { name: /^(Continue|Buy Creator access)$/ }).click();
+      // Guests get the consequence-bearing "Create account to purchase"; only
+      // signed-in Free users get "Buy Creator access".
+      await upgradePrompt.getByRole('button', { name: /^(Create account to purchase|Buy Creator access)$/ }).click();
 
       // Checkout demands an identity first → the real registration form.
-      const authDialog = page.getByRole('dialog', { name: 'Log in or create account' });
+      const authDialog = page.getByRole('dialog', { name: 'Create New Profile' });
       await authDialog.waitFor({ state: 'visible', timeout: 15000 });
       await authDialog.getByPlaceholder('John').fill('P0');
       await authDialog.getByPlaceholder('Doe').fill('User');

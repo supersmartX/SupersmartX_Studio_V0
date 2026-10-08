@@ -28,7 +28,7 @@ export function IconRail({
           <button
             onClick={() => onPanelChange('studio')}
             aria-current={activePanel === 'studio' ? 'page' : undefined}
-            className={`flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+            className={`flex items-center gap-2.5 px-2 py-2 min-h-[40px] rounded-lg text-[13px] font-medium transition-colors ${
               activePanel === 'studio'
                 ? 'bg-accent/15 text-accent'
                 : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
@@ -43,7 +43,7 @@ export function IconRail({
           <button
             onClick={() => onPanelChange('library')}
             aria-current={activePanel === 'library' ? 'page' : undefined}
-            className={`flex items-center justify-between px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+            className={`flex items-center justify-between px-2 py-2 min-h-[40px] rounded-lg text-[13px] font-medium transition-colors ${
               activePanel === 'library'
                 ? 'bg-accent/15 text-accent'
                 : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
@@ -65,7 +65,7 @@ export function IconRail({
         <Tooltip content="View keyboard shortcuts" side="right">
           <button
             onClick={onShowShortcuts}
-            className="flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+            className="flex items-center gap-2.5 px-2 py-2 min-h-[40px] rounded-lg text-[13px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
           >
             <KeyboardIcon className="w-4 h-4" />
             Shortcuts

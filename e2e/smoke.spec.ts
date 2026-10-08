@@ -200,6 +200,13 @@ test.describe('Smoke Test - Auth Modal', () => {
       await page.getByRole('button', { name: 'Log In' }).first().click();
     }
     await expect(page.getByRole('dialog')).toBeVisible();
+    // UX-005: "Log in" now opens on the sign-in step; these smoke checks cover
+    // the chooser's surfaces, so step back to it.
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Back to all options' })
+      .click();
+    await expect(page.getByRole('dialog')).toBeVisible();
   }
 
   test('Google button visible', async ({ page }) => {
@@ -529,6 +536,13 @@ test.describe('Smoke Test - Auth Modal Behaviors', () => {
       await page.getByRole('button', { name: 'Log In' }).first().click();
     }
     await expect(page.getByRole('dialog')).toBeVisible();
+    // UX-005: "Log in" opens on the sign-in step; these behaviour checks cover
+    // the shared shell + registration form, so step back to the chooser.
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Back to all options' })
+      .click();
+    await expect(page.getByRole('dialog')).toBeVisible();
   }
 
   test('Escape closes the auth modal', async ({ page }) => {
@@ -560,7 +574,9 @@ test.describe('Smoke Test - Pricing Modal', () => {
     // 'networkidle' never settles here: the studio keeps live connections open
     // (session refresh, device polling). Assert on the dialog instead.
     await page.goto('/studio?checkout=creator_monthly', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('dialog', { name: /log in|email/i }).first()).toBeVisible({ timeout: 15000 });
+    // UX-005 relabelled the auth surfaces to match their visible headings:
+    // chooser = "Create New Profile", sign-in = "Enter your email".
+    await expect(page.getByRole('dialog', { name: /log in|email|create new profile/i }).first()).toBeVisible({ timeout: 15000 });
   });
 });
 

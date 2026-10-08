@@ -19,6 +19,12 @@ interface AuthModalProps {
   subtitle?: string;
   callbackUrl?: string;
   mode?: 'default' | 'download';
+  /**
+   * UX-005: which screen the dialog opens on. 'login' jumps straight to the
+   * sign-in step (header "Log in"); 'register' (default) opens the account
+   * chooser, preserving every existing purchase/guard flow.
+   */
+  intent?: 'register' | 'login';
 }
 
 export function AuthModal({
@@ -28,7 +34,9 @@ export function AuthModal({
   title = 'Create an account or log in',
   callbackUrl = '/studio',
   mode = 'default',
+  intent = 'register',
 }: AuthModalProps) {
+  const initialStep: 'chooser' | 'email' = intent === 'login' ? 'email' : 'chooser';
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -36,10 +44,17 @@ export function AuthModal({
   const [loginPassword, setLoginPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
-  const [step, setStep] = useState<'chooser' | 'email'>('chooser');
+  const [step, setStep] = useState<'chooser' | 'email'>(initialStep);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const { update } = useSession();
+
+  // The modal body persists across opens (it only unmounts its output), so the
+  // step must be re-seated to the CURRENT intent on every open — resetForm runs
+  // at close time under the previous intent and can't know what opens next.
+  useEffect(() => {
+    if (isOpen) setStep(initialStep);
+  }, [isOpen, initialStep]);
 
   const handleGoogleSignIn = useCallback(async () => {
     setIsLoading(true);
@@ -144,7 +159,7 @@ export function AuthModal({
   if (!shouldRender) return null;
 
   return (
-    <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={step === 'chooser' ? 'Log in or create account' : 'Enter your email'} {...swipeHandlers}>
+    <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={step === 'chooser' ? 'Create New Profile' : 'Enter your email'} {...swipeHandlers}>
       <div
         className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
         onClick={handleModalClose}
@@ -283,7 +298,7 @@ export function AuthModal({
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
                         aria-label={showPassword ? 'Hide password' : 'Show password'}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
+                        className="absolute inset-y-0 right-0 w-11 flex items-center justify-center text-text-muted hover:text-text-secondary transition-colors"
                       >
                         <EyeIcon visible={showPassword} />
                       </button>
@@ -310,7 +325,7 @@ export function AuthModal({
                   Already have an account?{' '}
                   <button
                     onClick={() => setStep('email')}
-                    className="text-white font-medium hover:underline"
+                    className="relative text-white font-medium hover:underline after:absolute after:-inset-x-3 after:-inset-y-3 after:content-['']"
                   >
                     Log in
                   </button>
@@ -348,7 +363,7 @@ export function AuthModal({
                       type="button"
                       onClick={() => setShowLoginPassword(!showLoginPassword)}
                       aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
+                      className="absolute inset-y-0 right-0 w-11 flex items-center justify-center text-text-muted hover:text-text-secondary transition-colors"
                     >
                       <EyeIcon visible={showLoginPassword} />
                     </button>
@@ -368,7 +383,10 @@ export function AuthModal({
                 </button>
 
                 <p className="text-sm text-text-secondary text-center">
-                  <button onClick={handleBack} className="text-text-primary font-medium hover:underline">
+                  <button
+                    onClick={handleBack}
+                    className="relative text-text-primary font-medium hover:underline after:absolute after:-inset-x-3 after:-inset-y-3 after:content-['']"
+                  >
                     Back to all options
                   </button>
                 </p>

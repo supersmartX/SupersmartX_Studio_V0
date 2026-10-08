@@ -126,7 +126,10 @@ export function InspectorPanel({
 
   // While a take is live, the camera canvas is the only surface the user needs —
   // the disposal panel recedes entirely so it never competes with the recording.
-  if (inspectorContext === 'recording') return null;
+  // Review collapses for the same reason: every panel section is prepare-only, so
+  // the drawer would render as an empty titled "Publish" region — a false
+  // affordance. Review keeps its own canvas hierarchy (PREVIEW AS → Export).
+  if (inspectorContext === 'recording' || inspectorContext === 'review') return null;
 
   // Compact (< 1280px): full-height slide-in drawer from the right, over the canvas.
   // Wide (>= 1280px): inline aside that shares the row with the IconRail.
@@ -272,7 +275,7 @@ function InspectorContent({
         <div className="flex flex-col gap-3">
           <button
             onClick={() => toggleSection('script')}
-            className="flex items-center justify-between w-full text-left"
+            className="relative flex items-center justify-between w-full text-left after:absolute after:-inset-y-3 after:inset-x-0 after:content-['']"
             aria-expanded={!collapsedSections.script}
           >
             <h3 className="text-[12px] font-semibold text-text-secondary">Script</h3>
@@ -317,7 +320,7 @@ function InspectorContent({
                 if (script.trim() && !window.confirm('Clear your script? This cannot be undone.')) return;
                 onClearScript();
               }}
-              className="text-[12px] text-text-secondary hover:text-text-primary transition-colors"
+              className="relative text-[12px] text-text-secondary hover:text-text-primary transition-colors after:absolute after:-inset-x-2 after:-inset-y-[11px] after:content-['']"
               suppressHydrationWarning
             >
               Clear
@@ -338,7 +341,7 @@ function InspectorContent({
         <div className="flex flex-col gap-3">
           <button
             onClick={() => toggleSection('teleprompter')}
-            className="flex items-center justify-between w-full text-left"
+            className="relative flex items-center justify-between w-full text-left after:absolute after:-inset-y-3 after:inset-x-0 after:content-['']"
             aria-expanded={!collapsedSections.teleprompter}
           >
             <h3 className="text-[12px] font-semibold text-text-secondary">Teleprompter</h3>
@@ -430,7 +433,7 @@ function InspectorContent({
                   onClick={() => updateSettings({ textAlignment: align })}
                   aria-label={`Align ${align}`}
                   aria-pressed={settings.textAlignment === align}
-                  className={`flex-1 flex items-center justify-center py-2 rounded-lg border text-xs font-medium transition-all ${
+                  className={`flex-1 flex items-center justify-center min-h-[40px] py-2 rounded-lg border text-xs font-medium transition-all ${
                     settings.textAlignment === align
                       ? 'bg-accent/15 text-accent border-accent/30'
                       : 'bg-elevated text-text-muted border-border-subtle hover:text-text-secondary hover:border-border-default'
@@ -482,7 +485,7 @@ function InspectorContent({
         <div className="flex flex-col gap-3">
           <button
             onClick={() => toggleSection('camera')}
-            className="flex items-center justify-between w-full text-left"
+            className="relative flex items-center justify-between w-full text-left after:absolute after:-inset-y-3 after:inset-x-0 after:content-['']"
             aria-expanded={!collapsedSections.camera}
           >
             <h3 className="text-[12px] font-semibold text-text-secondary">Camera &amp; Preview</h3>

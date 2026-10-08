@@ -107,7 +107,7 @@ export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgra
               onUpgrade();
             }}
           >
-            {isGuest ? 'Continue' : 'Buy Creator access'}
+            {isGuest ? 'Create account to purchase' : 'Buy Creator access'}
           </Button>
           <Button variant="ghost" size="md" className="w-full" onClick={onClose}>
             {isGuest ? 'Use Free instead' : 'Not now'}

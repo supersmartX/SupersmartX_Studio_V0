@@ -29,7 +29,9 @@ export function PlatformPreviewSwitcher({
       <span className="text-[11px] font-medium text-text-muted uppercase tracking-wider">
         {label}
       </span>
-      <div className="flex items-center gap-1.5 overflow-x-auto px-2 max-w-full scrollbar-none">
+      {/* py-1.5 keeps each chip's ±5px hit-expansion (P1-7) inside this
+          overflow-x-auto row — computed overflow-y would clip it otherwise. */}
+      <div className="flex items-center gap-1.5 overflow-x-auto px-2 py-1.5 max-w-full scrollbar-none">
         {LAUNCH_PLATFORM_PRESETS.map((preset) => {
           const isActive = preset.id === selectedPlatformId;
           const locked = isLocked?.(preset.id) ?? false;
@@ -43,7 +45,7 @@ export function PlatformPreviewSwitcher({
                   onSelect(preset.id);
                 }
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium whitespace-nowrap transition-all duration-150 shrink-0 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 relative after:absolute after:-inset-y-[5px] after:inset-x-0 after:content-[''] rounded-full text-[12px] font-medium whitespace-nowrap transition-all duration-150 shrink-0 ${
                 isActive
                   ? 'text-white shadow-sm'
                   : locked

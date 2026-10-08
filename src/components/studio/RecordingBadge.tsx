@@ -10,8 +10,11 @@ export function RecordingBadge({ recordingState }: RecordingBadgeProps) {
 
   if (!isRecording && !isPaused) return null;
 
+  // UX-006: exclusive top-left corner — the Focus View button owns
+  // top-2/top-3 left-2/left-3 (44px tall), so the pill sits below it at
+  // every breakpoint instead of being painted over by it.
   return (
-    <div className="absolute top-3 left-3 z-20 animate-fade-in" role="status" aria-live="polite">
+    <div className="absolute top-14 left-2 sm:top-16 sm:left-3 z-20 animate-fade-in" role="status" aria-live="polite">
       <div
         className={`
           flex items-center gap-2 px-2.5 py-1 rounded-full

@@ -463,6 +463,14 @@ export async function openAuthFromLanding(page: Page): Promise<void> {
     await page.getByRole('button', { name: 'Log In' }).first().click();
   }
   await expect(page.getByRole('dialog')).toBeVisible();
+  // UX-005: "Log in" now opens directly on the sign-in step. Tests in this
+  // suite exercise registration/Google surfaces, so step back to the account
+  // chooser that gathers every option.
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Back to all options' })
+    .click();
+  await expect(page.getByRole('dialog')).toBeVisible();
 }
 
 // Re-exported so specs can configure fake media devices without importing Playwright twice.

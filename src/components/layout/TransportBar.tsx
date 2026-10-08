@@ -91,17 +91,17 @@ export function TransportBar({
               {formatTime(elapsedSeconds)}
             </span>
             {isRecording && (
-              <span className="text-[10px] text-text-muted hidden sm:block">Recording</span>
+              <span className="text-[10px] text-text-muted">Recording</span>
             )}
             {isPaused && (
-              <span className="text-[10px] text-warning hidden sm:block">Paused</span>
+              <span className="text-[10px] text-warning">Paused</span>
             )}
           </div>
         )}
         {isIdle && !hasRecording && (
           <div className="flex flex-col min-w-0">
             <span className="text-[15px] sm:text-[17px] font-mono font-bold text-text-primary tabular-nums">00:00</span>
-            <span className="text-[11px] text-text-muted hidden sm:block">Ready</span>
+            <span className="text-[11px] text-text-muted">Ready</span>
           </div>
         )}
 
@@ -178,6 +178,7 @@ export function TransportBar({
         {isRecording && (
           <button
             onClick={onPause}
+            aria-label="Pause Recording"
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors min-w-[44px] min-h-[44px] justify-center ${
               confirmStop
                 ? 'text-text-muted'
@@ -191,6 +192,9 @@ export function TransportBar({
         {isPaused && (
           <button
             onClick={handleStopClick}
+            // Stable accessible name: the visible label arms Stop → Confirm,
+            // but screen readers always hear "Stop Recording".
+            aria-label="Stop Recording"
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors min-w-[44px] min-h-[44px] justify-center ${
               confirmStop
                 ? 'text-recording bg-recording/10 animate-pulse'

@@ -50,7 +50,7 @@ export function Header({
     <header className="h-12 border-b border-border-subtle bg-surface flex items-center px-3 sm:px-5 justify-between shrink-0 z-30 safe-area-top">
       {/* Left: Logo */}
       <div className="flex items-center min-w-0">
-        <Link href="/" className="text-[14px] font-semibold tracking-tight text-text-primary truncate hover:text-text-secondary transition-colors" aria-label="SupersmartX Studio">
+        <Link href="/" className="py-2.5 text-[14px] font-semibold tracking-tight text-text-primary truncate hover:text-text-secondary transition-colors" aria-label="SupersmartX Studio">
           SupersmartX<span className="text-accent font-normal"> Studio</span>
         </Link>
       </div>

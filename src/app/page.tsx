@@ -59,6 +59,9 @@ export default function LandingPage() {
   const router = useRouter();
   const { data: session } = useSession();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  // UX-005: 'login' opens the sign-in step (Log in buttons), 'register'
+  // (default) opens the account chooser (checkout / creator flows).
+  const [authIntent, setAuthIntent] = useState<'register' | 'login'>('register');
   const [menuOpen, setMenuOpen] = useState(false);
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
 
@@ -69,6 +72,7 @@ export default function LandingPage() {
     if (session?.user) {
       router.push(`/studio?checkout=${plan}`);
     } else {
+      setAuthIntent('register');
       setIsAuthModalOpen(true);
     }
   }, [billingPeriod, session?.user, router]);
@@ -202,6 +206,13 @@ export default function LandingPage() {
   font-weight: 600;
   letter-spacing: -0.03em;
   color: #fff;
+  /* UX-007: 24px-tall logo link gets a ≥40px hit box without layout shift. */
+  position: relative;
+}
+.lsx-logo::after {
+  content: '';
+  position: absolute;
+  inset: -10px -8px;
 }
 .lsx-logo-suffix { font-weight: 400; }
 
@@ -461,13 +472,13 @@ export default function LandingPage() {
   .lsx-page { --lsx-h1: 54px; --lsx-lede: 16px; --lsx-header-x: 48px; --lsx-stats-x: 80px; --lsx-copy-max: 900px; }
 }
 @media (min-width: 901px) and (max-width: 1279px) {
-  .lsx-page { --lsx-logo: 15px; --lsx-nav: 13px; --lsx-nav-h: 36px; --lsx-btn: 13px; --lsx-btn-h: 38px; --lsx-hero-btn-h: 40px; --lsx-h1: 42px; --lsx-lede: 15px; --lsx-badge: 12px; --lsx-stat-size: 12.5px; --lsx-header-y: 16px; --lsx-header-x: 28px; --lsx-stats-x: 36px; --lsx-stats-y: 28px; --lsx-hero-gap: 64px; --lsx-copy-max: 760px; --lsx-lede-max: 440px; }
+  .lsx-page { --lsx-logo: 15px; --lsx-nav: 13px; --lsx-nav-h: 40px; --lsx-btn: 13px; --lsx-btn-h: 40px; --lsx-hero-btn-h: 40px; --lsx-h1: 42px; --lsx-lede: 15px; --lsx-badge: 12px; --lsx-stat-size: 12.5px; --lsx-header-y: 16px; --lsx-header-x: 28px; --lsx-stats-x: 36px; --lsx-stats-y: 28px; --lsx-hero-gap: 64px; --lsx-copy-max: 760px; --lsx-lede-max: 440px; }
 }
 @media (min-width: 901px) and (max-height: 850px) {
   .lsx-page { --lsx-header-y: 14px; --lsx-stats-y: 24px; --lsx-hero-gap: 48px; --lsx-h1: 40px; }
 }
 @media (min-width: 901px) and (max-height: 720px) {
-  .lsx-page { --lsx-h1: 34px; --lsx-lede: 14px; --lsx-hero-gap: 32px; --lsx-stats-y: 18px; --lsx-nav-h: 30px; --lsx-btn-h: 34px; --lsx-hero-btn-h: 36px; }
+  .lsx-page { --lsx-h1: 34px; --lsx-lede: 14px; --lsx-hero-gap: 32px; --lsx-stats-y: 18px; --lsx-nav-h: 40px; --lsx-btn-h: 40px; --lsx-hero-btn-h: 40px; }
 }
 
 @media (min-width: 901px) {
@@ -718,6 +729,13 @@ export default function LandingPage() {
   color: rgba(255,255,255,0.3);
   text-decoration: none;
   transition: color 0.2s ease;
+  /* UX-007: 18px-tall legal links grow to a ≥40px hit box (no layout shift). */
+  position: relative;
+}
+.lsx-footer-link::after {
+  content: '';
+  position: absolute;
+  inset: -11px -8px;
 }
 .lsx-footer-link:hover {
   color: rgba(255,255,255,0.6);
@@ -789,7 +807,10 @@ export default function LandingPage() {
             <div className="lsx-appear lsx-appear--scale" style={{ '--lsx-d': '0.34s' } as React.CSSProperties}>
               <button
                 type="button"
-                onClick={() => setIsAuthModalOpen(true)}
+                onClick={() => {
+                  setAuthIntent('login');
+                  setIsAuthModalOpen(true);
+                }}
                 className="lsx-btn lsx-btn-ghost"
                 style={{ marginRight: '8px' }}
               >
@@ -1050,6 +1071,7 @@ export default function LandingPage() {
 
       <AuthModal
         isOpen={isAuthModalOpen}
+        intent={authIntent}
         onClose={() => setIsAuthModalOpen(false)}
         callbackUrl={creatorCallbackUrl}
         onSuccess={handleLandingAuthSuccess}
@@ -1098,7 +1120,11 @@ export default function LandingPage() {
             <div className="lsx-mobile-nav-actions">
               <button
                 type="button"
-                onClick={() => { setIsAuthModalOpen(true); closeMenu(); }}
+                onClick={() => {
+                  setAuthIntent('login');
+                  setIsAuthModalOpen(true);
+                  closeMenu();
+                }}
                 className="lsx-btn lsx-btn-ghost lsx-mobile-nav-btn"
               >
                 Log in

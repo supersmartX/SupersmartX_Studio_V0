@@ -314,7 +314,7 @@ test.describe('STATE 1 — Anonymous Free', () => {
     expect(watermarkDraws, 'Free exports must burn the SupersmartX watermark into the frames').toBeGreaterThan(0);
 
     // No sign-in was ever requested.
-    await expect(page.getByRole('dialog', { name: /Log in or create account|Enter your email/ })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: /Create New Profile|Log in or create account|Enter your email/ })).toHaveCount(0);
 
     // LOCAL DOWNLOAD — from the blob, with no server round-trip.
     const downloadPromise = page.waitForEvent('download', { timeout: 30_000 });
@@ -328,7 +328,7 @@ test.describe('STATE 1 — Anonymous Free', () => {
     expect(size, 'downloaded file must not be empty').toBeGreaterThan(1000);
 
     // Still no sign-in prompt after the download.
-    await expect(page.getByRole('dialog', { name: /Log in or create account|Enter your email/ })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: /Create New Profile|Log in or create account|Enter your email/ })).toHaveCount(0);
 
     // NO R2 — the export landed in the local store, and the cloud surface was
     // never touched (it was hard-blocked for the whole test).

@@ -30,7 +30,7 @@ export function Select({ label, value, defaultValue, onChange, options, disabled
           {...(value !== undefined ? { value } : { defaultValue })}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
-          className="w-full bg-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary appearance-none cursor-pointer outline-none focus:border-accent transition-colors pr-8 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full min-h-[40px] bg-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary appearance-none cursor-pointer outline-none focus:border-accent transition-colors pr-8 disabled:opacity-40 disabled:cursor-not-allowed"
           suppressHydrationWarning
         >
           {options.map((opt) => (

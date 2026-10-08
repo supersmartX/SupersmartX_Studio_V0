@@ -22,13 +22,13 @@ export function DeviceSelectorBar({
   onRefresh,
 }: DeviceSelectorBarProps) {
   return (
-    <div className="h-10 border-b border-border-subtle/50 bg-surface/80 backdrop-blur-sm flex items-center px-3 sm:px-4 gap-2 sm:gap-3 shrink-0">
+    <div className="h-11 border-b border-border-subtle/50 bg-surface/80 backdrop-blur-sm flex items-center px-3 sm:px-4 gap-2 sm:gap-3 shrink-0">
       <div className="relative min-w-0 flex-1 sm:flex-none sm:w-auto">
         <select
           value={selectedVideoDevice}
           onChange={(e) => onVideoDeviceChange(e.target.value)}
           aria-label="Camera"
-          className="w-full sm:w-auto h-9 sm:h-7 bg-elevated border border-border-subtle rounded-md pl-7 pr-6 text-[11px] text-text-secondary appearance-none cursor-pointer outline-none focus:border-accent transition-colors truncate"
+          className="w-full sm:w-auto h-10 bg-elevated border border-border-subtle rounded-md pl-7 pr-6 text-[11px] text-text-secondary appearance-none cursor-pointer outline-none focus:border-accent transition-colors truncate"
           suppressHydrationWarning
         >
           {videoDevices.length === 0 ? (
@@ -56,7 +56,7 @@ export function DeviceSelectorBar({
           value={selectedAudioDevice}
           onChange={(e) => onAudioDeviceChange(e.target.value)}
           aria-label="Microphone"
-          className="w-full sm:w-auto h-9 sm:h-7 bg-elevated border border-border-subtle rounded-md pl-7 pr-6 text-[11px] text-text-secondary appearance-none cursor-pointer outline-none focus:border-accent transition-colors truncate"
+          className="w-full sm:w-auto h-10 bg-elevated border border-border-subtle rounded-md pl-7 pr-6 text-[11px] text-text-secondary appearance-none cursor-pointer outline-none focus:border-accent transition-colors truncate"
           suppressHydrationWarning
         >
           {audioDevices.length === 0 ? (
@@ -81,7 +81,7 @@ export function DeviceSelectorBar({
 
       <button
         onClick={onRefresh}
-        className="p-2.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0 sm:p-1.5 sm:min-w-0 sm:min-h-0"
+        className="p-2.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0 sm:p-1.5"
         aria-label="Refresh devices"
       >
         <RefreshIcon className="w-3.5 h-3.5" />

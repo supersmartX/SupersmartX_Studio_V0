@@ -7,6 +7,8 @@
 }
 .lsx-pricing-toggle-btn {
   padding: 10px 20px;
+  /* UX-007: measured 36px tall on small screens — hold a 40px floor. */
+  min-height: 40px;
   font-size: 13px;
   font-weight: 600;
   border-radius: 8px;

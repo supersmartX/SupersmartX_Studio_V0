@@ -26,7 +26,11 @@
   /* ── Color: Text ───────────────────────────────────────────────────────── */
   --color-text-primary:  #FAFAFA;
   --color-text-secondary:#A1A1AA;
-  --color-text-muted:    #52525B;
+  /* UX-001: was #52525B (2.44:1 on surface / 2.57:1 on canvas — WCAG AA fail).
+     #8D8D96 measures ≥4.5:1 on every background this token is used on:
+     surface 5.73, canvas 6.05, elevated 5.38, overlay 4.53, input 5.29 —
+     while staying a visible step below --color-text-secondary (7.36). */
+  --color-text-muted:    #8D8D96;
 
   /* ── Color: Accent (brand) ─────────────────────────────────────────────── */
   --color-accent:        #7C3AED;

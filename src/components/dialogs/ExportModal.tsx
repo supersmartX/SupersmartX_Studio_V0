@@ -531,9 +531,13 @@ export function ExportModal({
             </>
           )}
 
-          <div>
-            <DiscordFeedback onSuccess={showToast} />
-          </div>
+          {/* UX-004: community/feedback lives on the export-success step only —
+              never under the primary Export CTA in the task dialog. */}
+          {step === 'done' && (
+            <div>
+              <DiscordFeedback onSuccess={showToast} />
+            </div>
+          )}
         </div>
       </div>
     </div>

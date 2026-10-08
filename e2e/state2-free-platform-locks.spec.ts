@@ -109,7 +109,7 @@ test.describe('STATE 2 — Free platform restrictions', () => {
       await expect(prompt.getByText('1080p with no watermark')).toBeVisible();
 
       // A guest cannot subscribe yet, and is told so rather than dumped into checkout.
-      await expect(prompt.getByRole('button', { name: 'Continue' })).toBeVisible();
+      await expect(prompt.getByRole('button', { name: 'Create account to purchase' })).toBeVisible();
       await expect(prompt.getByRole('button', { name: 'Use Free instead' })).toBeVisible();
       await expect(prompt.getByText('Account required to buy Creator access and download')).toBeVisible();
 
@@ -137,7 +137,7 @@ test.describe('STATE 2 — Free platform restrictions', () => {
     const prompt = upgradePrompt(page, 'TikTok');
     await expect(prompt).toBeVisible();
 
-    await prompt.getByRole('button', { name: 'Continue' }).click();
+    await prompt.getByRole('button', { name: 'Create account to purchase' }).click();
 
     // Guest -> auth, not a payment wall and not an error.
     const authDialog = page.getByRole('dialog').filter({ hasText: /email|sign in|log in|create account/i }).first();
