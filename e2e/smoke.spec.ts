@@ -480,9 +480,13 @@ test.describe('Smoke Test - Studio UI States', () => {
       const drawer = page.getByRole('dialog', { name: 'Inspector panel' });
       await toggle.click();
       await expect(drawer).toHaveClass(/translate-x-0/);
-      // The open drawer covers the header toggle, so close via its backdrop —
-      // the same path a user takes.
-      await page.locator('.drawer-backdrop').click();
+      // The open drawer covers the header toggle, so close via its backdrop.
+      // Click the uncovered left strip (the drawer spans 85vw from the right) —
+      // the only point a user can actually reach once the drawer is open. A
+      // center click only ever landed by racing the 180ms slide-in and fails
+      // deterministically once the drawer is stable (flaked in the Phase 5
+      // full run: passed in one run, intercepted in the next).
+      await page.locator('.drawer-backdrop').click({ position: { x: 8, y: 400 } });
       await expect(drawer).toHaveClass(/translate-x-full/);
     }
   });

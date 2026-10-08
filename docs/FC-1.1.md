@@ -21,7 +21,7 @@ is inferred from the historical S0 audit.
 | Created | 2026-10-05 |
 | Mode | Read-only contract creation: no source, test, configuration, package, or existing documentation files were modified; only this file was created |
 | Tree | Working tree preserved uncommitted (Phase 0 + Phase 1 changes); HEAD `0a25fe7` |
-| Phases | Phase 0 and Phase 1 COMPLETE; Phases 2–5 NOT STARTED (§10) |
+| Phases | Phases 0–4 COMPLETE; Phase 5 NOT STARTED (§10; Phase 5 scope per CR-002) |
 
 ---
 
@@ -363,6 +363,15 @@ Recorded as **ACCEPTED / DOCUMENTED** — not implementation tasks.
 5. **Long-script auto-stop has unit coverage; the current e2e proves the
    complete short-script browser path.**
 6. **Countdown beep / audio-device behavior was not changed in Phase 1.**
+7. **Voice speech-follow depends on browser SpeechRecognition support**
+   (CR-002, Phase 5). Where `SpeechRecognition` /
+   `webkitSpeechRecognition` is unavailable (e.g. Firefox, unsupported
+   browsers), the voice control is not offered and timed scroll remains
+   the sole teleprompter driver. No Safari/WebKit work beyond the
+   existing unsupported gate (§11). Speech-follow is client-side only:
+   it performs no server call, no audio upload, and no third-party or
+   LLM-based matching — matching is local token alignment against the
+   displayed script.
 
 Do not turn these limitations into implementation tasks.
 
@@ -403,10 +412,10 @@ survive.
 |---|---|---|
 | Phase 0 | Recording/workflow ownership correctness | **COMPLETE** |
 | Phase 1 | Core recording loop correctness | **COMPLETE** |
-| Phase 2 | Server hardening | **NOT STARTED** |
-| Phase 3 | Export/artifact verification | **NOT STARTED** |
-| Phase 4 | Documentation / remaining product-contract cleanup | **NOT STARTED** |
-| Phase 5 | Auth regression closure | **NOT STARTED** |
+| Phase 2 | Server hardening | **COMPLETE** |
+| Phase 3 | Export/artifact verification | **COMPLETE** |
+| Phase 4 | Documentation / remaining product-contract cleanup | **COMPLETE** |
+| Phase 5 | Auth regression closure (Option C — narrow regression sweep of existing auth suites against HEAD; fix only actual regressions; no new authentication features; SEC-005/006/007/009 explicitly deferred to a future security-hardening phase) + voice speech-follow teleprompter (CR-002) + documentation reconciliation + `recordings/` read-only inventory | **NOT STARTED** |
 
 The exact historical DC-to-phase mapping is **UNKNOWN** where it cannot be
 proven; it is not inferred (§9).
@@ -427,7 +436,10 @@ via §14. Do not implement any of them:
 - Multi-tab guards
 - Job resume UI
 - Auto-renewal
-- New pricing / entitlement changes
+- New pricing / entitlement changes — *CR-002 exception (approved
+  2026-10-07): the voice speech-follow teleprompter is a new Creator
+  capability (Monthly, Annual, and legacy `pro_*`); Free and Guest have
+  no voice access; no pricing changes and no other entitlement changes*
 - Unrelated UI redesign
 - Onboarding tour
 
@@ -449,11 +461,13 @@ Before Phase 2 implementation begins:
 6. **Any Phase 2 requirement that depends on lost DC wording must receive
    an explicit new FC-1.1 decision before implementation** (via the §14
    Change Request flow).
-7. **Existing test baseline remains:**
+7. **Existing test baseline remains:** (refreshed by CR-001 to the
+   Phase 4/4B certified counts)
    - `tsc`: PASS
    - lint: 0 errors / 21 baseline warnings
-   - Vitest: 980/980
+   - Vitest: 1067/1067 across 69 test files
    - Chromium: 138 passed / 3 skipped / 0 failed
+   - `test:mp4`: 30/30
 
 ---
 
@@ -477,9 +491,11 @@ Before Phase 2 implementation begins:
 | Vitest | 980/980 across 67 test files |
 | Chromium (Playwright) | 138 passed / 3 skipped / 0 failed |
 
-**Tree:** no commits or pushes for Phase 0/1; the working tree is preserved
-as the implementation reference (HEAD `0a25fe7`; 16 modified + 7 untracked
-paths at FC-1.1 freeze). Implementation is not altered by contract work.
+**Tree:** no commits or pushes by the Phase 0–5 work; external repository
+commits moved HEAD from `0a25fe7` (FC-1.1 freeze) to `9e42c18` at CR-001
+application. The working tree is preserved as the implementation reference
+(Phase 4 documentation, Phase 4B UI/UX remediation, and Phase 5 work all
+uncommitted). Implementation is not altered by contract work.
 
 ---
 
