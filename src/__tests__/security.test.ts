@@ -16,6 +16,7 @@ vi.mock('@/lib/r2', () => ({
 
 import { auth } from '@/auth';
 import { POST as exportUploadPOST } from '@/app/api/export-upload/route';
+import { GET as userStatsGET } from '@/app/api/user/stats/route';
 
 process.env.TURSO_DATABASE_URL = 'file::memory:';
 
@@ -119,14 +120,14 @@ describe('security', () => {
       expect(entitlements.maxExportsPerMonth).toBeNull();
     });
 
-    it('free user has limited uploads', () => {
+    it('free user has no cloud uploads (local/device-only, F-01)', () => {
       const entitlements = getEntitlements('free');
-      expect(entitlements.maxUploads).toBe(3);
+      expect(entitlements.maxUploads).toBeNull();
     });
 
-    it('free user has limited storage', () => {
+    it('free user has no cloud storage quota (local/device-only, F-01)', () => {
       const entitlements = getEntitlements('free');
-      expect(entitlements.maxStorageMB).toBe(500);
+      expect(entitlements.maxStorageMB).toBeNull();
     });
 
     it('free user requires watermark', () => {
@@ -183,6 +184,32 @@ describe('security', () => {
       const foundByA = await findExportJobByIdAndUser(job.id, userA.id);
       expect(foundByA).toBeDefined();
       expect(foundByA!.userId).toBe(userA.id);
+    });
+  });
+
+  describe('stats payload reflects plan authority (Phase 5 / F-01)', () => {
+    it('free reports NO cloud quota: uploads.limit and storage.limitMB are null', async () => {
+      const user = await createUser('statsfree@example.com', 'Stats Free', 'password123');
+      await ensureUserStatsRow(user.id);
+      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+
+      const res = await userStatsGET();
+      expect(res.status).toBe(200);
+      const body = await res.json();
+
+      // The 2026-10-07 owner decision makes Free local/device-only: the
+      // stale "3 files / 500 MB" numbers must never surface again.
+      expect(body.plan).toBe('free');
+      expect(body.uploads.limit).toBeNull();
+      expect(body.storage.limitMB).toBeNull();
+      // Usage counters still report (they are simply always zero for Free).
+      expect(body.uploads.used).toBe(0);
+    });
+
+    it('unauthenticated stats request is rejected', async () => {
+      vi.mocked(auth).mockResolvedValue(null as never);
+      const res = await userStatsGET();
+      expect(res.status).toBe(401);
     });
   });
 

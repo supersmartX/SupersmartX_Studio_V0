@@ -13,8 +13,9 @@ describe('getEntitlements', () => {
     expect(e.maxResolution).toEqual({ width: 1280, height: 720 });
     expect(e.maxDurationSeconds).toBe(600);
     expect(e.maxExportsPerMonth).toBeNull();
-    expect(e.maxUploads).toBe(3);
-    expect(e.maxStorageMB).toBe(500);
+    // F-01 (owner 2026-10-07): Free is local/device-only — no cloud quota.
+    expect(e.maxUploads).toBeNull();
+    expect(e.maxStorageMB).toBeNull();
     expect(e.watermarkRequired).toBe(true);
   });
 

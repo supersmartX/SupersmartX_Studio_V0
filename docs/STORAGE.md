@@ -13,7 +13,11 @@ falls back to local-only export.
 - Keys are owner-namespaced and server-generated:
   `exports/{userId}/{uuid}.mp4`, `recordings/{userId}/{uuid}.{webm,mp4}`.
   Upload extensions allowlisted (`webm`, `mp4`); export content restricted
-  to `video/mp4` (multipart) with 200 MB cap.
+  to `video/mp4` (multipart) with 200 MB cap (`MAX_EXPORT_SIZE_MB = 200`
+  local to `/api/export-upload`); the `/api/exports/complete` path enforces
+  the shared 2048 MiB cap (`export-limits.ts`) — two different ceilings,
+  intentional and accepted (F-03, owner decision 2026-10-07: do not unify;
+  `TRACEABILITY.md`).
 - TTLs: PUT 900 s, GET default 3600 s (`R2_SIGNED_URL_TTL_SECONDS`).
 - Rate limits: presigned 10/h, export-upload 20/h, download 30/h (per user,
   in-memory — see scale note below).

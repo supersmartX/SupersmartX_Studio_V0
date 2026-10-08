@@ -1,5 +1,11 @@
 # Deployment
 
+> **Canonical copy: repository root [`DEPLOYMENT.md`](../DEPLOYMENT.md)**
+> (Phase 5 / F-14 — root made canonical). The root file carries the full
+> strategy: environment reference, R2 CORS procedure, migrations, rollback,
+> health checks. This short-form promote/smoke checklist is a convenience
+> summary — if the two ever disagree, the root file wins.
+
 Target: Vercel (`vercel.json` cron included). Any Next.js 16-capable host
 works if cron and env are provided equivalently.
 

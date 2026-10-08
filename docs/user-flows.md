@@ -29,7 +29,7 @@ Journey
 - App renders the marketing landing page at `/` with hero section, features, how-it-works, privacy info, and feedback/support links.
 - User can explore features without signing in.
 - User clicks "Start Recording — Free" to navigate to `/studio`.
-- If user is signed in, header shows avatar with user menu (Open Studio, Sign out).
+- If user is signed in, header shows avatar with user menu (name/email, plan badge, Upgrade to Creator / Manage Plan, Sign out).
 - If user is not signed in, header shows Sign In button which opens `AuthModal`.
 
 ↓
@@ -182,11 +182,11 @@ User either recovers and returns to the studio, or pauses and returns later with
 | Action | Response | Feedback |
 | --- | --- | --- |
 | Click | Buttons and tool actions immediately invoke handlers and update state. Examples: `TransportBar` record/pause/stop, `Header` share/export, `IconRail` teleprompter/camera/mic toggles, `InitOverlay` initialize button. | Immediate visual response through active/hover styles, color changes, toast notifications, and overlay transitions. |
-| Hover | Interactive controls use hover classes to show affordance. Examples: `Button`, `IconButton`, `Tabs`, `IconRail`, `BottomNav`. | `hover:text-text-primary`, `hover:bg-elevated`, `hover:bg-red-600`, `hover:text-white`, and similar styles provide instant feedback. |
-| Swipe | Not implemented in the current codebase. | There are no swipe gesture handlers in active components; mobile interaction relies on buttons and taps. |
+| Hover | Interactive controls use hover classes to show affordance. Examples: `Button`, `IconButton`, `IconRail`, `BottomNav`. | `hover:text-text-primary`, `hover:bg-elevated`, `hover:bg-red-600`, `hover:text-white`, and similar styles provide instant feedback. |
+| Swipe | Swipe-to-dismiss on modals (Phase 5 / F-06 correction — it IS implemented). | `useModalAnimation` exposes `swipeHandlers` (touch start/end) applied to `AuthModal`, `WelcomeModal`, `PricingModal`, `ExportModal`, and the shared `Modal`; other mobile interaction relies on buttons and taps. |
 | Long Press | Not implemented in the current codebase. | No long-press handlers exist; future support should include immediate press-state feedback and confirmation. |
 | Loading | Camera initialization uses `useCamera` status `requesting` and `InitOverlay` displays retry/error messaging. `VideoPlayer` shows a spinner and "Loading..." while metadata loads. | Overlay panels, inline spinners, and descriptive loading text keep users informed during waits. |
-| Success | Share and feedback actions trigger `showToast`. `DiscordFeedback` and `useShare` emit success messages. Payment success redirects to `/support/success`. | `Toast` displays brief confirmation with polite message timing. Buttons and icons also show active/ready state. |
+| Success | Share and feedback actions trigger `showToast`. `DiscordFeedback` and `useShare` emit success messages. Payment success redirects to `/studio?payment=success`. | `Toast` displays brief confirmation with polite message timing. Buttons and icons also show active/ready state. |
 | Error | `useCamera` maps permission/device failures into explicit states; `InitOverlay` shows `errorMessage`; `ExportModal` surfaces playback validation errors; `recorder.onerror` saves partial recordings. | Error banners, red text/backgrounds, and retry labels provide clear recovery guidance. |
 | Disabled | Buttons use disabled styling and behavior (`disabled:opacity-40 disabled:pointer-events-none`, `disabled:cursor-not-allowed`). `Header` export button is disabled when no recording exists. | Controls look inactive and cannot be clicked, making unavailable actions obvious. |
 | Feedback Timing | All interactions provide immediate styling or toast feedback on click or keyboard action. Toasts auto-dismiss after 2700ms. | Immediate and clear feedback is delivered consistently, satisfying the design rule. |
@@ -209,7 +209,7 @@ User either recovers and returns to the studio, or pauses and returns later with
 
 ### Notes
 - Every screen listed maps directly to a validated user flow.
-- This inventory is grounded in `src/app/studio/page.tsx`: the app uses a single `HomePage` studio screen, with `activePanel` controlling studio/library/insights content.
+- This inventory is grounded in `src/app/studio/page.tsx`: the app uses a single `HomePage` studio screen, with `activePanel` (`studio` | `library`, plus the transient `record` and `share` panels) controlling the shown content.
 - The studio screen renders `DeviceSelectorBar`, `CameraPreview`, `TeleprompterOverlay`, `TransportBar`, `RecordingBadge`, `Timer`, `FocalGuideway`, and `InitOverlay` based on state.
 - `ExportModal`, `WelcomeModal`, `PricingModal`, and `AuthModal` are handled as modal dialogs; `InspectorPanel` functions as a desktop panel or mobile drawer; `Tooltip` is used in `BottomNav` and elsewhere, and supports hover and focus activation with `aria-describedby`.
 - The landing page at `/` (`src/app/page.tsx`) is a full marketing page separate from the studio.

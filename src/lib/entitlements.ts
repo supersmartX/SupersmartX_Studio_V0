@@ -42,8 +42,12 @@ const ENTITLEMENTS: Record<PlanType, PlanEntitlements> = {
     maxResolution: { width: FREE_RESOLUTION.width, height: FREE_RESOLUTION.height },
     maxDurationSeconds: FREE_MAX_DURATION_SECONDS,
     maxDownloads: null,
-    maxUploads: 3,
-    maxStorageMB: 500,
+    // F-01 (owner decision 2026-10-07): Free is local/device-only — no Free
+    // cloud uploads, no cloud library, no cloud quota. Both upload routes
+    // reject Free with 403 before any quota check; these nulls remove the
+    // unreachable "3 files / 500 MB" values that surfaced via /api/user/stats.
+    maxUploads: null,
+    maxStorageMB: null,
     maxExportsPerMonth: null,
     watermarkRequired: true,
   },

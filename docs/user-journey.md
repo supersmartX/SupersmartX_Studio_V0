@@ -72,7 +72,7 @@ The landing page makes the two plans immediately understandable.
 
 > Make short videos.
 
-- ¥0
+- ₹0
 - 10 min/day recording
 - 3 min teleprompter per recording
 - 720p
@@ -86,15 +86,16 @@ CTA: `Start Free`
 
 > Create without limits.
 
-- ¥349/month *(India geo price; pricing is geo-localized server-side)*
-- or ¥2,899/year
+- ₹349/month *(India geo price; pricing is geo-localized server-side)*
+- or ₹2,899/year
 
 - Unlimited recording
 - Unlimited teleprompter
 - 1080p
 - All platforms
 - No watermark
-- Voice teleprompter
+- Voice teleprompter (speech-follow — pauses hold the position; needs a
+  browser with native `SpeechRecognition` such as Chrome/Edge — FC-1.1 §8 lim. 7)
 - Cloud library
 - Unlimited exports
 
@@ -279,7 +280,6 @@ The product transitions from **CREATE** to **PUBLISH**.
 🔒 Instagram         Portrait · 4:5      CREATOR
 🔒 TikTok            Vertical · 9:16     CREATOR
 🔒 LinkedIn          Vertical · 9:16     CREATOR
-🔒 Custom            Define your own     CREATOR
 ```
 
 Free default: **YouTube 16:9** preselected. Free output: **1280×720 / 720p**.
@@ -298,7 +298,7 @@ Never just say "Feature locked." Show a contextual upgrade moment:
 > ✓ Unlimited recording
 > ✓ Unlimited teleprompter
 >
-> ¥349/month
+> ₹349/month
 >
 > `[Upgrade to Creator]`
 
@@ -319,7 +319,6 @@ Square                🔒 CREATOR
 Portrait              🔒 CREATOR
 TikTok                🔒 CREATOR
 LinkedIn              🔒 CREATOR
-Custom                🔒 CREATOR
 ```
 
 Creator: everything unlocked.
@@ -389,12 +388,12 @@ Outcomes first, not a feature dump.
 ✓ 1080p Full HD
 ✓ All platform formats
 ✓ No watermark
-✓ Voice teleprompter
+✓ Voice teleprompter (speech-follow, Chromium browsers)
 ✓ Cloud video library
 ✓ Unlimited exports
 ```
 
-¥349/month or ¥2,899/year *(geo-localized)*
+₹349/month or ₹2,899/year *(geo-localized)*
 
 CTA: `Upgrade to Creator`
 
@@ -442,7 +441,6 @@ All formats available:
 ✓ Instagram Portrait
 ✓ TikTok
 ✓ LinkedIn
-✓ Custom
 ```
 
 No Creator badges. No lock icons. No upgrade prompts.

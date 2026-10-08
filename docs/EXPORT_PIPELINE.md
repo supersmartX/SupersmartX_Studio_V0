@@ -4,7 +4,8 @@
 MediaRecorder ─► Browser Blob ─► IndexedDB ─► MediaBunny encode ─► MP4 Blob
    │                                                                     │
    │ Creator: presigned PUT ─► R2 ─► /api/exports/complete ─► exports row │
-   │ Any plan: multipart ─► /api/export-upload ─► R2 + exports row        │
+   │ Creator: multipart ─► /api/export-upload ─► R2 + exports row         │
+   │ Free: local export only (both upload routes 403 Free first)          │
    └─► job state: pending → encoding → uploading → completed (or failed) │
 ```
 
@@ -14,14 +15,21 @@ MediaRecorder ─► Browser Blob ─► IndexedDB ─► MediaBunny encode ─�
   403 `Free plan uses local export`): validates platform allowlist, clamps
   resolution, checks crop/duration entitlements, caps concurrency at 3 active
   jobs, creates/updates the job, returns a 15-min signed PUT URL.
-- **Multipart** (`POST /api/export-upload`, all plans): 200 MB cap, empty
-  rejection, `video/mp4`-only, platform allowlist + free-platform lock,
-  crop/duration checks, atomic quota consume with revert on failure.
-- **Complete** (`POST /api/exports/complete`): key must start with
-  `exports/{userId}/`, must match the job's stored key, object verified via
-  R2 `HeadObject` (server size wins), idempotent on re-delivery
-  (same key + completed job → existing ids), orphan R2 object deleted on
-  quota failure.
+- **Multipart** (`POST /api/export-upload`, **Creator only** — Free is rejected
+  with 403 `Free plan uses local export` at route L48–50, *before* quota logic;
+  an earlier version of this doc said "all plans", corrected in Phase 4): local
+  `MAX_EXPORT_SIZE_MB = 200` cap, empty rejection, `video/mp4`-only, platform
+  allowlist + free-platform lock, crop/duration checks, atomic quota consume
+  with revert on failure.
+- **Complete** (`POST /api/exports/complete`, 2048 MiB `MAX_EXPORT_SIZE_BYTES`
+  cap — a different ceiling from multipart's 200 MB. **Intentional and
+  accepted**: F-03 (owner decision 2026-10-07) — legacy multipart stays at
+  200 MB, the primary presigned path carries the shared 2048 MiB cap; do not
+  unify — see `TRACEABILITY.md`): key must start with `exports/{userId}/` or the job's
+  `staging/{userId}/` key, must match the job's stored key, object verified via
+  R2 `HeadObject` (server size wins), then the Phase 3 artifact verification
+  below; idempotent on re-delivery (same key + completed job → existing ids),
+  orphan R2 object deleted on quota failure.
 - **Job create/update** (`POST /api/export-jobs`, `PATCH
   /api/export-jobs/[id]`): platform must be a launch preset, and the
   requested dimensions must match the server-clamped preset exactly.
@@ -42,14 +50,6 @@ Every export stage resolves the platform from `LAUNCH_PLATFORM_PRESETS`
 Orientation matters when checking the entitlement ceiling: `exceedsResolutionLimit`
 rotates before comparing, so a 1920×1080 Creator ceiling permits 1080×1920.
 
-## Failure semantics
-
-| Case | Behavior |
-| ---- | -------- |
-| R2 ok + DB fail | object deleted, monthly counter reverted, error returned |
-| Quota exceeded after upload | object deleted, 403 |
-| Retry / duplicate complete | idempotent success, no duplicate rows |
-| Auth expiry mid-flow | 401; client re-authenticates, job row persists for resume |
 ## Phase 3 export contract (authoritative artifact path)
 
 Requirement (FC-1.1 Phase 3 boundary): **the server verifies the actual bytes
@@ -114,6 +114,14 @@ route-level tests against real bytes (same file, Parts 3.10/3.11/3.13),
 `npm run test:mp4` (30/30 certified). What each layer does not prove:
 `TESTING.md`.
 
+## Failure semantics
+
+| Case | Behavior |
+| ---- | -------- |
+| R2 ok + DB fail | object deleted, monthly counter reverted, error returned |
+| Quota exceeded after upload | object deleted, 403 |
+| Retry / duplicate complete | idempotent success, no duplicate rows |
+| Auth expiry mid-flow | 401; client re-authenticates, job row persists for resume |
 | Encode failure / cancel | job → `failed`; no DB row, no R2 object |
 | Browser refresh/close | IndexedDB blob survives; job row persists; re-export resumes |
 

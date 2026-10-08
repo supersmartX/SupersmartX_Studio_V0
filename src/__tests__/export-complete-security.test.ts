@@ -184,10 +184,19 @@ it('4/7/10. actual object over the cap is rejected WITH cleanup and NO record', 
       expect(Number(row.rows[0]?.file_size)).toBe(250 * MB);
     });
 
-    it('5/6. quota-exhausted user is rejected with cleanup and no record', async () => {
+    // F-01 (owner decision 2026-10-07): Free is local/device-only — there is
+    // no Free cloud upload quota anymore, so the old "3 files / 500 MB"
+    // denial cannot fire. Enforcement of "no Free cloud uploads" lives
+    // upstream (both staging routes answer "Free plan uses local export",
+    // see export-limits.test.ts) and the denial-with-cleanup + ledger-revert
+    // machinery is covered by the live daily-budget path (BUS-001
+    // "3. over-budget request is rejected with cleanup and no record").
+    it('5/6. Free carries no upload quota (F-01): crafted completes are never quota-denied', async () => {
       const { user, job, key } = await setupUserWithJob('free');
       mockHead(1 * MB);
-      // Exhaust the free 3-upload quota with real completes.
+      // The old contract allowed exactly 3 and denied the 4th with a 403.
+      // Four crafted completes in a row must all succeed — a stale numeric
+      // gate resurfacing here would regress the owner decision.
       for (let i = 0; i < 3; i++) {
         const k = `exports/${user.id}/q-${i}.mp4`;
         const j = await createExportJob(user.id, JSON.stringify({ platformId: 'youtube-landscape' }));
@@ -195,14 +204,9 @@ it('4/7/10. actual object over the cap is rejected WITH cleanup and NO record', 
         const r = await POST(completeBody(j.id, k, 1 * MB, {}, 'free'));
         expect(r.status).toBe(200);
       }
-      const ledgerBefore = await getDailyRecordedSeconds(user.id);
-      vi.mocked(deleteRecording).mockClear();
-      const denied = await POST(completeBody(job.id, key, 1 * MB, {}, 'free'));
-      expect(denied.status).toBe(403);
-      expect(vi.mocked(deleteRecording)).toHaveBeenCalledWith(key);
-      expect(await exportCount(user.id)).toBe(3);
-      // Ledger reverted: the rejected attempt consumed nothing.
-      expect(await getDailyRecordedSeconds(user.id)).toBeCloseTo(ledgerBefore, 6);
+      const fourth = await POST(completeBody(job.id, key, 1 * MB, {}, 'free'));
+      expect(fourth.status).toBe(200);
+      expect(await exportCount(user.id)).toBe(4);
     });
 
     it('8. successful upload within quota persists verified metadata', async () => {

@@ -129,8 +129,8 @@ configuration is **NOT VERIFIED** regardless of what the source says.
       — any other value makes every payment path refuse rather than run
 - [ ] `CASHFREE_SECRET_KEY` is set to the Cashfree PG client secret key — it is
       also the webhook-signing key, and Cashfree publishes no separate one
-- [ ] Cloudflare R2 bucket CORS is configured — see §2 "Cloudflare R2 bucket
-      CORS (required)", without which browser upload fails at the PUT
+- [ ] Cloudflare R2 bucket CORS is configured — see §1 "Cloudflare R2 bucket
+      CORS (required for Creator export)", without which browser upload fails at the PUT
 
 ---
 
