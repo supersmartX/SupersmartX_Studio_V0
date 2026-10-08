@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getEntitlements, isPlanActive, clampResolution, exceedsResolutionLimit, FREE_MAX_DURATION_SECONDS, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
+import { getEntitlements, isPlanActive, clampResolution, exceedsResolutionLimit, canVoiceFollow, FREE_MAX_DURATION_SECONDS, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 
@@ -190,5 +190,28 @@ describe('Final entitlement matrix', () => {
   it('watermark required only for free', () => {
     expect(getEntitlements('free').watermarkRequired).toBe(true);
     expect(getEntitlements('creator_monthly').watermarkRequired).toBe(false);
+  });
+});
+
+describe('canVoiceFollow (CR-002 voice teleprompter)', () => {
+  it('grants voice follow to sold Creator plans and legacy pro_*', () => {
+    expect(canVoiceFollow('creator_monthly')).toBe(true);
+    expect(canVoiceFollow('creator_yearly')).toBe(true);
+    expect(canVoiceFollow('pro_monthly')).toBe(true);
+    expect(canVoiceFollow('pro_yearly')).toBe(true);
+  });
+
+  it('denies voice follow to Free, Guest, and empty/absent plans', () => {
+    expect(canVoiceFollow('free')).toBe(false);
+    expect(canVoiceFollow(null)).toBe(false);
+    expect(canVoiceFollow(undefined)).toBe(false);
+    expect(canVoiceFollow('')).toBe(false);
+  });
+
+  it('matches isCreatorPlan semantics exactly (no drift)', () => {
+    for (const plan of ['free', 'creator_monthly', 'creator_yearly', 'pro_monthly', 'pro_yearly']) {
+      const e = getEntitlements(plan as PlanType);
+      expect(canVoiceFollow(plan)).toBe(!e.watermarkRequired);
+    }
   });
 });

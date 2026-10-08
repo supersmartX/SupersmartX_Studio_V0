@@ -16,13 +16,14 @@ import { useMasterRecording } from '@/hooks/useMasterRecording';
 import { useExportPipeline } from '@/hooks/useExportPipeline';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useMicMuteSync } from '@/hooks/useMicMuteSync';
+import { useVoiceFollow } from '@/hooks/useVoiceFollow';
 
 import { useStudioConfig } from '@/hooks/useStudioConfig';
 import { useStudioCamera } from '@/hooks/useStudioCamera';
 import { useRecordingTimer } from '@/hooks/useRecordingTimer';
 import { useStudioUI } from '@/hooks/useStudioUI';
 import { useHydrated } from '@/hooks/useHydrated';
-import { getEntitlements, isCreatorPlan, isPlatformLockedForUser, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
+import { getEntitlements, isCreatorPlan, isPlatformLockedForUser, canVoiceFollow, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
 import { getPreviewCropGeometry } from '@/lib/composition';
 import { consumePendingDownloadExportId, hasPendingDownload } from '@/lib/auth-guard';
 import { isReviewState, resolveStudioPhase } from '@/lib/review-state';
@@ -363,6 +364,20 @@ export default function HomePage() {
   }, [isCompactLayout]);
   const prompterContainerRef = useRef<HTMLDivElement>(null);
 
+  // Voice speech-follow teleprompter (CR-002): Creator-only, client-side,
+  // native SpeechRecognition. `voiceEngagedRef` gates every timed-scroll
+  // callback below — while the voice driver owns the position the timed
+  // driver idles; all scrolling is incremental, so handing back never jumps.
+  const [voiceFollowOn, setVoiceFollowOn] = useState(false);
+  const voiceFollow = useVoiceFollow({
+    script: scriptStorage.script,
+    enabled: voiceFollowOn && canVoiceFollow(userPlan),
+    muted: isMicMuted,
+    paused: recorder.recordingState === 'paused',
+    containerRef: prompterContainerRef,
+  });
+  const { engagedRef: voiceEngagedRef, reset: resetVoiceFollow } = voiceFollow;
+
   const {
     exportConfig,
     exportJobs,
@@ -550,11 +565,16 @@ export default function HomePage() {
 
     if (prompterContainerRef.current) {
       prompterContainerRef.current.scrollTop = 0;
+      // A fresh take starts voice follow from the top as well (CR-002).
+      resetVoiceFollow();
     }
 
     resetTimer();
 
     const scrollCallback = () => {
+      // While the voice driver owns the position the timed driver idles
+      // (CR-002) — no competing writers, no jump when it hands back.
+      if (voiceEngagedRef.current) return;
       if (!prompterContainerRef.current) return;
       const container = prompterContainerRef.current;
       const speed = settings.teleprompter.scrollSpeed;
@@ -577,7 +597,7 @@ export default function HomePage() {
       countdown: settings.countdownEnabled,
       onScriptEnd: () => showToast('Script ended — recording stopped'),
     });
-  }, [camera, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, settings.countdownEnabled, resetTimer, isCreatorUser, showToast, ui, handleCameraInitialize, isReview]);
+  }, [camera, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, settings.countdownEnabled, resetTimer, isCreatorUser, showToast, ui, handleCameraInitialize, isReview, resetVoiceFollow, voiceEngagedRef]);
 
   const handleRecordStop = useCallback(() => {
     if (recorder.recordingState === 'recording' || recorder.recordingState === 'paused') {
@@ -706,6 +726,7 @@ export default function HomePage() {
     onRecordResume: () =>
       recorder.resumeRecording(
         () => {
+          if (voiceEngagedRef.current) return; // voice driver owns the position (CR-002)
           if (!prompterContainerRef.current) return;
           const container = prompterContainerRef.current;
           const speed = settings.teleprompter.scrollSpeed;
@@ -780,6 +801,12 @@ export default function HomePage() {
     wordCount: scriptStorage.wordCount,
     progress: scriptStorage.progress,
     onLoadInspiration: scriptStorage.loadInspiration,
+    voiceFollow: {
+      visible: voiceFollow.supported && canVoiceFollow(userPlan),
+      enabled: voiceFollowOn,
+      onChange: setVoiceFollowOn,
+      phase: voiceFollow.phase,
+    },
   };
 
   return (
@@ -876,6 +903,20 @@ export default function HomePage() {
                 {camera.stream && !isReview && <EyeLineGuide />}
 
                 <RecordingBadge recordingState={recorder.recordingState} />
+
+                {/* CR-002: while voice follow is engaged but blocked
+                    (permission denied / fatal recognition error) the
+                    position stays frozen on purpose — this is the explicit
+                    "switch back to timed scroll" affordance. Incremental
+                    scrolling means resuming timed mode never jumps. */}
+                {voiceFollow.phase === 'blocked' && (
+                  <button
+                    onClick={() => setVoiceFollowOn(false)}
+                    className="absolute top-24 left-2 sm:top-28 sm:left-3 z-20 min-h-[40px] px-3 py-2 rounded-lg bg-surface/95 border border-border-default text-[12px] font-semibold text-text-secondary shadow-lg transition-colors hover:bg-elevated"
+                  >
+                    Voice follow unavailable — use timed scroll
+                  </button>
+                )}
 
                 <Timer
                   isRunning={recorder.recordingState === 'recording'}
@@ -992,6 +1033,7 @@ export default function HomePage() {
                 onResume={() =>
                   recorder.resumeRecording(
                     () => {
+                      if (voiceEngagedRef.current) return; // voice driver owns the position (CR-002)
                       if (!prompterContainerRef.current) return;
                       const container = prompterContainerRef.current;
                       const speed = settings.teleprompter.scrollSpeed;

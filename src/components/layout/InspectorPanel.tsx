@@ -9,6 +9,15 @@ import { Card } from '@/components/ui/Card';
 import { CloseIcon, ChevronDownIcon } from '@/components/icons';
 import { FONT_FAMILIES } from '@/constants';
 import { InspirationLoader } from '@/components/editor/InspirationLoader';
+import type { VoiceFollowPhase } from '@/lib/voice-follow';
+
+/** Voice speech-follow control state (CR-002) — rendered only when visible. */
+export interface VoiceFollowOption {
+  visible: boolean;
+  enabled: boolean;
+  onChange: (checked: boolean) => void;
+  phase: VoiceFollowPhase;
+}
 
 // The surrounding app signals which creation phase is active so the Inspector
 // can show only the sections relevant to that phase (progressive disclosure).
@@ -41,6 +50,8 @@ interface InspectorPanelProps {
   isOpen?: boolean;
   onClose?: () => void;
   inspectorContext?: InspectorContext;
+  /** Voice speech-follow control (CR-002) — Creator + supported browsers. */
+  voiceFollow?: VoiceFollowOption;
 }
 
 export function InspectorPanel({
@@ -64,6 +75,7 @@ export function InspectorPanel({
   isOpen = true,
   onClose,
   inspectorContext,
+  voiceFollow,
 }: InspectorPanelProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -113,6 +125,7 @@ export function InspectorPanel({
       progress={progress}
       onLoadInspiration={onLoadInspiration}
       inspectorContext={inspectorContext}
+      voiceFollow={voiceFollow}
     />
   );
 
@@ -193,6 +206,23 @@ function PanelHeader({ label, onClose }: { label: string; onClose?: () => void }
   );
 }
 
+/** Phase → hint copy for the Voice follow toggle (CR-002). */
+function describeVoiceFollow(v: VoiceFollowOption): string {
+  if (v.phase === 'blocked') {
+    return 'Speech recognition unavailable — the position stays frozen. Turn this off to resume timed scrolling.';
+  }
+  if (!v.enabled) {
+    return 'Speak your script — the prompter follows your words. Pauses hold the position; it never jumps.';
+  }
+  if (v.phase === 'hold') {
+    return 'Holding — the position advances again once you speak (and are not muted or paused).';
+  }
+  if (v.phase === 'listening') {
+    return 'Listening — the prompter follows your speech.';
+  }
+  return 'Starting speech recognition…';
+}
+
 function InspectorContent({
   settings,
   updateSettings,
@@ -211,6 +241,7 @@ function InspectorContent({
   progress,
   onLoadInspiration,
   inspectorContext,
+  voiceFollow,
 }: {
   settings: TeleprompterSettings;
   updateSettings: (partial: Partial<TeleprompterSettings>) => void;
@@ -229,6 +260,7 @@ function InspectorContent({
   progress: number;
   onLoadInspiration: (key: string) => void;
   inspectorContext?: InspectorContext;
+  voiceFollow?: VoiceFollowOption;
 }) {
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
     // Match the current creation phase immediately (no open-then-collapse flash).
@@ -422,6 +454,18 @@ function InspectorContent({
             unit="x"
             onChange={(e) => updateSettings({ scrollSpeedMultiplier: parseFloat(e.target.value) })}
           />
+
+          {/* Voice speech-follow (CR-002) — only when entitled (Creator)
+              AND the browser exposes SpeechRecognition; the row is absent
+              otherwise (Free/Guest/unsupported never see a dead control). */}
+          {voiceFollow?.visible && (
+            <Toggle
+              checked={voiceFollow.enabled}
+              onChange={voiceFollow.onChange}
+              label="Voice follow"
+              description={describeVoiceFollow(voiceFollow)}
+            />
+          )}
 
           {/* Position */}
           <div className="flex flex-col gap-1.5">

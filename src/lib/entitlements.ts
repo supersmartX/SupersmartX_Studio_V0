@@ -113,6 +113,18 @@ export function isPlatformLockedForUser(platformId: PlatformId, plan: string): b
   return platformId !== 'youtube-landscape' && !isCreatorPlan(plan);
 }
 
+/**
+ * CR-002 (Phase 5, owner-approved 2026-10-07): voice speech-follow
+ * teleprompter is a Creator capability (Monthly/Annual and legacy pro_*);
+ * Free and Guest have no voice access. Client-side display gating only —
+ * the feature performs no server call, so there is no route surface to
+ * guard; same trust class as the other browser-enforced teleprompter
+ * behaviours.
+ */
+export function canVoiceFollow(plan: string | null | undefined): boolean {
+  return isCreatorPlan(plan || 'free');
+}
+
 export function isPlanActive(
   expiresAt: string | null | undefined,
   plan?: PlanType | null
