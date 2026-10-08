@@ -360,7 +360,19 @@ export function db(): Client {
   return _db;
 }
 
+let registerClientSeq = 0;
+
 export async function apiRegister(request: APIRequestContext, email: string) {
+  // Synthetic per-registration client IP. The NextAuth catch-all rate-limits
+  // POSTs to 10 / 15 min keyed by the LAST x-forwarded-for entry
+  // (src/app/api/auth/[...nextauth]/route.ts) — correct production behaviour
+  // where every registrant arrives from a different IP. On localhost the whole
+  // suite would otherwise share 127.0.0.1 and trip its own limiter mid-run
+  // (observed in the Phase 5 full run: 9 cascading 429 failures after the
+  // window saturated). A unique TEST-NET address per call preserves exactly
+  // the production per-client semantics without touching app code or limits.
+  registerClientSeq += 1;
+  const clientIp = `198.51.100.${(registerClientSeq % 254) + 1}`;
   const csrf = await (await request.get('/api/auth/csrf')).json();
   const res = await request.post('/api/auth/callback/credentials', {
     form: {
@@ -373,6 +385,7 @@ export async function apiRegister(request: APIRequestContext, email: string) {
       callbackUrl: '/studio',
       json: 'true',
     },
+    headers: { 'x-forwarded-for': clientIp },
   });
   expect([200, 302]).toContain(res.status());
 }
