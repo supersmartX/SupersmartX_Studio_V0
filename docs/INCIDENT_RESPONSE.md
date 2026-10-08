@@ -19,9 +19,11 @@ downloads, webhook failures) / P2 (degraded, single-feature) / P3 (cosmetic).
   signature failures (secret rotation?) vs amount mismatches (price drift?).
 - **R2 503s**: check `R2_*` env + bucket policy + key prefix; exports fall
   back to local-only automatically.
-- **DB errors / `:memory:` symptoms** (empty users, lost sessions): Turso
-  env missing on serverless — restore env, redeploy, verify
-  `TURSO_DATABASE_URL` present.
+- **`DATABASE_NOT_CONFIGURED` / DB errors** (users empty, requests 500):
+  production **fails closed** when Turso env is missing or non-durable —
+  restore `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`, redeploy, verify
+  `/api/health` returns `healthy`. There is no silent `:memory:` fallback in
+  production (corrected in Phase 4, finding F-05).
 - **Stuck export jobs**: inspect `export_jobs` by status; failed jobs are
   terminal and safe to leave; delete only via cleanup endpoint.
 - **Account lockouts (legit users)**: `locked_until` clears automatically

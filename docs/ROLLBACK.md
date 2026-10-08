@@ -13,6 +13,9 @@ the schema back, and no code in this repo requires downgrading:
 
 - v10 table rebuilds preserve all reachable rows; re-running is safe
   (stale `*_new` tables are dropped first).
+- v11–v14 are additive (new tables `daily_recording_seconds`,
+  `order_notifications`, `deleted_identities`; new `export_jobs` columns) —
+  an older build simply ignores them; never needs downgrading.
 - If a deploy must be reverted because of a NEW migration, restore Turso
   from the pre-deploy point-in-time backup instead of hand-editing schema.
 - Never run `DROP TABLE` by hand; never edit `schema_meta` by hand.

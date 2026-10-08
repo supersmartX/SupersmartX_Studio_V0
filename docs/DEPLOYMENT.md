@@ -13,10 +13,10 @@ works if cron and env are provided equivalently.
 3. `npm run build` must pass with no missing-env warnings except knowingly
    optional ones.
 4. Database migrates automatically on first request (`ensureMigrated`);
-   v10 rebuilds `exports`/`user_stats` in place — safe to roll forward,
-   no manual step.
-5. Vercel cron `POST /api/export-jobs/cleanup` (`0 2 * * *`) requires
-   `CLEANUP_SECRET` header config.
+   schema is at v14 (migrations v1–v14, additive-only) — safe to roll
+   forward, no manual step.
+5. Vercel cron `GET /api/export-jobs/cleanup` (`0 2 * * *`) requires
+   `CRON_SECRET` = `CLEANUP_SECRET` (see ENVIRONMENT.md).
 6. Domain: apex + www redirect to `studio.` (see `next.config.ts`
    redirects); HSTS preload is enabled — only serve HTTPS.
 

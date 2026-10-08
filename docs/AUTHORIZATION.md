@@ -4,7 +4,7 @@ Two layers, both mandatory:
 
 1. **Edge gate** (`src/middleware.ts`, matcher `/api/:path*`): verifies the
    NextAuth JWT has an `id`; else 401. Public routes: `/api/auth/*`,
-   forgot/reset-password, cashfree webhook, health, observe/client-error.
+   forgot/reset-password, cashfree webhook, health, observe/client-error, export-jobs/cleanup (secret-gated cron).
    Also stamps `x-request-id` on every API response.
 2. **Per-route checks** (every protected route): `auth()` → `findUserById`
    → `isPlanActive` → entitlement check → **ownership-scoped query**
