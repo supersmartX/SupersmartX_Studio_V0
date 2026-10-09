@@ -565,11 +565,25 @@ describe('the studio page owns both transitions', () => {
     expect(newVideo, 'DC-1: New Video starts with an empty script').toContain('scriptStorage.clearScript');
   });
 
-  it('the desktop rail routes its studio entry through the New Video transition', () => {
-    // The IconRail button is explicitly LABELED "New Video" — it promises
-    // the reset and must keep running it.
-    const panelChange = handler('handlePanelChange');
-    expect(panelChange).toContain('handleNewVideo');
+  it('the desktop rail: "Studio" navigates and "New Video" owns the reset (UX-001)', () => {
+    // UX-001: the rail's studio entry used to BE the destructive one. It is now
+    // a pure panel switch, and the rail carries its own explicitly LABELED
+    // "New Video" entry that owns the reset — the shape BottomNav already had.
+    // Both rails therefore share one handler and cannot drift apart again.
+    const compactNav = handler('handleCompactNav');
+    expect(compactNav, 'the rail\'s Studio entry only switches panels').toContain('setActivePanel(panel)');
+    expect(compactNav, 'the rail\'s Studio entry never starts a new workflow').not.toContain('handleNewVideo');
+
+    // The reset stays reachable on desktop, through a control explicitly
+    // LABELED "New Video" — the same promise its text makes.
+    const iconRail = extractElement(source, 'IconRail');
+    expect(iconRail, 'IconRail must be rendered').toBeTruthy();
+    expect(iconRail, 'the rail must receive the pure panel switch').toContain(
+      'onPanelChange={handleCompactNav}',
+    );
+    expect(iconRail, 'the rail must carry the explicit New Video action').toContain(
+      'onNewVideo={handleNewVideo}',
+    );
   });
 
   it('the compact "Studio" tab is a pure panel switch (DC-3)', () => {
@@ -585,10 +599,12 @@ describe('the studio page owns both transitions', () => {
 
     // The reset stays reachable on compact layouts — through a control
     // explicitly LABELED "New Video", wired to the same transition.
-    expect(source, 'BottomNav must carry the explicit New Video action').toContain(
+    const bottomNav = extractElement(source, 'BottomNav');
+    expect(bottomNav, 'BottomNav must be rendered').toBeTruthy();
+    expect(bottomNav, 'BottomNav must carry the explicit New Video action').toContain(
       'onNewVideo={handleNewVideo}',
     );
-    expect(source, 'BottomNav must not receive the reset via the panel switch').toContain(
+    expect(bottomNav, 'BottomNav must not receive the reset via the panel switch').toContain(
       'onPanelChange={handleCompactNav}',
     );
   });
@@ -651,6 +667,20 @@ function readStudioPageSource(): string {
   const { readFileSync } = require('fs') as typeof import('fs');
   const { join } = require('path') as typeof import('path');
   return readFileSync(join(process.cwd(), 'src', 'app', 'studio', 'page.tsx'), 'utf8');
+}
+
+/**
+ * Extracts the props block a component is rendered with, e.g. the text between
+ * `<IconRail` and its closing `/>`. Both navs now receive the same handlers, so
+ * whole-source `toContain` assertions could no longer prove WHICH rail carries
+ * them; scoping to the element keeps each assertion honest.
+ */
+function extractElement(source: string, name: string): string | null {
+  const start = source.indexOf(`<${name}`);
+  if (start === -1) return null;
+  const end = source.indexOf('/>', start);
+  if (end === -1) return null;
+  return source.slice(start, end);
 }
 
 /** Extracts a `const name = useCallback(() => { ... }, [deps]);` body. */

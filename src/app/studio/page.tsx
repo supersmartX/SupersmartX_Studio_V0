@@ -716,26 +716,19 @@ export default function HomePage() {
     setIsMicMuted((prev) => !prev);
   }, []);
 
-  // DC-3 — the two navs mean different things and must not share a handler:
+  // DC-3 / UX-001 — ONE meaning for every label, at every breakpoint:
   //
-  //   Desktop IconRail's entry is explicitly LABELED "New Video", so tapping
-  //   it runs the full session reset (this was the pre-existing, correct
-  //   behavior — the label promises it).
+  //   "Studio"     -> navigation. It goes to the Studio view and does nothing
+  //                   else. It used to run the full session reset here, so a
+  //                   rail item that looked like navigation silently cleared
+  //                   the current take, while the compact nav's equivalent tab
+  //                   (already a pure switch) behaved differently from it.
+  //   "New Video"  -> the explicit start-over action, present in BOTH rails.
   //
-  //   Compact BottomNav's "Studio" tab is a NAVIGATION tab. It used to run
-  //   the same reset, so tapping a tab labeled "Studio" silently created a
-  //   New Video: it cleared the current recording and released the master as
-  //   a side effect of switching panels. It is now a pure panel switch; the
-  //   BottomNav's explicit "New Video" button (onNewVideo) owns the reset on
-  //   compact layouts.
-  const handlePanelChange = useCallback((panel: TabType | 'record' | 'share') => {
-    if (panel === 'studio') {
-      handleNewVideo();
-      return;
-    }
-    setActivePanel(panel);
-  }, [handleNewVideo]);
-
+  // Both navs now share this one handler, so the same label cannot drift into
+  // meaning two things again. The rail owns its own "New Video" entry
+  // (onNewVideo), which is where the reset belongs: it detaches the take into
+  // the library and never deletes it.
   const handleCompactNav = useCallback((panel: TabType | 'record' | 'share') => {
     setActivePanel(panel);
   }, []);
@@ -870,7 +863,8 @@ export default function HomePage() {
         <div className="flex-1 min-h-0 flex overflow-hidden">
           <IconRail
             activePanel={activePanel}
-            onPanelChange={handlePanelChange}
+            onPanelChange={handleCompactNav}
+            onNewVideo={handleNewVideo}
             onShowShortcuts={handleShowShortcuts}
           />
 
