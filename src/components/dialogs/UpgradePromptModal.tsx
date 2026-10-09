@@ -13,8 +13,12 @@ interface UpgradePromptModalProps {
   onUpgrade: () => void;
 }
 
+// UX-011: every line below is verified against src/lib/entitlements.ts. The
+// Free daily-budget line that used to open this list was removed: it described
+// what Free does NOT get, inside a list of what Creator DOES get, and made
+// Creator read as though it inherited a cap. It matches PRICING_PLANS.creator
+// in src/constants/index.ts, which is the canonical customer-facing list.
 const CREATOR_BENEFITS = [
-  'Free: up to 10 min/day per browser profile (device-local)',
   'Unlimited recording duration and sessions',
   'Unlimited teleprompter',
   'Unlimited exports by count & downloads; each file is limited to 2 GiB (about 28 min at current 1080p settings)',
@@ -27,11 +31,18 @@ const CREATOR_BENEFITS = [
 export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgrade }: UpgradePromptModalProps) {
   const isOpen = platform !== null;
   const [pricing, setPricing] = useState<RegionalPricing | null>(null);
+  const [pricingFailed, setPricingFailed] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
     setPricing(null);
-    detectCountry().then((country) => setPricing(getPricingForCountry(country)));
+    setPricingFailed(false);
+    // detectCountry resolves 'US' on its own geo failures, but this is still an
+    // async call across a network boundary — guard it so a rejection can never
+    // strand the dialog on a skeleton indefinitely.
+    detectCountry()
+      .then((country) => setPricing(getPricingForCountry(country)))
+      .catch(() => setPricingFailed(true));
   }, [isOpen]);
 
   if (!platform) return null;
@@ -91,17 +102,35 @@ export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgra
           </ul>
         </div>
 
-        <div className="flex items-baseline gap-1.5">
-          {monthlyLabel && (
+        {/* UX-013: this row used to render NOTHING until the geo lookup
+            resolved — `{monthlyLabel && ...}` — so the dialog visibly
+            collapsed and then re-expanded under the user. A skeleton of
+            comparable weight holds the space instead, the real price
+            replaces it, and a failed lookup states so rather than
+            shimmering forever. min-h matches the resolved line box so the
+            swap does not move the button row either. */}
+        <div className="flex items-baseline gap-1.5 min-h-[29px]">
+          {pricingFailed ? (
+            <span className="text-[13px] text-text-secondary">Price unavailable right now</span>
+          ) : monthlyLabel ? (
             <span className="text-[20px] font-bold text-text-primary tabular-nums">{monthlyLabel}</span>
+          ) : (
+            <>
+              <span className="sr-only">Loading price</span>
+              <span aria-hidden="true" className="inline-block w-20 h-6 rounded bg-elevated animate-pulse" />
+            </>
           )}
         </div>
         <p className="text-[11px] text-text-secondary">One-time payment for 1 month of access. No automatic renewal.</p>
 
         <div className="flex flex-col gap-2">
+          {/* UX-012: the purchase action is this dialog's task. Opening a
+              purchase prompt and landing on "Close" invites dismissal without
+              reading anything. */}
           <Button
             size="md"
             className="w-full"
+            data-modal-initial-focus
             onClick={() => {
               onClose();
               onUpgrade();

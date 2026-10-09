@@ -45,6 +45,55 @@ interface TransportBarProps {
   onConfirmStop?: () => void;
 }
 
+/**
+ * UX-016 — narrow live announcement for the recording clock.
+ *
+ * The elapsed timer ticks once per second and the daily budget beside it
+ * decrements on the same tick. Marking either as `aria-live="polite"` would
+ * make a screen reader re-announce every second for the whole length of a take:
+ * unusable, and the opposite of the intent. So the visible numbers stay outside
+ * live regions (the ticking span carries an explicit `aria-live="off"`), and
+ * this region speaks only the moments that carry meaning — start, pause,
+ * resume, and the final elapsed time on stop.
+ *
+ * `elapsedSeconds` is read AT the transition rather than on every tick, so the
+ * value is announced once at each change instead of continuously. The guard at
+ * the top of the effect is what makes that true: the effect still runs every
+ * second, but it returns without touching state unless the STATE changed.
+ */
+function RecordingAnnouncer({ recordingState, elapsedSeconds }: { recordingState: RecordingState; elapsedSeconds: number }) {
+  const [message, setMessage] = useState('');
+  const previousState = useRef<RecordingState | null>(null);
+
+  useEffect(() => {
+    if (previousState.current === recordingState) return;
+    const from = previousState.current;
+    previousState.current = recordingState;
+    // Never announce on mount — that would describe a state the user never
+    // entered.
+    if (from === null) return;
+
+    const at = formatTime(elapsedSeconds);
+    if (recordingState === 'recording') {
+      setMessage(from === 'paused' ? `Recording resumed. Elapsed ${at}.` : 'Recording started.');
+    } else if (recordingState === 'paused') {
+      setMessage(`Recording paused. Elapsed ${at}.`);
+    } else {
+      setMessage(`Recording stopped. Elapsed ${at}.`);
+    }
+  }, [recordingState, elapsedSeconds]);
+
+  // Bare live region rather than role="status": the transport already contains a
+  // role="status" (the budget indicator, and the REC badge), so adding another
+  // would duplicate the landmark and make `getByRole('status')` ambiguous in
+  // both this suite and the e2e helpers. aria-live alone announces the same.
+  return (
+    <span aria-live="polite" aria-atomic="true" className="sr-only">
+      {message}
+    </span>
+  );
+}
+
 export function TransportBar({
   recordingState,
   canRecord,
@@ -94,6 +143,7 @@ export function TransportBar({
     <footer className="h-14 sm:h-16 border-t border-border-subtle bg-surface flex items-center px-3 sm:px-6 shrink-0" aria-label="Recording controls">
       {/* Left: Timer + Status (secondary information) */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0 sm:min-w-[160px]">
+        <RecordingAnnouncer recordingState={recordingState} elapsedSeconds={elapsedSeconds} />
         {isRecording && (
           <div className="flex items-center gap-2 animate-fade-in">
             <span className="relative flex h-2 w-2">
@@ -104,7 +154,12 @@ export function TransportBar({
         )}
         {(isRecording || isPaused || elapsedSeconds > 0) && (
           <div className="flex flex-col min-w-0">
-            <span className="text-[15px] sm:text-[17px] font-mono font-bold text-text-primary tabular-nums">
+            {/* UX-016: this value changes every 1000ms. It is pinned OUT of any
+                live region on purpose — see RecordingAnnouncer below. */}
+            <span
+              aria-live="off"
+              className="text-[15px] sm:text-[17px] font-mono font-bold text-text-primary tabular-nums"
+            >
               {formatTime(elapsedSeconds)}
             </span>
             {isRecording && (

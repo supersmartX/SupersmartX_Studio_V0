@@ -269,6 +269,7 @@ export function AuthModal({
                       placeholder="John"
                       value={firstName}
                       onChange={setFirstName}
+                      autoFocus
                     />
                     <InputGroup
                       label="Last Name"

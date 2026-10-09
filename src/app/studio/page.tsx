@@ -1098,7 +1098,7 @@ export default function HomePage() {
           onSettingsToggle={handleToggleInspector}
         />
 
-        <Footer showShortcuts={isStudio} />
+        <Footer showShortcuts={isStudio} onShowShortcuts={handleShowShortcuts} />
       </div>
 
       <ExportModal

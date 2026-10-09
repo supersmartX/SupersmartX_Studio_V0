@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
 import { useSession } from 'next-auth/react';
@@ -60,10 +60,18 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     if (isOpen && !pricing) {
       setIsLoadingPricing(true);
       if (isAuthenticated) {
-        detectCountry().then(country => {
-          setPricing(getPricingForCountry(country));
-          setIsLoadingPricing(false);
-        });
+        // detectCountry falls back to 'US' internally, but the `.catch` is what
+        // guarantees the loading state always terminates: without it a rejection
+        // left `isLoadingPricing` true and the dialog on its spinner for good.
+        detectCountry()
+          .then(country => {
+            setPricing(getPricingForCountry(country));
+            setIsLoadingPricing(false);
+          })
+          .catch(() => {
+            setPricing(getPricingForCountry('US'));
+            setIsLoadingPricing(false);
+          });
       } else {
         setPricing(getPricingForCountry('US'));
         setIsLoadingPricing(false);
@@ -246,6 +254,45 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     }
   }, [selectedPlan, selectedTier, billingPeriod, currentPricing, name, email, phone, step, showToast, isAuthenticated, onAuthRequired, session, handleClose]);
 
+  // UX-012: this dialog has always had NO initial focus — focus stayed on the
+  // trigger behind it, so keyboard and screen-reader users opened the pricing
+  // sheet with nothing focused inside it. Same rule the shared Modal uses (an
+  // explicit opt-in marker, else the first control that is not the header
+  // Close). Deliberately NOT a refactor into the shared Modal: unifying the
+  // dialog systems is Phase 6 work and out of this phase's scope.
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!shouldRender || isLoadingPricing) return;
+    const root = dialogRef.current;
+    if (!root) return;
+
+    const explicit = root.querySelector<HTMLElement>('[data-modal-initial-focus]');
+    // A disabled marker (here: the CTA when the viewer already holds the
+    // selected tier) cannot take focus, so it must not end the search.
+    if (explicit && !explicit.hasAttribute('disabled')) {
+      explicit.focus();
+      return;
+    }
+    const focusable = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((el) => !el.hasAttribute('disabled'));
+    if (focusable.length === 0) return;
+    const firstTaskControl =
+      focusable.find((el) => el.getAttribute('aria-label') !== 'Close') ?? focusable[0];
+    firstTaskControl.focus();
+    // `step` is a dependency on purpose: moving select -> form is a new task,
+    // and focus should follow the user into the first field of that step.
+    // `isLoadingPricing` is the important one: while the geo lookup is in
+    // flight the body is the UX-013 skeleton, whose bars are aria-hidden
+    // placeholders with no focusable control in them — so focusing here would
+    // find the header Close as the only candidate and land focus on "leave".
+    // Waiting until real content exists is what makes the task-control rule
+    // below mean anything.
+  }, [shouldRender, step, isLoadingPricing]);
+
   if (!shouldRender) return null;
 
   return (
@@ -255,7 +302,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         onClick={handleClose}
       />
 
-      <div className={`relative w-full max-w-[960px] bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] flex flex-col`}>
+      <div ref={dialogRef} className={`relative w-full max-w-[960px] bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] flex flex-col`}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-border-subtle shrink-0">
           <div className="flex items-center gap-3">
@@ -274,9 +321,34 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
 
         <div className="p-6 overflow-y-auto flex-1 min-h-0">
           {isLoadingPricing ? (
-            <div className="flex flex-col items-center gap-3 py-16">
-              <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-              <p className="text-sm text-text-secondary">Detecting your region...</p>
+            /* UX-013: this was a centred spinner (~130px) standing in for a
+               plan grid several times that height, so the dialog jumped every
+               time regional pricing resolved. The skeleton mirrors the shape it
+               stands in for — toggle row, then one card per tier with a price
+               bar — so the swap is close to height-neutral. Deliberately built
+               from plain elements rather than the lsx-pricing-* classes so it
+               cannot drift out of sync with the real layout. Pulse only; the
+               global prefers-reduced-motion rule in globals.css neutralises it. */
+            <div role="status" aria-label="Loading prices" className="flex flex-col gap-8">
+              <div className="flex gap-2" aria-hidden="true">
+                <div className="h-9 w-24 rounded-md bg-elevated animate-pulse" />
+                <div className="h-9 w-32 rounded-md bg-elevated animate-pulse" />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2" aria-hidden="true">
+                {[0, 1].map((i) => (
+                  <div
+                    key={i}
+                    className="flex flex-col gap-3 rounded-xl border border-border-subtle p-6"
+                  >
+                    <div className="h-4 w-20 rounded bg-elevated animate-pulse" />
+                    <div className="h-8 w-28 rounded bg-elevated animate-pulse" />
+                    <div className="h-3 w-full rounded bg-elevated animate-pulse" />
+                    <div className="h-3 w-5/6 rounded bg-elevated animate-pulse" />
+                    <div className="h-3 w-4/6 rounded bg-elevated animate-pulse" />
+                  </div>
+                ))}
+              </div>
+              <p className="sr-only">Detecting your region to load prices.</p>
             </div>
           ) : (
             <>
@@ -354,6 +426,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     onClick={handleSubscribe}
                     disabled={selectedTier === currentTier}
                     className="lsx-pricing-btn"
+                    data-modal-initial-focus
                   >
                     {selectedTier === currentTier
                       ? 'Current Plan'

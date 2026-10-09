@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { formatTime } from '@/utils/format';
 
 const WARNING_THRESHOLD_SECONDS = 120;
@@ -12,6 +13,51 @@ interface DailyRecordingIndicatorProps {
 
 function clampSeconds(value: number): number {
   return Math.max(0, Math.floor(value));
+}
+
+/**
+ * UX-016 — narrow live announcement for the Free budget.
+ *
+ * `remaining` changes every second while recording, so the indicator's own
+ * container cannot be the live region. It deliberately keeps `aria-live="off"`
+ * AND its `aria-label`, which contains the device-local legal notice: making it
+ * polite would re-read that static legal copy on every tick, which is both
+ * unusable and exactly what "keep static legal copy out of live regions" rules
+ * out.
+ *
+ * Only the two thresholds that change what the user should DO are announced —
+ * the 2-minute warning and exhaustion — and each is spoken once on the crossing.
+ * Rendered as a SIBLING of the status container, not a child, so there is no
+ * nested/overlapping live region for assistive tech to reconcile.
+ */
+function BudgetAnnouncer({ remainingText, isWarning, isExhausted }: {
+  remainingText: string;
+  isWarning: boolean;
+  isExhausted: boolean;
+}) {
+  const tier = isExhausted ? 'exhausted' : isWarning ? 'warning' : 'normal';
+  const [message, setMessage] = useState('');
+  const previousTier = useRef(tier);
+
+  useEffect(() => {
+    if (previousTier.current === tier) return;
+    previousTier.current = tier;
+    if (tier === 'exhausted') {
+      setMessage("Today's Free recording allowance is used up.");
+    } else if (tier === 'warning') {
+      setMessage(`${remainingText} of Free recording time left today.`);
+    }
+  }, [tier, remainingText]);
+
+  // Deliberately NOT role="status": that role only implies aria-live="polite",
+  // and adding a second one would duplicate this indicator's status landmark
+  // and make every `getByRole('status')` in the suite ambiguous. The bare live
+  // region announces identically.
+  return (
+    <span aria-live="polite" aria-atomic="true" className="sr-only">
+      {message}
+    </span>
+  );
 }
 
 export function DailyRecordingIndicator({
@@ -49,6 +95,7 @@ export function DailyRecordingIndicator({
     : `Free recording is limited to up to 10 minutes per browser profile per local calendar day. ${localLimitNotice} ${remainingText} of ${totalText} remaining.`;
 
   return (
+    <>
     <div
       role="status"
       aria-live="off"
@@ -57,7 +104,7 @@ export function DailyRecordingIndicator({
       // layout as 9px muted legal jargon under the bar. It is still on the
       // element for assistive tech via aria-label, and now reaches sighted
       // users on hover/focus instead of permanently spending a line of the
-      // transport on it.
+      // transport on it. aria-live stays "off" (UX-016) — see BudgetAnnouncer.
       title={label}
       className="flex flex-col items-end gap-1 min-w-0 shrink-0"
     >
@@ -97,5 +144,7 @@ export function DailyRecordingIndicator({
         </div>
       </div>
     </div>
+    <BudgetAnnouncer remainingText={remainingText} isWarning={isWarning} isExhausted={isExhausted} />
+    </>
   );
 }

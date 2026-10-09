@@ -28,12 +28,36 @@ export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg',
   const { isClosing, shouldRender, handleClose, swipeHandlers } = useModalAnimation(isOpen, onClose);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  // UX-012: this used to focus `focusable[0]`, and because the header's Close
+  // button is rendered BEFORE {children}, that was ALWAYS the Close button —
+  // so opening a dialog focused "leave this dialog" instead of the task. Three
+  // rules, in order:
+  //   1. an explicit [data-modal-initial-focus] opt-out/opt-in, so a dialog can
+  //      name its own primary control;
+  //   2. otherwise the first focusable that is not the header Close;
+  //   3. otherwise the first focusable (e.g. a dialog whose only control is Close).
+  // Close stays in the DOM, in tab order, and Escape/trap/restore are untouched.
   useEffect(() => {
     if (!shouldRender || !contentRef.current) return;
-    const focusable = contentRef.current.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    if (focusable.length > 0) focusable[0].focus();
+    const root = contentRef.current;
+
+    const explicit = root.querySelector<HTMLElement>('[data-modal-initial-focus]');
+    // A disabled marker cannot take focus and must not end the search.
+    if (explicit && !explicit.hasAttribute('disabled')) {
+      explicit.focus();
+      return;
+    }
+
+    const focusable = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((el) => !el.hasAttribute('disabled'));
+    if (focusable.length === 0) return;
+
+    const firstTaskControl =
+      focusable.find((el) => el.getAttribute('aria-label') !== 'Close') ?? focusable[0];
+    firstTaskControl.focus();
   }, [shouldRender]);
 
   useEffect(() => {
