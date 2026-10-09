@@ -34,7 +34,7 @@ export function BottomNav({
           onClick={() => onPanelChange('studio')}
           className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center ${
             activePanel === 'studio'
-              ? 'text-accent'
+              ? 'text-accent-text'
               : 'text-text-secondary hover:text-text-primary'
           }`}
           aria-label="Studio"
@@ -64,7 +64,7 @@ export function BottomNav({
           onClick={() => onPanelChange('library')}
           className={`flex flex-col items-center gap-0.5 p-2 rounded-lg transition-colors min-w-[48px] min-h-[44px] justify-center ${
               activePanel === 'library'
-                ? 'text-accent'
+                ? 'text-accent-text'
                 : 'text-text-secondary hover:text-text-primary'
             }`}
           aria-label="Recordings"

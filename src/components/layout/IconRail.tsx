@@ -30,7 +30,7 @@ export function IconRail({
             aria-current={activePanel === 'studio' ? 'page' : undefined}
             className={`flex items-center gap-2.5 px-2 py-2 min-h-[40px] rounded-lg text-[13px] font-medium transition-colors ${
               activePanel === 'studio'
-                ? 'bg-accent/15 text-accent'
+                ? 'bg-accent/15 text-accent-text'
                 : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
             }`}
           >
@@ -45,7 +45,7 @@ export function IconRail({
             aria-current={activePanel === 'library' ? 'page' : undefined}
             className={`flex items-center justify-between px-2 py-2 min-h-[40px] rounded-lg text-[13px] font-medium transition-colors ${
               activePanel === 'library'
-                ? 'bg-accent/15 text-accent'
+                ? 'bg-accent/15 text-accent-text'
                 : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
             }`}
           >

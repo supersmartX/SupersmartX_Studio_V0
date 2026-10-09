@@ -153,8 +153,8 @@ export function Canvas({
             onClick={onFocusViewToggle}
             className={`absolute top-2 left-2 sm:top-3 sm:left-3 z-20 flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors min-w-[44px] min-h-[44px] justify-center ${
               focusViewEnabled
-                ? 'bg-accent/20 text-accent border border-accent/30'
-                : 'bg-black/60 backdrop-blur-sm text-white/80 hover:bg-black/80'
+                ? 'bg-accent/20 text-accent-text border border-accent/30'
+                : 'bg-black/85 backdrop-blur-sm text-white/80 hover:bg-black/90'
             }`}
           >
             <EyeIcon className="w-3.5 h-3.5" />
@@ -166,7 +166,7 @@ export function Canvas({
             review) it reports the ACTUAL dimensions; before capture it shows
             the configured target, explicitly labelled as configuration so the
             UI never claims a resolution the stream is not delivering. */}
-        <div className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 z-20 px-2 py-1 rounded-md bg-black/70 backdrop-blur-sm text-white/80 text-[10px] font-medium tabular-nums">
+        <div className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 z-20 px-2 py-1 rounded-md bg-black/85 backdrop-blur-sm text-white/80 text-[10px] font-medium tabular-nums">
           {captureSize && captureSize.width > 0 && captureSize.height > 0
             ? `${captureSize.width} × ${captureSize.height}`
             : `Target ${recordingConfig.width} × ${recordingConfig.height}`}

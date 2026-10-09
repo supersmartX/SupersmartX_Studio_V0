@@ -51,7 +51,7 @@ export function Header({
       {/* Left: Logo */}
       <div className="flex items-center min-w-0">
         <Link href="/" className="py-2.5 text-[14px] font-semibold tracking-tight text-text-primary truncate hover:text-text-secondary transition-colors" aria-label="SupersmartX Studio">
-          SupersmartX<span className="text-accent font-normal"> Studio</span>
+          SupersmartX<span className="text-accent-text font-normal"> Studio</span>
         </Link>
       </div>
 

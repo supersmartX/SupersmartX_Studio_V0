@@ -13,8 +13,10 @@ const inter = Inter({
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // No `maximumScale` / `userScalable` cap: pinning scale to 1 blocks pinch-zoom
+  // for low-vision users, which fails WCAG 2.1 SC 1.4.4 (Resize Text).
+  // `width` + `initialScale` already give the correct default framing, and
+  // leaving the maximum unset is what lets the browser honour user zoom.
   themeColor: '#09090B',
 };
 

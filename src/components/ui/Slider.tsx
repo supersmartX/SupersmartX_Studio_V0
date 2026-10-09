@@ -23,7 +23,7 @@ export const Slider = forwardRef<HTMLInputElement, SliderProps>(
               <label htmlFor={id} className="text-[13px] text-text-secondary">{label}</label>
             )}
             {showValue && (
-              <span id={valueId} className="text-xs font-mono text-accent tabular-nums">
+              <span id={valueId} className="text-xs font-mono text-accent-text tabular-nums">
                 {step < 1 ? value.toFixed(1) : value}{unit}
               </span>
             )}

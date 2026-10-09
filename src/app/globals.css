@@ -37,6 +37,14 @@
   --color-accent-hover:  #8B5CF6;
   --color-accent-dark:   #6D28D9;
   --color-accent-muted:  rgba(124, 58, 237, 0.12);
+  /* Accent as TEXT, not fill. #7C3AED is a fill colour: it is only 3.31:1 on
+     `--color-surface` and 2.98:1 on its own `bg-accent/15` tint, so any text
+     set in it fails WCAG AA (4.5:1). This lighter violet is the same hue and
+     clears 4.5:1 on every background accent text actually sits on:
+     surface 5.56, canvas 5.86, elevated 5.22, accent/15 tint 5.01.
+     Use `text-accent-text` for accent-coloured text; keep `text-accent` for
+     icons, borders, focus rings and other non-text decoration. */
+  --color-accent-text:   #9575F9;
 
   /* ── Color: Semantic ───────────────────────────────────────────────────── */
   --color-success:       #22C55E;
