@@ -8,7 +8,6 @@ interface DailyRecordingIndicatorProps {
   remainingSeconds: number | null;
   totalSeconds: number;
   isRecording?: boolean;
-  variant?: 'full' | 'compact';
 }
 
 function clampSeconds(value: number): number {
@@ -19,7 +18,6 @@ export function DailyRecordingIndicator({
   remainingSeconds,
   totalSeconds,
   isRecording = false,
-  variant = 'full',
 }: DailyRecordingIndicatorProps) {
   if (remainingSeconds === null) {
     const label = 'Creator plan: unlimited recording duration and sessions';
@@ -50,32 +48,37 @@ export function DailyRecordingIndicator({
     ? `Recording: ${remainingText} remaining today. ${localLimitNotice}`
     : `Free recording is limited to up to 10 minutes per browser profile per local calendar day. ${localLimitNotice} ${remainingText} of ${totalText} remaining.`;
 
-  if (variant === 'compact') {
-    return (
-      <span
-        role="status"
-        aria-live="off"
-        aria-label={label}
-        className={`text-[10px] font-medium tabular-nums whitespace-nowrap min-w-0 truncate ${statusClass}`}
-      >
-        {isRecording ? `● ${remainingText} left` : `Free · ${remainingText}`}
-      </span>
-    );
-  }
-
   return (
     <div
       role="status"
       aria-live="off"
       aria-label={label}
+      // UX-010: the device-local fine print used to sit permanently in the
+      // layout as 9px muted legal jargon under the bar. It is still on the
+      // element for assistive tech via aria-label, and now reaches sighted
+      // users on hover/focus instead of permanently spending a line of the
+      // transport on it.
+      title={label}
       className="flex flex-col items-end gap-1 min-w-0 shrink-0"
     >
+      {/* One indicator, two text lengths. Previously the transport mounted a
+          `compact` AND a `full` copy and let CSS pick one, so both sat in the
+          DOM as separate role="status" nodes — two budget readouts to a screen
+          reader for one fact. The single mount now varies its own text. */}
       <span className={`text-[11px] sm:text-[12px] font-medium tabular-nums whitespace-nowrap ${statusClass}`}>
-        {isRecording
-          ? `● Recording · ${remainingText} remaining today`
-          : `Free · ${remainingText} / ${totalText} min available today`}
+        {isRecording ? (
+          <>
+            <span className={`sm:hidden ${statusClass}`}>● {remainingText} left</span>
+            <span className={`hidden sm:inline ${statusClass}`}>● Recording · {remainingText} remaining today</span>
+          </>
+        ) : (
+          <>
+            <span className={`sm:hidden ${statusClass}`}>Free · {remainingText}</span>
+            <span className={`hidden sm:inline ${statusClass}`}>Free · {remainingText} / {totalText} min available today</span>
+          </>
+        )}
       </span>
-      <div className="flex items-center gap-2 w-full max-w-[150px]">
+      <div className="hidden sm:flex items-center gap-2 w-full max-w-[150px]">
         <span className="text-[9px] uppercase tracking-wide text-text-muted whitespace-nowrap">
           {isRecording ? 'Remaining time' : 'Free recording time'}
         </span>
@@ -93,9 +96,6 @@ export function DailyRecordingIndicator({
           />
         </div>
       </div>
-      <span className="max-w-[200px] text-right text-[9px] leading-snug text-text-muted">
-        Device-local; may reset if site data is cleared or you switch browser profiles.
-      </span>
     </div>
   );
 }

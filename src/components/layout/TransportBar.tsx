@@ -121,17 +121,6 @@ export function TransportBar({
             <span className="text-[11px] text-text-muted">Ready</span>
           </div>
         )}
-
-        {dailyRemainingSeconds !== undefined && (
-          <div className="sm:hidden min-w-0 shrink-0">
-            <DailyRecordingIndicator
-              remainingSeconds={dailyRemainingSeconds}
-              totalSeconds={dailyRemainingTotalSeconds}
-              isRecording={isRecording || isPaused}
-              variant="compact"
-            />
-          </div>
-        )}
       </div>
 
       {/* Center: Primary action — this is the focal point */}
@@ -250,14 +239,17 @@ export function TransportBar({
         )}
       </div>
 
-      {/* Right: Daily recording allowance (contextual info) */}
-      <div className="hidden sm:flex items-center justify-end min-w-0 pl-2 sm:pl-3 shrink-0">
+      {/* Right: Daily recording allowance (contextual info).
+          UX-010: this used to be `hidden sm:flex` while a second `sm:hidden`
+          compact copy lived in the left status cluster — one fact, two
+          role="status" nodes. There is now one mount, visible at every width;
+          the component varies its own text length instead. */}
+      <div className="flex items-center justify-end min-w-0 pl-2 sm:pl-3 shrink-0">
         {dailyRemainingSeconds !== undefined && (
           <DailyRecordingIndicator
             remainingSeconds={dailyRemainingSeconds}
             totalSeconds={dailyRemainingTotalSeconds}
             isRecording={isRecording || isPaused}
-            variant="full"
           />
         )}
       </div>

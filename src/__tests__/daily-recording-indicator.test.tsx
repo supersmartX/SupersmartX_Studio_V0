@@ -141,32 +141,32 @@ describe('DailyRecordingIndicator', () => {
     });
   });
 
-  describe('Compact variant', () => {
-    it('renders compact remaining for Free idle', () => {
-      render(
-        <DailyRecordingIndicator remainingSeconds={360} totalSeconds={TOTAL} variant="compact" />,
-      );
-      screen.getByText(/Free · 06:00/);
-      expect(screen.queryByRole('progressbar')).toBeNull();
+  describe('Single indicator (UX-010)', () => {
+    it('mounts exactly one role="status" node for one budget fact', () => {
+      // The transport used to render a `compact` AND a `full` copy and let CSS
+      // pick one visually; both stayed in the DOM, so assistive tech read two
+      // budget indicators for the same number.
+      render(<DailyRecordingIndicator remainingSeconds={360} totalSeconds={TOTAL} />);
+      expect(screen.getAllByRole('status')).toHaveLength(1);
     });
 
-    it('renders compact recording countdown', () => {
-      render(
-        <DailyRecordingIndicator
-          remainingSeconds={180}
-          totalSeconds={TOTAL}
-          isRecording
-          variant="compact"
-        />,
-      );
-      screen.getByText(/● 03:00 left/);
+    it('carries the device-local fine print as a title rather than body copy', () => {
+      render(<DailyRecordingIndicator remainingSeconds={360} totalSeconds={TOTAL} />);
+      const el = screen.getByRole('status');
+      expect(el.getAttribute('title')).toContain('Device-local limit');
+      expect(screen.queryByText(/may reset if site data is cleared/)).toBeNull();
     });
 
-    it('renders compact Creator', () => {
-      render(
-        <DailyRecordingIndicator remainingSeconds={null} totalSeconds={TOTAL} variant="compact" />,
-      );
-      screen.getByText(/Creator · Unlimited/);
+    it('offers a short form for narrow viewports and the long form above sm', () => {
+      render(<DailyRecordingIndicator remainingSeconds={360} totalSeconds={TOTAL} />);
+      expect(screen.getByText('Free · 06:00')).toHaveClass('sm:hidden');
+      expect(screen.getByText('Free · 06:00 / 10:00 min available today')).toHaveClass('hidden', 'sm:inline');
+    });
+
+    it('short recording form reads the same way', () => {
+      render(<DailyRecordingIndicator remainingSeconds={180} totalSeconds={TOTAL} isRecording />);
+      expect(screen.getByText('● 03:00 left')).toHaveClass('sm:hidden');
+      expect(screen.getByText('● Recording · 03:00 remaining today')).toHaveClass('hidden', 'sm:inline');
     });
   });
 });

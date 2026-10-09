@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { TeleprompterSettings, TextAlignment } from '@/types';
 import { Slider } from '@/components/ui/Slider';
 import { Toggle } from '@/components/ui/Toggle';
@@ -162,9 +162,7 @@ export function InspectorPanel({
           aria-label="Inspector panel"
         >
           <PanelHeader label={headerLabel} onClose={onClose} />
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            {content}
-          </div>
+          <InspectorScrollArea>{content}</InspectorScrollArea>
         </div>
       </>
     );
@@ -182,10 +180,62 @@ export function InspectorPanel({
       aria-hidden={!isOpen}
     >
       <PanelHeader label={headerLabel} onClose={onClose} />
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {content}
-      </div>
+      <InspectorScrollArea>{content}</InspectorScrollArea>
     </aside>
+  );
+}
+
+/**
+ * UX-009 (scroll affordance). The Prepare panel stacks Script → Teleprompter →
+ * Camera and is taller than the viewport on a 1084px-tall window, so it scrolls
+ * with no visual cue that anything exists above or below the fold.
+ *
+ * This wraps the shared content in a non-scrolling positioned frame with a
+ * scrolling child, then fades the appropriate edge only while content actually
+ * remains on that side. Deliberately zero-height decoration: the audit forbids
+ * adding whitespace to the studio shell, so the cue is painted on the edges it
+ * describes rather than reserved with a sticky bar.
+ *
+ * The frames are stacked absolutely OUTSIDE the scroller on purpose — inside it
+ * they would scroll away with the content and describe nothing.
+ */
+function InspectorScrollArea({ children }: { children: React.ReactNode }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [atTop, setAtTop] = useState(true);
+  const [atBottom, setAtBottom] = useState(true);
+
+  const syncEdges = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    // 1px tolerance: fractional layout heights make scrollTop land on 0.5.
+    setAtTop(el.scrollTop <= 1);
+    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= 1);
+  }, []);
+
+  // Collapse/expand changes the content height without firing a scroll event, so
+  // the edges have to be re-measured after every render as well.
+  useEffect(() => {
+    syncEdges();
+  });
+
+  return (
+    <div className="relative flex-1 min-h-0">
+      <div ref={scrollerRef} onScroll={syncEdges} className="h-full overflow-y-auto">
+        {children}
+      </div>
+      {!atTop && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 h-5 bg-gradient-to-b from-surface to-transparent"
+        />
+      )}
+      {!atBottom && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-5 bg-gradient-to-t from-surface to-transparent"
+        />
+      )}
+    </div>
   );
 }
 
@@ -304,10 +354,10 @@ function InspectorContent({
       {/* SCRIPT Section — only during preparing */}
       {showScript && (<>
       <Card>
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           <button
             onClick={() => toggleSection('script')}
-            className="relative flex items-center justify-between w-full text-left after:absolute after:-inset-y-3 after:inset-x-0 after:content-['']"
+            className="group flex items-center justify-between w-full text-left min-h-[44px] px-2 -mx-2 rounded-md transition-colors hover:bg-elevated"
             aria-expanded={!collapsedSections.script}
           >
             <h3 className="text-[12px] font-semibold text-text-secondary">Script</h3>
@@ -380,10 +430,10 @@ function InspectorContent({
       {/* TELEPROMPTER Section — only during preparing */}
       {showTeleprompter && (
       <Card>
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           <button
             onClick={() => toggleSection('teleprompter')}
-            className="relative flex items-center justify-between w-full text-left after:absolute after:-inset-y-3 after:inset-x-0 after:content-['']"
+            className="group flex items-center justify-between w-full text-left min-h-[44px] px-2 -mx-2 rounded-md transition-colors hover:bg-elevated"
             aria-expanded={!collapsedSections.teleprompter}
           >
             <h3 className="text-[12px] font-semibold text-text-secondary">Teleprompter</h3>
@@ -536,10 +586,10 @@ function InspectorContent({
 
       {showCamera && (
       <Card>
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           <button
             onClick={() => toggleSection('camera')}
-            className="relative flex items-center justify-between w-full text-left after:absolute after:-inset-y-3 after:inset-x-0 after:content-['']"
+            className="group flex items-center justify-between w-full text-left min-h-[44px] px-2 -mx-2 rounded-md transition-colors hover:bg-elevated"
             aria-expanded={!collapsedSections.camera}
           >
             <h3 className="text-[12px] font-semibold text-text-secondary">Camera &amp; Preview</h3>
