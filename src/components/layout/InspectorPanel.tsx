@@ -359,6 +359,16 @@ function InspectorContent({
             </button>
           </div>
 
+          {/* UX-002 (item 6): the reassurance that used to sit on the camera
+              setup overlay now sits with the editor that earns it. Kept factual
+              on purpose — the script is written to this browser's localStorage
+              by useScriptStorage, so it survives a reload on this device and
+              nothing more. No cloud, no sync, no account recovery implied. */}
+          <p className="text-[11px] leading-relaxed text-text-muted">
+            Your script is saved in this browser, so you can close the tab and pick up
+            where you left off. Clearing site data removes it.
+          </p>
+
           <InspirationLoader onLoad={onLoadInspiration} hasExistingScript={!!script.trim()} />
           </>)}
         </div>

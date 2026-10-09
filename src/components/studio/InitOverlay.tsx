@@ -65,16 +65,10 @@ export function InitOverlay({ onInitialize, status, errorMessage }: InitOverlayP
         >
           {isLoading ? 'Loading...' : hasError ? 'Retry' : 'Enable Camera & Microphone'}
         </Button>
-        <p
-          className="text-text-muted leading-relaxed hidden sm:block"
-          style={{
-            fontSize: 'clamp(0.625rem, 1.2vw, 0.6875rem)',
-            marginTop: 'clamp(0.5rem, 2vw, 1rem)',
-            maxWidth: '20rem',
-          }}
-        >
-          Your script is saved locally so you can return later and continue where you left off.
-        </p>
+        {/* UX-002 (item 6): the script-persistence reassurance moved to the
+            Inspector's Script section, where the editor that earns it actually
+            lives. Keeping it here duplicated the same promise in two places the
+            user cannot act on from this overlay. */}
       </div>
     </div>
   );

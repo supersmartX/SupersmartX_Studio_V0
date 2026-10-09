@@ -13,6 +13,16 @@ import {
   StopIcon,
 } from '@/components/icons';
 
+/**
+ * Stable id for the line that names the current Start blocker.
+ *
+ * Exported because it is the `aria-describedby` target of the Start button and
+ * therefore part of this component's accessibility contract: it is rendered by
+ * the transport itself, so it exists whenever `canRecord` is false and the
+ * description can never point at a missing element.
+ */
+export const RECORD_BLOCKER_HINT_ID = 'studio-record-blocker-hint';
+
 interface TransportBarProps {
   recordingState: RecordingState;
   canRecord: boolean;
@@ -21,6 +31,12 @@ interface TransportBarProps {
   elapsedSeconds: number;
   dailyRemainingSeconds?: number | null;
   dailyRemainingTotalSeconds?: number;
+  /**
+   * UX-002: why Start is unavailable right now, already resolved from real
+   * application state by the caller. `null` renders no hint and no description.
+   * Kept as a prop so this bar never has to know *why* it is disabled.
+   */
+  recordBlockerHint?: string | null;
   onMicToggle: () => void;
   onStart: () => void;
   onPause: () => void;
@@ -37,6 +53,7 @@ export function TransportBar({
   elapsedSeconds,
   dailyRemainingSeconds,
   dailyRemainingTotalSeconds = 600,
+  recordBlockerHint = null,
   onMicToggle,
   onStart,
   onPause,
@@ -118,7 +135,30 @@ export function TransportBar({
       </div>
 
       {/* Center: Primary action — this is the focal point */}
-      <div className="flex-1 flex items-center justify-center gap-3 sm:gap-4">
+      <div className="relative flex-1 flex items-center justify-center gap-3 sm:gap-4">
+        {/* UX-002: a disabled Start used to be a dimmed circle whose only
+            explanation lived inside the canvas. This line is anchored to the
+            transport itself, so the reason for the disabled state is readable
+            here without hunting for it. Absolutely positioned above the bar so
+            the fixed-height footer (and therefore the canvas) never reflows. */}
+        {recordBlockerHint && (
+          <p
+            id={RECORD_BLOCKER_HINT_ID}
+            // `aria-describedby` alone is not enough here: a DISABLED button
+            // cannot take keyboard focus, so its description is only ever read
+            // in browse mode — never announced when the user is on the control.
+            // This line does change under the user (permission asked → granted
+            // or refused), so it announces that transition politely, matching
+            // the repo's transient-state pattern (Toast, RecordingBadge).
+            // Polite, not assertive: it explains, it does not interrupt, and
+            // the hint unmounting when Start enables produces no announcement.
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 max-w-[min(24rem,calc(100vw-2rem))] rounded-md border border-border-subtle bg-surface/95 px-2.5 py-1 text-center text-[11px] leading-snug font-medium text-text-secondary shadow-lg backdrop-blur-sm"
+          >
+            {recordBlockerHint}
+          </p>
+        )}
         {/* Mic toggle — secondary, positioned left of primary action */}
         <button
           onClick={onMicToggle}
@@ -141,6 +181,9 @@ export function TransportBar({
             disabled={!canRecord}
             className="flex items-center justify-center w-14 h-14 rounded-full bg-recording hover:bg-red-600 text-white transition-all shadow-lg shadow-recording/30 disabled:opacity-40 disabled:cursor-not-allowed select-none"
             aria-label="Start Recording"
+            // Describes the disabled state from the element the screen reader is
+            // already on, instead of making the user leave it to find out why.
+            aria-describedby={recordBlockerHint ? RECORD_BLOCKER_HINT_ID : undefined}
           >
             <RecordIcon className="w-6 h-6" />
           </button>

@@ -341,6 +341,36 @@ export default function HomePage() {
       ? `Teleprompter limit reached (3 min per recording on Free). Upgrade to Creator for unlimited.`
       : `Free plan: ${Math.max(1, Math.ceil((teleprompterRemainingDisplay ?? 0) / 60))} min teleprompter for this recording`;
 
+  // UX-002 (item 5): the ONE condition that decides whether Start is enabled.
+  // Extracted from the inline expression at the TransportBar so the blocker
+  // message below is derived from exactly the same state that gates the button —
+  // the hint can never claim a reason the button does not agree with.
+  //
+  // Start is enabled by a live stream, OR a camera that was already initialized
+  // (Start re-acquires on demand), OR a restored review — and never while a
+  // permission request is in flight.
+  const canStartRecording =
+    (!!camera.stream || camera.hasInitialized || isReview) && camera.status !== 'requesting';
+
+  // The matching reason, in the same order. `null` means "nothing is blocking
+  // you" and the transport renders no hint at all. This names the real blocker
+  // (camera/microphone permission and acquisition) rather than a hardcoded
+  // string: the daily Free budget is NOT one of them, because it does not
+  // disable the button — it is enforced at click time in handleRecordStart.
+  //
+  // One branch per camera status, so the hint can never disagree with the
+  // overlay above it. The error branch deliberately does NOT restate the
+  // overlay's `errorMessage` (permission denied, device in use, not found…):
+  // it says what to do about it instead, which is true for every error cause
+  // and duplicates none of them.
+  const recordBlockerHint = !canStartRecording
+    ? camera.status === 'requesting'
+      ? 'Allow camera and microphone access to start recording.'
+      : camera.status === 'error'
+        ? 'Camera setup failed. Use Retry on the canvas to try again.'
+        : 'Enable Camera & Microphone on the canvas to start recording.'
+    : null;
+
   // Local UI state
   const isMobile = useMediaQuery('(max-width: 640px)');
   // The side rail + docked inspector need 1280px before they stop squeezing the
@@ -1021,12 +1051,13 @@ export default function HomePage() {
                 // overlay. Pre-permission users outside review go through that
                 // overlay instead; the button stays disabled for them. Never
                 // during an in-flight permission request.
-                canRecord={(!!camera.stream || camera.hasInitialized || isReview) && camera.status !== 'requesting'}
+                canRecord={canStartRecording}
                 hasRecording={isReview}
                 isMicMuted={isMicMuted}
                 elapsedSeconds={elapsedSeconds}
                 dailyRemainingSeconds={dailyRemainingDisplay}
                 dailyRemainingTotalSeconds={FREE_DAILY_RECORDING_SECONDS}
+                recordBlockerHint={recordBlockerHint}
                 onMicToggle={handleMicToggle}
                 onStart={handleRecordStart}
                 onPause={recorder.pauseRecording}
