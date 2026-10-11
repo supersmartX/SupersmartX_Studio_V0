@@ -244,7 +244,21 @@ export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: Act
                   Taking longer than expected. Your plan will activate as soon as your payment is
                   confirmed — you can keep using the free tier in the meantime.
                 </p>
-                <Button variant="ghost" size="sm" className="mt-2" onClick={handleContinue}>
+                {/* The payment is already settled in the common case; only the
+                    session is behind. Offer a re-check rather than sending the
+                    buyer back to a checkout they have already paid for. */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2"
+                  onClick={async () => {
+                    setPollCount(0);
+                    await settleAndConfirm();
+                  }}
+                >
+                  Check again
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleContinue}>
                   Continue anyway
                 </Button>
               </div>
