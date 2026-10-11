@@ -20,6 +20,9 @@ interface RecordingsPanelProps {
   isAuthenticated?: boolean;
   userPlan?: PlanType | 'free';
   refreshKey?: number;
+  /** Changes identity each time a recording is finalized, so the list reloads
+   *  without the panel having to be unmounted. */
+  recordingsKey?: unknown;
   onAuthRequired?: () => void;
   /**
    * Platform preview state is owned by the Studio, not by this panel: an
@@ -211,6 +214,7 @@ export function RecordingsPanel({
   isAuthenticated,
   userPlan = 'free',
   refreshKey,
+  recordingsKey,
   onAuthRequired,
   previewPlatformId,
   onPreviewPlatformChange,
@@ -252,7 +256,11 @@ export function RecordingsPanel({
 
   useEffect(() => {
     loadRecordings();
-  }, [loadRecordings]);
+    // `recordingsKey` changes every time a take is finalized. Without it this
+    // effect only ran on mount, so a take saved while this panel stayed mounted
+    // (e.g. stop from the transport bar while the Library tab is open) never
+    // appeared in the list until the tab was unmounted and re-entered.
+  }, [loadRecordings, recordingsKey]);
 
   useEffect(() => {
     if (editingId && editInputRef.current) {

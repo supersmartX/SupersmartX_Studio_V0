@@ -1011,6 +1011,11 @@ export default function HomePage() {
                   isAuthenticated={!!session?.user}
                   userPlan={userPlan}
                   refreshKey={exportJobs.length}
+                    // Keyed on the persisted master take, NOT recorder.recordingResult:
+                    // the take is written to IndexedDB from a video-element
+                    // loadedmetadata callback, which runs AFTER recordingResult
+                    // changes. Keying on the earlier value raced the write.
+                    recordingsKey={masterRecordingData}
                   onAuthRequired={() => {
                     setAuthIntent('register');
                     ui.handleAuthRequired();
@@ -1035,7 +1040,7 @@ export default function HomePage() {
               </div>
             )}
 
-            {isStudio && (
+            {(isStudio || recorder.recordingState !== 'idle') && (
               <TransportBar
                 recordingState={recorder.recordingState}
                 // Enabled with a live stream, after a released take (Start
