@@ -29,7 +29,7 @@ test.describe('Pricing Modal - Display', () => {
     if (isPricingVisible) {
       await pricingButton.click();
       await page.waitForTimeout(3000);
-      const dialog = page.getByRole('dialog', { name: 'Choose Plan' });
+      const dialog = page.getByRole('dialog', { name: 'Choose Your Plan' });
       const isDialogVisible = await dialog.isVisible().catch(() => false);
       if (isDialogVisible) {
         const hasFree = await dialog.getByText('Free').first().isVisible().catch(() => false);

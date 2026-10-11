@@ -243,7 +243,7 @@ test.describe('Smoke Test - Pricing Modal', () => {
     if (await pricingButton.isVisible().catch(() => false)) {
       await pricingButton.click();
       await page.waitForTimeout(2000);
-      const dialog = page.getByRole('dialog', { name: 'Choose Plan' });
+      const dialog = page.getByRole('dialog', { name: 'Choose Your Plan' });
       if (await dialog.isVisible().catch(() => false)) {
         await expect(dialog.getByText('Free').first()).toBeVisible();
         await expect(dialog.getByText('Creator').first()).toBeVisible();
@@ -263,7 +263,7 @@ test.describe('Smoke Test - Pricing Modal', () => {
     if (await pricingButton.isVisible().catch(() => false)) {
       await pricingButton.click();
       await page.waitForTimeout(2000);
-      const dialog = page.getByRole('dialog', { name: 'Choose Plan' });
+      const dialog = page.getByRole('dialog', { name: 'Choose Your Plan' });
       if (await dialog.isVisible().catch(() => false)) {
         const body = await dialog.textContent();
         expect(body).toContain('Unlimited teleprompter');

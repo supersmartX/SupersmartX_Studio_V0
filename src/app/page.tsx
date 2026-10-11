@@ -612,7 +612,11 @@ export default function LandingPage() {
   border-radius: 50%;
   background: rgba(124,58,237,0.12);
   border: 1px solid rgba(124,58,237,0.25);
-  color: var(--color-accent-hover);
+  /* §8 landing contrast: was var(--color-accent-hover) (#8B5CF6), which
+     measures 4.38:1 on this card's purple-tinted fill — just under AA. Lifted
+     locally to clear 4.5:1 while keeping the purple hue. The token itself is
+     deliberately untouched; it is shared with the studio. */
+  color: rgb(146, 100, 250);
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 20px;
@@ -642,7 +646,8 @@ export default function LandingPage() {
 .lsx-step-desc {
   font-size: 14px;
   line-height: 1.65;
-  color: rgba(255,255,255,0.4);
+  /* §8 landing contrast: was 0.4 alpha = 3.74:1 on the page background. */
+  color: rgba(255,255,255,0.5);
   max-width: 260px;
   margin: 0 auto;
 }
@@ -723,10 +728,14 @@ export default function LandingPage() {
   gap: 16px;
   flex-wrap: wrap;
   font-size: 12px;
-  color: rgba(255,255,255,0.3);
+  /* §8 landing contrast: was 0.3 alpha = 2.59:1 — a real AA failure on legal
+     and copyright text. 0.5 lifts the composited colour to ~rgb(132,132,134)
+     (5.3:1). The hover state is raised with it so the affordance stays
+     clearly perceptible rather than collapsing into a near-invisible step. */
+  color: rgba(255,255,255,0.5);
 }
 .lsx-footer-link {
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.5);
   text-decoration: none;
   transition: color 0.2s ease;
   /* UX-007: 18px-tall legal links grow to a ≥40px hit box (no layout shift). */
@@ -738,7 +747,15 @@ export default function LandingPage() {
   inset: -11px -8px;
 }
 .lsx-footer-link:hover {
-  color: rgba(255,255,255,0.6);
+  color: rgba(255,255,255,0.7);
+}
+/* §8 landing contrast: the pricing-period colour is defined in
+   src/styles/pricing.css, which is imported by BOTH this page and the studio's
+   PricingModal. Editing it there would restyle the studio too, so the landing
+   value is overridden here instead, scoped to .lsx-page (specificity 0,2,0
+   beats the shared 0,1,0 rule). Only this page's copy changes. */
+.lsx-page .lsx-pricing-period {
+  color: rgba(255,255,255,0.5);
 }
 `,
         }}
@@ -787,7 +804,11 @@ export default function LandingPage() {
       >
         <header className="lsx-header">
           <Link href="/" className="lsx-logo lsx-appear" style={{ '--lsx-d': '0.08s' } as React.CSSProperties} aria-label="SupersmartX Studio">
-            SUPERSMARTX<span className="text-accent font-normal">Studio</span>
+            SUPERSMARTX{/* §8 landing contrast: `text-accent` (#7C3AED) is the studio's fill
+   accent and measures 3.49:1 as text on this page. Lifted locally to keep the
+   purple character while clearing AA; only this wordmark instance changes, so
+   the accent chevrons (non-text graphics) are untouched. */}
+    <span className="text-accent font-normal" style={{ color: 'rgb(146, 106, 246)' }}>Studio</span>
           </Link>
 
           <nav className="lsx-site-nav" id="lsx-site-nav" aria-label="Primary">

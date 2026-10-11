@@ -299,10 +299,28 @@ test.describe('STATE 1 — Anonymous Free', () => {
     const exportButton = dialog.getByRole('button', { name: /^Export YouTube · 1280×720$/ });
     await expect(exportButton).toBeVisible();
 
+    // UX-004 (audit P1): the Discord/feedback block must never sit in the task
+    // dialog under the primary Export CTA. `2e29d28` gated it to
+    // `{step === 'done' && …}`, but nothing asserted that placement, so a
+    // refactor could move it back and the suite would stay green.
+    // The link is a stable semantic anchor (DiscordFeedback.tsx:60-68).
+    await expect(
+      dialog.getByRole('link', { name: 'Join Discord Server' }),
+      'the Discord/feedback block must be absent from the export TASK step',
+    ).toHaveCount(0);
+
     // Export
     await exportButton.click();
     await expect(dialog.getByRole('heading', { name: 'Exporting...' })).toBeVisible({ timeout: 20_000 });
     await expect(dialog.getByRole('heading', { name: 'Video exported' })).toBeVisible({ timeout: 180_000 });
+
+    // UX-004 (audit P1): …and it IS present once the export succeeds — the
+    // audit's own chosen placement. Asserting both halves pins the gate to
+    // `step === 'done'` rather than merely proving the block exists somewhere.
+    await expect(
+      dialog.getByRole('link', { name: 'Join Discord Server' }),
+      'the Discord/feedback block must be present on the export SUCCESS step',
+    ).toBeVisible();
 
     // The composition is stated exactly as downloaded.
     await expect(dialog.getByText('YouTube · 1280 × 720 · HD')).toBeVisible();

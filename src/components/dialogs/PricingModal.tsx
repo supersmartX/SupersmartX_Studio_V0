@@ -295,8 +295,19 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
 
   if (!shouldRender) return null;
 
+  // §7 (label/title mismatch): the dialog's accessible name was hard-coded to
+  // "Choose Plan" while the visible heading changes with the step, so on the
+  // payment form, while processing, and on error the screen-reader name
+  // announced a screen the user was not looking at. One source of truth for
+  // both, so they cannot drift apart again.
+  const dialogTitle =
+    step === 'select' ? 'Choose Your Plan'
+    : step === 'form' ? 'Complete Payment'
+    : step === 'processing' ? 'Processing...'
+    : 'Payment Error';
+
   return (
-    <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Choose Plan" {...swipeHandlers}>
+    <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={dialogTitle} {...swipeHandlers}>
       <div
         className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
         onClick={handleClose}
@@ -306,9 +317,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-border-subtle shrink-0">
           <div className="flex items-center gap-3">
-            <h2 className="text-base font-semibold text-text-primary">
-              {step === 'select' ? 'Choose Your Plan' : step === 'form' ? 'Complete Payment' : step === 'processing' ? 'Processing...' : 'Payment Error'}
-            </h2>
+            <h2 className="text-base font-semibold text-text-primary">{dialogTitle}</h2>
           </div>
           <button
             onClick={handleClose}

@@ -123,6 +123,21 @@ export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgra
         </div>
         <p className="text-[11px] text-text-secondary">One-time payment for 1 month of access. No automatic renewal.</p>
 
+        {/* UX-008 (audit P1): this note used to render BELOW the buttons, so
+            the consequence of the primary action was something a guest read only
+            after the choice was on screen — and the audit's recommended
+            direction was explicitly to "surface the account requirement before
+            the click, not after". It now sits directly above the CTA it
+            qualifies, in the reading order: price -> requirement -> action.
+            `-mb-1` keeps it visually attached to that button (it was `-mt-1`
+            when it hung below the pair). The CTA text itself — the other half
+            of UX-008 — was already fixed and is asserted by e2e. */}
+        {isGuest && (
+          <p className="text-[11px] text-text-muted text-center -mb-1">
+            Account required to buy Creator access and download
+          </p>
+        )}
+
         <div className="flex flex-col gap-2">
           {/* UX-012: the purchase action is this dialog's task. Opening a
               purchase prompt and landing on "Close" invites dismissal without
@@ -142,12 +157,6 @@ export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgra
             {isGuest ? 'Use Free instead' : 'Not now'}
           </Button>
         </div>
-
-        {isGuest && (
-          <p className="text-[11px] text-text-muted text-center -mt-1">
-            Account required to buy Creator access and download
-          </p>
-        )}
       </div>
     </Modal>
   );

@@ -372,7 +372,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
      * 3. PAYS → CASHFREE RETURNS → WEBHOOK/VERIFY ACTIVATES CREATOR
      * ================================================================ */
     await test.step('Creator is on offer immediately after login', async () => {
-      const pricing = page.getByRole('dialog', { name: 'Choose Plan' });
+      const pricing = page.getByRole('dialog', { name: 'Choose Your Plan' });
       await pricing.waitFor({ state: 'visible', timeout: 30000 });
       await expect(pricing.getByText('Creator', { exact: true }).first()).toBeVisible({ timeout: 10000 });
       // The two promises this gate goes on to hold the product to.

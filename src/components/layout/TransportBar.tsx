@@ -289,7 +289,18 @@ export function TransportBar({
             }`}
           >
             <StopIcon className="w-4 h-4" />
-            <span className="text-[10px] font-medium">{confirmStop ? 'Confirm' : 'Stop'}</span>
+            {/* UX-002 (visible half): this label was `text-[10px]`, and the
+                audit's complaint was specifically that the armed state "can be
+                missed" — a 10px Stop/Confirm swap under the primary control.
+                12px is the smallest size the shared Button uses for a label
+                (`sm: text-xs`) and sits inside this app's normal button-label
+                range, so this is the project's own convention rather than a new
+                token. The arm state is still distinguished by colour
+                (`text-recording`), fill (`bg-recording/10`) and `animate-pulse`
+                above; this only makes the word itself readable. The accessible
+                name stays the stable `aria-label="Stop Recording"` on the
+                button, so this changes nothing a screen reader announces. */}
+            <span className="text-[12px] font-medium">{confirmStop ? 'Confirm' : 'Stop'}</span>
           </button>
         )}
       </div>

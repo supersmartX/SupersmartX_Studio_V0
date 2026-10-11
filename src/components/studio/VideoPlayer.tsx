@@ -44,6 +44,11 @@ export function VideoPlayer({
   const [isValidated, setIsValidated] = useState(false);
   const [validationError, setValidationError] = useState('');
   const [controlsVisible, setControlsVisible] = useState(false);
+  /** True while keyboard focus sits anywhere inside the controls overlay.
+   *  Driven by real DOM focus rather than a keydown flag, so it can never go
+   *  stale and strand the controls on screen. */
+  const [focusWithinControls, setFocusWithinControls] = useState(false);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
   useEffect(() => {
@@ -82,6 +87,27 @@ export function VideoPlayer({
       showControls();
     }
   }, [controlsVisible, showControls]);
+
+  /** Focus entering the controls reveals them immediately, even when the overlay
+   *  has never been shown - the overlay is only opacity-hidden, so its controls
+   *  are already Tab-reachable while invisible. The hide timer is deliberately
+   *  left running: when it fires it sets controlsVisible=false, and the
+   *  visibility expression then means "stay up while focusWithinControls". So
+   *  nothing needs cancelling and re-arming, and the timer cannot be stranded
+   *  in a state where the bar can no longer hide itself. */
+  const handleControlsFocus = useCallback(() => {
+    setFocusWithinControls(true);
+  }, []);
+
+  /** Only clear when focus genuinely leaves. relatedTarget is null when focus
+   *  moves outside the document, so treat anything not inside the overlay as a
+   *  departure and guard the null case. */
+  const handleControlsBlur = useCallback((e: React.FocusEvent<HTMLDivElement>) => {
+    const next = e.relatedTarget as Node | null;
+    const container = controlsRef.current;
+    if (next && container && container.contains(next)) return;
+    setFocusWithinControls(false);
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -171,6 +197,7 @@ export function VideoPlayer({
     const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const limit = isPreview ? maxPreviewSeconds : duration;
     video.currentTime = percent * limit;
+    setCurrentTime(video.currentTime);
   }, [duration, isPreview, maxPreviewSeconds]);
 
   const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -220,6 +247,59 @@ export function VideoPlayer({
   const displayDuration = isPreview ? Math.min(duration, maxPreviewSeconds) : duration;
   const progress = displayDuration > 0 ? (currentTime / displayDuration) * 100 : 0;
 
+  /** Single source of truth for where playback may sit, so pointer and keyboard
+   *  seeking can never disagree or escape the preview clamp. */
+  const seekToTime = useCallback((seconds: number) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(duration)) return;
+    const limit = isPreview ? maxPreviewSeconds : duration;
+    video.currentTime = Math.max(0, Math.min(limit, seconds));
+    // Mirror immediately so aria-valuenow does not lag until the next timeupdate.
+    setCurrentTime(video.currentTime);
+  }, [duration, isPreview, maxPreviewSeconds]);
+
+  /**
+   * WCAG 2.2 AA: the seek bar is operable by keyboard (2.1.1) and exposes its
+   * position and range (4.1.2). Arrows step, Shift+Arrow fine-steps, Home/End
+   * jump to the ends. Keys are handled on the bar itself and stopped there so
+   * the surrounding dialog and recording shortcuts never see them.
+   */
+  const handleSeekKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!Number.isFinite(duration)) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    const fine = e.shiftKey ? 1 : 5;
+    let next: number | null = null;
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'ArrowUp':
+        next = video.currentTime + fine;
+        break;
+      case 'ArrowLeft':
+      case 'ArrowDown':
+        next = video.currentTime - fine;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = isPreview ? maxPreviewSeconds : duration;
+        break;
+      case 'PageUp':
+        next = video.currentTime + 30;
+        break;
+      case 'PageDown':
+        next = video.currentTime - 30;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    seekToTime(next);
+  }, [duration, isPreview, maxPreviewSeconds, seekToTime]);
+
   if (validationError) {
     return (
       <div className={`${ASPECT_RATIO_PRESETS[aspectRatio].cssClass} bg-canvas rounded-lg flex flex-col items-center justify-center gap-2 p-4`}>
@@ -259,17 +339,32 @@ export function VideoPlayer({
       )}
 
       {isValidated && (
-        <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 transition-opacity ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>
+        <div
+          ref={controlsRef}
+          onFocus={handleControlsFocus}
+          onBlur={handleControlsBlur}
+          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 transition-opacity ${controlsVisible || focusWithinControls ? 'opacity-100' : 'opacity-0'}`}
+        >
           <div
             ref={progressRef}
-            className="w-full h-1.5 bg-white/20 rounded-full cursor-pointer mb-2 group/progress"
+            role="slider"
+            tabIndex={0}
+            aria-label="Seek"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(displayDuration * 10) / 10}
+            aria-valuenow={Math.round(currentTime * 10) / 10}
+            aria-valuetext={`${formatTime(currentTime)} of ${formatTime(displayDuration)}`}
+            onKeyDown={handleSeekKeyDown}
             onClick={handleSeek}
+            className="group/progress relative w-full h-1.5 bg-white/20 rounded-full cursor-pointer mb-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           >
             <div
               className="h-full bg-accent rounded-full relative"
               style={{ width: `${progress}%` }}
             >
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full opacity-0 group-hover/progress:opacity-100 transition-opacity" />
+              {/* Handle shows on hover AND on keyboard focus, so a keyboard user
+                  can see the thumb position they are moving. */}
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full opacity-0 group-hover/progress:opacity-100 group-focus/progress:opacity-100 transition-opacity" />
             </div>
           </div>
 

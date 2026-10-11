@@ -206,7 +206,11 @@ test.describe('STATE 2 — Free platform restrictions', () => {
     // The upgrade CTA actually opens Creator pricing (not auth, not an error).
     await lockedPlatform(page, 'Instagram Square').click();
     await upgradePrompt(page, 'Instagram Square').getByRole('button', { name: 'Buy Creator access' }).click();
-    const pricing = page.getByRole('dialog', { name: 'Choose Plan' });
+    // The upgrade CTA opens Creator pricing on the plan-selection step.
+    // (The snapshot confirms `dialog "Choose Your Plan"` at this point; the
+    // name now tracks the step, so this asserts the step rather than a
+    // hard-coded string that used to be right only by accident.)
+    const pricing = page.getByRole('dialog', { name: 'Choose Your Plan' });
     await expect(pricing, 'Free must be able to reach Creator pricing').toBeVisible({ timeout: 20_000 });
     await expect(pricing.getByText('Creator', { exact: false }).first()).toBeVisible();
     await pricing.getByRole('button', { name: 'Close' }).click();

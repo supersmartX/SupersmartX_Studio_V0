@@ -410,7 +410,15 @@ export function ExportModal({
 
           {step === 'encoding' && (
             <div className="flex flex-col items-center gap-4 py-8">
-              <div className="w-full bg-surface-secondary rounded-full h-2 overflow-hidden">
+              {/* §8 / §11 quick win 5: the track used `bg-surface-secondary`,
+                  a token defined nowhere in the theme, so Tailwind emitted no
+                  utility and the unfilled portion of the progress bar had no
+                  background at all — only the accent fill was visible.
+                  `bg-border-default` is the track colour already used by every
+                  other bar in the app (ui/Progress.tsx, InspectorPanel,
+                  DailyRecordingIndicator), so this also makes the four tracks
+                  consistent. */}
+              <div className="w-full bg-border-default rounded-full h-2 overflow-hidden">
                 <div
                   className="bg-accent h-full rounded-full transition-all duration-300 ease-out"
                   style={{ width: `${Math.round(exportProgress * 100)}%` }}
