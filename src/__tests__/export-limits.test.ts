@@ -13,7 +13,7 @@ vi.mock('@/lib/r2', () => ({
   getR2ConfigurationError: () => (r2State.configured ? null : 'R2_ACCOUNT_ID is not set'),
   getSignedUploadUrl: vi.fn(async () => 'https://signed.example/upload'),
   generateExportKey: (userId: string) => `exports/${userId}/generated.mp4`,
-  generateExportStagingKey: (userId: string, jobId: string) => `staging/${userId}/${jobId}/source.mp4`,
+  generateExportStagingKey: (userId: string, jobId: string) => `exports/${userId}/${jobId}-staging.mp4`,
 }));
 
 import { auth } from '@/auth';
@@ -160,7 +160,7 @@ describe('POST /api/exports/presigned-put duration handling', () => {
     await seedUser();
     await POST(presign(30));
     expect(vi.mocked(getSignedUploadUrl)).toHaveBeenCalledWith(
-      expect.stringMatching(/^staging\//),
+      expect.stringMatching(/^exports\//),
       'video/mp4',
       900,
     );

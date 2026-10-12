@@ -258,7 +258,7 @@ export function generateExportKey(userId: string): string {
 }
 
 export function generateExportStagingKey(userId: string, jobId: string): string {
-  return `staging/${userId}/${jobId}/source.mp4`;
+  return `exports/${userId}/${jobId}-staging.mp4`;
 }
 
 export function generateFinalExportKey(userId: string, jobId: string): string {

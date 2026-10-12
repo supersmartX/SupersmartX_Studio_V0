@@ -162,7 +162,7 @@ async function seedComplete(
     user.id,
     JSON.stringify({ platformId: 'youtube-landscape', ...configOverrides }),
   );
-  const stagingKey = `staging/${user.id}/${job.id}/source.mp4`;
+  const stagingKey = `exports/${user.id}/${job.id}-staging.mp4`;
   await setExportJobStagingKey(job.id, user.id, stagingKey);
   vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
   return { user, job, stagingKey };
