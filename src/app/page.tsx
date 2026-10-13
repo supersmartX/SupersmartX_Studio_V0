@@ -1,9 +1,9 @@
 ﻿'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useSession, signOut } from 'next-auth/react';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { getPricingForCountry, formatPrice, formatPriceZero, formatSavingsPercent } from '@/lib/pricing';
 import { PRICING_PLANS } from '@/constants';
@@ -57,18 +57,39 @@ function HeroVideo() {
 
 export default function LandingPage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   // UX-005: 'login' opens the sign-in step (Log in buttons), 'register'
   // (default) opens the account chooser (checkout / creator flows).
   const [authIntent, setAuthIntent] = useState<'register' | 'login'>('register');
+  // True once a "Get Creator" CTA has stored sxs-pending-plan this session.
+  // Distinguishes an intentional upgrade (checkout param allowed on the
+  // post-auth redirect) from ordinary sign-in, which must land on plain
+  // /studio — an unconditional ?checkout= reopens payment after every login.
+  const [hasPendingPlan, setHasPendingPlan] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
+  const user = session?.user;
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Creator CTA: remember plan, then login → studio opens payment form directly
   const handleCreatorClick = useCallback(() => {
     const plan = `creator_${billingPeriod}`;
-    try { window.localStorage.setItem('sxs-pending-plan', plan); } catch {}
+    try {
+      window.localStorage.setItem('sxs-pending-plan', plan);
+      setHasPendingPlan(true);
+    } catch {}
     if (session?.user) {
       router.push(`/studio?checkout=${plan}`);
     } else {
@@ -77,17 +98,21 @@ export default function LandingPage() {
     }
   }, [billingPeriod, session?.user, router]);
 
-  const creatorCallbackUrl = `/studio?checkout=creator_${billingPeriod}`;
+  // OAuth redirects bypass onSuccess, so the callback URL itself must carry
+  // the checkout intent — but only when a purchase was actually initiated.
+  // Ordinary Google sign-in returning with ?checkout= reopened the payment
+  // form after every login (Issue 2).
+  const creatorCallbackUrl = hasPendingPlan ? `/studio?checkout=creator_${billingPeriod}` : '/studio';
 
   const handleLandingAuthSuccess = useCallback(() => {
     try {
       const stored = window.localStorage.getItem('sxs-pending-plan');
-      const plan = stored === 'creator_monthly' || stored === 'creator_yearly' ? stored : `creator_${billingPeriod}`;
-      router.push(`/studio?checkout=${plan}`);
+      const plan = stored === 'creator_monthly' || stored === 'creator_yearly' ? stored : null;
+      router.push(plan ? `/studio?checkout=${plan}` : '/studio');
     } catch {
-      router.push(`/studio?checkout=creator_${billingPeriod}`);
+      router.push('/studio');
     }
-  }, [billingPeriod, router]);
+  }, [router]);
 
   const currentPricing = getPricingForCountry('US');
   const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
@@ -826,24 +851,78 @@ export default function LandingPage() {
 
           <div className="lsx-header-cta-wrap">
             <div className="lsx-appear lsx-appear--scale" style={{ '--lsx-d': '0.34s' } as React.CSSProperties}>
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthIntent('login');
-                  setIsAuthModalOpen(true);
-                }}
-                className="lsx-btn lsx-btn-ghost"
-                style={{ marginRight: '8px' }}
-              >
-                Log in
-              </button>
-              <button
-                type="button"
-                onClick={() => router.push('/studio')}
-                className="lsx-btn lsx-btn-solid"
-              >
-                Start Free
-              </button>
+              {status === 'loading' ? (
+                <div className="flex items-center gap-2" aria-hidden="true">
+                  <div className="w-20 h-9 bg-elevated rounded-md animate-pulse" />
+                  <div className="w-28 h-9 bg-elevated rounded-md animate-pulse" />
+                </div>
+              ) : user ? (
+                <div className="relative" ref={userMenuRef}>
+                  <button
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    aria-expanded={userMenuOpen}
+                    aria-haspopup="true"
+                    aria-label="User menu"
+                    className="w-8 h-8 rounded-full bg-accent/20 text-accent flex items-center justify-center text-[12px] font-bold hover:bg-accent/30 transition-colors overflow-hidden min-w-[44px] min-h-[44px]"
+                  >
+                    {user.image ? (
+                      <img src={user.image} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      (user.name?.[0] || user.email?.[0] || '?').toUpperCase()
+                    )}
+                  </button>
+
+                  {userMenuOpen && (
+                    <div className="absolute right-0 top-full mt-1 w-56 bg-surface border border-border-default rounded-lg shadow-lg py-1 z-50" role="menu" aria-label="User menu">
+                      <div className="px-3 py-2 border-b border-border-subtle">
+                        <p className="text-[12px] font-medium text-text-primary truncate">{user.name || 'User'}</p>
+                        <p className="text-[11px] text-text-muted truncate">{user.email}</p>
+                      </div>
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          router.push('/studio');
+                        }}
+                        className="w-full text-left px-3 py-2 text-[12px] text-text-secondary hover:bg-elevated transition-colors flex items-center gap-2"
+                      >
+                        Go to Studio
+                      </button>
+                      <button
+                        role="menuitem"
+                        onClick={async () => {
+                          setUserMenuOpen(false);
+                          await signOut({ callbackUrl: '/' });
+                        }}
+                        className="w-full text-left px-3 py-2 text-[12px] text-text-secondary hover:bg-elevated transition-colors flex items-center gap-2"
+                      >
+                        Sign out
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthIntent('login');
+                      setIsAuthModalOpen(true);
+                    }}
+                    className="lsx-btn lsx-btn-ghost"
+                    style={{ marginRight: '8px' }}
+                  >
+                    Log in
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => router.push('/studio')}
+                    className="lsx-btn lsx-btn-solid"
+                  >
+                    Start Free
+                  </button>
+                </>
+              )}
             </div>
           </div>
 

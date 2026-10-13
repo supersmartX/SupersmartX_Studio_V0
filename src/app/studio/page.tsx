@@ -215,47 +215,83 @@ export default function HomePage() {
       setPricingInitialStep(checkoutIntent ? 'form' : 'select');
       setTimeout(() => ui.setIsPricingModalOpen(true), 250);
       showToast('Logged in — continue to checkout');
-    } else if (checkoutIntent && session?.user) {
-      setPricingInitialStep('form');
-      setTimeout(() => ui.setIsPricingModalOpen(true), 250);
     }
+    // Removed the `else if (checkoutIntent && session?.user)` branch.
+    // The pricing modal should only open after sign-in when
+    // pendingPricingAfterAuth is set (i.e. the user explicitly triggered
+    // a platform upgrade before logging in). Ordinary sign-in should not
+    // trigger a payment-completion flow.
   }, [pendingPricingAfterAuth, checkoutIntent, session?.user, ui, showToast]);
 
-  // Capture ?checkout=creator_monthly|creator_yearly (landing page) or localStorage pending plan,
-  // then auto-open the payment form. Waits for session load so logged-in users
-  // go straight to payment instead of a stray login prompt.
+  // Capture ?checkout=creator_monthly|creator_yearly (landing page) or localStorage pending plan
+  // on initial load. Then, when session becomes authenticated, open the payment form if there's
+  // a captured intent. This prevents stale localStorage from triggering payment on every login.
+  const intentCapturedRef = useRef(false);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (sessionStatus === 'loading') return;
-    let intent: { tier: 'creator'; billingPeriod: 'monthly' | 'yearly' } | null = null;
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const q = params.get('checkout');
-      if (q === 'creator_monthly') intent = { tier: 'creator', billingPeriod: 'monthly' };
-      else if (q === 'creator_yearly') intent = { tier: 'creator', billingPeriod: 'yearly' };
-      if (!intent) {
-        const stored = window.localStorage.getItem('sxs-pending-plan');
-        if (stored === 'creator_monthly') intent = { tier: 'creator', billingPeriod: 'monthly' };
-        else if (stored === 'creator_yearly') intent = { tier: 'creator', billingPeriod: 'yearly' };
+
+    // Only capture intent on first load or when a new checkout URL arrives
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get('checkout');
+    const hasCheckoutParam = q === 'creator_monthly' || q === 'creator_yearly';
+
+    if (!intentCapturedRef.current || hasCheckoutParam) {
+      let intent: { tier: 'creator'; billingPeriod: 'monthly' | 'yearly' } | null = null;
+      try {
+        if (hasCheckoutParam) {
+          intent = q === 'creator_monthly'
+            ? { tier: 'creator', billingPeriod: 'monthly' }
+            : { tier: 'creator', billingPeriod: 'yearly' };
+        } else {
+          const stored = window.localStorage.getItem('sxs-pending-plan');
+          if (stored === 'creator_monthly') intent = { tier: 'creator', billingPeriod: 'monthly' };
+          else if (stored === 'creator_yearly') intent = { tier: 'creator', billingPeriod: 'yearly' };
+        }
+      } catch {}
+
+      if (window.location.search) {
+        window.history.replaceState({}, '', window.location.pathname);
       }
-    } catch {}
-    if (window.location.search) {
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-    if (!intent) return;
-    setCheckoutIntent(intent);
-    setPricingInitialStep('form');
-    try { window.localStorage.removeItem('sxs-pending-plan'); } catch {}
-    if (session?.user) {
-      const t = setTimeout(() => ui.setIsPricingModalOpen(true), 400);
-      return () => clearTimeout(t);
-    } else {
+
+      if (!intent) return;
+
+      setCheckoutIntent(intent);
+      setPricingInitialStep('form');
+      try { window.localStorage.removeItem('sxs-pending-plan'); } catch {}
+      intentCapturedRef.current = true;
+      // A captured intent is a genuine purchase signal: the landing page only
+      // attaches ?checkout=/sxs-pending-plan for an explicit "Get Creator" CTA,
+      // so resume checkout — authenticated users go straight to the payment
+      // form; guests authenticate first and the pricing modal reopens via
+      // handleAuthSuccessWithPricing once pendingPricingAfterAuth is set.
+      if (session?.user) {
+        const t = setTimeout(() => ui.setIsPricingModalOpen(true), 400);
+        return () => clearTimeout(t);
+      }
       setPendingPricingAfterAuth(true);
       setAuthIntent('register');
       const t = setTimeout(() => ui.setIsAuthModalOpen(true), 400);
       return () => clearTimeout(t);
     }
-  }, [sessionStatus]);
+  }, [sessionStatus, session?.user, ui]);
+
+  // When session becomes authenticated, open pricing ONLY if there was a genuine
+  // pending payment (pendingPricingAfterAuth set from platform upgrade flow),
+  // not merely because a checkoutIntent was captured from a prior "Start Creator"
+  // click on the landing page. The checkoutIntent capture exists to support the
+  // case where a user begins a purchase flow, logs in, and needs to complete it,
+  // but it must not fire on ordinary sign-in where no payment is pending.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (sessionStatus !== 'authenticated') return;
+    if (!pendingPricingAfterAuth) return;
+    if (!session?.user) return;
+
+    const t = setTimeout(() => ui.setIsPricingModalOpen(true), 400);
+    return () => clearTimeout(t);
+  }, [sessionStatus, pendingPricingAfterAuth, session?.user, ui]);
 
   // After Google/GitHub auth redirect (page reload), restore the upgrade intent
   // so the user doesn't have to click the locked platform again.

@@ -54,7 +54,7 @@ export function AuthModal({
   // at close time under the previous intent and can't know what opens next.
   useEffect(() => {
     if (isOpen) setStep(initialStep);
-  }, [isOpen, initialStep]);
+  }, [isOpen, initialStep, intent]);
 
   const handleGoogleSignIn = useCallback(async () => {
     setIsLoading(true);
@@ -336,6 +336,31 @@ export function AuthModal({
 
             {step === 'email' && (
               <>
+                {intent === 'login' && (
+                  <>
+                    {/* Social Buttons - available when user explicitly chose to log in */}
+                    <div className="grid grid-cols-1 gap-3">
+                      <SocialButton
+                        label="Google"
+                        onClick={handleGoogleSignIn}
+                        disabled={isLoading}
+                        icon={<GoogleIcon />}
+                      />
+                    </div>
+
+                    {/* Divider */}
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-white/10" />
+                      </div>
+                      <div className="relative flex justify-center">
+                        <span className="bg-canvas px-4 text-xs font-medium text-text-secondary uppercase tracking-widest">
+                          Or
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-medium text-text-primary">Email address</label>
                   <input

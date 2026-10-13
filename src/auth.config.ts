@@ -23,6 +23,12 @@ export const authConfig = {
   session: {
     strategy: 'jwt' as const,
     maxAge: 30 * 24 * 60 * 60, // 30 days — sliding window refreshed in jwt callback
+    // Same-domain session retention for logo navigation (Studio ↔ landing page).
+    // The JWT cookie path '/' and sameSite 'lax' ensure the session cookie is
+    // transmitted on all top-level same-domain navigations. trustHost: true permits
+    // Vercel's domain handling without restricting cookie scope. Server-side
+    // JWT verification in the auth callbacks remains authoritative for
+    // entitlement decisions; this config documents the intended cookie behavior.
   },
   trustHost: true,
   ...(secret ? { secret } : {}),
