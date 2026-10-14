@@ -227,6 +227,17 @@ export default function HomePage() {
   // on initial load. Then, when session becomes authenticated, open the payment form if there's
   // a captured intent. This prevents stale localStorage from triggering payment on every login.
   const intentCapturedRef = useRef(false);
+  // Stable identities for the modal openers this effect schedules.
+  // `ui` itself is a NEW object on every render (useStudioUI has no
+  // memo), so listing it in the deps below made React tear down and
+  // re-run this effect on EVERY render: the cleanup cancelled the
+  // 400ms timer before it fired, and the re-run skipped re-arming it
+  // (intent already captured, ?checkout already scrubbed) — so a
+  // guest landing with a checkout intent never saw the auth modal.
+  // State setters are referentially stable, so depending on THESE
+  // keeps the timer alive across ordinary re-renders.
+  const setIsPricingModalOpen = ui.setIsPricingModalOpen;
+  const setIsAuthModalOpen = ui.setIsAuthModalOpen;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -267,15 +278,15 @@ export default function HomePage() {
       // form; guests authenticate first and the pricing modal reopens via
       // handleAuthSuccessWithPricing once pendingPricingAfterAuth is set.
       if (session?.user) {
-        const t = setTimeout(() => ui.setIsPricingModalOpen(true), 400);
+        const t = setTimeout(() => setIsPricingModalOpen(true), 400);
         return () => clearTimeout(t);
       }
       setPendingPricingAfterAuth(true);
       setAuthIntent('register');
-      const t = setTimeout(() => ui.setIsAuthModalOpen(true), 400);
+      const t = setTimeout(() => setIsAuthModalOpen(true), 400);
       return () => clearTimeout(t);
     }
-  }, [sessionStatus, session?.user, ui]);
+  }, [sessionStatus, session?.user, setIsPricingModalOpen, setIsAuthModalOpen]);
 
   // When session becomes authenticated, open pricing ONLY if there was a genuine
   // pending payment (pendingPricingAfterAuth set from platform upgrade flow),

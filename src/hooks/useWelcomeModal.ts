@@ -19,6 +19,23 @@ export function useWelcomeModal() {
       if (localStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(SESSION_KEY)) {
         return;
       }
+      // A purchase intent (?checkout= from the landing "Get Creator"
+      // CTA, or a pending plan saved by it) means this visit is a
+      // checkout, not a cold start. Onboarding must not open on top
+      // of the auth/pricing flow it would bury (z-onboard sits above
+      // z-modal, so the Welcome modal would cover the sign-in dialog
+      // and strand the purchase). This effect runs before the studio
+      // page's checkout-capture effect, so the URL param is still
+      // present here.
+      const params = new URLSearchParams(window.location.search);
+      const checkout = params.get('checkout');
+      const hasPurchaseIntent =
+        checkout === 'creator_monthly' ||
+        checkout === 'creator_yearly' ||
+        window.localStorage.getItem('sxs-pending-plan') != null;
+      if (hasPurchaseIntent) {
+        return;
+      }
     } catch {
       // Storage unavailable: show it rather than hide onboarding forever.
     }
