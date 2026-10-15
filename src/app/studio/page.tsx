@@ -181,7 +181,12 @@ export default function HomePage() {
 
   // Contextual upgrade (S12): a Free user clicks a locked platform → show the
   // "Create for {platform}" prompt instead of a generic pricing modal.
+  // Loading is not Free: while the session is unresolved every platform
+  // looks locked, so a click now must do nothing — otherwise a Creator on a
+  // slow first load opens (and persists) an upgrade flow for an entitlement
+  // they already own.
   const handlePlatformUpgradeRequired = useCallback((platformId?: PlatformId) => {
+    if (sessionStatus === 'loading') return;
     if (platformId) {
       const preset = PLATFORM_PRESETS.find((p) => p.id === platformId);
       if (preset) {
@@ -193,7 +198,7 @@ export default function HomePage() {
     }
     setPricingInitialStep('select');
     ui.setIsPricingModalOpen(true);
-  }, [ui]);
+  }, [sessionStatus, ui]);
 
   const handleUpgradeFromPrompt = useCallback(() => {
     setLockedPlatform(null);
@@ -356,7 +361,9 @@ export default function HomePage() {
   }, [sessionStatus, pendingPricingAfterAuth, session?.user, setIsPricingModalOpen]);
 
   // After Google/GitHub auth redirect (page reload), restore the upgrade intent
-  // so the user doesn't have to click the locked platform again.
+  // so the user doesn't have to click the locked platform again — unless they
+  // are already entitled, in which case a stale intent would nag a Creator
+  // with an upgrade prompt on every fresh login. Scrub it instead.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (sessionStatus === 'loading' || !session?.user) return;
@@ -364,14 +371,21 @@ export default function HomePage() {
       const pendingPlatform = window.localStorage.getItem('sxs-upgrade-intent');
       if (pendingPlatform) {
         const preset = PLATFORM_PRESETS.find((p) => p.id === pendingPlatform);
-        if (preset) {
+        // A stale intent must never resurrect an upgrade prompt the user is
+        // already entitled to — for a Creator that is every platform, for
+        // Free it is the included YouTube 16:9. Scrub instead of showing.
+        if (!preset || !isPlatformLockedForUser(preset.id, session.user.plan || 'free')) {
+          window.localStorage.removeItem('sxs-upgrade-intent');
+          return;
+        }
+        {
           // User is now authenticated — show the upgrade prompt directly
           const t = setTimeout(() => setLockedPlatform(preset), 400);
           return () => clearTimeout(t);
         }
       }
     } catch {}
-  }, [sessionStatus, session?.user]);
+  }, [sessionStatus, session?.user, isCreatorUser]);
 
   // OAuth reload wipes the in-memory pending download. A sessionStorage
   // intent survives navigation: after login, guide the user to the library
@@ -885,6 +899,7 @@ export default function HomePage() {
     ui.isPricingModalOpen ||
     ui.isAuthModalOpen ||
     activationModal.isOpen ||
+    welcomeModal.isVisible ||
     lockedPlatform !== null;
 
   const previewPreset = PLATFORM_PRESETS.find((p) => p.id === previewPlatformId) ?? PLATFORM_PRESETS[0];
