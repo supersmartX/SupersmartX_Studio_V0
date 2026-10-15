@@ -96,10 +96,8 @@ LibraryPanel ─┴─► /api/exports, /download, /preview (signed GET URLs)
   `local-exports-store.ts` (IndexedDB).
 - `src/hooks/` — `useExportPipeline`, `useRecorder`, `useCamera`,
   `useMasterRecording`, `useRecordingTimer`, UI hooks.
-- `src/__tests__/` — 69 vitest suites (1067 tests; certified Phase 3 baseline,
-  see `TESTING.md`). `e2e/` — Playwright (15 spec files).
-- `audit/` — acceptance program records. `docs/` — handover docs; the doc map
-  lives in `docs/CHANGE-CONTROL.md` §The rule and `docs/TRACEABILITY.md`.
+- `src/__tests__/` — vitest suites. `e2e/` — Playwright specs.
+- `docs/` — handover docs; the doc map lives in `docs/CHANGE-CONTROL.md` §The rule.
 
 ## Server-authoritative boundaries
 

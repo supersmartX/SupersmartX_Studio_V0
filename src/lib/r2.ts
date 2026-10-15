@@ -11,7 +11,7 @@ const R2_ACCOUNT_ID_PATTERN = /^[0-9a-f]{32}$/i;
 // R2 bucket names: 3-63 chars, lowercase alphanumerics with internal dashes.
 const R2_BUCKET_NAME_PATTERN = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 
-// Values shipped in .env.example, DEPLOYMENT.md and audit/CHANGELOG.md as
+// Values shipped in .env.example and DEPLOYMENT.md as
 // fill-in-the-blank. They are non-empty, so every truthiness check treats them
 // as configured and the failure only surfaces as an opaque network error much
 // later in the export pipeline.

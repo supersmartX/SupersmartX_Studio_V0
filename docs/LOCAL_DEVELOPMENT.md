@@ -22,7 +22,7 @@ unconfigured (503 `Storage not configured`, local-export fallback).
 ```powershell
 npm run lint
 npx tsc --noEmit
-npm test            # vitest, 1067 tests across 69 files (see TESTING.md)
+npm test            # vitest unit + route suites
 npm run build
 npm run test:e2e    # needs browsers: npx playwright install; webServer starts `npm run dev`
 ```

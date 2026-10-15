@@ -38,23 +38,18 @@
 
 3. **Implementation** — Code/UI/config changes follow the contract and
    authorization exactly. Discrepancies discovered mid-implementation are
-   *reported and classified* (see `TRACEABILITY.md` Findings), not papered over
+   *reported and classified* in the change record, not papered over
    by editing either side.
 
 4. **Verification** — The change is checked mechanically: `git diff --check`,
    `npx tsc --noEmit`, `npm run lint`, `npm test`, plus route-appropriate
-   `npm run test:e2e` / `npm run test:mp4`. Results are recorded, with counts
-   (e.g. "Vitest 1067/1067 across 69 files"), in the change record. See
-   `TESTING.md` for what each layer does and does not prove.
+   `npm run test:e2e` / `npm run test:mp4`. Results are recorded, with counts,
+   in the change record. See `package.json` scripts for the verification commands.
 
 5. **Certification** — **Certification requires evidence.** A phase or change is
    not "done" because the code works or the tests *should* pass. It is
-   certified when: (a) every verification command's actual output is captured,
-   (b) the traceability row(s) in `TRACEABILITY.md` for the touched requirements
-   point at real test names and real evidence, and (c) the certification report
-   is delivered with the required sections. Evidence recorded in Phase 0–3:
-   tsc PASS · lint 0 errors / 21 baseline warnings · Vitest 1067/1067 (69
-   files) · chromium 138/3/0 · test:mp4 30/30. Unverified claims are not
+   certified when every verification command's actual output is captured for
+   the change. Unverified claims are not
    evidence; a green run on a *different* HEAD is not evidence for this change.
 
 6. **Commit** — Only after certification. The commit message references the
@@ -67,16 +62,14 @@
 ## Rules
 
 - **Contract and code never silently diverge.** If they disagree: classify and
-  report (documentation mismatch / code bug / product decision), record it in
-  `TRACEABILITY.md` Findings, and route a decision through this flow. Do not
+  report (documentation mismatch / code bug / product decision) and route a decision through this flow. Do not
   edit code to fit stale docs, and do not edit frozen docs to fit code.
 - **Documentation-only corrections** of unambiguous factual staleness (counts,
   paths, version numbers, retired behaviours) are allowed without a CR — but
   must be called out in the change record. Decision-level content (product
   behaviour, entitlements, journeys) is never changed this way.
-- **Certification evidence lives where the claim is made**: baseline counts in
-  `TESTING.md`, requirement→test rows in `TRACEABILITY.md`, operational claims
-  in `PRODUCTION-RUNBOOK.md`.
+- **Certification evidence lives where the claim is made**: recorded counts in
+  the change record, operational claims in `PRODUCTION-RUNBOOK.md`.
 - **Secrets**: names only, in every document. Never a value.
 - **Scope discipline**: a task that says "docs only" touches docs only; starting
   the next phase without instruction is a scope violation regardless of readiness.
@@ -184,7 +177,7 @@ Phase 5 authorization (2026-10-07); current statuses are shown inline.
 
 ### Open findings requiring owner decisions
 
-Recorded in `TRACEABILITY.md` (F-01 … F-16). **All dispositions below were
+Recorded below (F-01 … F-16). **All dispositions below were
 ruled by the owner in the Phase 5 authorization (2026-10-07); execution
 status updates as Phase 5 proceeds:**
 
@@ -207,7 +200,7 @@ status updates as Phase 5 proceeds:**
 ### Phase 5 authorization record (owner, 2026-10-07)
 
 - **Auth closure = Option C (minimum contract compliance)**: run and extend
-  `auth-guard-intent`, `auth-identity`, `security.test`, `e2e/auth.spec`
+  `auth-guard-intent`, `auth-identity`, `security.test`
   against current HEAD; fix only actual regressions; **no new
   authentication features**; SEC-005, SEC-006, SEC-007, SEC-009 explicitly
   deferred to a future security-hardening phase.
@@ -241,7 +234,7 @@ documentation corrections, WS-D `recordings/` read-only inventory.
 | Full Vitest | **1125/1125 passed, 71 files**, exit 0 |
 | `test:mp4` | 30/30 |
 | Full e2e (chromium + firefox + mobile-chrome) | **392 passed / 43 skipped / 0 failed — 435 total, exit 0** (36.2 min) |
-| WS-A suites | `auth-guard-intent` 6/6, `auth-identity` 5/5, `security.test` 60/60, `e2e/auth.spec` 5/5 green in every run |
+| WS-A suites | `auth-guard-intent` 6/6, `auth-identity` 5/5, `security.test` green in every run |
 | WS-B suites | `voice-follow` 38, `useVoiceFollow` 12, entitlements +3, `e2e/voice-follow.spec` 4/4 (chromium + mobile-chrome; firefox skipped by fake-media gate) |
 | WS-C suites | `export-complete-security` 23/23 (F-01 contract codified) |
 
@@ -306,5 +299,5 @@ To change an export limit:
 3. Implementation: `entitlements.ts` + the enforcing route(s).
 4. Verification: `entitlements.test.ts` + route tests updated to the new limit;
    tsc/lint/vitest green with recorded counts.
-5. Certification: `TRACEABILITY.md` row 5/6/17 evidence refreshed; report.
+5. Certification: verification evidence refreshed; report.
 6. Commit, then 7. Push.

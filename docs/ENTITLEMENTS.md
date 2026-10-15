@@ -67,8 +67,7 @@ Rules for maintainers:
 ## Phase 4 reconciliation (doc ↔ `src/lib/entitlements.ts`)
 
 Reviewed field-by-field against the implementation. Where they disagree, the
-mismatch is **reported here, not silently fixed on either side** (FC-1.1 §14
-applies by analogy; see `CHANGE-CONTROL.md` and `TRACEABILITY.md` findings).
+implementation wins (FC-1.1 §14 applies by analogy; see `CHANGE-CONTROL.md`).
 
 Per-plan status. `creator_monthly` and `creator_yearly` are byte-identical in
 `ENTITLEMENTS` (same nine fields), so "Creator" in the table above covers both

@@ -1,10 +1,9 @@
 # API Contracts — SupersmartX Studio
 
-> Phase 4 deliverable. Every contract below is **derived strictly from the
-> implementation** in `src/app/api/**/route.ts` and `src/middleware.ts`, as read
-> during Phase 4. Where the code and other documents disagree, the mismatch is
-> recorded in `TRACEABILITY.md` (Phase 4 Findings) — not silently reconciled
-> here. Never document secret values; only variable names.
+> Every contract below is **derived strictly from the
+> implementation** in `src/app/api/**/route.ts` and `src/middleware.ts`.
+> Where the code and other documents disagree, the code wins.
+> Never document secret values; only variable names.
 
 ## Global conventions (apply to every route)
 

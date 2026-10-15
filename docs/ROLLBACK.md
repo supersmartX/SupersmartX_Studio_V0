@@ -30,4 +30,4 @@ the schema back, and no code in this repo requires downgrading:
 ## Rollback drill (recommended quarterly)
 
 Redeploy previous production build to staging, point at a Turso branch,
-replay the smoke list, record result in `audit/`.
+replay the smoke list, record result.

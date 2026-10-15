@@ -100,9 +100,8 @@ encode → artifact → byte verification → ownership → completion claim →
 
 Verification layers for this contract: `artifact-verification.test.ts` (unit),
 route-level tests against real bytes (same file, Parts 3.10/3.11/3.13),
-`state8-composition-accuracy.test.ts`, `state8-detector-blind-spot.test.ts`, and
-`npm run test:mp4` (30/30 certified). What each layer does not prove:
-`TESTING.md`.
+`state8-composition-accuracy.test.ts`, and
+`npm run test:mp4` (see `scripts/state8-e2e`).
 
 ## Failure semantics
 

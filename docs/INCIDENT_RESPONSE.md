@@ -31,6 +31,6 @@ downloads, webhook failures) / P2 (degraded, single-feature) / P3 (cosmetic).
 
 ## Comms
 
-P0/P1: status note within 30 min, updates hourly, post-mortem within 5 days
-filed under `audit/`. Never include tokens, secrets, or raw user data in
+P0/P1: status note within 30 min, updates hourly, post-mortem within 5 days.
+Never include tokens, secrets, or raw user data in
 incident notes.
