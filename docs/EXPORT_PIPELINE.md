@@ -4,8 +4,7 @@
 MediaRecorder ─► Browser Blob ─► IndexedDB ─► MediaBunny encode ─► MP4 Blob
    │                                                                     │
    │ Creator: presigned PUT ─► R2 ─► /api/exports/complete ─► exports row │
-   │ Creator: multipart ─► /api/export-upload ─► R2 + exports row         │
-   │ Free: local export only (both upload routes 403 Free first)          │
+   │ Free: local export only (upload routes 403 Free first)               │
    └─► job state: pending → encoding → uploading → completed (or failed) │
 ```
 
@@ -15,18 +14,9 @@ MediaRecorder ─► Browser Blob ─► IndexedDB ─► MediaBunny encode ─�
   403 `Free plan uses local export`): validates platform allowlist, clamps
   resolution, checks crop/duration entitlements, caps concurrency at 3 active
   jobs, creates/updates the job, returns a 15-min signed PUT URL.
-- **Multipart** (`POST /api/export-upload`, **Creator only** — Free is rejected
-  with 403 `Free plan uses local export` at route L48–50, *before* quota logic;
-  an earlier version of this doc said "all plans", corrected in Phase 4): local
-  `MAX_EXPORT_SIZE_MB = 200` cap, empty rejection, `video/mp4`-only, platform
-  allowlist + free-platform lock, crop/duration checks, atomic quota consume
-  with revert on failure.
 - **Complete** (`POST /api/exports/complete`, 2048 MiB `MAX_EXPORT_SIZE_BYTES`
-  cap — a different ceiling from multipart's 200 MB. **Intentional and
-  accepted**: F-03 (owner decision 2026-10-07) — legacy multipart stays at
-  200 MB, the primary presigned path carries the shared 2048 MiB cap; do not
-  unify — see `TRACEABILITY.md`): key must start with `exports/{userId}/` or the job's
-  `staging/{userId}/` key, must match the job's stored key, object verified via
+  cap): key must equal the job's server-pinned key under `staging/{userId}/`,
+  must match the job's stored key, object verified via
   R2 `HeadObject` (server size wins), then the Phase 3 artifact verification
   below; idempotent on re-delivery (same key + completed job → existing ids),
   orphan R2 object deleted on quota failure.
@@ -42,8 +32,8 @@ Every export stage resolves the platform from `LAUNCH_PLATFORM_PRESETS`
 - `presigned-put` ignores client `outputWidth`/`outputHeight` and signs for the
   preset's dimensions, so a client cannot obtain a URL for a larger frame.
 - `export-jobs` rejects dimensions that differ from the clamped preset.
-- `export-upload` and `exports/complete` re-resolve the platform from the
-  request/job rather than trusting stored client input.
+- `exports/complete` re-resolves the platform from the
+  job rather than trusting stored client input.
 - `custom` is rejected at every stage; it exists in `PLATFORM_PRESETS` only for
   backward compatibility and is never purchasable or selectable.
 

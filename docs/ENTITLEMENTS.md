@@ -33,7 +33,7 @@ is derived from it and is the only view the UI or any API route may use.
 | `instagram-portrait` | Instagram Portrait | 1080×1350 |
 
 `custom` is not purchasable, not selectable, and is rejected by
-`/api/export-jobs`, `/api/export-upload`, `/api/exports/presigned-put`, and
+`/api/export-jobs`, `/api/exports/presigned-put`, and
 `/api/exports/complete`.
 
 ## Resolution clamping
@@ -81,7 +81,7 @@ billing periods; only billing/expiry differ.
 | Teleprompter session limit | 180 s/take (`FREE_SESSION_TELEPROMPTER_SECONDS`), never more than remaining daily budget; prompter hides, camera keeps rolling | unlimited teleprompter | **MATCH** |
 | Max resolution | 1280×720 (`FREE_RESOLUTION`, server-clamped) | 1920×1080 orientation-independent envelope | **MATCH** |
 | Watermark | required (`watermarkRequired: true`) | not required | **MATCH** |
-| Platform formats | `youtube-landscape` only (`isPlatformLockedForUser`) — all other presets `403` on `/api/export-jobs`, `/api/exports/presigned-put`, `/api/export-upload`, `/api/exports/complete` | all 7 launch presets (`custom` rejected everywhere) | **MATCH** |
+| Platform formats | `youtube-landscape` only (`isPlatformLockedForUser`) — all other presets `403` on `/api/export-jobs`, `/api/exports/presigned-put`, `/api/exports/complete` | all 7 launch presets (`custom` rejected everywhere) | **MATCH** |
 | Crop & reframe | `canCrop: false` → `403` | `canCrop: true` | **MATCH** |
 | Exports (count) | unlimited local (`maxExportsPerMonth: null`, `canExport: true`) | unlimited (`null`) | **MATCH** |
 | Downloads | unlimited (`maxDownloads: null`) | unlimited | **MATCH** |

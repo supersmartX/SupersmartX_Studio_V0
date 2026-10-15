@@ -10,6 +10,12 @@
 
 # testing
 /coverage
+test-results/
+playwright-report/
+
+# scratch / probe artifacts
+*.tmp.*
+probe-*
 
 # next.js
 /.next/

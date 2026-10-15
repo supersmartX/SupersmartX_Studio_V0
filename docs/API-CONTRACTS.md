@@ -152,16 +152,6 @@
 - **RATE LIMIT**: 10 / h per user (throttled **before** DB lookup on purpose).
 - **IDEMPOTENCY**: `staging_r2_key` write is atomic single-key — second concurrent issuance for the same job loses → `409`.
 
-### `POST /api/export-upload` (legacy/multipart path)
-- **AUTH**: session. **Free rejected first**: `403 "Free plan uses local export"` (route line 48–50, before quota logic).
-- **INPUT**: `multipart/form-data` with `file`, `platformId`, `jobId?`.
-- **SERVER VALIDATION**: `file.size > MAX_EXPORT_SIZE_BYTES` → `413`; empty → `400`; content-type must be exactly `video/mp4` → else `400`; platform must be in launch matrix; free-plan/platform/duration/crop/resolution checks mirror presigned-put; local constant `MAX_EXPORT_SIZE_MB = 200` governs this route's size message.
-- **OWNER CHECK**: session user from DB; optional owned job.
-- **DB/R2 EFFECT**: uploads final object to `exports/{userId}/{uuid}.mp4` (`uploadRecording`); increments upload/storage counters **after** verification; creates `exports` row; completes job if given.
-- **SUCCESS**: `200 { exportId, r2Key, … }` (see route for full body).
-- **FAILURES**: `400` no file / empty / bad type / invalid platform; `401`; `403` Free/plan/crop/platform/duration; `413` too large; `429` rate limit; `503` R2; `500`.
-- **RATE LIMIT**: 20 / h per user. **IDEMPOTENCY**: new UUID key per call (no replay protection beyond rate limit).
-
 ### `POST /api/exports/complete` — the Phase 3 authority
 - **AUTH**: session; owner-scoped job.
 - **INPUT**: `{ jobId, key, fileSize, mimeType, platformId, outputWidth, outputHeight, duration?, hasAudio? }` — all client claims.
@@ -169,7 +159,7 @@
   1. Required fields; `fileSize > MAX_EXPORT_SIZE_BYTES` → `413`; `mimeType` (if present) must be `video/mp4` → `400`.
   2. Job exists and is owned (`400` invalid job).
   3. **Replay echo**: a completed job whose staging key matches returns `200 { exportId, r2Key }` — but only after verifying the referenced `exports` row is really owned by this user (tampered/legacy `resultExportId` → `409`). Completed-without-match → `409`; failed → `409`.
-  4. **Key binding**: `key` must equal the job's `staging_r2_key` (`403 Key mismatch`), except a legacy adoption path (no staging key yet, `resultR2Key === key`, key under own `exports/{uid}/` prefix) which adopts it atomically. Key must start with `staging/{uid}/` or `exports/{uid}/` (`403 Invalid key`) — cross-user keys never pass.
+  4. **Key binding**: `key` must equal the job's server-pinned `staging_r2_key` (`403 Key mismatch`) and live under the caller's own `staging/{uid}/` prefix (`403 Invalid key`) — cross-user keys and already-final objects never pass.
   5. Platform must be in the launch matrix; must not be locked for the plan (Free → `403`); must equal the **job config's** platform (`400 Platform mismatch`); `outputWidth/Height` must equal `clampResolution(preset, plan)` exactly (`400`).
   6. **Server-side object inspection** (`headObject`): object must exist with size > 0 (`400`); size ≤ `MAX_EXPORT_SIZE_BYTES` else staging object **deleted** and `413`; client `fileSize` disagreement (>1 KiB) only logged — server size wins; content-type must be `video/mp4`/`application/mp4` else staging deleted + `400`; missing eTag → `503`.
   7. **Phase 3 artifact verification** — `collectMp4Metadata` walks the stored object with **bounded ranged reads pinned to the eTag** (16 KiB head, 8-byte box headers, moov box; mdat payload up to 2 GiB is **never** buffered), then `verifyExportArtifact` checks structure (`ftyp`/`moov`/`mdat`/video track), dimensions, duration (tolerance vs claimed/job duration), audio expectation (`hasAudio` claim from the encoder's probe), and size. Failure → staging object deleted, `400` with a described failure (job stays `uploading`, so corrected re-upload + complete can retry). Reader/IO errors are **not** caught here: they surface as retryable `500` with the staging object intact (they are not evidence against the artifact).
@@ -211,25 +201,16 @@
 ### `GET /api/exports/[id]/preview`
 - **AUTH**: session; owner-scoped `404`.
 - **INPUT**: path param.
-- **SERVER VALIDATION**: plan must be active (`403`); export must be `completed` (`404`); `local/` keys → `400 "Local export, no preview"`; R2 configured (`503`).
+- **SERVER VALIDATION**: plan must be active (`403`); `canDownload` (`403`); export must be `completed` (`404`); key must be a finished object under the caller's own `exports/{uid}/` prefix — `local/`, `staging/`, and foreign keys answer `404` like a missing export; R2 configured (`503`).
 - **DB/R2 EFFECT**: read-only; returns a signed GET URL (TTL 3600 s).
 - **SUCCESS**: `200 { url, expiresIn: 3600 }`.
-- **FAILURES**: `400` local export; `401`; `403` expired plan; `404` missing/not ready; `503` R2; `500`.
-- **RATE LIMIT**: none. **IDEMPOTENCY**: read-only.
-
-### `POST /api/exports/consume-quota`
-- **AUTH**: session.
-- **INPUT**: none.
-- **SERVER VALIDATION**: plan active; `canExport`; `maxExportsPerMonth === null` (Creator, and currently Free too — both plans are `null`) short-circuits `{ allowed: true, count: null, unlimited: true }` without touching the ledger.
-- **DB/R2 EFFECT**: `atomicTryConsumeMonthlyExport` only when a plan has a monthly cap.
-- **SUCCESS**: `200 { allowed: true, count }` or `{ allowed: true, count: null, unlimited: true }`.
-- **FAILURES**: `403` plan expired / upgrade / limit reached; `401`; `500`.
-- **RATE LIMIT**: none. **IDEMPOTENCY**: atomic conditional increment — a denied call consumes nothing.
+- **FAILURES**: `401`; `403` expired plan / no download right; `404` missing/not ready/foreign key; `429` rate limit; `503` R2; `500`.
+- **RATE LIMIT**: 30 / h per user. **IDEMPOTENCY**: read-only.
 
 ### `GET /api/download`
 - **AUTH**: session.
 - **INPUT**: query `exportId`.
-- **SERVER VALIDATION**: `exportId` without `..`/`%2e%2e` (`400`); plan active (`403`); `canDownload` (`403`); export exists, owned (`404`), and `completed` (`404`); key must not be `local/` and must be under the caller's own `exports/{uid}/` prefix if it is an `exports/` key — otherwise `404` shaped exactly like a missing export (no cross-user existence leak); R2 configured (`503`).
+- **SERVER VALIDATION**: `exportId` without `..`/`%2e%2e` (`400`); plan active (`403`); `canDownload` (`403`); export exists, owned (`404`), and `completed` (`404`); key must be a finished object under the caller's own `exports/{uid}/` prefix — `local/`, `staging/`, and foreign keys answer `404` shaped exactly like a missing export (no cross-user existence leak); R2 configured (`503`).
 - **DB/R2 EFFECT**: `ensureUserStatsRow`; **signs the URL first** (Phase 2.11 — an R2 failure must not burn a limited-plan credit; the URL is discarded if a later check denies), then `atomicIncrementDownloadCount` against `maxDownloads` (`403` when the limit is hit — no credit consumed), else best-effort counter increment for unlimited plans.
 - **SUCCESS**: `200 { url, expiresIn }` (`R2_SIGNED_URL_TTL_SECONDS`, default 3600).
 - **FAILURES**: `400` bad param; `401` no session/user; `403` expired plan / no download right / limit reached; `404` missing/completed/local/foreign key; `429`; `503` R2; `500`.
@@ -311,7 +292,6 @@
 | `export-jobs` POST | 30 / h (+3 concurrent) | user |
 | `exports/complete` | 30 / h | user |
 | `exports/presigned-put` | 10 / h | user |
-| `export-upload` | 20 / h | user |
 | `exports/[id]` DELETE | 30 / h | user |
 | `user/delete` | 5 / h | user |
 | `feedback` | 3 / h | user |
@@ -323,7 +303,7 @@
 | --------- | ----- | --------- |
 | Replay echo | `exports/complete` | Duplicate completion returns the same `exportId/r2Key` after verifying the row is owned; never double-charges. |
 | Finalization token | `exports/complete` | Atomic claim; the loser gets `409` (or the echo), quotas reverted. |
-| Staging-key race | `presigned-put`, legacy adoption in `complete` | Atomic single-key write; loser gets `409`. |
+| Staging-key race | `presigned-put` | Atomic single-key write; loser gets `409`. |
 | Single-use tokens | `reset-password` | Consumed atomically; replay → `400`. |
 | Webhook claim | `cashfree/webhook`, `cashfree/verify` | `processed_webhooks` dedupe + `tryClaimWebhookOrder`; the claim is not released after a successful plan write. |
 | Receipt once | `cashfree/verify` | `sendOrderReceiptOnce` after activation. |

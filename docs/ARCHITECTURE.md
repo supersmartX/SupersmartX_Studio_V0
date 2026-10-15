@@ -22,11 +22,11 @@ subscriptions. Next.js 16 App Router, React 19, Tailwind 4.
 
 ### Backend (`src/app/api/` route handlers, `src/middleware.ts`, `src/lib/`)
 
-- **API**: **25 route files** under `src/app/api/` — auth/session, forgot/reset
+- **API**: route handlers under `src/app/api/` — auth/session, forgot/reset
   password, Cashfree order/verify/webhook, download, health, observe
   client-error, feedback, recordings, user stats/delete, exports (list, by id,
-  preview, consume-quota, presigned-put, complete), export-upload, export-jobs
-  (create, status patch, poll, cleanup). Full per-route contracts:
+  preview, presigned-put, complete), export-jobs
+  (create, status patch, cleanup). Full per-route contracts:
   `API-CONTRACTS.md`.
 - **Auth**: NextAuth credentials + optional Google OAuth; edge gate in
   `middleware.ts` (JWT with user id required; `PUBLIC_API_ROUTES` allowlist of
