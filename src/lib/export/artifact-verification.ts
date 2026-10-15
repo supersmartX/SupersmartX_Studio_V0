@@ -15,7 +15,7 @@
  *   duration      → finite, positive, inside the cap, within tolerance of the
  *                   authoritative recording duration
  *
- * Every production caller — `/api/exports/complete`, `/api/export-upload`, and
+ * Every production caller — `/api/exports/complete` — and every test
  * the client pipeline gate before a download is written — funnels through
  * `verifyExportArtifact`. There is exactly one parser (`mp4-metadata.ts`) and
  * exactly one decision function (here); no route re-implements any of it.

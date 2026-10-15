@@ -380,10 +380,11 @@ describe('Acceptance criteria — Global pricing UX', () => {
 
   // 11. No manual currency selector exists in pricing UI
   it('no currency selector in PricingModal source', () => {
-    // This is a static check — the test file imports PricingModal
-    // and verifies no select element with currency-related labels exists
-    // (Verified by code review: no <select> with "currency" in PricingModal.tsx)
-    expect(true).toBe(true); // Placeholder — actual verification is code review
+    const { readFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const source = readFileSync(join(process.cwd(), 'src', 'components', 'dialogs', 'PricingModal.tsx'), 'utf8');
+    expect(source.includes('<select'), 'PricingModal must not contain a <select> element').toBe(false);
+    expect(/setCurrency|selectCurrency|currencySelect/i.test(source)).toBe(false);
   });
 
   // 12. Landing pricing and PricingModal remain consistent
@@ -527,7 +528,14 @@ describe('Landing page pricing resolution', () => {
   });
 
   it('no manual currency selector in either UI', () => {
-    // Verified by code review: no <select> with currency in page.tsx or PricingModal.tsx
-    expect(true).toBe(true);
+    const { readFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    for (const rel of [
+      ['src', 'components', 'dialogs', 'PricingModal.tsx'],
+      ['src', 'app', 'page.tsx'],
+    ]) {
+      const source = readFileSync(join(process.cwd(), ...rel), 'utf8');
+      expect(source.includes('<select'), `${rel.join('/')} must not contain a <select> element`).toBe(false);
+    }
   });
 });

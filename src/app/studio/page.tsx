@@ -272,27 +272,58 @@ export default function HomePage() {
       setPricingInitialStep('form');
       try { window.localStorage.removeItem('sxs-pending-plan'); } catch {}
       intentCapturedRef.current = true;
-      // A captured intent is a genuine purchase signal: the landing page only
-      // attaches ?checkout=/sxs-pending-plan for an explicit "Get Creator" CTA,
-      // so resume checkout — authenticated users go straight to the payment
-      // form; guests authenticate first and the pricing modal reopens via
-      // handleAuthSuccessWithPricing once pendingPricingAfterAuth is set.
-      if (session?.user) {
-        const t = setTimeout(() => setIsPricingModalOpen(true), 400);
-        return () => clearTimeout(t);
+      // Capture only — no timers in this effect. React StrictMode (dev)
+      // re-runs mount effects and executes the cleanup in between, so a
+      // one-shot timer armed here would be cancelled before it fired while
+      // the ref/scrub guard above blocks the re-run from re-arming it.
+      // The resume effects below open the modals from this persistent state,
+      // which is safe under StrictMode and session-revalidation churn.
+      if (!session?.user) {
+        // Guest with a genuine purchase intent (abandoned Get Creator, or an
+        // OAuth return): sign in first — the pricing modal reopens via
+        // handleAuthSuccessWithPricing once authentication succeeds.
+        setPendingPricingAfterAuth(true);
+        setAuthIntent('register');
       }
-      setPendingPricingAfterAuth(true);
-      setAuthIntent('register');
-      const t = setTimeout(() => setIsAuthModalOpen(true), 400);
-      return () => clearTimeout(t);
     }
     // session?.user is read above but deliberately NOT listed as a dep: its
-    // object identity changes on every session revalidation, which would cancel
-    // this one-shot timer and the re-run would be blocked by the ref/scrub
-    // guard above — leaving a captured intent with no open. The status
-    // transition alone re-runs this effect at every moment that matters
-    // (loading → unauthenticated → authenticated).
-  }, [sessionStatus, setIsPricingModalOpen, setIsAuthModalOpen]);
+    // object identity changes on every session revalidation, and this effect
+    // is one-shot (intentCapturedRef) anyway — the status transition alone
+    // re-runs it at every moment that matters.
+  }, [sessionStatus]);
+
+  // Authenticated arrival with a captured purchase intent → straight to the
+  // payment form. The guard persists across re-runs, so a StrictMode teardown
+  // or session-identity change merely re-arms the timer; the shown-ref makes
+  // it one-shot so a later revalidation cannot reopen a modal the user closed.
+  const checkoutResumeShownRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!checkoutIntent || !session?.user) return;
+    if (checkoutResumeShownRef.current) return;
+    const t = setTimeout(() => {
+      checkoutResumeShownRef.current = true;
+      setIsPricingModalOpen(true);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [checkoutIntent, session?.user, setIsPricingModalOpen]);
+
+  // Guest arrival with a captured purchase intent → prompt sign-in first
+  // (closed-loop checkout). Same one-shot pattern; if the session becomes
+  // authenticated in the meantime the guard fails and the authenticated
+  // arrival effect above takes over instead of nagging with a login dialog.
+  const checkoutAuthPromptedRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (sessionStatus !== 'unauthenticated') return;
+    if (!checkoutIntent || !pendingPricingAfterAuth) return;
+    if (checkoutAuthPromptedRef.current) return;
+    const t = setTimeout(() => {
+      checkoutAuthPromptedRef.current = true;
+      setIsAuthModalOpen(true);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [sessionStatus, checkoutIntent, pendingPricingAfterAuth, setIsAuthModalOpen]);
 
   // When session becomes authenticated, open pricing ONLY if there was a genuine
   // pending payment (pendingPricingAfterAuth set from platform upgrade flow),

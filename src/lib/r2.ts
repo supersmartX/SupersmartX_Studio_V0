@@ -258,7 +258,9 @@ export function generateExportKey(userId: string): string {
 }
 
 export function generateExportStagingKey(userId: string, jobId: string): string {
-  return `exports/${userId}/${jobId}-staging.mp4`;
+  // Staging lives under its own prefix: an unverified upload must never share
+  // the final namespace, and complete() only ever finalizes staging/ keys.
+  return `staging/${userId}/${jobId}-staging.mp4`;
 }
 
 export function generateFinalExportKey(userId: string, jobId: string): string {

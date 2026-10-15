@@ -68,14 +68,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Export is not available for download' }, { status: 404 });
     }
 
-    // Phase 2.4/2.5: never sign a key that is not a cloud object inside this
-    // user's namespace. `local/` rows have no R2 object (their signed URL only
-    // 404s at the bucket), and an exports/ key under any other user's prefix
-    // must never be turned into an access URL — both answer like a missing
-    // export so no cross-user existence is revealed.
+    // Phase 2.4/2.5: never sign a key that is not a finished cloud object
+    // inside this user's namespace. `local/` rows have no R2 object (their
+    // signed URL only 404s at the bucket), `staging/` objects are unverified
+    // uploads, and an exports/ key under any other user's prefix must never
+    // be turned into an access URL — all answer like a missing export so no
+    // cross-user existence is revealed.
     const key = exportRecord.r2Key;
     if (
       key.startsWith('local/') ||
+      key.startsWith('staging/') ||
       (key.startsWith('exports/') && !key.startsWith(`exports/${session.user.id}/`))
     ) {
       return NextResponse.json({ error: 'Export not found' }, { status: 404 });

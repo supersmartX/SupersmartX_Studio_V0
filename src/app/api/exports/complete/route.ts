@@ -15,7 +15,6 @@ import {
   findExportJobByIdAndUser,
   findUserById,
   releaseExportJobFinalization,
-  setExportJobStagingKey,
 } from '@/lib/db';
 import {
   clampResolution,
@@ -121,16 +120,13 @@ export async function POST(request: NextRequest) {
     if (job.status === 'completed') return NextResponse.json({ error: 'Job already completed' }, { status: 409 });
     if (job.status === 'failed') return NextResponse.json({ error: 'Job is not available for completion' }, { status: 409 });
 
-    // Complete an in-flight upload issued before staging keys were deployed.
-    let stagingKey = job.stagingR2Key;
-    if (!stagingKey && job.resultR2Key === key && key.startsWith(`exports/${session.user.id}/`)) {
-      if (!await setExportJobStagingKey(jobId, session.user.id, key)) {
-        return NextResponse.json({ error: 'Job is not available for completion' }, { status: 409 });
-      }
-      stagingKey = key;
-    }
+    // The staging key is server-issued at presigned-put time and pinned on the
+    // job row. A client-supplied key is accepted only when it equals that
+    // pinned value — an already-final object (or anyone else's key) can never
+    // enter the staging flow, even when it sits under this user's prefix.
+    const stagingKey = job.stagingR2Key;
     if (!stagingKey || stagingKey !== key) return NextResponse.json({ error: 'Key mismatch' }, { status: 403 });
-    if (!stagingKey.startsWith(`staging/${session.user.id}/`) && !stagingKey.startsWith(`exports/${session.user.id}/`)) {
+    if (!stagingKey.startsWith(`staging/${session.user.id}/`)) {
       return NextResponse.json({ error: 'Invalid key' }, { status: 403 });
     }
 

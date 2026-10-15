@@ -4,9 +4,9 @@ import { findExportJobByIdAndUser, updateExportJobStatus } from '@/lib/db';
 import type { ExportJobStatus } from '@/types/db';
 
 // Phase 2.2: `completed` is deliberately absent — completion is written only
-// by the server (/api/exports/complete via atomicFinalizeExport, or the legacy
-// export-upload route). A client claiming `uploading → completed` here would
-// make client state authoritative for completion, which the contract forbids.
+// by the server (/api/exports/complete via atomicFinalizeExport). A client
+// claiming `uploading → completed` here would make client state authoritative
+// for completion, which the contract forbids.
 const VALID_TRANSITIONS: Record<string, ExportJobStatus[]> = {
   pending: ['encoding', 'failed'],
   encoding: ['uploading', 'failed'],

@@ -30,7 +30,6 @@ vi.mock('@/lib/r2', () => ({
 
 import { auth, findUserByEmail } from '@/auth';
 import { headObject, getSignedDownloadUrl } from '@/lib/r2';
-import { buildSyntheticMp4 } from '@/lib/export/mp4-metadata';
 import { POST as jobsCreatePOST } from '@/app/api/export-jobs/route';
 import { POST as completePOST } from '@/app/api/exports/complete/route';
 import { POST as verifyPOST } from '@/app/api/cashfree/verify/route';
@@ -39,7 +38,6 @@ import { POST as orderPOST } from '@/app/api/cashfree/order/route';
 import { DELETE as userDeleteDELETE } from '@/app/api/user/delete/route';
 import { DELETE as exportDeleteDELETE } from '@/app/api/exports/[id]/route';
 import { GET as downloadGET } from '@/app/api/download/route';
-import { POST as exportUploadPOST } from '@/app/api/export-upload/route';
 import { POST as forgotPOST } from '@/app/api/auth/forgot-password/route';
 import { resetDb, getDb } from '@/lib/db/driver';
 import {
@@ -158,53 +156,6 @@ describe('Phase 2.2: server-authoritative completion', () => {
 
     expect(res.status).toBe(200);
     expect((await res.json()).exportId).toBe(exportRow.id);
-  });
-
-  it('refuses to replay a completed job through export-upload (no double consume)', async () => {
-    const user = await seedUser();
-    const job = await createExportJob(user.id, JSON.stringify({ platformId: 'youtube-landscape' }));
-    vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
-
-    const uploadRequest = () => {
-      const formData = new FormData();
-      // Phase 3: uploads are verified against real bytes, so the fixture is a
-      // structurally valid MP4 at the platform's server-authoritative frame
-      // (1920x1080) — a plain string would be rejected as not-an-MP4.
-      formData.set(
-        'file',
-        new File([buildSyntheticMp4(1920, 1080)], 'p2-export.mp4', { type: 'video/mp4' }),
-      );
-      formData.set('platformId', 'youtube-landscape');
-      formData.set('jobId', job.id);
-      const request = new NextRequest('http://localhost/api/export-upload', { method: 'POST' });
-      Object.defineProperty(request, 'formData', { value: async () => formData });
-      return request;
-    };
-
-    const first = await exportUploadPOST(uploadRequest());
-    expect(first.status).toBe(200);
-
-    const stats = await getDb().execute({
-      sql: 'SELECT upload_count FROM user_stats WHERE user_id = ?',
-      args: [user.id],
-    });
-    expect(Number(stats.rows[0]?.upload_count)).toBe(1);
-
-    // Replaying the same job must not re-consume quota or mint a second export.
-    const replay = await exportUploadPOST(uploadRequest());
-    expect(replay.status).toBe(409);
-    expect((await replay.json()).error).toBe('Job is not available for upload');
-
-    const afterStats = await getDb().execute({
-      sql: 'SELECT upload_count FROM user_stats WHERE user_id = ?',
-      args: [user.id],
-    });
-    expect(Number(afterStats.rows[0]?.upload_count)).toBe(1);
-    const exports = await getDb().execute({
-      sql: 'SELECT COUNT(*) AS cnt FROM exports WHERE user_id = ?',
-      args: [user.id],
-    });
-    expect(Number(exports.rows[0]?.cnt)).toBe(1);
   });
 });
 

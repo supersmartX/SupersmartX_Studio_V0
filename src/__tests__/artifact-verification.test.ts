@@ -16,10 +16,10 @@ import { NextRequest } from 'next/server';
  *   - unit: parser truthfulness, each failure code, tolerance math, the
  *     bounded ranged walk (a 5 MiB mdat payload is never fetched), safe
  *     message mapping, claim normalizers, the artifact-level platform matrix;
- *   - route: /api/exports/complete and /api/export-upload against real bytes —
- *     structural rejection consumes nothing and stays retryable (Part 3.11),
- *     the Free resolution ceiling holds at byte level, and the verdict runs
- *     before any claim, quota or DB write (Part 3.10/3.13).
+ *   - route: /api/exports/complete against real bytes — structural rejection
+ *     consumes nothing and stays retryable (Part 3.11), the Free resolution
+ *     ceiling holds at byte level, and the verdict runs before any claim,
+ *     quota or DB write (Part 3.10/3.13).
  *
  * Watermark presence cannot be asserted from container bytes in jsdom (it is a
  * pixel property); the decoded-pixel proof lives in `npm run test:mp4`
@@ -54,7 +54,6 @@ vi.mock('@/lib/r2', () => ({
 import { auth } from '@/auth';
 import { headObject, deleteRecording, getObjectRange } from '@/lib/r2';
 import { POST as completePOST } from '@/app/api/exports/complete/route';
-import { POST as uploadPOST } from '@/app/api/export-upload/route';
 import { resetDb, getDb } from '@/lib/db/driver';
 import {
   setMigrated,
@@ -162,7 +161,7 @@ async function seedComplete(
     user.id,
     JSON.stringify({ platformId: 'youtube-landscape', ...configOverrides }),
   );
-  const stagingKey = `exports/${user.id}/${job.id}-staging.mp4`;
+  const stagingKey = `staging/${user.id}/${job.id}-staging.mp4`;
   await setExportJobStagingKey(job.id, user.id, stagingKey);
   vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
   return { user, job, stagingKey };
@@ -194,27 +193,6 @@ function completeBody(
       ...extra,
     }),
   });
-}
-
-async function seedUploader() {
-  n += 1;
-  const user = await createUser(`up-${n}@example.com`, 'Up', 'hash');
-  await updateUserPlanById(user.id, 'creator_monthly', FUTURE);
-  const job = await createExportJob(user.id, JSON.stringify({ platformId: 'youtube-landscape' }));
-  vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
-  return { user, job };
-}
-
-/**
- * jsdom's `Request.formData()` cannot decode a multipart body, so only the
- * body decoding is stubbed — the handler below is the real route.
- */
-function uploadRequest(fields: Record<string, string | File>): NextRequest {
-  const formData = new FormData();
-  for (const [key, value] of Object.entries(fields)) formData.set(key, value);
-  const request = new NextRequest('http://localhost/api/export-upload', { method: 'POST' });
-  Object.defineProperty(request, 'formData', { value: async () => formData });
-  return request;
 }
 
 beforeEach(() => {
@@ -856,80 +834,5 @@ describe('POST /api/exports/complete parses the actual artifact', () => {
     expect(await getDailyRecordedSeconds(user.id)).toBe(0);
     expect(await exportCount(user.id)).toBe(0);
     expect((await findExportJobByIdAndUser(job.id, user.id))?.status).toBe('pending');
-  });
-});
-
-/* ------------------------------------------------------------------ *
- * 7. /api/export-upload verifies the received bytes (real verifier)
- * ------------------------------------------------------------------ */
-
-describe('POST /api/export-upload parses the actual upload', () => {
-  it('accepts a structurally real artifact at the platform frame', async () => {
-    const { user, job } = await seedUploader();
-
-    const res = await uploadPOST(
-      uploadRequest({
-        file: new File([buildSyntheticMp4(1920, 1080)], 'export.mp4', { type: 'video/mp4' }),
-        platformId: 'youtube-landscape',
-        jobId: job.id,
-      }),
-    );
-
-    expect(res.status).toBe(200);
-    expect((await res.json()).exportId).toBeDefined();
-    expect(await exportCount(user.id)).toBe(1);
-    expect(await uploadCount(user.id)).toBe(1);
-  });
-
-  it('rejects corrupt bytes before any quota is taken, then accepts a corrected upload', async () => {
-    const { user, job } = await seedUploader();
-    const garbage = new TextEncoder().encode(
-      'not an mp4 at all: plain ascii padding, comfortably non-zero, unparseable as a container........',
-    );
-
-    const rejected = await uploadPOST(
-      uploadRequest({
-        file: new File([garbage], 'export.mp4', { type: 'video/mp4' }),
-        platformId: 'youtube-landscape',
-        jobId: job.id,
-      }),
-    );
-
-    expect(rejected.status).toBe(400);
-    expect((await rejected.json()).error).toBe('Uploaded file is not a valid MP4');
-    expect(await exportCount(user.id)).toBe(0);
-    expect(await uploadCount(user.id)).toBe(0);
-    expect((await findExportJobByIdAndUser(job.id, user.id))?.status).toBe('uploading');
-
-    const retry = await uploadPOST(
-      uploadRequest({
-        file: new File([buildSyntheticMp4(1920, 1080)], 'export.mp4', { type: 'video/mp4' }),
-        platformId: 'youtube-landscape',
-        jobId: job.id,
-      }),
-    );
-
-    expect(retry.status).toBe(200);
-    expect(await exportCount(user.id)).toBe(1);
-    expect(await uploadCount(user.id)).toBe(1);
-  });
-
-  it('rejects an artifact whose frame differs from the preset-derived expectation', async () => {
-    const { user, job } = await seedUploader();
-
-    const res = await uploadPOST(
-      uploadRequest({
-        file: new File([buildSyntheticMp4(1280, 720)], 'export.mp4', { type: 'video/mp4' }),
-        platformId: 'youtube-landscape',
-        jobId: job.id,
-      }),
-    );
-
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe(
-      'Output dimensions do not match the validated export configuration',
-    );
-    expect(await exportCount(user.id)).toBe(0);
-    expect(await uploadCount(user.id)).toBe(0);
   });
 });

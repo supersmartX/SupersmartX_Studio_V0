@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { NextRequest } from 'next/server';
 import { resetDb } from '@/lib/db/driver';
 import { setMigrated } from '@/lib/db/index';
 
@@ -15,7 +14,6 @@ vi.mock('@/lib/r2', () => ({
 }));
 
 import { auth } from '@/auth';
-import { POST as exportUploadPOST } from '@/app/api/export-upload/route';
 import { GET as userStatsGET } from '@/app/api/user/stats/route';
 
 process.env.TURSO_DATABASE_URL = 'file::memory:';
@@ -34,7 +32,6 @@ import {
 } from '@/lib/db';
 import { getEntitlements, isPlanActive } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
-import { buildSyntheticMp4 } from '@/lib/export/mp4-metadata';
 import type { PlanType } from '@/types/db';
 
 // `@/lib/r2` is mocked above for the route-level tests, so the real key
@@ -46,24 +43,6 @@ function cleanTestData() {
   resetDb();
   setMigrated(false);
   process.env.TURSO_DATABASE_URL = 'file::memory:';
-}
-
-/**
- * Builds a multipart POST request for `/api/export-upload`.
- *
- * `Request.formData()` cannot decode a multipart body under the jsdom test
- * environment (jsdom's File/Blob are not undici's, so the parser hangs or
- * throws), and a native `FormData` body never finishes streaming. Only the
- * body decoding is stubbed here — every route handler below is real code.
- */
-function exportUploadRequest(entries: Record<string, string | File>): NextRequest {
-  const formData = new FormData();
-  for (const [key, value] of Object.entries(entries)) {
-    formData.set(key, value);
-  }
-  const request = new NextRequest('http://localhost/api/export-upload', { method: 'POST' });
-  Object.defineProperty(request, 'formData', { value: async () => formData });
-  return request;
 }
 
 describe('security', () => {
@@ -82,33 +61,6 @@ describe('security', () => {
       expect(entitlements.canDownload).toBe(true);
       expect(entitlements.maxExportsPerMonth).toBeNull();
       expect(entitlements.maxDownloads).toBeNull();
-    });
-
-    it('legacy export-upload route denies Free users for cloud export', async () => {
-      const user = await createUser('legacy-free@example.com', 'Legacy Free', 'password123');
-      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
-
-      const res = await exportUploadPOST(exportUploadRequest({
-        file: new File(['video'], 'export.mp4', { type: 'video/mp4' }),
-        platformId: 'youtube-landscape',
-      }));
-
-      expect(res.status).toBe(403);
-    });
-
-    it('creator user remains allowed on legacy export-upload route', async () => {
-      const user = await createUser('legacy-creator@example.com', 'Legacy Creator', 'password123');
-      await import('@/lib/db').then(({ updateUserPlanById }) => updateUserPlanById(user.id, 'creator_monthly', new Date(Date.now() + 86400000).toISOString()));
-      vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
-
-      const res = await exportUploadPOST(exportUploadRequest({
-        // Phase 3: the route parses the real bytes, so a valid creator upload
-        // must be a structurally real MP4 at the server-authoritative frame.
-        file: new File([buildSyntheticMp4(1920, 1080)], 'creator-export.mp4', { type: 'video/mp4' }),
-        platformId: 'youtube-landscape',
-      }));
-
-      expect(res.status).toBe(200);
     });
 
     it('free user can pass canExport check with unlimited downloads', async () => {

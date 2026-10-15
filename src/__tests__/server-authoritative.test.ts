@@ -26,7 +26,7 @@ import {
  * plan. These tests simulate client tampering (forged plan, resolution,
  * duration, platform, quota) and prove the server-side contract rejects or
  * clamps each one. They guard the exact checks performed by
- * presigned-put / complete / export-upload / download / consume-quota.
+ * presigned-put / complete / download.
  */
 function cleanTestData() {
   resetDb();

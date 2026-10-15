@@ -99,7 +99,7 @@ describe('PATCH /api/export-jobs/[id] transitions', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/Invalid transition: uploading/);
     // The job is untouched — completion can only be written by the server's
-    // completion paths (/api/exports/complete, export-upload), never by the client.
+    // completion path (/api/exports/complete), never by the client.
     expect((await findExportJobByIdAndUser(job.id, user.id))?.status).toBe('uploading');
   });
 

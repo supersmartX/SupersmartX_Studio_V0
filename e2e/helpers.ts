@@ -10,10 +10,8 @@ import * as path from 'path';
  */
 export const CLOUD_ENDPOINTS = [
   '/api/export-jobs',
-  '/api/export-upload',
   '/api/exports/presigned-put',
   '/api/exports/complete',
-  '/api/exports/consume-quota',
   '/api/exports',
   '/api/download',
 ];

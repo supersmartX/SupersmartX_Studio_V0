@@ -71,9 +71,9 @@ async function setupUserWithJob(plan: 'free' | 'creator_monthly' = 'creator_mont
   if (plan === 'creator_monthly') {
     await updateUserPlanById(user.id, 'creator_monthly', FUTURE);
   }
-  const key = `exports/${user.id}/job-${n}.mp4`;
+  const key = `staging/${user.id}/job-${n}-staging.mp4`;
   const job = await createExportJob(user.id, JSON.stringify({ platformId: 'youtube-landscape' }));
-  await updateExportJobStatus(job.id, 'pending', { resultR2Key: key }, user.id);
+  await setExportJobStagingKey(job.id, user.id, key);
   vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
   return { user, job, key };
 }
@@ -198,9 +198,9 @@ it('4/7/10. actual object over the cap is rejected WITH cleanup and NO record', 
       // Four crafted completes in a row must all succeed — a stale numeric
       // gate resurfacing here would regress the owner decision.
       for (let i = 0; i < 3; i++) {
-        const k = `exports/${user.id}/q-${i}.mp4`;
+        const k = `staging/${user.id}/q-${i}-staging.mp4`;
         const j = await createExportJob(user.id, JSON.stringify({ platformId: 'youtube-landscape' }));
-        await updateExportJobStatus(j.id, 'pending', { resultR2Key: k }, user.id);
+        await setExportJobStagingKey(j.id, user.id, k);
         const r = await POST(completeBody(j.id, k, 1 * MB, {}, 'free'));
         expect(r.status).toBe(200);
       }
