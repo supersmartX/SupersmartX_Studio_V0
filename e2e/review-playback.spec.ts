@@ -114,6 +114,18 @@ async function expectHealthyPlayback(
     /^blob:/,
     { timeout: 30000 },
   );
+  // Autoplay is effect-driven: the src attribute lands before the first frame
+  // decodes. Wait for genuinely flowing playback so a slow-decode sample can
+  // never mistake warm-up for a broken video (same pattern as the portrait
+  // spec's loop-seam wait).
+  await page.waitForFunction(
+    (sel) => {
+      const el = document.querySelector(sel) as HTMLVideoElement | null;
+      return !!el && el.readyState >= 2 && !el.paused;
+    },
+    'main video',
+    { timeout: 30000 },
+  );
 
   const s = await readVideoState(video);
 
@@ -238,11 +250,13 @@ test('recorded review plays correctly across platforms and a remount', async ({ 
       await expectHealthyPlayback(page, `review @ ${p.title}`, p.ratio, baseline);
     }
 
-    // Leaving the studio panel (library) must also pause the take.
+    // Leaving the studio panel (library) must also pause the take. The library
+    // list renders its own muted thumbnail videos, so pin the looping review
+    // element rather than matching every video in main.
     await page.getByRole('navigation', { name: 'Main navigation' }).getByText('Recordings').first().click();
     await expect
       .poll(
-        async () => page.locator('main video').evaluate((v) => (v as HTMLVideoElement).paused),
+        async () => page.locator('main video[loop]').evaluate((v) => (v as HTMLVideoElement).paused),
         { timeout: 10000 },
       )
       .toBe(true);

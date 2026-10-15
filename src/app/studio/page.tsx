@@ -876,6 +876,17 @@ export default function HomePage() {
 
   const isStudio = activePanel === 'studio';
 
+  // Single authority for review playback: the take may be audible only while
+  // the review surface itself owns the user's attention. Pricing, upgrade,
+  // auth, and activation modals all render above review — opening any of
+  // them pauses, closing resumes from the same position (Canvas preserves
+  // currentTime; only a new recording URL restarts).
+  const isBlockingModalOpen =
+    ui.isPricingModalOpen ||
+    ui.isAuthModalOpen ||
+    activationModal.isOpen ||
+    lockedPlatform !== null;
+
   const previewPreset = PLATFORM_PRESETS.find((p) => p.id === previewPlatformId) ?? PLATFORM_PRESETS[0];
   // Review crop geometry from the SAME production math the export uses
   // (getDefaultCrop → cover). Shape (Canvas box) and crop move together.
@@ -998,7 +1009,7 @@ export default function HomePage() {
                 reviewAspectRatio={isReview ? previewPreset.aspectRatio : undefined}
                 reviewVideoStyle={reviewCropStyle}
                 reviewHasAudio={isReview && masterRecordingData ? masterRecordingData.hasAudio : false}
-                reviewActive={isReview && isStudio && !ui.isDrawerVisible}
+                reviewActive={isReview && isStudio && !ui.isDrawerVisible && !isBlockingModalOpen}
                 captureSize={captureSize}
               >
                 <CameraPreview
