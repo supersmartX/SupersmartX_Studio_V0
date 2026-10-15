@@ -146,7 +146,7 @@ function ExistingRecordingModal({
   // No forced aspect class: object-contain preserves 16:9, 9:16, 1:1, 4:5.
   return (
     <Modal isOpen onClose={onClose} title="Existing video" maxWidth="max-w-3xl">
-      <video src={sourceUrl || undefined} controls autoPlay playsInline className="max-h-[50vh] w-full rounded-lg bg-black object-contain" />
+      <video src={sourceUrl || undefined} controls preload="metadata" playsInline className="max-h-[50vh] w-full rounded-lg bg-black object-contain" />
       <p className="mt-3 text-xs text-text-secondary">
         Recorded {formatDate(recording.createdAt)} · {formatTime(recording.duration)} · {recording.width} × {recording.height} · {formatFileSize(recording.blob.size)}
       </p>
@@ -202,7 +202,7 @@ function ExistingRecordingModal({
 function CloudPreviewModal({ url, title, meta, onClose }: { url: string; title: string; meta: string; onClose: () => void }) {
   return (
     <Modal isOpen onClose={onClose} title={title} maxWidth="max-w-3xl" ariaLabel="Export preview">
-      <video src={url} controls autoPlay playsInline className="max-h-[70vh] w-full rounded-lg bg-black object-contain" />
+      <video src={url} controls preload="metadata" playsInline className="max-h-[70vh] w-full rounded-lg bg-black object-contain" />
       <p className="mt-3 text-xs text-text-secondary">{meta}</p>
     </Modal>
   );

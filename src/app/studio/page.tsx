@@ -36,6 +36,7 @@ import { BottomNav } from '@/components/layout/BottomNav';
 import { InspectorPanel } from '@/components/layout/InspectorPanel';
 import { Canvas } from '@/components/layout/Canvas';
 import { DeviceSelectorBar } from '@/components/layout/DeviceSelectorBar';
+import { RecordingFormatPicker, FreeRotateNudge } from '@/components/studio/RecordingFormatPicker';
 import { TransportBar } from '@/components/layout/TransportBar';
 import { Footer } from '@/components/layout/Footer';
 import { CameraPreview } from '@/components/studio/CameraPreview';
@@ -167,6 +168,16 @@ export default function HomePage() {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
+
+  // Free capture is YouTube 16:9 widescreen only. A persisted Creator choice
+  // (or a stale upgrade-restore) must not leak a locked capture format into
+  // a Free session — the picker itself blocks the selection, this is the
+  // backstop.
+  useEffect(() => {
+    if (!isCreatorUser && settings.platformId !== DEFAULT_PLATFORM_ID) {
+      settings.setPlatformId(DEFAULT_PLATFORM_ID);
+    }
+  }, [isCreatorUser, settings]);
 
   // Contextual upgrade (S12): a Free user clicks a locked platform → show the
   // "Create for {platform}" prompt instead of a generic pricing modal.
@@ -968,6 +979,15 @@ export default function HomePage() {
                   onRefresh={camera.refreshDevices}
                 />
               )}
+              {!isReview && recorder.recordingState !== 'countdown' && recorder.recordingState !== 'recording' && recorder.recordingState !== 'paused' && (
+                <RecordingFormatPicker
+                  recordingPlatformId={settings.platformId}
+                  onSelect={(id) => settings.setPlatformId(id)}
+                  userPlan={session?.user?.plan || 'free'}
+                  onUpgradeRequired={(id) => handlePlatformUpgradeRequired(id)}
+                />
+              )}
+              {!isReview && !isCreatorUser && isMobile && <FreeRotateNudge />}
 
               <Canvas
                 focusViewEnabled={focusView.isEnabled}
@@ -978,6 +998,7 @@ export default function HomePage() {
                 reviewAspectRatio={isReview ? previewPreset.aspectRatio : undefined}
                 reviewVideoStyle={reviewCropStyle}
                 reviewHasAudio={isReview && masterRecordingData ? masterRecordingData.hasAudio : false}
+                reviewActive={isReview && isStudio && !ui.isDrawerVisible}
                 captureSize={captureSize}
               >
                 <CameraPreview

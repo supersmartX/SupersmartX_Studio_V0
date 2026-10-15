@@ -18,6 +18,13 @@ interface CanvasProps {
   /** Shared-geometry crop style for the review video (same math as export) */
   reviewVideoStyle?: React.CSSProperties;
   /**
+   * Single-audible-player discipline: the review take plays only while its
+   * surface is the foreground (studio panel visible, export drawer closed).
+   * Navigating to the library or opening export pauses it; returning resumes.
+   * Defaults to true so existing usages are unaffected.
+   */
+  reviewActive?: boolean;
+  /**
    * Whether the recorded asset actually contains an audio track. The review
    * mute/unmute control only renders when there is sound to control — a
    * silent take must not advertise one.
@@ -42,6 +49,7 @@ export function Canvas({
   reviewVideoUrl,
   reviewAspectRatio,
   reviewVideoStyle,
+  reviewActive = true,
   reviewHasAudio,
   captureSize,
 }: CanvasProps) {
@@ -67,22 +75,34 @@ export function Canvas({
     }
   }, [recordingConfig.width, recordingConfig.height, onCanvasReady]);
 
-  // Auto-play review video. Attempt playback AUDIBLE first; browsers that
-  // block unmuted playback without a user gesture fall back to muted — the
-  // visible sound toggle below supplies exactly that gesture, so the review
-  // can never be stranded silently muted with no way to hear it.
+  // Auto-play review video while its surface is foreground. Attempt playback
+  // AUDIBLE first; browsers that block unmuted playback without a user gesture
+  // fall back to muted — the visible sound toggle below supplies exactly that
+  // gesture, so the review can never be stranded silently muted with no way
+  // to hear it. When the surface stops being foreground (library opened,
+  // export drawer opened), pause so no take plays behind other UI; returning
+  // resumes exactly where it left off.
+  const prevReviewUrlRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!isReview || !videoRef.current) return;
     const video = videoRef.current;
-    video.currentTime = 0;
-    video.muted = false;
-    setReviewMuted(false);
+    if (reviewVideoUrl !== prevReviewUrlRef.current) {
+      // A new take: restart from the beginning and attempt audible playback.
+      prevReviewUrlRef.current = reviewVideoUrl;
+      video.currentTime = 0;
+      video.muted = false;
+      setReviewMuted(false);
+    }
+    if (!reviewActive) {
+      video.pause();
+      return;
+    }
     video.play().catch(() => {
       video.muted = true;
       setReviewMuted(true);
       video.play().catch(() => {});
     });
-  }, [isReview, reviewVideoUrl]);
+  }, [isReview, reviewVideoUrl, reviewActive]);
 
   // Single writer of the element's mute property (mirrors useMicMuteSync's
   // role for track.enabled): the button state and playback can't diverge.

@@ -206,12 +206,46 @@ test('recorded review plays correctly across platforms and a remount', async ({ 
     // Baseline on the default 16:9 review.
     const baseline = await expectHealthyPlayback(page, 'initial 16:9 review', 16 / 9, null);
 
+    // Single-audible-player discipline: opening the export drawer pauses the
+    // review take (the drawer has its own click-to-play preview); closing it
+    // resumes where it left off. Same master, no background audio.
+    await page.getByRole('button', { name: 'Export recording' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Export recording' });
+    await dialog.waitFor({ state: 'visible', timeout: 15000 });
+    await expect
+      .poll(
+        async () => page.locator('main video').evaluate((v) => (v as HTMLVideoElement).paused),
+        { timeout: 10000 },
+      )
+      .toBe(true);
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await dialog.waitFor({ state: 'hidden', timeout: 10000 });
+    await expect
+      .poll(
+        async () =>
+          page.locator('main video').evaluate((v) => {
+            const el = v as HTMLVideoElement;
+            return !el.paused && el.readyState >= 2;
+          }),
+        { timeout: 15000 },
+      )
+      .toBe(true);
+
     // Every platform switch must keep the same master playing in the right box.
     for (const p of PLATFORMS) {
       await switcher(page).locator(`button[title="${p.title}"]`).click();
       await page.waitForTimeout(1000);
       await expectHealthyPlayback(page, `review @ ${p.title}`, p.ratio, baseline);
     }
+
+    // Leaving the studio panel (library) must also pause the take.
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByText('Recordings').first().click();
+    await expect
+      .poll(
+        async () => page.locator('main video').evaluate((v) => (v as HTMLVideoElement).paused),
+        { timeout: 10000 },
+      )
+      .toBe(true);
 
     // Full remount + IndexedDB restore: the take must come back playing.
     // Platform choice is session state, so review reopens on the default 16:9.
