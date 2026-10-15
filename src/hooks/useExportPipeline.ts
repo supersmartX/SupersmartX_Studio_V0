@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { ExportConfig, ExportJob, CropConfig, PlatformId, MasterRecording } from '@/types';
+import type { ExportConfig, ExportJob, PlatformId, MasterRecording } from '@/types';
 import { saveLocalExport } from '@/lib/local-exports-store';
-import { createExportConfig, getDefaultCrop } from '@/lib/export/export-config';
+import { createExportConfig } from '@/lib/export/export-config';
 import { encodeExport } from '@/lib/export/export-engine';
 import { uploadCreatorExportToR2, ExportUploadError, describeUploadError } from '@/lib/export/export-upload';
 import { generateExportThumbnail } from '@/lib/export/export-thumbnail';
@@ -81,10 +81,7 @@ interface UseExportPipelineReturn {
   exportJobs: ExportJob[];
   setExportConfig: (config: ExportConfig | null) => void;
   selectPlatform: (platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }) => ExportConfig;
-  updateCrop: (updates: Partial<CropConfig>) => void;
-  resetCrop: () => void;
   startExport: (master: MasterRecording, onProgress?: (progress: number) => void, watermarkRequired?: boolean) => Promise<ExportJob>;
-  startBatchExport: (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void, watermarkRequired?: boolean) => Promise<ExportJob[]>;
   cancelExport: (jobId: string) => void;
   clearJobs: () => void;
   generateThumbnail: (master: MasterRecording, timeSeconds?: number) => Promise<string>;
@@ -94,7 +91,6 @@ export function useExportPipeline(): UseExportPipelineReturn {
   const [exportConfig, setExportConfig] = useState<ExportConfig | null>(null);
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([]);
   const abortControllerRef = useRef<Map<string, AbortController>>(new Map());
-  const sourceDimensionsRef = useRef<{ width: number; height: number }>({ width: 1920, height: 1080 });
   const mountedRef = useRef(true);
   const jobsRef = useRef<ExportJob[]>([]);
 
@@ -112,22 +108,9 @@ export function useExportPipeline(): UseExportPipelineReturn {
   }, []);
 
   const selectPlatform = useCallback((platformId: PlatformId, sourceWidth: number, sourceHeight: number, maxResolution?: { width: number; height: number }): ExportConfig => {
-    sourceDimensionsRef.current = { width: sourceWidth, height: sourceHeight };
     const config = createExportConfig(platformId, sourceWidth, sourceHeight, maxResolution);
     setExportConfig(config);
     return config;
-  }, []);
-
-  const updateCrop = useCallback((updates: Partial<CropConfig>) => {
-    setExportConfig((prev) => prev ? { ...prev, crop: { ...prev.crop, ...updates } } : prev);
-  }, []);
-
-  const resetCrop = useCallback(() => {
-    setExportConfig((prev) => {
-      if (!prev) return prev;
-      const dimensions = sourceDimensionsRef.current;
-      return { ...prev, crop: getDefaultCrop(dimensions.width, dimensions.height, prev.outputWidth, prev.outputHeight) };
-    });
   }, []);
 
   const startExport = useCallback(async (master: MasterRecording, onProgress?: (progress: number) => void, watermarkRequired?: boolean): Promise<ExportJob> => {
@@ -167,9 +150,11 @@ export function useExportPipeline(): UseExportPipelineReturn {
       if (serverJobId) await fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding' }), signal: abortController.signal }).catch(() => {});
       setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'encoding', serverJobId, progress: 0 } : item));
 
+      let lastReportedBucket = -1;
       const encoded = await encodeExport({ master, config: exportConfig, signal: abortController.signal, watermarkRequired: watermarkRequired || false, onProgress: (progress) => {
         onProgress?.(progress);
-        if (serverJobId && Math.round(progress * 100) % 10 === 0) fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding', progress: Math.round(progress * 100) }), signal: abortController.signal }).catch(() => {});
+        const bucket = Math.floor(progress * 10);
+        if (serverJobId && bucket > lastReportedBucket) { lastReportedBucket = bucket; fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding', progress: Math.round(progress * 100) }), signal: abortController.signal }).catch(() => {}); }
       }});
       const resultBlob = encoded.blob;
 
@@ -233,60 +218,6 @@ export function useExportPipeline(): UseExportPipelineReturn {
     }
   }, [exportConfig]);
 
-  const startBatchExport = useCallback(async (master: MasterRecording, configs: ExportConfig[], onProgress?: (batchIndex: number, progress: number) => void, watermarkRequired?: boolean): Promise<ExportJob[]> => {
-    const results: ExportJob[] = [];
-    for (let index = 0; index < configs.length; index++) {
-      if (!mountedRef.current) break;
-      const config = configs[index];
-      sourceDimensionsRef.current = { width: master.sourceWidth || 1920, height: master.sourceHeight || 1080 };
-      setExportConfig(config);
-      const jobId = newJobId();
-      const abortController = new AbortController();
-      abortControllerRef.current.set(jobId, abortController);
-      const job: ExportJob = { id: jobId, masterId: master.id, config, status: 'pending', progress: 0 };
-      setExportJobs((prev) => [...prev, job]);
-      let serverJobId: string | undefined;
-      try {
-        const createResponse = await fetch('/api/export-jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config }), signal: abortController.signal });
-        if (createResponse.ok) { const data = await createResponse.json(); if (typeof data.jobId === 'string' && data.jobId.length > 0) serverJobId = data.jobId; }
-        if (serverJobId) await fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding' }), signal: abortController.signal }).catch(() => {});
-        setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'encoding', serverJobId, progress: 0 } : item));
-        const encoded = await encodeExport({ master, config, signal: abortController.signal, watermarkRequired: watermarkRequired || false, onProgress: (progress) => { onProgress?.(index, progress); if (serverJobId && Math.round(progress * 100) % 10 === 0) fetch(`/api/export-jobs/${serverJobId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'encoding', progress: Math.round(progress * 100) }), signal: abortController.signal }).catch(() => {}); } });
-        const resultBlob = encoded.blob;
-        if (!mountedRef.current) break;
-        // STATE 7: same real-byte gate as the single-export path. Throwing here
-        // lands in the catch below, which reports the server job as failed.
-        // PHASE 3: followed by the same full artifact verification.
-        await assertEncodedFrame(resultBlob, { width: config.outputWidth, height: config.outputHeight }, config.platformId);
-        await verifyEncodedArtifact(resultBlob, {
-          width: config.outputWidth,
-          height: config.outputHeight,
-          durationSeconds: master.duration,
-          hasAudio: encoded.hasAudio,
-        });
-        setExportJobs((prev) => prev.map((item) => item.id === jobId ? { ...item, status: 'uploading' } : item));
-        let exportId: string | undefined;
-        let r2Key: string | undefined;
-        if (watermarkRequired) {
-          try { await saveLocalExport({ id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, blob: resultBlob, platform: config.platformId, outputWidth: config.outputWidth, outputHeight: config.outputHeight, fileSize: resultBlob.size }); } catch {}
-        } else {
-          const uploaded = await uploadCreatorExportToR2(resultBlob, config, master.duration, abortController.signal, serverJobId, encoded.hasAudio);
-          exportId = uploaded.exportId; r2Key = uploaded.r2Key; if (uploaded.serverJobId) serverJobId = uploaded.serverJobId;
-        }
-        if (!mountedRef.current) break;
-        const completedJob: ExportJob = { ...job, status: 'done', exportId, r2Key, previewUrl: URL.createObjectURL(resultBlob), resultBlob, serverJobId, progress: 100 };
-        setExportJobs((prev) => prev.map((item) => item.id === jobId ? completedJob : item));
-        results.push(completedJob);
-      } catch (error) {
-        reportServerJob(serverJobId, { status: 'failed', errorMessage: error instanceof Error ? error.message : 'Export failed' });
-        const failedJob: ExportJob = { ...job, status: 'error', error: toExportErrorMessage(error, abortController.signal.aborted) ?? 'Failed' };
-        if (mountedRef.current) setExportJobs((prev) => prev.map((item) => item.id === jobId ? failedJob : item));
-        results.push(failedJob);
-      } finally { abortControllerRef.current.delete(jobId); }
-    }
-    return results;
-  }, []);
-
   const cancelExport = useCallback((jobId: string) => {
     const controller = abortControllerRef.current.get(jobId);
     if (controller) { controller.abort(); abortControllerRef.current.delete(jobId); }
@@ -304,5 +235,5 @@ export function useExportPipeline(): UseExportPipelineReturn {
 
   const generateThumbnail = useCallback(generateExportThumbnail, []);
 
-  return { exportConfig, exportJobs, setExportConfig, selectPlatform, updateCrop, resetCrop, startExport, startBatchExport, cancelExport, clearJobs, generateThumbnail };
+  return { exportConfig, exportJobs, setExportConfig, selectPlatform, startExport, cancelExport, clearJobs, generateThumbnail };
 }

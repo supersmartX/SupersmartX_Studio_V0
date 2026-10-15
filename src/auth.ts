@@ -12,7 +12,6 @@ import {
 import { isAccountLocked, recordFailedLogin, resetFailedLogins } from './lib/db';
 import { resolveSessionUser } from './lib/auth-identity';
 import { reconcileSessionVersion } from './lib/session-version';
-import { emitAuthJwtDiagnostic, newAuthJwtDiagnostic } from './lib/auth-diagnostics';
 import { isPlanActive } from './lib/entitlements';
 import { validatePassword } from './lib/validation';
 
@@ -105,10 +104,6 @@ const fullAuthConfig = {
   callbacks: {
     ...authConfig.callbacks,
     async jwt({ token, user, account }: { token: JWT; user: User | null; account?: any }) {
-      // TEMPORARY diagnostic (src/lib/auth-diagnostics.ts): records which branch
-      // retires the session. Observe-only — it never alters the token, the return
-      // value, or the control flow.
-      const diag = newAuthJwtDiagnostic(user);
       try {
         if (user) {
           token.id = user.id as string;
@@ -137,18 +132,13 @@ const fullAuthConfig = {
             } catch {}
           }
         }
-        diag.emailClaimPresent = typeof token.email === 'string' && token.email.length > 0;
         if (token.email) {
           await ensureMigration();
-          diag.idClaimPresent = typeof token.id === 'string' && token.id.length > 0;
           const fullUser = await resolveSessionUser(token.id as string | undefined, token.email as string);
-          diag.fullUserFound = Boolean(fullUser);
           if (!fullUser) {
             // Orphaned session: the signature is valid but no user row exists
             // by id or email. End the session so the user re-authenticates
             // instead of failing every API call with "User not found".
-            diag.rejection = 'missing_full_user';
-            await emitAuthJwtDiagnostic(diag);
             return null;
           }
           if (fullUser.id !== token.id) {
@@ -168,15 +158,8 @@ const fullAuthConfig = {
           // and on account deletion (the row is gone, and a re-registration starts
           // above the deleted identity's high-water mark). A token with no version
           // at all predates the claim and adopts the current one once.
-          diag.versionClaimPresent = token.sessionVersion !== undefined && token.sessionVersion !== null;
-          diag.dbVersionPresent = Number.isInteger(fullUser.sessionVersion);
-          diag.versionMatches = diag.versionClaimPresent
-            ? token.sessionVersion === fullUser.sessionVersion
-            : null;
           const sessionVersion = reconcileSessionVersion(token.sessionVersion, fullUser.sessionVersion);
           if (sessionVersion === null) {
-            diag.rejection = 'session_version_mismatch';
-            await emitAuthJwtDiagnostic(diag);
             return null; // Token rejected — forces re-login
           }
           token.sessionVersion = sessionVersion;
@@ -188,8 +171,6 @@ const fullAuthConfig = {
             token.exp = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
           }
         }
-        diag.rejection = null;
-        await emitAuthJwtDiagnostic(diag);
         return token;
       } catch (error) {
         // A throw is the third way this callback retires a session, and Auth.js
@@ -197,8 +178,6 @@ const fullAuthConfig = {
         // (@auth/core/src/lib/actions/session.ts:82-89). Auth.js logs the
         // underlying JWTSessionError itself, so the cause lands in the platform
         // logs on its own.
-        diag.rejection = 'other';
-        await emitAuthJwtDiagnostic(diag);
         throw error;
       }
     },

@@ -93,68 +93,6 @@ describe('selectPlatform', () => {
   });
 });
 
-describe('updateCrop', () => {
-  it('updates crop x coordinate', () => {
-    const { result } = renderHook(() => useExportPipeline());
-
-    act(() => {
-      result.current.selectPlatform('youtube-landscape', 1920, 1080);
-    });
-
-    act(() => {
-      result.current.updateCrop({ x: 100 });
-    });
-
-    expect(result.current.exportConfig?.crop.x).toBe(100);
-  });
-
-  it('updates crop zoom', () => {
-    const { result } = renderHook(() => useExportPipeline());
-
-    act(() => {
-      result.current.selectPlatform('youtube-landscape', 1920, 1080);
-    });
-
-    act(() => {
-      result.current.updateCrop({ zoom: 1.5 });
-    });
-
-    expect(result.current.exportConfig?.crop.zoom).toBe(1.5);
-  });
-
-  it('no-ops when no exportConfig exists', () => {
-    const { result } = renderHook(() => useExportPipeline());
-
-    act(() => {
-      result.current.updateCrop({ x: 100 });
-    });
-
-    expect(result.current.exportConfig).toBeNull();
-  });
-});
-
-describe('resetCrop', () => {
-  it('resets crop to default centered position', () => {
-    const { result } = renderHook(() => useExportPipeline());
-
-    act(() => {
-      result.current.selectPlatform('youtube-landscape', 1920, 1080);
-    });
-
-    act(() => {
-      result.current.updateCrop({ x: 500, y: 300, zoom: 2 });
-    });
-
-    act(() => {
-      result.current.resetCrop();
-    });
-
-    expect(result.current.exportConfig?.crop.zoom).toBe(1);
-    expect(result.current.exportConfig?.crop.x).toBeGreaterThanOrEqual(0);
-    expect(result.current.exportConfig?.crop.y).toBeGreaterThanOrEqual(0);
-  });
-});
-
 describe('cancelExport', () => {
   it('removes job from exportJobs', () => {
     const { result } = renderHook(() => useExportPipeline());

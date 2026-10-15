@@ -23,7 +23,11 @@ export async function POST(request: NextRequest) {
     // the limiter guards the database read below rather than sitting behind the
     // plan checks.
     const rl = rateLimit(`presigned:${session.user.id}`, PRESIGNED_RATE_LIMIT_MAX, PRESIGNED_RATE_LIMIT_WINDOW_MS);
-    if (!rl.allowed) return NextResponse.json({ error: 'Rate limited' }, { status: 429 });
+    if (!rl.allowed)
+      return NextResponse.json(
+        { error: 'Rate limited: too many upload requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+      );
 
     const user = await findUserById(session.user.id);
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 401 });
@@ -91,7 +95,11 @@ export async function POST(request: NextRequest) {
 
     // Concurrency check
     const active = await getActiveExportJobCount(session.user.id);
-    if (active >= 3) return NextResponse.json({ error: 'Maximum 3 concurrent exports' }, { status: 429 });
+    if (active >= 3)
+      return NextResponse.json(
+        { error: 'Maximum 3 concurrent exports. Wait for current exports to finish or cancel a stuck job and try again.' },
+        { status: 429 },
+      );
 
     // Early quota check (Creator unlimited, so not needed, but keep for safety if Free ever calls)
     if (entitlements.maxExportsPerMonth !== null) {

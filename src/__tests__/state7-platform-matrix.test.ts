@@ -375,9 +375,10 @@ describe('the encoded bytes are checked before anything is uploaded', () => {
     const pipeline = readFileSync(join(process.cwd(), 'src/hooks/useExportPipeline.ts'), 'utf-8');
 
     // Previously absent: the pipeline only checked size and shipped whatever
-    // came back. Now both the single and the batch path must verify the frame.
+    // came back. At launch only the single-export path exists (batch removed),
+    // so exactly one gate must guard the one upload path.
     const calls = pipeline.match(/await assertEncodedFrame\(/g) ?? [];
-    expect(calls.length).toBe(2);
+    expect(calls.length).toBe(1);
     expect(pipeline).toContain(
       "import { assertEncodedFrame } from '@/lib/export/mp4-metadata'"
     );
@@ -390,7 +391,7 @@ describe('the encoded bytes are checked before anything is uploaded', () => {
 
     // And no path may reach the uploader without one.
     const uploads = pipeline.split('uploadCreatorExportToR2(resultBlob').length - 1;
-    expect(uploads).toBe(2);
+    expect(uploads).toBe(1);
   });
 
   it('the gate compares the real frame and rejects a mismatch', async () => {

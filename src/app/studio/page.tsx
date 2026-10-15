@@ -286,7 +286,13 @@ export default function HomePage() {
       const t = setTimeout(() => setIsAuthModalOpen(true), 400);
       return () => clearTimeout(t);
     }
-  }, [sessionStatus, session?.user, setIsPricingModalOpen, setIsAuthModalOpen]);
+    // session?.user is read above but deliberately NOT listed as a dep: its
+    // object identity changes on every session revalidation, which would cancel
+    // this one-shot timer and the re-run would be blocked by the ref/scrub
+    // guard above — leaving a captured intent with no open. The status
+    // transition alone re-runs this effect at every moment that matters
+    // (loading → unauthenticated → authenticated).
+  }, [sessionStatus, setIsPricingModalOpen, setIsAuthModalOpen]);
 
   // When session becomes authenticated, open pricing ONLY if there was a genuine
   // pending payment (pendingPricingAfterAuth set from platform upgrade flow),
@@ -300,9 +306,12 @@ export default function HomePage() {
     if (!pendingPricingAfterAuth) return;
     if (!session?.user) return;
 
-    const t = setTimeout(() => ui.setIsPricingModalOpen(true), 400);
+    // Stable setter, not `ui` — see the note above the capture effect: `ui`
+    // is a new object every render, so depending on it would cancel this
+    // 400ms timer on every re-run before it ever fired.
+    const t = setTimeout(() => setIsPricingModalOpen(true), 400);
     return () => clearTimeout(t);
-  }, [sessionStatus, pendingPricingAfterAuth, session?.user, ui]);
+  }, [sessionStatus, pendingPricingAfterAuth, session?.user, setIsPricingModalOpen]);
 
   // After Google/GitHub auth redirect (page reload), restore the upgrade intent
   // so the user doesn't have to click the locked platform again.

@@ -106,7 +106,7 @@ describe('STATE 20 the pipeline gates before it announces work', () => {
 
     const start = source.indexOf('const startExport = useCallback');
     expect(start).toBeGreaterThan(-1);
-    const body = source.slice(start, source.indexOf('const startBatchExport'));
+    const body = source.slice(start, source.indexOf('const cancelExport'));
 
     const gate = body.indexOf('assertExportSupported(');
     const post = body.indexOf("fetch('/api/export-jobs'");
@@ -125,7 +125,7 @@ describe('STATE 20 the pipeline gates before it announces work', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'hooks', 'useExportPipeline.ts'), 'utf8');
 
     const start = source.indexOf('const startExport = useCallback');
-    const body = source.slice(start, source.indexOf('const startBatchExport'));
+    const body = source.slice(start, source.indexOf('const cancelExport'));
     const gateIdx = body.indexOf('assertExportSupported(');
     const catchIdx = body.indexOf('const failedJob', gateIdx);
 
