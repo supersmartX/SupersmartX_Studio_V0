@@ -12,6 +12,7 @@ import {
 import { isAccountLocked, recordFailedLogin, resetFailedLogins } from './lib/db';
 import { resolveSessionUser } from './lib/auth-identity';
 import { reconcileSessionVersion } from './lib/session-version';
+import { logger, hashUserId } from './lib/observe/logger';
 import { isPlanActive } from './lib/entitlements';
 import { validatePassword } from './lib/validation';
 
@@ -139,6 +140,11 @@ const fullAuthConfig = {
             // Orphaned session: the signature is valid but no user row exists
             // by id or email. End the session so the user re-authenticates
             // instead of failing every API call with "User not found".
+            // Logged (hashed id only): an orphan kill on a previously-valid
+            // session is one of the few ways a working login ends abruptly.
+            try {
+              logger.warn('auth.session.orphaned', { userIdHash: hashUserId((token.id as string) || '') });
+            } catch {}
             return null;
           }
           if (fullUser.id !== token.id) {
@@ -148,11 +154,26 @@ const fullAuthConfig = {
             console.warn('[Auth] Realigning diverged session id to DB user');
             token.id = fullUser.id;
           }
-          if (!isPlanActive(fullUser.planExpiresAt, fullUser.plan)) {
-            token.plan = 'free';
-          } else {
-            token.plan = fullUser.plan || 'free';
+          // The token's plan is recomputed from the database row on every
+          // refresh, so a stale JWT can never downgrade a live entitlement.
+          // A genuine token↔DB plan change is rare and is exactly the moment a
+          // Creator→Free (or Free→Creator) report materializes — log it with
+          // plan names only (no identifiers beyond a hashed id) so the next
+          // occurrence carries its layer with it.
+          const resolvedPlan = !isPlanActive(fullUser.planExpiresAt, fullUser.plan)
+            ? 'free'
+            : fullUser.plan || 'free';
+          if (typeof token.plan === 'string' && token.plan !== resolvedPlan) {
+            try {
+              logger.info('auth.plan.transition', {
+                userIdHash: hashUserId(fullUser.id),
+                fromPlan: token.plan,
+                toPlan: resolvedPlan,
+                expiryPresent: Boolean(fullUser.planExpiresAt),
+              });
+            } catch {}
           }
+          token.plan = resolvedPlan;
           // Session version check: a JWT minted against an older row version is
           // retired. This is what ends every existing session on password reset
           // and on account deletion (the row is gone, and a re-registration starts
@@ -160,6 +181,9 @@ const fullAuthConfig = {
           // at all predates the claim and adopts the current one once.
           const sessionVersion = reconcileSessionVersion(token.sessionVersion, fullUser.sessionVersion);
           if (sessionVersion === null) {
+            try {
+              logger.warn('auth.session.version_mismatch', { userIdHash: hashUserId(fullUser.id) });
+            } catch {}
             return null; // Token rejected — forces re-login
           }
           token.sessionVersion = sessionVersion;
