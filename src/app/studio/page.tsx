@@ -984,7 +984,7 @@ export default function HomePage() {
           onPricingClick={handlePricingClick}
         />
 
-        <div className="flex-1 min-h-0 flex overflow-hidden">
+        <div className="flex-1 min-h-0 flex overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))] xl:pb-0">
           <IconRail
             activePanel={activePanel}
             onPanelChange={handleCompactNav}

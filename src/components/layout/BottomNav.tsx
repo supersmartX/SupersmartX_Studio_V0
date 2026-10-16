@@ -28,7 +28,7 @@ export function BottomNav({
   onSettingsToggle,
 }: BottomNavProps) {
   return (
-    <nav className="flex xl:hidden h-14 border-t border-border-subtle bg-surface items-center justify-around px-2 shrink-0 safe-area-bottom z-20" aria-label="Compact navigation">
+    <nav className="flex xl:hidden fixed bottom-0 inset-x-0 h-14 border-t border-border-subtle bg-surface items-center justify-around px-2 shrink-0 safe-area-bottom z-30" aria-label="Compact navigation">
       <Tooltip content="Studio" side="top">
         <button
           onClick={() => onPanelChange('studio')}
