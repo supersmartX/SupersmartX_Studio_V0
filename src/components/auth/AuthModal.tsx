@@ -118,16 +118,6 @@ export function AuthModal({
     }
   }, [email, step, firstName, lastName, password, loginPassword, onSuccess, onClose, update]);
 
-  const handleBack = useCallback(() => {
-    setStep('chooser');
-    setError('');
-    setEmail('');
-    setFirstName('');
-    setLastName('');
-    setPassword('');
-    setLoginPassword('');
-  }, []);
-
   const resetForm = useCallback(() => {
     setStep('chooser');
     setEmail('');
@@ -407,15 +397,6 @@ export function AuthModal({
                 >
                   {isLoading ? 'Signing in...' : 'Log in'}
                 </button>
-
-                <p className="text-sm text-text-secondary text-center">
-                  <button
-                    onClick={handleBack}
-                    className="relative text-text-primary font-medium hover:underline after:absolute after:-inset-x-3 after:-inset-y-3 after:content-['']"
-                  >
-                    Back to all options
-                  </button>
-                </p>
               </>
             )}
           </div>

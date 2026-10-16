@@ -466,22 +466,11 @@ export async function grantMediaPermissions(context: BrowserContext, browserName
  */
 export async function openAuthFromLanding(page: Page): Promise<void> {
   await expect(page.getByRole('link', { name: /supersmartx/i }).first()).toBeVisible();
-  const burger = page.getByRole('button', { name: /open menu/i });
-  if (await burger.isVisible().catch(() => false)) {
-    await burger.click();
-    await page.locator('#lsx-mobile-nav').getByRole('button', { name: 'Log In' }).click();
-  } else {
-    await page.getByRole('button', { name: 'Log In' }).first().click();
-  }
-  await expect(page.getByRole('dialog')).toBeVisible();
-  // UX-005: "Log in" now opens directly on the sign-in step. Tests in this
-  // suite exercise registration/Google surfaces, so step back to the account
-  // chooser that gathers every option.
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: 'Back to all options' })
-    .click();
-  await expect(page.getByRole('dialog')).toBeVisible();
+  // Open the account chooser directly through the Creator pricing CTA, which
+  // uses the register intent. (The sign-in step no longer links back.)
+  await page.getByRole('button', { name: 'Get Creator' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Create New Profile' });
+  await expect(dialog).toBeVisible({ timeout: 15000 });
 }
 
 // Re-exported so specs can configure fake media devices without importing Playwright twice.

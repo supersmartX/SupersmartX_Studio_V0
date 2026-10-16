@@ -3,6 +3,16 @@ import type { NextConfig } from 'next';
 const isDev = process.env.NODE_ENV === 'development';
 const r2PublicUrl = process.env.R2_PUBLIC_URL || '';
 const r2Domain = r2PublicUrl ? new URL(r2PublicUrl).hostname : '';
+// Presigned PUTs/GETs hit the S3 API endpoint host, which is derived from the
+// account ID — never from R2_PUBLIC_URL (custom domain or r2.dev). Without
+// this host in connect-src/media-src the browser blocks storage transfers
+// that the server correctly signed. Validated as 32-hex so a misconfigured
+// value can never inject into the header.
+const r2AccountId = process.env.R2_ACCOUNT_ID || '';
+const r2ApiHost = /^[0-9a-f]{32}$/i.test(r2AccountId.trim())
+  ? `${r2AccountId.trim().toLowerCase()}.r2.cloudflarestorage.com`
+  : '';
+const r2ExtraHosts = [r2Domain, r2ApiHost].filter(Boolean).map((h) => ` https://${h}`).join('');
 
 const requiredEnvVars = ['NEXTAUTH_SECRET', 'CASHFREE_SECRET_KEY'];
 // Storybook evaluates this file outside Next's .env pipeline, where server
@@ -37,10 +47,10 @@ const securityHeaders = [
       // also covers browsers and embedders that ignore X-Frame-Options.
       "frame-ancestors 'none'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      `img-src 'self' data: blob: https://sdk.cashfree.com${r2Domain ? ` https://${r2Domain}` : ''}`,
+      `img-src 'self' data: blob: https://sdk.cashfree.com${r2ExtraHosts}`,
       "font-src 'self' data: https://fonts.googleapis.com https://fonts.gstatic.com",
-      `connect-src 'self' https://api.cashfree.com https://sandbox.cashfree.com https://ipapi.co https://ip-api.com${r2Domain ? ` https://${r2Domain}` : ''}`,
-      `media-src 'self' blob: mediastream: https://d8j0ntlcm91z4.cloudfront.net${r2Domain ? ` https://${r2Domain}` : ''}`,
+      `connect-src 'self' https://api.cashfree.com https://sandbox.cashfree.com https://ipapi.co https://ip-api.com${r2ExtraHosts}`,
+      `media-src 'self' blob: mediastream: https://d8j0ntlcm91z4.cloudfront.net${r2ExtraHosts}`,
       "worker-src 'self' blob:",
       "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
     ].join('; '),

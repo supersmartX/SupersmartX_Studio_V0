@@ -3,7 +3,7 @@ import { apiRegister, dismissWelcomeModal } from './helpers';
 
 // Regression coverage for the three reported production UX defects:
 //   1. "Log in" must open directly on the email sign-in step (email + social
-//      visible immediately; "Back to all options" is a secondary link only).
+//      visible immediately; there is no back link — the step is terminal).
 //   2. Ordinary sign-in must NOT open the pricing/checkout modal — the landing
 //      page only attaches a checkout intent for an explicit purchase CTA.
 //   3. An intentional upgrade ("Get Creator") started while signed out must
@@ -53,8 +53,7 @@ test.describe('Regression: login intent opens on the sign-in step', () => {
     await expect(modal.getByPlaceholder('you@example.com')).toBeVisible();
     await expect(modal.getByPlaceholder('Enter password')).toBeVisible();
     await expect(modal.getByRole('button', { name: 'Log in', exact: true })).toBeVisible();
-    // "Back to all options" is available but secondary — not a required step.
-    await expect(modal.getByRole('button', { name: 'Back to all options' })).toBeVisible();
+    // No "back to options" link: the sign-in step is terminal by design.
   });
 });
 

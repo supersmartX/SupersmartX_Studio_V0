@@ -192,21 +192,9 @@ test.describe('Smoke Test - Auth Modal', () => {
   // hydration and takes the wrong branch.
   async function openAuthFromLanding(page: Page) {
     await expect(page.getByRole('link', { name: /supersmartx/i }).first()).toBeVisible();
-    const burger = page.getByRole('button', { name: /open menu/i });
-    if (await burger.isVisible().catch(() => false)) {
-      await burger.click();
-      await page.locator('#lsx-mobile-nav').getByRole('button', { name: 'Log In' }).click();
-    } else {
-      await page.getByRole('button', { name: 'Log In' }).first().click();
-    }
-    await expect(page.getByRole('dialog')).toBeVisible();
-    // UX-005: "Log in" now opens on the sign-in step; these smoke checks cover
-    // the chooser's surfaces, so step back to it.
-    await page
-      .getByRole('dialog')
-      .getByRole('button', { name: 'Back to all options' })
-      .click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    // Open the chooser directly through the Creator pricing CTA (register intent).
+    await page.getByRole('button', { name: 'Get Creator' }).first().click();
+    await expect(page.getByRole('dialog', { name: 'Create New Profile' })).toBeVisible({ timeout: 15000 });
   }
 
   test('Google button visible', async ({ page }) => {
@@ -532,21 +520,9 @@ test.describe('Smoke Test - Auth Modal Behaviors', () => {
   async function openAuth(page: Page) {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('link', { name: /supersmartx/i }).first()).toBeVisible();
-    const burger = page.getByRole('button', { name: /open menu/i });
-    if (await burger.isVisible().catch(() => false)) {
-      await burger.click();
-      await page.locator('#lsx-mobile-nav').getByRole('button', { name: 'Log In' }).click();
-    } else {
-      await page.getByRole('button', { name: 'Log In' }).first().click();
-    }
-    await expect(page.getByRole('dialog')).toBeVisible();
-    // UX-005: "Log in" opens on the sign-in step; these behaviour checks cover
-    // the shared shell + registration form, so step back to the chooser.
-    await page
-      .getByRole('dialog')
-      .getByRole('button', { name: 'Back to all options' })
-      .click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    // Open the chooser directly through the Creator pricing CTA (register intent).
+    await page.getByRole('button', { name: 'Get Creator' }).first().click();
+    await expect(page.getByRole('dialog', { name: 'Create New Profile' })).toBeVisible({ timeout: 15000 });
   }
 
   test('Escape closes the auth modal', async ({ page }) => {
