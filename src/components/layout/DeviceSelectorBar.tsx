@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { ChevronDownIcon, RefreshIcon } from '@/components/icons';
 
 interface DeviceSelectorBarProps {
@@ -10,6 +11,13 @@ interface DeviceSelectorBarProps {
   onVideoDeviceChange: (deviceId: string) => void;
   onAudioDeviceChange: (deviceId: string) => void;
   onRefresh: () => void;
+  /**
+   * Rendered IN this bar, side by side with the microphone dropdown — the
+   * capture-format control. Below sm it drops to its own full-width line
+   * (order-last, so camera/mic/refresh keep the first row) instead of
+   * squeezing the device selects into unusable widths.
+   */
+  children?: ReactNode;
 }
 
 export function DeviceSelectorBar({
@@ -20,9 +28,10 @@ export function DeviceSelectorBar({
   onVideoDeviceChange,
   onAudioDeviceChange,
   onRefresh,
+  children,
 }: DeviceSelectorBarProps) {
   return (
-    <div className="h-11 border-b border-border-subtle/50 bg-surface/80 backdrop-blur-sm flex items-center px-3 sm:px-4 gap-2 sm:gap-3 shrink-0">
+    <div className="min-h-11 py-0.5 border-b border-border-subtle/50 bg-surface/80 backdrop-blur-sm flex flex-wrap items-center px-3 sm:px-4 gap-2 sm:gap-3 shrink-0">
       <div className="relative min-w-0 flex-1 sm:flex-none sm:w-auto">
         <select
           value={selectedVideoDevice}
@@ -78,6 +87,12 @@ export function DeviceSelectorBar({
           <ChevronDownIcon className="w-3 h-3" />
         </div>
       </div>
+
+      {children ? (
+        <div className="min-w-0 basis-full max-sm:order-last sm:flex-1 flex items-center justify-center">
+          {children}
+        </div>
+      ) : null}
 
       <button
         onClick={onRefresh}

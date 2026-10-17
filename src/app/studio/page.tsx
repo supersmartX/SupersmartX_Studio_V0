@@ -1003,15 +1003,16 @@ export default function HomePage() {
                   onVideoDeviceChange={handleVideoDeviceChange}
                   onAudioDeviceChange={handleAudioDeviceChange}
                   onRefresh={camera.refreshDevices}
-                />
-              )}
-              {!isReview && recorder.recordingState !== 'countdown' && recorder.recordingState !== 'recording' && recorder.recordingState !== 'paused' && (
-                <RecordingFormatPicker
-                  recordingPlatformId={settings.platformId}
-                  onSelect={(id) => settings.setPlatformId(id)}
-                  userPlan={session?.user?.plan || 'free'}
-                  onUpgradeRequired={(id) => handlePlatformUpgradeRequired(id)}
-                />
+                >
+                  {!isReview && (
+                    <RecordingFormatPicker
+                      recordingPlatformId={settings.platformId}
+                      onSelect={(id) => settings.setPlatformId(id)}
+                      userPlan={session?.user?.plan || 'free'}
+                      onUpgradeRequired={(id) => handlePlatformUpgradeRequired(id)}
+                    />
+                  )}
+                </DeviceSelectorBar>
               )}
               {!isReview && !isCreatorUser && isMobile && <FreeRotateNudge />}
 

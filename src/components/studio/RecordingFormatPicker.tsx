@@ -31,14 +31,14 @@ export function RecordingFormatPicker({
 
   if (!isCreator) {
     return (
-      <div className="flex items-center justify-center gap-2 pb-2">
+      <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-1">
         <span className="text-[12px] text-text-secondary">
           Recording in <span className="font-semibold text-text-primary">YouTube · 16:9 widescreen</span>
         </span>
         <button
           type="button"
           onClick={() => onUpgradeRequired('youtube-shorts')}
-          className="text-[12px] font-medium text-accent-text hover:underline"
+          className="shrink-0 whitespace-nowrap text-[12px] font-medium text-accent-text hover:underline"
         >
           All formats with Creator
         </button>
@@ -47,7 +47,7 @@ export function RecordingFormatPicker({
   }
 
   return (
-    <div className="flex items-center justify-center gap-2 pb-2">
+    <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-1">
       <label htmlFor="recording-format" className="text-[12px] text-text-secondary">
         Recording format
       </label>
@@ -55,7 +55,7 @@ export function RecordingFormatPicker({
         id="recording-format"
         value={selected.id}
         onChange={(e) => onSelect(e.target.value as PlatformId)}
-        className="rounded-md border border-border-subtle bg-elevated px-2 py-1.5 text-[12px] font-medium text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+        className="min-w-0 max-w-full rounded-md border border-border-subtle bg-elevated px-2 py-1.5 text-[12px] font-medium text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
       >
         {LAUNCH_PLATFORM_PRESETS.map((preset) => (
           <option key={preset.id} value={preset.id}>
