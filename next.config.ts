@@ -47,7 +47,11 @@ const securityHeaders = [
       // also covers browsers and embedders that ignore X-Frame-Options.
       "frame-ancestors 'none'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      `img-src 'self' data: blob: https://sdk.cashfree.com${r2ExtraHosts}`,
+      // Google OAuth profile photos are served from lh3.googleusercontent.com.
+      // The avatar is a plain <img> (Header/page), so it is still governed by
+      // img-src and was blocked whenever the image was not already cached —
+      // which is why it surfaced in Incognito. Exact host only: no wildcard.
+      `img-src 'self' data: blob: https://sdk.cashfree.com https://lh3.googleusercontent.com${r2ExtraHosts}`,
       "font-src 'self' data: https://fonts.googleapis.com https://fonts.gstatic.com",
       `connect-src 'self' https://api.cashfree.com https://sandbox.cashfree.com https://ipapi.co https://ip-api.com${r2ExtraHosts}`,
       `media-src 'self' blob: mediastream: https://d8j0ntlcm91z4.cloudfront.net${r2ExtraHosts}`,
