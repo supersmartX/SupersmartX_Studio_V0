@@ -125,12 +125,37 @@ const fullAuthConfig = {
                     sql: 'INSERT OR IGNORE INTO users (id, email, name, password_hash, created_at, plan) VALUES (?, ?, ?, ?, ?, ?)',
                     args: [token.id as string, (token.email as string).toLowerCase(), (user.name || token.name || 'User') as string, stubHash, new Date().toISOString(), 'free'],
                   });
-                } catch {}
+                } catch (e) {
+                  // Never swallow: a failed first-login insert leaves an OAuth
+                  // user with no durable row, which surfaces later as an
+                  // orphaned/killed session. The reason must reach the logs.
+                  logger.error('auth.oauth_user_upsert_failed', {
+                    userIdHash: hashUserId((token.id as string) || ''),
+                    errorType: e instanceof Error ? e.name : 'unknown',
+                    errorCode: (e instanceof Error ? e.message : String(e)).slice(0, 200),
+                  });
+                }
+                // `INSERT OR IGNORE` no-ops on a constraint violation, so a
+                // successful call is not proof the row exists. Verify it, and
+                // log loudly when a real login produced no durable user.
+                const persisted = await findUserByEmail(token.email as string).catch(() => undefined);
+                if (!persisted) {
+                  logger.error('auth.oauth_user_not_persisted', {
+                    userIdHash: hashUserId((token.id as string) || ''),
+                  });
+                } else if (persisted.id !== token.id) {
+                  token.id = persisted.id;
+                }
               } else if (existing.id !== token.id) {
                 // Align token.id to DB id for FK consistency
                 token.id = existing.id;
               }
-            } catch {}
+            } catch (e) {
+              logger.error('auth.oauth_user_provision_failed', {
+                userIdHash: hashUserId((token.id as string) || ''),
+                errorType: e instanceof Error ? e.name : 'unknown',
+              });
+            }
           }
         }
         if (token.email) {

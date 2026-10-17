@@ -310,10 +310,28 @@ export async function POST(request: NextRequest) {
               sql: 'INSERT OR IGNORE INTO users (id, email, name, password_hash, created_at, plan) VALUES (?, ?, ?, ?, ?, ?)',
               args: [effectiveUserId, session.user.email.toLowerCase(), (session.user.name || name || 'User').slice(0,200), stubHash, new Date().toISOString(), 'free'],
             });
-          } catch {}
+          } catch (e) {
+            // A silently dropped stub row breaks the pending_orders FK and,
+            // later, ownership resolution for the paid order. Log it (hashed id,
+            // no email) instead of hiding it.
+            logger.error('payment.stub_user_insert_failed', {
+              route: '/api/cashfree/order',
+              requestId,
+              userIdHash: hashUserId(effectiveUserId),
+              errorType: e instanceof Error ? e.name : 'unknown',
+              errorCode: (e instanceof Error ? e.message : String(e)).slice(0, 200),
+            });
+          }
         }
       }
-    } catch {}
+    } catch (e) {
+      logger.error('payment.user_provision_failed', {
+        route: '/api/cashfree/order',
+        requestId,
+        userIdHash: hashUserId(session.user.id),
+        errorType: e instanceof Error ? e.name : 'unknown',
+      });
+    }
 
     try {
       await createPendingOrder({

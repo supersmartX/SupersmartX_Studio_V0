@@ -1092,11 +1092,10 @@ export async function createPendingOrder(order: {
 }): Promise<void> {
   await ensureMigrated();
   const db = getDb();
+  const insertSql = `INSERT OR IGNORE INTO pending_orders (order_id, user_id, plan, amount, currency) VALUES (?, ?, ?, ?, ?)`;
+  const insertArgs = [order.orderId, order.userId, order.plan, order.amount, order.currency];
   try {
-    await db.execute({
-      sql: `INSERT OR IGNORE INTO pending_orders (order_id, user_id, plan, amount, currency) VALUES (?, ?, ?, ?, ?)`,
-      args: [order.orderId, order.userId, order.plan, order.amount, order.currency],
-    });
+    await db.execute({ sql: insertSql, args: insertArgs });
   } catch (e: unknown) {
     const msg = e instanceof Error ? String(e.message) : String(e);
     if (msg.includes('FOREIGN KEY') || msg.includes('SQLITE_CONSTRAINT')) {
@@ -1104,17 +1103,34 @@ export async function createPendingOrder(order: {
       try {
         await db.execute('PRAGMA foreign_keys = OFF');
         try {
-          await db.execute({
-            sql: `INSERT OR IGNORE INTO pending_orders (order_id, user_id, plan, amount, currency) VALUES (?, ?, ?, ?, ?)`,
-            args: [order.orderId, order.userId, order.plan, order.amount, order.currency],
-          });
+          await db.execute({ sql: insertSql, args: insertArgs });
         } finally {
           await db.execute('PRAGMA foreign_keys = ON');
         }
-        return;
-      } catch {}
+      } catch {
+        // The FK-off retry failed too. Rethrow the original constraint error so
+        // the caller never returns a payable order with no persisted row.
+        throw e;
+      }
+    } else {
+      throw e;
     }
-    throw e;
+  }
+
+  // `INSERT OR IGNORE` discards ANY constraint violation silently — including
+  // NOT NULL and "no such column" — so a call that returns without throwing is
+  // not proof that a row exists. Both the webhook and the return-trip verify
+  // key off this row: if it silently failed to write, a *paid* order becomes a
+  // permanent 404 "Unknown order" with no plan activation and no error anywhere.
+  // Verify the write instead of trusting OR IGNORE.
+  const persisted = await db.execute({
+    sql: `SELECT 1 FROM pending_orders WHERE order_id = ? LIMIT 1`,
+    args: [order.orderId],
+  });
+  if (persisted.rows.length === 0) {
+    throw new Error(
+      `pending_order_not_persisted: order ${order.orderId} was rejected by a constraint and silently ignored by INSERT OR IGNORE`,
+    );
   }
 }
 

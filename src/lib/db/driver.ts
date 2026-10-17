@@ -1,4 +1,5 @@
 import { createClient, type Client } from '@libsql/client';
+import { logger } from '@/lib/observe/logger';
 
 /**
  * STATE 21 — production must never run on an ephemeral database.
@@ -27,6 +28,59 @@ import { createClient, type Client } from '@libsql/client';
 
 let client: Client | null = null;
 let clientIsDurable = false;
+let clientIdentity: DbIdentity | null = null;
+
+/**
+ * A non-secret description of the database this process is bound to.
+ *
+ * Deliberately excludes credentials: only the provider kind and the remote host
+ * are exposed. The host alone cannot open a connection (the auth token is a
+ * separate secret), so this is safe to surface to an authenticated operator and
+ * to log — it is the one fact that answers "which database is this Vercel
+ * request actually writing to?" without reading any secret.
+ */
+export interface DbIdentity {
+  provider: 'turso' | 'local-file' | 'memory';
+  /** Remote host only, e.g. `database-claret-grass-<org>.turso.io`. Never a token. */
+  host: string | null;
+  durable: boolean;
+}
+
+function describeDbUrl(url: string): { provider: DbIdentity['provider']; host: string | null } {
+  if (url === ':memory:' || url === 'file::memory:') return { provider: 'memory', host: null };
+  if (url.startsWith('libsql://') || url.startsWith('https://')) {
+    try {
+      return { provider: 'turso', host: new URL(url).host };
+    } catch {
+      return { provider: 'turso', host: null };
+    }
+  }
+  return { provider: 'local-file', host: null };
+}
+
+function recordIdentity(url: string): void {
+  const { provider, host } = describeDbUrl(url);
+  clientIdentity = { provider, host, durable: isDurableDatabaseUrl(url) };
+  // One line per process. Logged only in production so the platform logs carry
+  // the exact database target of every deployment, and so test runs stay quiet.
+  if (isProductionEnv()) {
+    logger.info('db.client_initialized', {
+      provider: clientIdentity.provider,
+      dbHost: clientIdentity.host,
+      durable: clientIdentity.durable,
+      environment: 'production',
+    });
+  }
+}
+
+/**
+ * The database this process is currently bound to, or `null` before the first
+ * `getDb()` call. Callers must treat a `null`/absent host as "not yet resolved",
+ * never as "safe default".
+ */
+export function getDbIdentity(): DbIdentity | null {
+  return clientIdentity;
+}
 
 /**
  * Thrown when a process that must not lose state has no durable database.
@@ -98,6 +152,7 @@ export function getDb(): Client {
     }
     client = createClient({ url: tursoUrl, authToken: tursoToken });
     clientIsDurable = true;
+    recordIdentity(tursoUrl);
     return client;
   }
 
@@ -110,6 +165,7 @@ export function getDb(): Client {
       authToken: tursoToken || undefined,
     });
     clientIsDurable = isDurableDatabaseUrl(tursoUrl);
+    recordIdentity(tursoUrl);
     return client;
   }
 
@@ -122,11 +178,13 @@ export function getDb(): Client {
     const dbPath = join(dataDir, 'supersmartx.db');
     client = createClient({ url: `file:${dbPath}` });
     clientIsDurable = false;
+    recordIdentity(`file:${dbPath}`);
   } catch {
     // Vercel serverless has read-only filesystem. Only reachable in
     // development/test now — production returned above.
     client = createClient({ url: ':memory:' });
     clientIsDurable = false;
+    recordIdentity(':memory:');
     console.warn('[DB] Local filesystem unavailable and no TURSO_DATABASE_URL set. Using in-memory database.');
   }
 
@@ -139,4 +197,5 @@ export function resetDb(): void {
     client = null;
   }
   clientIsDurable = false;
+  clientIdentity = null;
 }

@@ -36,6 +36,7 @@ import {
   isDurableDb,
   isDurableDatabaseUrl,
   isProductionEnv,
+  getDbIdentity,
   DatabaseNotConfiguredError,
 } from '@/lib/db/driver';
 import { setMigrated, createUser, findUserByEmail, findPendingOrder, createPendingOrder, tryClaimWebhookOrder } from '@/lib/db';
@@ -125,6 +126,17 @@ describe('A. production with a valid durable database', () => {
     getDb();
     getDb();
     expect(urlsRequested()).toHaveLength(1);
+  });
+
+  it('reports the non-secret database host it is bound to', () => {
+    getDb();
+    // This is the value an operator reads to answer "which database is this
+    // deployment writing to?" — host only, never the auth token.
+    expect(getDbIdentity()).toEqual({
+      provider: 'turso',
+      host: 'supersmartx-prod.turso.io',
+      durable: true,
+    });
   });
 });
 
@@ -305,5 +317,45 @@ describe('D. test and development keep their existing database behaviour', () =>
     getDb();
     expect(urlsRequested()).toEqual(['libsql://dev.turso.io']);
     expect(isDurableDb()).toBe(true);
+  });
+
+  it('describes an in-memory database as a non-durable memory provider', () => {
+    useEnv({ NODE_ENV: 'test', TURSO_DATABASE_URL: 'file::memory:' });
+    getDb();
+    expect(getDbIdentity()).toEqual({ provider: 'memory', host: null, durable: false });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E. A pending-order write is verified, never assumed.
+// ---------------------------------------------------------------------------
+
+describe('E. createPendingOrder verifies the row actually landed', () => {
+  beforeEach(() => {
+    useEnv({ NODE_ENV: 'test', TURSO_DATABASE_URL: 'file::memory:' });
+  });
+
+  it('persists a payable order and makes it findable by the fulfilment paths', async () => {
+    const user = await createUser('verify-buyer@example.com', 'Buyer', 'hash');
+    await createPendingOrder({ orderId: 'o-verify', userId: user.id, plan: 'creator_monthly', amount: 349, currency: 'INR' });
+    expect((await findPendingOrder('o-verify'))?.plan).toBe('creator_monthly');
+  });
+
+  it('reports failure when INSERT OR IGNORE silently drops the row', async () => {
+    const user = await createUser('verify-buyer-2@example.com', 'Buyer', 'hash');
+    // A NOT NULL violation on `plan` is swallowed by INSERT OR IGNORE: no row is
+    // written and no error is raised. Returning normally here would hand the
+    // buyer a payable order that the webhook and verify paths can never find —
+    // the exact silent failure that turns a paid order into a 404.
+    await expect(
+      createPendingOrder({
+        orderId: 'o-drop',
+        userId: user.id,
+        plan: null as unknown as string,
+        amount: 349,
+        currency: 'INR',
+      }),
+    ).rejects.toThrow(/pending_order_not_persisted/);
+    expect(await findPendingOrder('o-drop')).toBeNull();
   });
 });

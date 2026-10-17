@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/db/driver';
+import { getDb, getDbIdentity } from '@/lib/db/driver';
 import { ensureMigrated } from '@/lib/db';
 import { getR2ConfigurationError } from '@/lib/r2';
 import { auth } from '@/auth';
@@ -37,6 +37,29 @@ export async function GET() {
     const r2Error = getR2ConfigurationError();
     checks.r2 = r2Error ? 'not_configured' : 'configured';
     if (r2Error) checks.r2_detail = r2Error;
+
+    // Operational diagnostics (never secrets): which database this process is
+    // bound to and what schema version it holds. Exposed only to a signed-in
+    // operator so a deployment can be proven to target the intended database
+    // without reading any credential. A stale schema version or an unexpected
+    // host is exactly the evidence needed to catch a wrong-database binding.
+    const identity = getDbIdentity();
+    if (identity) {
+      checks.db_provider = identity.provider;
+      checks.db_durable = String(identity.durable);
+      if (identity.host) checks.db_host = identity.host;
+    }
+    try {
+      const db = getDb();
+      const version = await db.execute({
+        sql: 'SELECT value FROM schema_meta WHERE key = ?',
+        args: ['schema_version'],
+      });
+      checks.schema_version = version.rows.length > 0 ? String(version.rows[0].value) : 'none';
+    } catch {
+      checks.schema_version = 'unreadable';
+    }
+
     response.checks = checks;
   }
 
