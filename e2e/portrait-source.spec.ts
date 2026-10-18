@@ -1,10 +1,10 @@
-/* Portrait-source repro (export + playback content geometry).
+﻿/* Portrait-source repro (export + playback content geometry).
  *
  * Both green suites share one blind spot: a landscape fake camera. The
- * suspicious branch is portrait source → any target aspect, through
+ * suspicious branch is portrait source â†’ any target aspect, through
  * computeCodedSourceRect() and the cover composition.
  *
- * Fixture: a GENUINE portrait recording — a 720x1280 canvas with an
+ * Fixture: a GENUINE portrait recording â€” a 720x1280 canvas with an
  * asymmetric pattern (teal left / orange right / centred white circle),
  * captured via captureStream + MediaRecorder, probed to confirm portrait
  * coded dims, then stored through the real IndexedDB `recordings` row and
@@ -14,9 +14,9 @@
  * Export per target (16:9, 9:16, 1:1, 4:5): real mediabunny encode (R2 edge
  * stubbed same-origin), download the file, decode a frame, assert:
  *   - coded dims equal the preset (no silent fallback),
- *   - full-bleed (corners not black — no letterbox bars),
- *   - centred content (centre bright — the white circle, not background),
- *   - no stretch (white-circle bbox w/h ≈ 1).
+ *   - full-bleed (corners not black â€” no letterbox bars),
+ *   - centred content (centre bright â€” the white circle, not background),
+ *   - no stretch (white-circle bbox w/h â‰ˆ 1).
  *
  * Playback per review aspect: decoded dims stable, playing, box ratio exact,
  * cover paint, VIDEO on top at centre.
@@ -49,7 +49,7 @@ test.beforeEach(async ({ context, browserName }) => {
   await grantMediaPermissions(context, browserName);
 });
 test.setTimeout(1_200_000);
-test.skip(!!process.env.TURSO_DATABASE_URL, 'needs the local dev database file');
+test.skip(!process.env.DATABASE_URL, 'needs a disposable PostgreSQL dev database');
 test.skip(({ browserName }) => browserName !== 'chromium', 'requires fake media devices');
 
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
@@ -410,7 +410,7 @@ test('portrait source keeps composition across review and export', async ({ page
       await page.getByRole('button', { name: 'Export', exact: true }).click();
       const dialog = page.getByRole('dialog', { name: 'Export recording' });
       await dialog.waitFor({ state: 'visible', timeout: 15000 });
-      await expect(dialog.getByText(`${c.width} × ${c.height}`).first()).toBeVisible({
+      await expect(dialog.getByText(`${c.width} Ã— ${c.height}`).first()).toBeVisible({
         timeout: 10000,
       });
 
@@ -419,9 +419,9 @@ test('portrait source keeps composition across review and export', async ({ page
         { timeout: 120000 },
       );
       const donePromise = dialog.getByText('Video exported').waitFor({ timeout: 600000 });
-      await dialog.getByRole('button', { name: `Export ${c.label} · ${c.width}×${c.height}` }).click();
+      await dialog.getByRole('button', { name: `Export ${c.label} Â· ${c.width}Ã—${c.height}` }).click();
       const jobResp = await jobPromise;
-      expect(jobResp.status(), `portrait→${c.title}: job POST must succeed`).toBe(201);
+      expect(jobResp.status(), `portraitâ†’${c.title}: job POST must succeed`).toBe(201);
       const { jobId } = (await jobResp.json()) as { jobId: string };
       await donePromise;
 
@@ -430,29 +430,29 @@ test('portrait source keeps composition across review and export', async ({ page
       const dl = await dlPromise;
       const dlPath = await dl.path();
       const bytes = fs.readFileSync(dlPath!) as Buffer;
-      expect(bytes.length, `portrait→${c.title}: MP4 must not be empty`).toBeGreaterThan(1000);
+      expect(bytes.length, `portraitâ†’${c.title}: MP4 must not be empty`).toBeGreaterThan(1000);
       const facts = await analyseMp4(page, bytes);
-      expect({ w: facts.w, h: facts.h }, `portrait→${c.title}: coded dims must be preset`).toEqual({
+      expect({ w: facts.w, h: facts.h }, `portraitâ†’${c.title}: coded dims must be preset`).toEqual({
         w: c.width,
         h: c.height,
       });
-      expect(facts.blackFrac, `portrait→${c.title}: full-bleed, no bars (black=${facts.blackFrac})`).toBeLessThan(
+      expect(facts.blackFrac, `portraitâ†’${c.title}: full-bleed, no bars (black=${facts.blackFrac})`).toBeLessThan(
         0.01,
       );
       expect(
         facts.centerMean,
-        `portrait→${c.title}: content centred (centre brightness=${facts.centerMean})`,
+        `portraitâ†’${c.title}: content centred (centre brightness=${facts.centerMean})`,
       ).toBeGreaterThan(100);
-      expect(facts.circleRatio, `portrait→${c.title}: circle must survive`).not.toBeNull();
+      expect(facts.circleRatio, `portraitâ†’${c.title}: circle must survive`).not.toBeNull();
       expect(
         Math.abs(facts.circleRatio! - 1),
-        `portrait→${c.title}: no stretch (circle w/h=${facts.circleRatio})`,
+        `portraitâ†’${c.title}: no stretch (circle w/h=${facts.circleRatio})`,
       ).toBeLessThan(0.12);
 
       const patch = await page.request.patch(`/api/export-jobs/${jobId}`, {
         data: { status: 'failed', errorMessage: 'e2e cleanup' },
       });
-      expect(patch.status(), `portrait→${c.title}: cleanup PATCH must succeed`).toBe(200);
+      expect(patch.status(), `portraitâ†’${c.title}: cleanup PATCH must succeed`).toBe(200);
       await dialog.getByRole('button', { name: 'Export for Another Platform' }).click();
       await dialog.getByRole('button', { name: 'Close' }).click();
       await dialog.waitFor({ state: 'hidden', timeout: 10000 });
@@ -461,3 +461,4 @@ test('portrait source keeps composition across review and export', async ({ page
     await cleanupTestUser(email);
   }
 });
+

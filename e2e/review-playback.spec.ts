@@ -1,4 +1,4 @@
-/* Track 2 — recorded playback/background repro.
+﻿/* Track 2 â€” recorded playback/background repro.
  *
  * Records a real take with fake media, then asserts the ACTUAL video element
  * state (not mere visibility) across: initial review, every platform switch,
@@ -39,7 +39,7 @@ test.beforeEach(async ({ context, browserName }) => {
   await grantMediaPermissions(context, browserName);
 });
 test.setTimeout(600000);
-test.skip(!!process.env.TURSO_DATABASE_URL, 'needs the local dev database file');
+test.skip(!process.env.DATABASE_URL, 'needs a disposable PostgreSQL dev database');
 test.skip(({ browserName }) => browserName !== 'chromium', 'requires fake media devices');
 
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
@@ -145,7 +145,7 @@ async function expectHealthyPlayback(
   }
 
   // Flowing playback, not a frozen poster. Wrap-aware: a short looping take
-  // may wrap between reads, so any movement counts — identical means frozen.
+  // may wrap between reads, so any movement counts â€” identical means frozen.
   expect(s.paused, `${label}: review must autoplay (paused=false)`).toBe(false);
   const t2 = await video
     .evaluate((v) => (v as HTMLVideoElement).currentTime)
@@ -270,3 +270,4 @@ test('recorded review plays correctly across platforms and a remount', async ({ 
     await cleanupTestUser(email);
   }
 });
+

@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
-import { resetDb } from '@/lib/db/driver';
+import { resetDb } from '@/__tests__/helpers/db';
 import { setMigrated } from '@/lib/db/index';
 
-// Set TURSO_DATABASE_URL to in-memory for tests before importing db
-process.env.TURSO_DATABASE_URL = 'file::memory:';
+// Isolation comes from the Postgres test harness (per-test TRUNCATE of the
+// shared database), so no environment juggling is needed before importing.
 
-// Import after env is set
 import {
   findUserByEmail,
   createUser,
@@ -24,13 +23,16 @@ import {
 } from '@/lib/db';
 import { migrateFromJson } from '@/lib/db/migrate';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
-describe('user-store', () => {
+describeDb('user-store', () => {
   beforeEach(() => {
     cleanTestData();
   });
@@ -39,7 +41,7 @@ describe('user-store', () => {
     cleanTestData();
   });
 
-  describe('createUser', () => {
+  describeDb('createUser', () => {
     it('creates a new user with free plan', async () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       expect(user).not.toBeNull();
@@ -70,7 +72,7 @@ describe('user-store', () => {
     });
   });
 
-  describe('findUserByEmail', () => {
+  describeDb('findUserByEmail', () => {
     it('finds an existing user', async () => {
       await createUser('test@example.com', 'Test User', 'password123');
       const found = await findUserByEmail('test@example.com');
@@ -92,7 +94,7 @@ describe('user-store', () => {
     });
   });
 
-  describe('verifyPassword', () => {
+  describeDb('verifyPassword', () => {
     it('returns true for correct password', async () => {
       await createUser('test@example.com', 'Test User', 'password123');
       const valid = await verifyPassword('test@example.com', 'password123');
@@ -111,7 +113,7 @@ describe('user-store', () => {
     });
   });
 
-  describe('updateUserPlan', () => {
+  describeDb('updateUserPlan', () => {
     it('updates plan to creator_monthly', async () => {
       await createUser('test@example.com', 'Test User', 'password123');
       const updated = await updateUserPlan('test@example.com', 'creator_monthly');
@@ -145,7 +147,7 @@ describe('user-store', () => {
     });
   });
 
-  describe('updateUserPassword', () => {
+  describeDb('updateUserPassword', () => {
     it('updates password and allows new password login', async () => {
       await createUser('test@example.com', 'Test User', 'oldpassword');
       const updated = await updateUserPassword('test@example.com', 'newpassword');
@@ -164,7 +166,7 @@ describe('user-store', () => {
     });
   });
 
-  describe('getGravatarUrl', () => {
+  describeDb('getGravatarUrl', () => {
     it('generates a valid gravatar URL', () => {
       const url = getGravatarUrl('test@example.com');
       expect(url).toContain('https://www.gravatar.com/avatar/');
@@ -179,7 +181,7 @@ describe('user-store', () => {
   });
 });
 
-describe('reset tokens', () => {
+describeDb('reset tokens', () => {
   beforeEach(() => {
     cleanTestData();
   });
@@ -188,7 +190,7 @@ describe('reset tokens', () => {
     cleanTestData();
   });
 
-  describe('saveResetToken', () => {
+  describeDb('saveResetToken', () => {
     it('saves a reset token', async () => {
       await saveResetToken({
         tokenHash: 'abc123',
@@ -218,7 +220,7 @@ describe('reset tokens', () => {
     });
   });
 
-  describe('findResetToken', () => {
+  describeDb('findResetToken', () => {
     it('finds an existing token', async () => {
       const token = {
         tokenHash: 'abc123',
@@ -236,7 +238,7 @@ describe('reset tokens', () => {
     });
   });
 
-  describe('deleteResetToken', () => {
+  describeDb('deleteResetToken', () => {
     it('deletes a specific token', async () => {
       await saveResetToken({
         tokenHash: 'abc123',
@@ -249,7 +251,7 @@ describe('reset tokens', () => {
     });
   });
 
-  describe('deleteResetTokensByEmail', () => {
+  describeDb('deleteResetTokensByEmail', () => {
     it('deletes all tokens for an email', async () => {
       await saveResetToken({
         tokenHash: 'token1',
@@ -262,7 +264,7 @@ describe('reset tokens', () => {
     });
   });
 
-  describe('token expiration', () => {
+  describeDb('token expiration', () => {
     it('does not filter expired tokens at DB level (expiration checked by caller)', async () => {
       const expiredToken = {
         tokenHash: 'expired',
@@ -276,7 +278,7 @@ describe('reset tokens', () => {
   });
 });
 
-describe('JSON to DB migration', () => {
+describeDb('JSON to DB migration', () => {
   const MIGRATION_DATA_DIR = join(process.cwd(), 'data');
 
   beforeEach(() => {

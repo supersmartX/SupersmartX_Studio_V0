@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { resetDb } from '@/lib/db/driver';
+import { resetDb } from '@/__tests__/helpers/db';
 import { setMigrated } from '@/lib/db/index';
-
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 
 import {
   createUser,
@@ -14,13 +12,16 @@ import {
   getUserStats,
 } from '@/lib/db';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
-describe('exports', () => {
+describeDb('exports', () => {
   beforeEach(() => {
     cleanTestData();
   });
@@ -29,7 +30,7 @@ describe('exports', () => {
     cleanTestData();
   });
 
-  describe('createExport', () => {
+  describeDb('createExport', () => {
     it('creates an export record', async () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       const exportRecord = await createExport({
@@ -57,7 +58,7 @@ describe('exports', () => {
     });
   });
 
-  describe('findExportById', () => {
+  describeDb('findExportById', () => {
     it('finds an existing export', async () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       const created = await createExport({
@@ -84,7 +85,7 @@ describe('exports', () => {
     });
   });
 
-  describe('findExportByIdAndUser', () => {
+  describeDb('findExportByIdAndUser', () => {
     it('finds export owned by user', async () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       const created = await createExport({
@@ -130,7 +131,7 @@ describe('exports', () => {
     });
   });
 
-  describe('atomicIncrementDownloadCount', () => {
+  describeDb('atomicIncrementDownloadCount', () => {
     it('increments download count when under limit', async () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       await ensureUserStatsRow(user.id);
@@ -173,17 +174,21 @@ describe('exports', () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       await ensureUserStatsRow(user.id);
 
-      for (let i = 0; i < 100; i++) {
+      // The cap is what is under test, not the loop size. Each increment is its
+      // own round trip to the (remote) database, so 25 sequential successes —
+      // far above the free cap of 3 — proves a high cap is honoured without
+      // spending a minute of wall-clock time.
+      for (let i = 0; i < 25; i++) {
         const success = await atomicIncrementDownloadCount(user.id, 1000);
         expect(success).toBe(true);
       }
 
       const stats = await getUserStats(user.id);
-      expect(stats.downloadCount).toBe(100);
+      expect(stats.downloadCount).toBe(25);
     });
   });
 
-  describe('ensureUserStatsRow', () => {
+  describeDb('ensureUserStatsRow', () => {
     it('creates stats row if not exists', async () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       await ensureUserStatsRow(user.id);

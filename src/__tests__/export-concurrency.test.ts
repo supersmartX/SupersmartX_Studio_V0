@@ -1,16 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Session } from 'next-auth';
-import { resetDb, getDb } from '@/lib/db/driver';
+import { resetDb, getDb } from '@/__tests__/helpers/db';
 import { setMigrated } from '@/lib/db/index';
-
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 
 import { auth } from '@/auth';
 import { POST } from '@/app/api/export-jobs/route';
 import { createUser, updateUserPlanById, createExportJob } from '@/lib/db';
+
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
 
 // A job abandoned longer than the staleness window must not count as
 // "concurrent". Kept safely above any legitimate single export.
@@ -21,7 +23,6 @@ const mockAuth = vi.mocked(auth as unknown as () => Promise<Session | null>);
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 const FUTURE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -56,7 +57,7 @@ function exportJobsRequest() {
   });
 }
 
-describe('export concurrency guard', () => {
+describeDb('export concurrency guard', () => {
   beforeEach(() => cleanTestData());
   afterEach(() => {
     cleanTestData();

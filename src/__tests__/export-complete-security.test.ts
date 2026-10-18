@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
-
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/r2', () => ({
   isR2Configured: () => true,
@@ -31,7 +29,7 @@ import { auth } from '@/auth';
 import { headObject, deleteRecording, copyRecording } from '@/lib/r2';
 import { MAX_EXPORT_SIZE_MB } from '@/lib/export/export-limits';
 import { POST } from '@/app/api/exports/complete/route';
-import { resetDb, getDb } from '@/lib/db/driver';
+import { resetDb, getDb } from '@/__tests__/helpers/db';
 import {
   setMigrated,
   createUser,
@@ -44,10 +42,13 @@ import {
   setExportJobStagingKey,
 } from '@/lib/db';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 let n = 0;
@@ -112,7 +113,7 @@ async function exportCount(userId: string): Promise<number> {
  * quotas, recording ledger); only the session and R2 are mocked, so every
  * enforcement decision under test executes production code.
  */
-describe('POST /api/exports/complete enforcement', () => {
+describeDb('POST /api/exports/complete enforcement', () => {
   beforeEach(() => {
     cleanTestData();
     vi.clearAllMocks();
@@ -122,7 +123,7 @@ describe('POST /api/exports/complete enforcement', () => {
     cleanTestData();
   });
 
-  describe('SEC-001: server-verified size is authoritative', () => {
+  describeDb('SEC-001: server-verified size is authoritative', () => {
     it('1. honest client size succeeds and stores the verified size', async () => {
       const { user, job, key } = await setupUserWithJob();
       mockHead(1 * MB);
@@ -259,7 +260,7 @@ it('4/7/10. actual object over the cap is rejected WITH cleanup and NO record', 
    * accept whatever R2 reported, so an object whose content type was absent or
    * non-MP4 was recorded as a valid MP4 export and billed as one.
    */
-  describe('content type is verified against the stored object', () => {
+  describeDb('content type is verified against the stored object', () => {
     async function completeWithObservedType(contentType?: string) {
       const { user, job, key } = await setupUserWithJob();
       mockHead(1 * MB, { contentType });
@@ -318,7 +319,7 @@ it('4/7/10. actual object over the cap is rejected WITH cleanup and NO record', 
     });
   });
 
-  describe('R2 presigned replay protection', () => {
+  describeDb('R2 presigned replay protection', () => {
     it('browser staging PUT cannot overwrite the finalized export key after completion', async () => {
       const { user, job } = await setupUserWithJob();
       const stageKey = `staging/${user.id}/${job.id}/source.mp4`;
@@ -383,7 +384,7 @@ it('4/7/10. actual object over the cap is rejected WITH cleanup and NO record', 
     });
   });
 
-  describe('BUS-001: server ledger decides the daily budget', () => {
+  describeDb('BUS-001: server ledger decides the daily budget', () => {
     const ACTUAL_150MB = 150 * MB;
     const FLOOR_150MB = ACTUAL_150MB / (12_000_000 / 8); // 100.8s
 

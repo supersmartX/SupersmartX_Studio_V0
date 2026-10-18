@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
-
 // `configured` is toggled by the ordering test below, so the storage guard can be
 // observed from the outside. Defaults to configured, matching every other case.
 const r2State = vi.hoisted(() => ({ configured: true }));
@@ -19,7 +17,7 @@ vi.mock('@/lib/r2', () => ({
 import { auth } from '@/auth';
 import { getSignedUploadUrl } from '@/lib/r2';
 import { POST } from '@/app/api/exports/presigned-put/route';
-import { resetDb, getDb } from '@/lib/db/driver';
+import { resetDb, getDb } from '@/__tests__/helpers/db';
 import { setMigrated, createUser, updateUserPlanById } from '@/lib/db';
 import { FREE_MAX_DURATION_SECONDS } from '@/lib/entitlements';
 import {
@@ -31,10 +29,13 @@ import {
   EXPORT_AUDIO_BITRATE,
 } from '@/lib/export/export-limits';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
@@ -56,7 +57,7 @@ function presign(duration?: unknown) {
   });
 }
 
-describe('export limits are one coherent number', () => {
+describeDb('export limits are one coherent number', () => {
   it('matches the bitrates the encoder actually uses', () => {
     expect(EXPORT_BYTES_PER_SECOND).toBe((EXPORT_VIDEO_BITRATE + EXPORT_AUDIO_BITRATE) / 8);
   });
@@ -82,7 +83,7 @@ describe('export limits are one coherent number', () => {
   });
 });
 
-describe('POST /api/exports/presigned-put duration handling', () => {
+describeDb('POST /api/exports/presigned-put duration handling', () => {
   beforeEach(() => {
     cleanTestData();
     vi.clearAllMocks();

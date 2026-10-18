@@ -1,4 +1,4 @@
-/* Voice speech-follow teleprompter e2e (CR-002, Phase 5).
+﻿/* Voice speech-follow teleprompter e2e (CR-002, Phase 5).
  *
  * Proves, in a real Chromium layout (Range-based scroll targets, real
  * geometry check for script end):
@@ -8,9 +8,9 @@
  *   - speech-follow: spoken (injected) transcripts advance the prompter,
  *     mismatches HOLD the position, interim results need stability;
  *   - hold paths: disabling, and recording pause, freeze the position;
- *   - FC-1.1 §6 Item 8 (DC-2): reading to the end of the script fires the
+ *   - FC-1.1 Â§6 Item 8 (DC-2): reading to the end of the script fires the
  *     FROZEN auto-stop path with the exact toast, through the existing
- *     geometry check — the recorder pipeline itself is untouched.
+ *     geometry check â€” the recorder pipeline itself is untouched.
  *
  * Uses a fake native SpeechRecognition injected before any app code runs;
  * no real audio leaves the browser, no network speech service is involved.
@@ -38,7 +38,7 @@ test.setTimeout(420_000);
 
 // Creator accounts are minted through the local dev database.
 test.skip(
-  !!process.env.TURSO_DATABASE_URL,
+  !process.env.DATABASE_URL,
   'voice spec needs the local dev database file; skipping against shared DB',
 );
 test.skip(({ browserName }) => browserName !== 'chromium', 'requires fake media devices');
@@ -222,10 +222,10 @@ test('creator: voice follow is offered, follows speech, holds on mismatch, stops
     await expect(toggle).toBeVisible({ timeout: 30_000 });
     expect(await lastRecognitionStarted(page)).toBe(false);
 
-    // Enable → recognition starts and reports listening.
+    // Enable â†’ recognition starts and reports listening.
     await toggle.click();
     await expect(
-      page.getByText('Listening — the prompter follows your speech.'),
+      page.getByText('Listening â€” the prompter follows your speech.'),
     ).toBeVisible({ timeout: 10_000 });
     expect(await lastRecognitionStarted(page)).toBe(true);
 
@@ -240,13 +240,13 @@ test('creator: voice follow is offered, follows speech, holds on mismatch, stops
     const s1 = await prompterScroll(page);
     await emitInterim(page, scriptLines[1]);
     await page.waitForTimeout(200);
-    expect(await prompterScroll(page)).toBe(s1); // stability not yet met → holds
+    expect(await prompterScroll(page)).toBe(s1); // stability not yet met â†’ holds
     await emitInterim(page, scriptLines[1]);
     await expect
       .poll(() => prompterScroll(page), { timeout: 5_000 })
-      .toBeGreaterThan(s1); // stable → advances to line 2
+      .toBeGreaterThan(s1); // stable â†’ advances to line 2
 
-    // A matching final advances further…
+    // A matching final advances furtherâ€¦
     const afterInterims = await prompterScroll(page);
     await emitFinal(page, [scriptLines[2]]);
     await expect
@@ -254,7 +254,7 @@ test('creator: voice follow is offered, follows speech, holds on mismatch, stops
       .toBeGreaterThan(afterInterims);
     const advanced = await prompterScroll(page);
 
-    // …while non-matching speech holds the position (no wild jumping).
+    // â€¦while non-matching speech holds the position (no wild jumping).
     await emitFinal(page, ['completely unrelated words banana phone signal']);
     await page.waitForTimeout(400);
     expect(await prompterScroll(page)).toBe(advanced);
@@ -262,7 +262,7 @@ test('creator: voice follow is offered, follows speech, holds on mismatch, stops
     // Disable: recognition stops, position freezes where it was (no snap-back).
     await toggle.click();
     await expect(
-      page.getByText('Speak your script — the prompter follows your words. Pauses hold the position; it never jumps.'),
+      page.getByText('Speak your script â€” the prompter follows your words. Pauses hold the position; it never jumps.'),
     ).toBeVisible();
     expect(await lastRecognitionStarted(page)).toBe(false);
     expect(await prompterScroll(page)).toBe(advanced);
@@ -283,9 +283,9 @@ test('creator: voice follow pauses with the recording and reading to the end fir
 
     await voiceSwitch(page).click();
     await expect(
-      page.getByText('Listening — the prompter follows your speech.'),
+      page.getByText('Listening â€” the prompter follows your speech.'),
     ).toBeVisible({ timeout: 10_000 });
-    // Record with voice follow engaged (timed scroll is inert — voice owns it).
+    // Record with voice follow engaged (timed scroll is inert â€” voice owns it).
     await transport(page).getByRole('button', { name: 'Start Recording' }).click();
     await transport(page).getByRole('button', { name: 'Stop Recording' }).waitFor({ state: 'visible', timeout: 30_000 });
     expect(await prompterScroll(page)).toBe(0); // handleRecordStart resets to top
@@ -295,15 +295,15 @@ test('creator: voice follow pauses with the recording and reading to the end fir
     await expect.poll(() => prompterScroll(page), { timeout: 5_000 }).toBeGreaterThan(0);
     const beforePause = await prompterScroll(page);
 
-    // Pause → hold: recognition stops with the pause, so even matching
+    // Pause â†’ hold: recognition stops with the pause, so even matching
     // speech cannot move the position.
     await pauseRecording(page);
     await emitFinal(page, [scriptLines[6]]);
     await page.waitForTimeout(400);
     expect(await prompterScroll(page)).toBe(beforePause);
 
-    // Resume → a fresh recognition instance is started; speech advances
-    // again from where the cursor was (the dropped line is re-read here —
+    // Resume â†’ a fresh recognition instance is started; speech advances
+    // again from where the cursor was (the dropped line is re-read here â€”
     // forward-only matching needs contiguity inside the lookahead window).
     await resumeRecording(page);
     await expect
@@ -314,11 +314,11 @@ test('creator: voice follow pauses with the recording and reading to the end fir
       .poll(() => prompterScroll(page), { timeout: 5_000 })
       .toBeGreaterThan(beforePause);
 
-    // Read the rest of the script → scroll to end → the EXISTING geometry
+    // Read the rest of the script â†’ scroll to end â†’ the EXISTING geometry
     // check fires the frozen script-end auto-stop with its exact toast.
     await emitFinal(page, scriptLines.slice(14));
     await expect(
-      page.getByText('Script ended — recording stopped', { exact: true }),
+      page.getByText('Script ended â€” recording stopped', { exact: true }),
     ).toBeVisible({ timeout: 15_000 });
     // The take landed in review through the normal pipeline.
     await page.getByText('Preview as', { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
@@ -338,7 +338,7 @@ test('guest and free never see the voice follow control', async ({ page }) => {
     await studioReady(page);
     await expect(voiceSwitch(page)).toHaveCount(0);
 
-    // Free: same — the control is absent, not a dead/locked switch.
+    // Free: same â€” the control is absent, not a dead/locked switch.
     await apiRegister(page.request, email);
     await page.reload();
     await studioReady(page);
@@ -357,9 +357,10 @@ test('creator without browser SpeechRecognition support: no voice follow control
     await removeSpeechSupport(page);
     await page.goto('/studio');
     await studioReady(page);
-    // Entitled but unsupported → the control is not offered (FC-1.1 §8 lim. 7).
+    // Entitled but unsupported â†’ the control is not offered (FC-1.1 Â§8 lim. 7).
     await expect(voiceSwitch(page)).toHaveCount(0);
   } finally {
     await cleanupTestUser(email);
   }
 });
+

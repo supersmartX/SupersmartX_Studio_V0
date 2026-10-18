@@ -1,7 +1,5 @@
-import { test, expect, type Page, type APIRequestContext, type BrowserContext } from '@playwright/test';
-import { createClient, type Client } from '@libsql/client';
-import * as fs from 'fs';
-import * as path from 'path';
+﻿import { test, expect, type Page, type APIRequestContext, type BrowserContext } from '@playwright/test';
+import { db } from './db';
 
 /**
  * Every endpoint that reaches R2 / the export-job server, or a signed-in-only
@@ -18,22 +16,22 @@ export const CLOUD_ENDPOINTS = [
 
 /** The launch matrix that Free is NOT entitled to. YouTube 16:9 is the only unlocked format. */
 export const LOCKED_PLATFORMS = [
-  { label: 'YouTube Shorts', id: 'youtube-shorts', sublabel: 'Vertical · 9:16' },
-  { label: 'Reels', id: 'instagram-reels', sublabel: 'Vertical · 9:16' },
-  { label: 'Instagram Square', id: 'instagram-post', sublabel: 'Square · 1:1' },
-  { label: 'Instagram Portrait', id: 'instagram-portrait', sublabel: 'Portrait · 4:5' },
-  { label: 'TikTok', id: 'tiktok', sublabel: 'Vertical · 9:16' },
-  { label: 'LinkedIn', id: 'linkedin', sublabel: 'Vertical · 9:16' },
+  { label: 'YouTube Shorts', id: 'youtube-shorts', sublabel: 'Vertical Â· 9:16' },
+  { label: 'Reels', id: 'instagram-reels', sublabel: 'Vertical Â· 9:16' },
+  { label: 'Instagram Square', id: 'instagram-post', sublabel: 'Square Â· 1:1' },
+  { label: 'Instagram Portrait', id: 'instagram-portrait', sublabel: 'Portrait Â· 4:5' },
+  { label: 'TikTok', id: 'tiktok', sublabel: 'Vertical Â· 9:16' },
+  { label: 'LinkedIn', id: 'linkedin', sublabel: 'Vertical Â· 9:16' },
 ] as const;
 
 /**
  * True when every named variable holds a value that could actually authenticate.
  *
  * A plain `length > 0` check is not enough. `.env.local` ships with the
- * documented placeholders (`R2_ACCOUNT_ID=your_account_id`, …) already filled
+ * documented placeholders (`R2_ACCOUNT_ID=your_account_id`, â€¦) already filled
  * in, so a presence check reports the cloud as ready, the suite runs the R2
  * upload, and then blocks for the full request timeout on a presigned PUT that
- * can never be issued — a four-minute hang presented as a product failure.
+ * can never be issued â€” a four-minute hang presented as a product failure.
  *
  * A gate that false-fails is worse than no gate, because it teaches everyone to
  * ignore it. Presence alone must never be read as readiness.
@@ -56,7 +54,7 @@ export function hasRealCredentials(keys: string[], lookup: (key: string) => stri
  * Presence and placeholder checks alone accept a mistyped Cloudflare account ID
  * (e.g. a 34-character value containing non-hex characters). Cloudflare's edge
  * rejects that host at the TLS handshake, so every presigned PUT fails for a
- * reason no amount of retrying can fix — and the P0 gate would happily run into
+ * reason no amount of retrying can fix â€” and the P0 gate would happily run into
  * it. The account ID is the one R2 credential with a fixed, documented shape,
  * so it is checked here rather than left to fail at request time.
  */
@@ -66,7 +64,7 @@ export function hasRealR2Credentials(lookup: (key: string) => string): boolean {
   return /^[0-9a-f]{32}$/i.test(lookup('R2_ACCOUNT_ID').trim());
 }
 
-/** TransportBar's PauseIcon — the pause button carries no accessible name. */
+/** TransportBar's PauseIcon â€” the pause button carries no accessible name. */
 const PAUSE_ICON = 'path[d^="M10 9v6m4-6v6"]';
 
 /**
@@ -180,7 +178,7 @@ export async function studioReady(page: Page) {
   throw new Error('studio never became ready: Start Recording stayed disabled');
 }
 
-/** Clicks through the two-step Stop confirm ("Stop" → "OK?"). */
+/** Clicks through the two-step Stop confirm ("Stop" â†’ "OK?"). */
 export async function stopRecording(page: Page) {
   const stop = transport(page).getByRole('button', { name: 'Stop Recording' });
   await stop.click();
@@ -325,7 +323,7 @@ export function readMasterRecordings(page: Page) {
 }
 
 /**
- * The explicit "New Video" control — the desktop side rail's entry and the
+ * The explicit "New Video" control â€” the desktop side rail's entry and the
  * compact bottom nav's entry now both carry that exact label (DC-3). The
  * compact "Studio" tab is a pure panel switch and is deliberately NOT
  * matched here: clicking it must never count as starting a new workflow.
@@ -334,7 +332,7 @@ export function newVideoButton(page: Page) {
   return page.locator('nav button:visible').filter({ hasText: /^New Video$/ }).first();
 }
 
-/** The compact bottom nav's "Studio" tab — navigation only (DC-3). */
+/** The compact bottom nav's "Studio" tab â€” navigation only (DC-3). */
 export function compactStudioTab(page: Page) {
   return page.getByRole('navigation', { name: 'Compact navigation' }).getByRole('button', { name: 'Studio' });
 }
@@ -348,22 +346,15 @@ export function recordingsNav(page: Page) {
 // Local dev database (used to mint and clean up throwaway Free accounts).
 // ---------------------------------------------------------------------------
 
-let _db: Client | null = null;
-export function db(): Client {
-  if (!_db) {
-    const dataDir = path.resolve(__dirname, '..', 'data');
-    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-    _db = createClient({ url: `file:${path.join(dataDir, 'supersmartx.db')}` });
-  }
-  return _db;
-}
+// PostgreSQL-backed adapter (see ./db). The local SQLite-file implementation is gone.
+export { db } from './db';
 
 let registerClientSeq = 0;
 
 export async function apiRegister(request: APIRequestContext, email: string) {
   // Synthetic per-registration client IP. The NextAuth catch-all rate-limits
   // POSTs to 10 / 15 min keyed by the LAST x-forwarded-for entry
-  // (src/app/api/auth/[...nextauth]/route.ts) — correct production behaviour
+  // (src/app/api/auth/[...nextauth]/route.ts) â€” correct production behaviour
   // where every registrant arrives from a different IP. On localhost the whole
   // suite would otherwise share 127.0.0.1 and trip its own limiter mid-run
   // (observed in the Phase 5 full run: 9 cascading 429 failures after the
@@ -445,7 +436,7 @@ export async function dismissAllModals(page: Page) {
  *
  * Firefox has no mapping for them: requesting either aborts context creation
  * with "Unknown permission: camera", which kills the entire spec file before a
- * single test body runs — that alone accounted for every Firefox failure in CI.
+ * single test body runs â€” that alone accounted for every Firefox failure in CI.
  * Firefox is given fake media devices, and auto-answered prompts, through the
  * media.navigator.* prefs in playwright.config.ts instead, so there is nothing
  * to grant there.

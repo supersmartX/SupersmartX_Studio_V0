@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync } from 'fs';
 import { join } from 'path';
-import { getDb } from './driver';
+import { getPrisma } from './prisma';
 import { ensureMigrated } from './index';
 import type { StoredUser, ResetToken } from '@/types/db';
 
@@ -55,7 +55,7 @@ export async function migrateFromJson(): Promise<{ users: number; tokens: number
   let tokenCount = 0;
 
   await ensureMigrated();
-  const db = getDb();
+  const prisma = getPrisma();
 
   // Migrate users
   if (existsSync(usersFile)) {
@@ -93,17 +93,27 @@ export async function migrateFromJson(): Promise<{ users: number; tokens: number
 
         // Insert valid users — use existing IDs, preserve password hashes
         for (const user of validUsers) {
-          await db.execute({
-            sql: 'INSERT OR IGNORE INTO users (id, email, name, password_hash, created_at, plan, plan_expires_at, session_version) VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
-            args: [user.id, user.email, user.name, user.passwordHash, user.createdAt, user.plan, user.planExpiresAt || null],
+          await prisma.user.createMany({
+            data: [
+              {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                passwordHash: user.passwordHash,
+                createdAt: new Date(user.createdAt),
+                plan: user.plan,
+                planExpiresAt: user.planExpiresAt ? new Date(user.planExpiresAt) : null,
+                sessionVersion: 0,
+              },
+            ],
+            skipDuplicates: true,
           });
         }
 
         userCount = validUsers.length;
 
         // Verify import count
-        const countResult = await db.execute('SELECT COUNT(*) as count FROM users');
-        const dbCount = Number(countResult.rows[0].count);
+        const dbCount = await prisma.user.count();
         if (dbCount < validUsers.length) {
           errors.push(`Import verification failed: expected ${validUsers.length} users, got ${dbCount}`);
           return { users: 0, tokens: 0, errors };
@@ -112,11 +122,11 @@ export async function migrateFromJson(): Promise<{ users: number; tokens: number
         // Verify a representative record
         if (validUsers.length > 0) {
           const sample = validUsers[0];
-          const check = await db.execute({
-            sql: 'SELECT id, email FROM users WHERE id = ?',
-            args: [sample.id],
+          const check = await prisma.user.findUnique({
+            where: { id: sample.id },
+            select: { id: true, email: true },
           });
-          if (check.rows.length === 0) {
+          if (!check) {
             errors.push(`Verification failed: sample user ${sample.id} not found after import`);
             return { users: 0, tokens: 0, errors };
           }
@@ -164,9 +174,15 @@ export async function migrateFromJson(): Promise<{ users: number; tokens: number
         }
 
         for (const token of validTokens) {
-          await db.execute({
-            sql: 'INSERT OR IGNORE INTO reset_tokens (token_hash, email, expires_at) VALUES (?, ?, ?)',
-            args: [token.tokenHash, token.email, token.expiresAt],
+          await prisma.resetToken.createMany({
+            data: [
+              {
+                tokenHash: token.tokenHash,
+                email: token.email,
+                expiresAt: new Date(token.expiresAt),
+              },
+            ],
+            skipDuplicates: true,
           });
         }
 

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { findUserById, ensureMigrated, recordDeletedIdentity } from '@/lib/db';
-import { getDb } from '@/lib/db/driver';
+import { findUserById, listUserExportR2Keys, purgeUserOwnedData, deleteUserById, recordDeletedIdentity } from '@/lib/db';
 import { listUserRecordings, deleteRecording } from '@/lib/r2';
 import { rateLimit } from '@/lib/rate-limit';
 
@@ -40,13 +39,8 @@ export async function DELETE(request: NextRequest) {
     let r2Keys: string[] = [];
     try {
       // Get keys from DB first (authoritative)
-      await ensureMigrated();
-      const db = getDb();
-      const result = await db.execute({
-        sql: `SELECT r2_key FROM exports WHERE user_id = ?`,
-        args: [session.user.id],
-      });
-      r2Keys = result.rows.map((r: any) => r.r2_key as string).filter((k: string) => k && !k.startsWith('local/'));
+      const keys = await listUserExportR2Keys(session.user.id);
+      r2Keys = keys.filter((k) => k && !k.startsWith('local/'));
       // Also list via R2 prefix to catch any orphan jobs without DB row
       try {
         const listed = await listUserRecordings(`exports/${session.user.id}/`);
@@ -70,25 +64,9 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    // 3. Delete DB records (cascade will handle exports, export_jobs, monthly_export_counts, user_stats)
+    // 3. Delete DB records (the final users delete cascades anything left)
     // Do this after R2 deletion to avoid losing references
-    await ensureMigrated();
-    const db = getDb();
-    try {
-      await db.execute({ sql: `DELETE FROM exports WHERE user_id = ?`, args: [session.user.id] });
-    } catch {}
-    try {
-      await db.execute({ sql: `DELETE FROM export_jobs WHERE user_id = ?`, args: [session.user.id] });
-    } catch {}
-    try {
-      await db.execute({ sql: `DELETE FROM monthly_export_counts WHERE user_id = ?`, args: [session.user.id] });
-    } catch {}
-    try {
-      await db.execute({ sql: `DELETE FROM user_stats WHERE user_id = ?`, args: [session.user.id] });
-    } catch {}
-    try {
-      await db.execute({ sql: `DELETE FROM pending_orders WHERE user_id = ?`, args: [session.user.id] });
-    } catch {}
+    await purgeUserOwnedData(session.user.id);
 
     // Retire every token ever issued for this identity BEFORE the row goes
     // away. The tombstone is keyed by email and carries the next session
@@ -104,9 +82,9 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Deletion failed' }, { status: 500 });
     }
 
-    const delUser = await db.execute({ sql: `DELETE FROM users WHERE id = ?`, args: [session.user.id] });
+    const userDeleted = await deleteUserById(session.user.id);
 
-    const response = NextResponse.json({ success: true, deletedR2Objects: r2Keys.length, userDeleted: delUser.rowsAffected > 0 });
+    const response = NextResponse.json({ success: true, deletedR2Objects: r2Keys.length, userDeleted });
     return clearSessionCookies(response);
   } catch (e) {
     console.error('Account deletion failed', e instanceof Error ? e.message : 'unknown');

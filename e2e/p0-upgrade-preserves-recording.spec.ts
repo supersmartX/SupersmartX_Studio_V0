@@ -1,22 +1,22 @@
-/* ============================================================================
- * P0 LAUNCH GATE — "Free records → upgrades → the SAME recording must survive"
+﻿/* ============================================================================
+ * P0 LAUNCH GATE â€” "Free records â†’ upgrades â†’ the SAME recording must survive"
  * ============================================================================
  *
  * This is the one journey that decides whether we ship. Every arrow in the
  * scenario below is an assertion in this file. If any stage fails, we do not
- * launch — no silent skips inside the journey itself.
+ * launch â€” no silent skips inside the journey itself.
  *
  *   Free user
- *     → records a video
- *     → stops, lands on the review screen
- *     → does NOT record again
- *     → clicks Creator → logs in → pays
- *     → Cashfree returns → webhook/verify activates Creator
- *     → studio returns
- *     → THE SAME RECORDED VIDEO IS STILL THERE          <-- the P0 assertion
- *     → selects Instagram Reels → preview becomes 9:16
- *     → export → 1080×1920 MP4, no watermark
- *     → R2 upload → Library → Download
+ *     â†’ records a video
+ *     â†’ stops, lands on the review screen
+ *     â†’ does NOT record again
+ *     â†’ clicks Creator â†’ logs in â†’ pays
+ *     â†’ Cashfree returns â†’ webhook/verify activates Creator
+ *     â†’ studio returns
+ *     â†’ THE SAME RECORDED VIDEO IS STILL THERE          <-- the P0 assertion
+ *     â†’ selects Instagram Reels â†’ preview becomes 9:16
+ *     â†’ export â†’ 1080Ã—1920 MP4, no watermark
+ *     â†’ R2 upload â†’ Library â†’ Download
  *
  * Why this file is mostly hermetic, and where the seams are
  * ---------------------------------------------------------
@@ -34,12 +34,12 @@
  *      Cashfree before touching `users.plan`, so no offline substitute exists
  *      that exercises those routes. The verified PAID outcome (the plan write)
  *      is produced directly here, exactly as `fulfillPaidOrder` would, and the
- *      surrounding journey — the real return URL, the real `?payment=success`
+ *      surrounding journey â€” the real return URL, the real `?payment=success`
  *      handler, the real activation modal, the real verify request, the real
- *      session refresh — runs for real. The "authoritative state, not the
+ *      session refresh â€” runs for real. The "authoritative state, not the
  *      return URL" contract is owned by `src/__tests__/payment-fulfillment.test.ts`.
  *
- *   2. Cloudflare R2. The tail (presigned PUT → complete → library → download)
+ *   2. Cloudflare R2. The tail (presigned PUT â†’ complete â†’ library â†’ download)
  *      is only run when real R2 credentials are present, because
  *      `/api/exports/complete` verifies the object with a server-side
  *      `headObject` (`src/app/api/exports/complete/route.ts:87`) that cannot be
@@ -47,14 +47,13 @@
  *      loudly rather than passing vacuously.
  *
  * Requires the local dev database (data/supersmartx.db); skipped when a shared
- * TURSO_DATABASE_URL is configured so CI never writes test rows into shared
+ * a shared/production database is configured so CI never writes test rows into shared
  * infrastructure. Uses fake camera/mic devices.
  */
 import { test, expect, type Page } from '@playwright/test';
-import { createClient, type Client } from '@libsql/client';
 import * as fs from 'fs';
 import * as path from 'path';
-import { hasRealCredentials, hasRealR2Credentials, grantMediaPermissions } from './helpers';
+import { hasRealCredentials, hasRealR2Credentials, grantMediaPermissions, db } from './helpers';
 
 test.use({
   viewport: { width: 1280, height: 800 },
@@ -73,7 +72,7 @@ test.beforeEach(async ({ context, browserName }) => {
 });
 
 /* The journey records a short take by default. Duration does not affect any
- * risk this gate covers — what matters is that the SAME blob survives — and a
+ * risk this gate covers â€” what matters is that the SAME blob survives â€” and a
  * 3-minute real encode in headless Chromium would add minutes of CI flake for
  * no additional signal. Raise it to rehearse the full scenario:
  *   P0_RECORD_SECONDS=180 npx playwright test p0-upgrade-preserves-recording
@@ -121,15 +120,6 @@ function env(key: string): string {
 const R2_READY = hasRealR2Credentials(env);
 const CASHFREE_READY = hasRealCredentials(['CASHFREE_APP_ID', 'CASHFREE_SECRET_KEY'], env);
 
-let _db: Client | null = null;
-function db(): Client {
-  if (!_db) {
-    const dataDir = path.resolve(__dirname, '..', 'data');
-    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-    _db = createClient({ url: `file:${path.join(dataDir, 'supersmartx.db')}` });
-  }
-  return _db;
-}
 
 let orderId = `sxs-${PLAN}-p0-${Date.now()}`;
 
@@ -154,7 +144,7 @@ async function cleanupTestData(email: string) {
 async function activateCreatorForCashfreePaid(email: string) {
   const r = await db().execute({ sql: `SELECT id FROM users WHERE email = ?`, args: [email.toLowerCase()] });
   const userId = r.rows[0]?.id as string | undefined;
-  if (!userId) throw new Error(`no user row for ${email} — registration did not land`);
+  if (!userId) throw new Error(`no user row for ${email} â€” registration did not land`);
 
   await db().execute({
     sql: `INSERT OR REPLACE INTO pending_orders (order_id, user_id, plan, amount, currency, created_at)
@@ -170,7 +160,7 @@ async function activateCreatorForCashfreePaid(email: string) {
 
 /* The recovery path for a webhook that has not landed yet: the browser's return
  * trip re-verifies the order itself. Reaching this call with the right order_id
- * is the assertion — it proves the client wires the order into verification
+ * is the assertion â€” it proves the client wires the order into verification
  * rather than trusting the return URL. Must be armed BEFORE navigating, since
  * the studio fires it on mount. */
 function armVerifyRecorder(page: Page) {
@@ -187,7 +177,7 @@ function armVerifyRecorder(page: Page) {
 }
 
 /* ------------------------------------------------------------------ *
- * IndexedDB probes — the ground truth for "the same video is still there"
+ * IndexedDB probes â€” the ground truth for "the same video is still there"
  * ------------------------------------------------------------------ */
 
 type StoredRecord = { id: string; size: number; duration: number; mimeType: string; createdAt: string };
@@ -216,7 +206,7 @@ async function readRecordings(page: Page): Promise<StoredRecord[]> {
   });
 }
 
-/* The watermark is not a separate code path — `watermarkRequired` is the flag
+/* The watermark is not a separate code path â€” `watermarkRequired` is the flag
  * that routes an export to the local, watermarked store instead of R2
  * (src/hooks/useExportPipeline.ts:112-145). "No watermark" is therefore
  * equivalent to "nothing landed in the local-exports store". */
@@ -294,11 +284,11 @@ const unlockedIn = (page: Page, label: string) => previewSwitcher(page).locator(
 
 test.setTimeout(600_000);
 
-test.skip(!!process.env.TURSO_DATABASE_URL, 'P0 gate needs the local dev database file; skipping against shared DB');
+test.skip(!process.env.DATABASE_URL, 'P0 gate needs a disposable PostgreSQL dev database; skipping when DATABASE_URL is unset');
 test.skip(({ browserName }) => browserName !== 'chromium', 'requires fake media devices');
-test.skip(!R2_READY, 'P0 gate needs real R2 credentials (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME) — the R2 upload → Library → Download tail cannot be faked, because /api/exports/complete verifies the object server-side with headObject');
+test.skip(!R2_READY, 'P0 gate needs real R2 credentials (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME) â€” the R2 upload â†’ Library â†’ Download tail cannot be faked, because /api/exports/complete verifies the object server-side with headObject');
 
-test('P0: Free records, upgrades, and the same recording survives all the way to a downloaded 1080×1920 Reel', async ({ page }) => {
+test('P0: Free records, upgrades, and the same recording survives all the way to a downloaded 1080Ã—1920 Reel', async ({ page }) => {
   let recorded: StoredRecord | null = null;
 
   try {
@@ -336,7 +326,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
     });
 
     /* ================================================================
-     * 2. CLICKS CREATOR → LOGS IN — WITHOUT RE-RECORDING
+     * 2. CLICKS CREATOR â†’ LOGS IN â€” WITHOUT RE-RECORDING
      * ================================================================ */
     await test.step('Login happens on top of the existing take, with no navigation and no re-record', async () => {
       // Reach the upgrade prompt the way a Free user does: tap a locked format.
@@ -350,7 +340,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       // signed-in Free users get "Buy Creator access".
       await upgradePrompt.getByRole('button', { name: /^(Create account to purchase|Buy Creator access)$/ }).click();
 
-      // Checkout demands an identity first → the real registration form.
+      // Checkout demands an identity first â†’ the real registration form.
       const authDialog = page.getByRole('dialog', { name: 'Create New Profile' });
       await authDialog.waitFor({ state: 'visible', timeout: 15000 });
       await authDialog.getByPlaceholder('John').fill('P0');
@@ -360,7 +350,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       await authDialog.getByRole('button', { name: 'Create Account' }).click();
 
       // The take must not have been discarded to get here.
-      expect(await documentIsAlive(page), 'login must not navigate away — that is what would destroy the in-memory review state').toBe(true);
+      expect(await documentIsAlive(page), 'login must not navigate away â€” that is what would destroy the in-memory review state').toBe(true);
 
       const after = await readRecordings(page);
       expect(after).toHaveLength(1);
@@ -369,7 +359,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
     });
 
     /* ================================================================
-     * 3. PAYS → CASHFREE RETURNS → WEBHOOK/VERIFY ACTIVATES CREATOR
+     * 3. PAYS â†’ CASHFREE RETURNS â†’ WEBHOOK/VERIFY ACTIVATES CREATOR
      * ================================================================ */
     await test.step('Creator is on offer immediately after login', async () => {
       const pricing = page.getByRole('dialog', { name: 'Choose Your Plan' });
@@ -403,7 +393,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       const verifyWasCalled = armVerifyRecorder(page);
 
       // The real return URL the order route hands Cashfree
-      // (src/app/api/cashfree/order/route.ts:70) — a genuine cross-document
+      // (src/app/api/cashfree/order/route.ts:70) â€” a genuine cross-document
       // navigation, which is exactly what destroys naive in-memory state.
       await page.goto(`/studio?payment=success&order_id=${encodeURIComponent(orderId)}&plan=${PLAN}`);
       await page.waitForTimeout(3000);
@@ -435,7 +425,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       // And it is restored into the live review surface, not merely on disk.
       // The blob alone is not enough: the review surfaces resolve through
       // `isReview` (src/lib/review-state.ts), which must accept a take that
-      // came back from IndexedDB — `recorder.recordingState` is plain React
+      // came back from IndexedDB â€” `recorder.recordingState` is plain React
       // state (src/hooks/useRecorder.ts:35) that no cross-document navigation
       // can carry. This is the assertion that fails if the restore path is
       // ever narrowed back to 'completed' alone.
@@ -449,7 +439,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
         'that rule must accept a restored take (isRestored) as well as one the',
         'capture engine finished in this document. If it does not:',
         '',
-        '  src/lib/review-state.ts            isReviewState — the rule itself',
+        '  src/lib/review-state.ts            isReviewState â€” the rule itself',
         '  src/hooks/useMasterRecording.ts    isRestored must stay true after restore',
         '',
         'Net effect after a payment return: a user cannot reach ANY Creator',
@@ -487,7 +477,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
     });
 
     /* ================================================================
-     * 5. SELECTS INSTAGRAM REELS → PREVIEW BECOMES 9:16
+     * 5. SELECTS INSTAGRAM REELS â†’ PREVIEW BECOMES 9:16
      * ================================================================ */
     await test.step('Reels selects and the preview becomes 9:16', async () => {
       await unlockedIn(page, REELS.label).click();
@@ -497,8 +487,8 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       const dialog = page.getByRole('dialog', { name: 'Export recording' });
       await dialog.waitFor({ state: 'visible', timeout: 15000 });
 
-      await expect(dialog.getByText(`${REELS.ratio} · ${REELS.width} × ${REELS.height}`)).toBeVisible({ timeout: 10000 });
-      await expect(dialog.getByRole('button', { name: new RegExp(`^Export ${REELS.label}\\s*·\\s*${REELS.width}×${REELS.height}`) })).toBeVisible();
+      await expect(dialog.getByText(`${REELS.ratio} Â· ${REELS.width} Ã— ${REELS.height}`)).toBeVisible({ timeout: 10000 });
+      await expect(dialog.getByRole('button', { name: new RegExp(`^Export ${REELS.label}\\s*Â·\\s*${REELS.width}Ã—${REELS.height}`) })).toBeVisible();
 
       // The Free-tier upsell copy must be gone now that the user is a Creator.
       await expect(dialog.getByText(/Other formats need Creator/i)).toHaveCount(0);
@@ -506,9 +496,9 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
     });
 
     /* ================================================================
-     * 6. EXPORT → 1080×1920 MP4, NO WATERMARK, R2 UPLOAD
+     * 6. EXPORT â†’ 1080Ã—1920 MP4, NO WATERMARK, R2 UPLOAD
      * ================================================================ */
-    await test.step('Export produces a watermarked-free 1080×1920 MP4 on R2', async () => {
+    await test.step('Export produces a watermarked-free 1080Ã—1920 MP4 on R2', async () => {
       const dialog = page.getByRole('dialog', { name: 'Export recording' });
 
       const presigned = page.waitForResponse(
@@ -545,13 +535,13 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       expect(completed.r2Key).toContain('/');
 
       await dialog.getByText('Video exported').waitFor({ state: 'visible', timeout: 180000 });
-      await expect(dialog.getByText(`${REELS.width} × ${REELS.height}`, { exact: false }).first()).toBeVisible();
+      await expect(dialog.getByText(`${REELS.width} Ã— ${REELS.height}`, { exact: false }).first()).toBeVisible();
 
       // No watermark: the watermarked branch is the local-only one, so an empty
       // local-exports store after a paid export is the proof.
       expect(await readLocalExportCount(page), 'a Creator export must never touch the watermarked local path').toBe(0);
 
-      // The encoded file really is 1080×1920 — measured on the finished blob,
+      // The encoded file really is 1080Ã—1920 â€” measured on the finished blob,
       // not on the label above it.
       const dimensions = await dialog.locator('video').last().evaluate(
         (el) =>
@@ -568,7 +558,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
     });
 
     /* ================================================================
-     * 7. LIBRARY → DOWNLOAD
+     * 7. LIBRARY â†’ DOWNLOAD
      * ================================================================ */
     await test.step('The export is in the cloud library and downloads', async () => {
       const userId = await (async () => {
@@ -600,8 +590,8 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       await savedExports.waitFor({ state: 'visible', timeout: 20000 });
 
       // The cloud row is labelled with the format and the real dimensions.
-      const cloudRow = page.locator('div').filter({ hasText: new RegExp(`${REELS.width}×${REELS.height}`) }).last();
-      await expect(cloudRow.getByText(`${REELS.width}×${REELS.height}`)).toBeVisible({ timeout: 30000 });
+      const cloudRow = page.locator('div').filter({ hasText: new RegExp(`${REELS.width}Ã—${REELS.height}`) }).last();
+      await expect(cloudRow.getByText(`${REELS.width}Ã—${REELS.height}`)).toBeVisible({ timeout: 30000 });
 
       const downloadResponse = page.waitForResponse(
         (r) => r.url().includes('/api/download') && r.request().method() === 'GET',
@@ -610,7 +600,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       const download = page.waitForEvent('download', { timeout: 120000 });
 
       await page.locator('div')
-        .filter({ hasText: new RegExp(`${REELS.width}×${REELS.height}`) })
+        .filter({ hasText: new RegExp(`${REELS.width}Ã—${REELS.height}`) })
         .last()
         .getByRole('button', { name: 'Download', exact: true })
         .click();
@@ -644,3 +634,4 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
     await cleanupTestData(CREATOR_EMAIL);
   }
 });
+

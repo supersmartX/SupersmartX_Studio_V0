@@ -9,8 +9,7 @@ import {
   fetchCashfreeOrder,
   isCashfreeOrderTerminalFailure,
 } from '@/lib/cashfree-fulfillment';
-import { createPendingOrder, findUserById, findUserByEmail, ensureMigrated, findRecentUnsettledPendingOrder } from '@/lib/db';
-import { getDb } from '@/lib/db/driver';
+import { createPendingOrder, findUserById, findUserByEmail, findRecentUnsettledPendingOrder, ensureOAuthUser } from '@/lib/db';
 import { isCreatorPlan, isPlanActive } from '@/lib/entitlements';
 import { logger, getRequestId, hashUserId } from '@/lib/observe/logger';
 
@@ -302,13 +301,13 @@ export async function POST(request: NextRequest) {
           effectiveUserId = byEmail.id;
         } else {
           // Create stub OAuth/ephemeral user to satisfy pending_orders FK
-          await ensureMigrated();
-          const db = getDb();
           const stubHash = `$oauth$${generateId()}`; // not usable for login, OAuth only
           try {
-            await db.execute({
-              sql: 'INSERT OR IGNORE INTO users (id, email, name, password_hash, created_at, plan) VALUES (?, ?, ?, ?, ?, ?)',
-              args: [effectiveUserId, session.user.email.toLowerCase(), (session.user.name || name || 'User').slice(0,200), stubHash, new Date().toISOString(), 'free'],
+            await ensureOAuthUser({
+              id: effectiveUserId,
+              email: session.user.email,
+              name: (session.user.name || name || 'User').slice(0, 200),
+              passwordHash: stubHash,
             });
           } catch (e) {
             // A silently dropped stub row breaks the pending_orders FK and,
@@ -333,34 +332,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    try {
-      await createPendingOrder({
-        orderId: order.order_id,
-        userId: effectiveUserId,
-        plan,
-        amount: serverAmount,
-        currency: finalCurrency,
-      });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? String(e.message) : String(e);
-      if (msg.includes('FOREIGN KEY') || msg.includes('SQLITE_CONSTRAINT')) {
-        // Last-resort: disable FK enforcement for this insert (isolated serverless conn)
-        try {
-          const db = getDb();
-          await db.execute('PRAGMA foreign_keys = OFF');
-          try {
-            await db.execute({
-              sql: `INSERT OR IGNORE INTO pending_orders (order_id, user_id, plan, amount, currency) VALUES (?, ?, ?, ?, ?)`,
-              args: [order.order_id, effectiveUserId, plan, serverAmount, finalCurrency],
-            });
-          } finally {
-            await db.execute('PRAGMA foreign_keys = ON');
-          }
-        } catch {
-          throw e;
-        }
-      } else throw e;
-    }
+    // Postgres enforces the pending_orders → users FK unconditionally (there is
+    // no per-statement `PRAGMA foreign_keys = OFF`), so the old SQLite
+    // "disable FK and retry" fallback has no equivalent and is retired. The stub
+    // provisioning immediately above guarantees the row the FK requires; a
+    // genuine violation now surfaces loudly rather than writing a dangling order.
+    await createPendingOrder({
+      orderId: order.order_id,
+      userId: effectiveUserId,
+      plan,
+      amount: serverAmount,
+      currency: finalCurrency,
+    });
 
     logger.info('payment.order_created', { route: '/api/cashfree/order', requestId, userIdHash: hashUserId(session.user.id), plan, currency: finalCurrency });
 

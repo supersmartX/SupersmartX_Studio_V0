@@ -1,30 +1,62 @@
-import { getDb } from './driver';
-import { migrate } from './schema';
 import crypto from 'crypto';
+import { Prisma } from '@prisma/client';
+import { getPrisma } from './prisma';
 import type { StoredUser, ResetToken, PlanType, ExportRecord, ExportJobRecord, ExportJobStatus } from '@/types/db';
+
+/**
+ * The application data layer, now backed by PostgreSQL through Prisma.
+ *
+ * Every exported function keeps the exact signature and observable behaviour it
+ * had on Turso/libSQL: the same atomic claims, the same conditional counters,
+ * the same `rowsAffected`-style booleans, and the same `string` timestamps at
+ * the boundary (Prisma returns `Date`; the mappers below convert).
+ *
+ * Only this module talks to Prisma for application state. Callers never see a
+ * `Date`, a `bigint`, or a Prisma error object.
+ */
+
+/**
+ * The application's logical schema version, preserved from the retired libSQL
+ * migration runner (`src/lib/db/schema.ts`, ledger v1–v14). Prisma Migrate is
+ * now the single schema authority (`prisma/migrations` + `_prisma_migrations`);
+ * this constant is no longer used to *apply* DDL. It is written once into the
+ * legacy `schema_meta` marker (see `ensureMigrated`) solely so `/api/health`
+ * keeps reporting the same value it always did.
+ */
+export const SCHEMA_VERSION = 14;
 
 let migrationPromise: Promise<void> | null = null;
 
+/**
+ * Ensures the process is bound to a reachable database and that the legacy
+ * `schema_meta` version marker exists.
+ *
+ * This replaces the old runtime migration runner. Prisma Migrate applies schema
+ * changes at deploy time, so there is no DDL here. What is preserved:
+ *
+ *  - the first database call proves connectivity and fails loudly if it cannot,
+ *  - `schema_meta.schema_version` is initialised exactly as the old runner left
+ *    it on a fresh database, so `/api/health` continues to report `14`.
+ *
+ * The insert is `DO NOTHING`, so an existing (possibly newer) value is never
+ * overwritten — matching the old runner's refusal to downgrade a database that
+ * is ahead of this build.
+ */
 export async function ensureMigrated(): Promise<void> {
   if (!migrationPromise) {
     migrationPromise = (async () => {
-      const db = getDb();
-      await migrate(db);
+      const prisma = getPrisma();
+      await prisma.$queryRaw`SELECT 1`;
+      await prisma.$executeRaw`
+        INSERT INTO schema_meta ("key", "value")
+        VALUES ('schema_version', ${String(SCHEMA_VERSION)})
+        ON CONFLICT ("key") DO NOTHING`;
     })().catch((err) => {
       migrationPromise = null;
       throw err;
     });
   }
   await migrationPromise;
-  // SQLite/libSQL leaves foreign-key enforcement OFF per connection by default,
-  // while schema.ts relies on ON DELETE CASCADE. Enforce explicitly so critical
-  // state cannot silently orphan. Cheap and idempotent; ignored when the
-  // backing store enforces constraints server-side (e.g. Turso).
-  try {
-    await getDb().execute('PRAGMA foreign_keys = ON');
-  } catch {
-    // Pragma unsupported by this backend — constraints enforced server-side.
-  }
 }
 
 export function setMigrated(value: boolean): void {
@@ -35,46 +67,141 @@ export function setMigrated(value: boolean): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Row mappers. Prisma yields `Date` for timestamptz and `bigint` for BIGINT; the
+// public contract is ISO strings and `number`, so the conversion happens here
+// and nowhere else.
+// ---------------------------------------------------------------------------
+
+function toIso(value: Date): string;
+function toIso(value: Date | null): string | null;
+function toIso(value: Date | null): string | null {
+  return value ? value.toISOString() : null;
+}
+
+type UserFields = {
+  id: string;
+  email: string;
+  name: string;
+  passwordHash: string;
+  createdAt: Date;
+  plan: string;
+  planExpiresAt: Date | null;
+  sessionVersion: number;
+};
+
+const userSelect = {
+  id: true,
+  email: true,
+  name: true,
+  passwordHash: true,
+  createdAt: true,
+  plan: true,
+  planExpiresAt: true,
+  sessionVersion: true,
+} as const;
+
+function mapUser(row: UserFields): StoredUser {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    passwordHash: row.passwordHash,
+    createdAt: toIso(row.createdAt),
+    plan: row.plan as PlanType,
+    planExpiresAt: row.planExpiresAt ? row.planExpiresAt.toISOString() : undefined,
+    sessionVersion: row.sessionVersion,
+  };
+}
+
+type ExportFields = {
+  id: string;
+  userId: string;
+  r2Key: string;
+  platform: string;
+  outputWidth: number;
+  outputHeight: number;
+  fileSize: bigint;
+  mimeType: string;
+  status: string;
+  createdAt: Date;
+  jobId: string | null;
+};
+
+function mapExport(row: ExportFields): ExportRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    r2Key: row.r2Key,
+    platform: row.platform,
+    outputWidth: row.outputWidth,
+    outputHeight: row.outputHeight,
+    fileSize: Number(row.fileSize),
+    mimeType: row.mimeType,
+    status: row.status,
+    createdAt: toIso(row.createdAt),
+    jobId: row.jobId,
+  };
+}
+
+type ExportJobFields = {
+  id: string;
+  userId: string;
+  configJson: string;
+  status: string;
+  progress: number;
+  stagingR2Key: string | null;
+  resultR2Key: string | null;
+  resultExportId: string | null;
+  resultFileSize: bigint | null;
+  errorMessage: string | null;
+  retryCount: number;
+  createdAt: Date;
+  startedAt: Date | null;
+  finalizingAt: Date | null;
+  completedAt: Date | null;
+};
+
+function mapExportJob(row: ExportJobFields): ExportJobRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    configJson: row.configJson,
+    status: row.status as ExportJobStatus,
+    progress: row.progress,
+    stagingR2Key: row.stagingR2Key,
+    resultR2Key: row.resultR2Key,
+    resultExportId: row.resultExportId,
+    resultFileSize: Number(row.resultFileSize ?? 0),
+    errorMessage: row.errorMessage,
+    retryCount: row.retryCount,
+    createdAt: toIso(row.createdAt),
+    startedAt: toIso(row.startedAt),
+    finalizingAt: toIso(row.finalizingAt),
+    completedAt: toIso(row.completedAt),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Users
+// ---------------------------------------------------------------------------
+
 export async function findUserByEmail(email: string): Promise<StoredUser | undefined> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'SELECT id, email, name, password_hash, created_at, plan, plan_expires_at, session_version FROM users WHERE email = ?',
-    args: [email.toLowerCase()],
+  const row = await getPrisma().user.findUnique({
+    where: { email: email.toLowerCase() },
+    select: userSelect,
   });
-  if (result.rows.length === 0) return undefined;
-  const row = result.rows[0];
-  return {
-    id: row.id as string,
-    email: row.email as string,
-    name: row.name as string,
-    passwordHash: row.password_hash as string,
-    createdAt: row.created_at as string,
-    plan: row.plan as PlanType,
-    planExpiresAt: row.plan_expires_at as string | undefined,
-    sessionVersion: Number(row.session_version),
-  };
+  return row ? mapUser(row) : undefined;
 }
 
 export async function findUserById(userId: string): Promise<StoredUser | undefined> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'SELECT id, email, name, password_hash, created_at, plan, plan_expires_at, session_version FROM users WHERE id = ?',
-    args: [userId],
+  const row = await getPrisma().user.findUnique({
+    where: { id: userId },
+    select: userSelect,
   });
-  if (result.rows.length === 0) return undefined;
-  const row = result.rows[0];
-  return {
-    id: row.id as string,
-    email: row.email as string,
-    name: row.name as string,
-    passwordHash: row.password_hash as string,
-    createdAt: row.created_at as string,
-    plan: row.plan as PlanType,
-    planExpiresAt: row.plan_expires_at as string | undefined,
-    sessionVersion: Number(row.session_version),
-  };
+  return row ? mapUser(row) : undefined;
 }
 
 /**
@@ -87,31 +214,29 @@ export async function findUserById(userId: string): Promise<StoredUser | undefin
  * adopted by the deleted account's still-valid cookie. The high-water mark lets
  * a re-registration start above it, which retires every token from the previous
  * identity instead of silently re-provisioning it.
+ *
+ * The `GREATEST` upsert is what makes the mark monotonic under concurrent
+ * deletes: a second tombstone can never lower the version.
  */
 export async function recordDeletedIdentity(email: string, sessionVersion: number): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
   const version = Number.isInteger(sessionVersion) && sessionVersion > 0 ? sessionVersion : 1;
-  await db.execute({
-    sql: `INSERT INTO deleted_identities (email, session_version, deleted_at) VALUES (?, ?, ?)
-          ON CONFLICT(email) DO UPDATE SET
-            session_version = MAX(deleted_identities.session_version, excluded.session_version),
-            deleted_at = excluded.deleted_at`,
-    args: [email.toLowerCase(), version, new Date().toISOString()],
-  });
+  await getPrisma().$executeRaw`
+    INSERT INTO deleted_identities (email, session_version, deleted_at)
+    VALUES (${email.toLowerCase()}, ${version}, ${new Date()})
+    ON CONFLICT (email) DO UPDATE SET
+      session_version = GREATEST(deleted_identities.session_version, EXCLUDED.session_version),
+      deleted_at = EXCLUDED.deleted_at`;
 }
 
 export async function getDeletedIdentitySessionVersion(email: string): Promise<number | null> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'SELECT session_version FROM deleted_identities WHERE email = ?',
-    args: [email.toLowerCase()],
+  const row = await getPrisma().deletedIdentity.findUnique({
+    where: { email: email.toLowerCase() },
+    select: { sessionVersion: true },
   });
-  const row = result.rows[0];
   if (!row) return null;
-  const version = Number(row.session_version);
-  return Number.isInteger(version) ? version : null;
+  return Number.isInteger(row.sessionVersion) ? row.sessionVersion : null;
 }
 
 export async function createUser(
@@ -122,7 +247,6 @@ export async function createUser(
   createdAt?: string,
 ): Promise<StoredUser> {
   await ensureMigrated();
-  const db = getDb();
   const userId = id || `user-${crypto.randomUUID()}`;
   const now = createdAt || new Date().toISOString();
   const normalizedEmail = email.toLowerCase();
@@ -130,9 +254,16 @@ export async function createUser(
   // re-registration on a deleted identity cannot be resumed by a cookie that
   // predates the deletion.
   const sessionVersion = (await getDeletedIdentitySessionVersion(normalizedEmail)) ?? 0;
-  await db.execute({
-    sql: 'INSERT INTO users (id, email, name, password_hash, created_at, plan, session_version) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    args: [userId, normalizedEmail, name, passwordHash, now, 'free', sessionVersion],
+  await getPrisma().user.create({
+    data: {
+      id: userId,
+      email: normalizedEmail,
+      name,
+      passwordHash,
+      createdAt: new Date(now),
+      plan: 'free',
+      sessionVersion,
+    },
   });
   return {
     id: userId,
@@ -145,18 +276,44 @@ export async function createUser(
   };
 }
 
+/**
+ * Inserts a minimal OAuth/ephemeral account row if (and only if) no row already
+ * owns the id or the email. Replaces the raw `INSERT OR IGNORE INTO users` used
+ * by the OAuth first-login and payment stub paths.
+ */
+export async function ensureOAuthUser(input: {
+  id: string;
+  email: string;
+  name: string;
+  passwordHash: string;
+}): Promise<void> {
+  await ensureMigrated();
+  await getPrisma().user.createMany({
+    data: [
+      {
+        id: input.id,
+        email: input.email.toLowerCase(),
+        name: input.name,
+        passwordHash: input.passwordHash,
+        createdAt: new Date(),
+        plan: 'free',
+      },
+    ],
+    skipDuplicates: true,
+  });
+}
+
 export async function updateUserPlan(
   email: string,
   plan: PlanType,
   expiresAt?: string,
 ): Promise<boolean> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'UPDATE users SET plan = ?, plan_expires_at = ? WHERE email = ?',
-    args: [plan, expiresAt || null, email.toLowerCase()],
+  const result = await getPrisma().user.updateMany({
+    where: { email: email.toLowerCase() },
+    data: { plan, planExpiresAt: expiresAt ? new Date(expiresAt) : null },
   });
-  return result.rowsAffected > 0;
+  return result.count > 0;
 }
 
 export async function updateUserPlanById(
@@ -165,12 +322,11 @@ export async function updateUserPlanById(
   expiresAt?: string,
 ): Promise<boolean> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'UPDATE users SET plan = ?, plan_expires_at = ? WHERE id = ?',
-    args: [plan, expiresAt || null, userId],
+  const result = await getPrisma().user.updateMany({
+    where: { id: userId },
+    data: { plan, planExpiresAt: expiresAt ? new Date(expiresAt) : null },
   });
-  return result.rowsAffected > 0;
+  return result.count > 0;
 }
 
 export async function updateUserPlanByIdIfInactive(
@@ -180,12 +336,14 @@ export async function updateUserPlanByIdIfInactive(
   now = new Date(),
 ): Promise<boolean> {
   await ensureMigrated();
-  const result = await getDb().execute({
-    sql: `UPDATE users SET plan = ?, plan_expires_at = ?
-          WHERE id = ? AND (plan = 'free' OR plan_expires_at IS NULL OR plan_expires_at <= ?)`,
-    args: [plan, expiresAt, userId, now.toISOString()],
+  const result = await getPrisma().user.updateMany({
+    where: {
+      id: userId,
+      OR: [{ plan: 'free' }, { planExpiresAt: null }, { planExpiresAt: { lte: now } }],
+    },
+    data: { plan, planExpiresAt: new Date(expiresAt) },
   });
-  return result.rowsAffected > 0;
+  return result.count > 0;
 }
 
 export async function updateUserPassword(
@@ -193,94 +351,92 @@ export async function updateUserPassword(
   passwordHash: string,
 ): Promise<boolean> {
   await ensureMigrated();
-  const db = getDb();
   // Increment session_version to invalidate all existing JWTs for this user
-  const result = await db.execute({
-    sql: 'UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE email = ?',
-    args: [passwordHash, email.toLowerCase()],
+  const result = await getPrisma().user.updateMany({
+    where: { email: email.toLowerCase() },
+    data: { passwordHash, sessionVersion: { increment: 1 } },
   });
-  return result.rowsAffected > 0;
+  return result.count > 0;
 }
 
 export async function incrementSessionVersion(userId: string): Promise<number> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'UPDATE users SET session_version = session_version + 1 WHERE id = ?',
-    args: [userId],
+  const prisma = getPrisma();
+  const result = await prisma.user.updateMany({
+    where: { id: userId },
+    data: { sessionVersion: { increment: 1 } },
   });
-  if (result.rowsAffected === 0) return 0;
-  const check = await db.execute({
-    sql: 'SELECT session_version FROM users WHERE id = ?',
-    args: [userId],
+  if (result.count === 0) return 0;
+  const check = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { sessionVersion: true },
   });
-  return Number(check.rows[0]?.session_version) || 0;
+  return check?.sessionVersion ?? 0;
 }
+
+// ---------------------------------------------------------------------------
+// Password reset tokens
+// ---------------------------------------------------------------------------
 
 export async function saveResetToken(token: ResetToken): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
-  // Delete any existing token for this email, then insert the new one
-  await db.execute({
-    sql: 'DELETE FROM reset_tokens WHERE email = ?',
-    args: [token.email],
-  });
-  await db.execute({
-    sql: 'INSERT INTO reset_tokens (token_hash, email, expires_at) VALUES (?, ?, ?)',
-    args: [token.tokenHash, token.email, token.expiresAt],
-  });
+  const prisma = getPrisma();
+  // Replace any existing token for this email atomically, so a failure between
+  // the delete and the insert can never leave the address token-less.
+  await prisma.$transaction([
+    prisma.resetToken.deleteMany({ where: { email: token.email } }),
+    prisma.resetToken.create({
+      data: {
+        tokenHash: token.tokenHash,
+        email: token.email,
+        expiresAt: new Date(token.expiresAt),
+      },
+    }),
+  ]);
 }
 
 export async function findResetToken(tokenHash: string): Promise<ResetToken | undefined> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'SELECT token_hash, email, expires_at FROM reset_tokens WHERE token_hash = ?',
-    args: [tokenHash],
-  });
-  if (result.rows.length === 0) return undefined;
-  const row = result.rows[0];
+  const row = await getPrisma().resetToken.findUnique({ where: { tokenHash } });
+  if (!row) return undefined;
   return {
-    tokenHash: row.token_hash as string,
-    email: row.email as string,
-    expiresAt: row.expires_at as string,
+    tokenHash: row.tokenHash,
+    email: row.email,
+    expiresAt: toIso(row.expiresAt),
   };
 }
 
 export async function deleteResetToken(tokenHash: string): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
-  await db.execute({
-    sql: 'DELETE FROM reset_tokens WHERE token_hash = ?',
-    args: [tokenHash],
-  });
+  await getPrisma().resetToken.deleteMany({ where: { tokenHash } });
 }
 
 export async function consumeResetToken(tokenHash: string): Promise<ResetToken | null> {
   await ensureMigrated();
-  const db = getDb();
-  // Atomic single-use: delete only if not expired, return deleted row
-  const result = await db.execute({
-    sql: `DELETE FROM reset_tokens WHERE token_hash = ? AND expires_at > datetime('now') RETURNING token_hash, email, expires_at`,
-    args: [tokenHash],
-  });
-  if (result.rows.length === 0) return null;
-  const row = result.rows[0];
+  // Atomic single-use: delete only if not expired and return the deleted row.
+  // `DELETE … RETURNING` has no Prisma Client equivalent, so it stays raw SQL
+  // with a bound parameter (never string concatenation).
+  const rows = await getPrisma().$queryRaw<
+    { token_hash: string; email: string; expires_at: Date }[]
+  >`DELETE FROM reset_tokens WHERE token_hash = ${tokenHash} AND expires_at > now()
+    RETURNING token_hash, email, expires_at`;
+  const row = rows[0];
+  if (!row) return null;
   return {
-    tokenHash: row.token_hash as string,
-    email: row.email as string,
-    expiresAt: row.expires_at as string,
+    tokenHash: row.token_hash,
+    email: row.email,
+    expiresAt: toIso(row.expires_at),
   };
 }
 
 export async function deleteResetTokensByEmail(email: string): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
-  await db.execute({
-    sql: 'DELETE FROM reset_tokens WHERE email = ?',
-    args: [email],
-  });
+  await getPrisma().resetToken.deleteMany({ where: { email } });
 }
+
+// ---------------------------------------------------------------------------
+// Per-user usage counters
+// ---------------------------------------------------------------------------
 
 export interface UserStats {
   downloadCount: number;
@@ -288,46 +444,41 @@ export interface UserStats {
   storageBytes: number;
 }
 
+function toStats(row: { downloadCount: number; uploadCount: number; storageBytes: bigint }): UserStats {
+  return {
+    downloadCount: row.downloadCount,
+    uploadCount: row.uploadCount,
+    storageBytes: Number(row.storageBytes),
+  };
+}
+
 export async function getUserStats(userId: string): Promise<UserStats> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'SELECT download_count, upload_count, storage_bytes FROM user_stats WHERE user_id = ?',
-    args: [userId],
+  const row = await getPrisma().userStats.findUnique({
+    where: { userId },
+    select: { downloadCount: true, uploadCount: true, storageBytes: true },
   });
-  if (result.rows.length === 0) {
-    return { downloadCount: 0, uploadCount: 0, storageBytes: 0 };
-  }
-  const row = result.rows[0];
-  return {
-    downloadCount: Number(row.download_count),
-    uploadCount: Number(row.upload_count),
-    storageBytes: Number(row.storage_bytes),
-  };
+  if (!row) return { downloadCount: 0, uploadCount: 0, storageBytes: 0 };
+  return toStats(row);
 }
 
 export async function incrementDownloadCount(userId: string): Promise<UserStats> {
   await ensureMigrated();
-  const db = getDb();
-  await db.execute({
-    sql: `INSERT INTO user_stats (user_id, download_count, upload_count, storage_bytes)
-          VALUES (?, 1, 0, 0)
-          ON CONFLICT(user_id) DO UPDATE SET download_count = download_count + 1`,
-    args: [userId],
+  await getPrisma().userStats.upsert({
+    where: { userId },
+    create: { userId, downloadCount: 1, uploadCount: 0, storageBytes: BigInt(0) },
+    update: { downloadCount: { increment: 1 } },
   });
   return getUserStats(userId);
 }
 
 export async function incrementUploadCount(userId: string, storageBytes: number): Promise<UserStats> {
   await ensureMigrated();
-  const db = getDb();
-  await db.execute({
-    sql: `INSERT INTO user_stats (user_id, download_count, upload_count, storage_bytes)
-          VALUES (?, 0, 1, ?)
-          ON CONFLICT(user_id) DO UPDATE SET
-            upload_count = upload_count + 1,
-            storage_bytes = storage_bytes + ?`,
-    args: [userId, storageBytes, storageBytes],
+  const delta = BigInt(Math.trunc(storageBytes));
+  await getPrisma().userStats.upsert({
+    where: { userId },
+    create: { userId, downloadCount: 0, uploadCount: 1, storageBytes: delta },
+    update: { uploadCount: { increment: 1 }, storageBytes: { increment: delta } },
   });
   return getUserStats(userId);
 }
@@ -339,78 +490,60 @@ export async function atomicIncrementUploadCount(
   maxStorageBytes: number | null,
 ): Promise<{ allowed: true; stats: UserStats } | { allowed: false; reason: string; stats: UserStats }> {
   await ensureMigrated();
-  const db = getDb();
+  const prisma = getPrisma();
+  const bytes = BigInt(Math.trunc(fileSize));
 
-  // Build conditional WHERE clauses for atomic check+increment
-  const conditions: string[] = [];
-  const args: (string | number)[] = [fileSize, userId];
+  // Conditional check+increment in a single statement, exactly as the SQL
+  // `WHERE …` guarded UPDATE did. The limits are expressed on the pre-increment
+  // row so a concurrent upload cannot slip past the bound.
+  const where: Prisma.UserStatsWhereInput = { userId };
+  if (maxUploads !== null) where.uploadCount = { lt: maxUploads };
+  if (maxStorageBytes !== null) where.storageBytes = { lte: BigInt(Math.trunc(maxStorageBytes)) - bytes };
+  const data: Prisma.UserStatsUpdateManyMutationInput = {
+    uploadCount: { increment: 1 },
+    storageBytes: { increment: bytes },
+  };
 
-  if (maxUploads !== null) {
-    conditions.push('upload_count < ?');
-    args.push(maxUploads);
+  const first = await prisma.userStats.updateMany({ where, data });
+  if (first.count > 0) {
+    return { allowed: true, stats: await getUserStats(userId) };
   }
-  if (maxStorageBytes !== null) {
-    conditions.push('(storage_bytes + ?) <= ?');
-    args.push(fileSize, maxStorageBytes);
+
+  const currentStats = await getUserStats(userId);
+  if (maxUploads !== null && currentStats.uploadCount >= maxUploads) {
+    return { allowed: false, reason: `Upload limit reached (${maxUploads} files)`, stats: currentStats };
+  }
+  if (maxStorageBytes !== null && currentStats.storageBytes + fileSize > maxStorageBytes) {
+    return { allowed: false, reason: `Storage limit reached`, stats: currentStats };
   }
 
-  const whereClause = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
-
-  const result = await db.execute({
-    sql: `UPDATE user_stats
-          SET upload_count = upload_count + 1, storage_bytes = storage_bytes + ?
-          WHERE user_id = ? ${whereClause}`,
-    args,
-  });
-
-  if (result.rowsAffected === 0) {
-    const currentStats = await getUserStats(userId);
-    if (maxUploads !== null && currentStats.uploadCount >= maxUploads) {
-      return { allowed: false, reason: `Upload limit reached (${maxUploads} files)`, stats: currentStats };
+  // Row doesn't exist yet — create it, then RE-RUN the same conditional
+  // increment. Phase 2.11: an unconditional `SET upload_count = 1` here raced a
+  // concurrent first upload and overwrote its increment (lost update →
+  // under-counted uploads/storage, i.e. quota could be bypassed).
+  await ensureUserStatsRow(userId);
+  const retry = await prisma.userStats.updateMany({ where, data });
+  if (retry.count === 0) {
+    const racedStats = await getUserStats(userId);
+    if (maxUploads !== null && racedStats.uploadCount >= maxUploads) {
+      return { allowed: false, reason: `Upload limit reached (${maxUploads} files)`, stats: racedStats };
     }
-    if (maxStorageBytes !== null && currentStats.storageBytes + fileSize > maxStorageBytes) {
-      return { allowed: false, reason: `Storage limit reached`, stats: currentStats };
-    }
-    // Row doesn't exist yet — create it, then RE-RUN the same conditional
-    // increment. Phase 2.11: the old unconditional `SET upload_count = 1` here
-    // raced a concurrent first upload and overwrote its increment (lost update
-    // → under-counted uploads/storage, i.e. quota could be bypassed).
-    await ensureUserStatsRow(userId);
-    const retry = await db.execute({
-      sql: `UPDATE user_stats
-            SET upload_count = upload_count + 1, storage_bytes = storage_bytes + ?
-            WHERE user_id = ? ${whereClause}`,
-      args,
-    });
-    if (retry.rowsAffected === 0) {
-      // The row now exists but a limit was hit between the two attempts.
-      const racedStats = await getUserStats(userId);
-      if (maxUploads !== null && racedStats.uploadCount >= maxUploads) {
-        return { allowed: false, reason: `Upload limit reached (${maxUploads} files)`, stats: racedStats };
-      }
-      if (maxStorageBytes !== null && racedStats.storageBytes + fileSize > maxStorageBytes) {
-        return { allowed: false, reason: `Storage limit reached`, stats: racedStats };
-      }
-      // Neither limit explains the miss — refuse rather than risk an
-      // unbounded write (the caller reports this as a quota denial).
+    if (maxStorageBytes !== null && racedStats.storageBytes + fileSize > maxStorageBytes) {
       return { allowed: false, reason: `Storage limit reached`, stats: racedStats };
     }
-    const newStats = await getUserStats(userId);
-    return { allowed: true, stats: newStats };
+    return { allowed: false, reason: `Storage limit reached`, stats: racedStats };
   }
-
-  const finalStats = await getUserStats(userId);
-  return { allowed: true, stats: finalStats };
+  return { allowed: true, stats: await getUserStats(userId) };
 }
 
 export async function atomicRevertUploadCount(userId: string, fileSize: number): Promise<void> {
   await ensureMigrated();
-  await getDb().execute({
-    sql: `UPDATE user_stats
-          SET upload_count = MAX(0, upload_count - 1), storage_bytes = MAX(0, storage_bytes - ?)
-          WHERE user_id = ?`,
-    args: [fileSize, userId],
-  });
+  // GREATEST clamp — the Postgres equivalent of SQLite's MAX(0, …).
+  await getPrisma().$executeRaw`
+    UPDATE user_stats
+    SET upload_count = GREATEST(0, upload_count - 1),
+        storage_bytes = GREATEST(0, storage_bytes - ${BigInt(Math.trunc(fileSize))})
+    WHERE user_id = ${userId}`;
 }
 
 // Jobs stuck in a non-terminal state longer than this are abandoned clients
@@ -421,34 +554,56 @@ export const STUCK_JOB_CUTOFF_MS = 6 * 60 * 60 * 1000;
 
 export async function getActiveExportJobCount(userId: string): Promise<number> {
   await ensureMigrated();
-  const db = getDb();
-  const cutoff = new Date(Date.now() - STUCK_JOB_CUTOFF_MS).toISOString();
-  const result = await db.execute({
-    sql: `SELECT COUNT(*) as cnt FROM export_jobs
-          WHERE user_id = ? AND status IN ('pending', 'encoding', 'uploading')
-          AND created_at > ?`,
-    args: [userId, cutoff],
+  const cutoff = new Date(Date.now() - STUCK_JOB_CUTOFF_MS);
+  return getPrisma().exportJob.count({
+    where: {
+      userId,
+      status: { in: ['pending', 'encoding', 'uploading'] },
+      createdAt: { gt: cutoff },
+    },
   });
-  return Number(result.rows[0]?.cnt) || 0;
 }
+
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
 
 export async function createExport(record: Omit<ExportRecord, 'id' | 'createdAt'>): Promise<ExportRecord> {
   await ensureMigrated();
-  const db = getDb();
   const id = `export-${crypto.randomUUID()}`;
-  const now = new Date().toISOString();
-  await db.execute({
-    sql: `INSERT INTO exports (id, user_id, r2_key, platform, output_width, output_height, file_size, mime_type, status, created_at, job_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [id, record.userId, record.r2Key, record.platform, record.outputWidth, record.outputHeight, record.fileSize, record.mimeType, record.status, now, record.jobId || null],
+  const now = new Date();
+  const row = await getPrisma().export.create({
+    data: {
+      id,
+      userId: record.userId,
+      r2Key: record.r2Key,
+      platform: record.platform,
+      outputWidth: record.outputWidth,
+      outputHeight: record.outputHeight,
+      fileSize: BigInt(Math.trunc(record.fileSize)),
+      mimeType: record.mimeType,
+      status: record.status,
+      createdAt: now,
+      jobId: record.jobId || null,
+    },
   });
-  return { ...record, id, createdAt: now };
+  return mapExport(row);
 }
 
 export type FinalizeExportResult =
   | { kind: 'completed'; export: ExportRecord }
   | { kind: 'claim_lost' };
 
+/**
+ * Atomically finalizes an export job: flips the job to `completed` under the
+ * server-owned finalization lease, then writes the `exports` row — both in one
+ * transaction, so the export row exists if and only if the job reached
+ * `completed`. Replaces the former two-statement libSQL `batch`.
+ *
+ * The conditional `updateMany` is the claim: two concurrent completions (or a
+ * retried request) yield exactly one winner; every other caller gets
+ * `claim_lost` and writes nothing.
+ */
 export async function atomicFinalizeExport(input: {
   jobId: string;
   userId: string;
@@ -462,121 +617,121 @@ export async function atomicFinalizeExport(input: {
   now?: Date;
 }): Promise<FinalizeExportResult> {
   await ensureMigrated();
-  const db = getDb();
+  const prisma = getPrisma();
   const now = input.now ?? new Date();
-  const createdAt = now.toISOString();
   const exportId = `export-${crypto.randomUUID()}`;
-  const results = await db.batch([
-    {
-      sql: `UPDATE export_jobs
-            SET status = 'completed', result_r2_key = ?, result_export_id = ?, result_file_size = ?,
-                completed_at = ?, finalizing_at = NULL, finalizing_token = NULL
-            WHERE id = ? AND user_id = ? AND status = 'finalizing'
-              AND finalizing_token = ? AND staging_r2_key = ? AND result_export_id IS NULL`,
-      args: [input.finalKey, exportId, input.fileSize, createdAt, input.jobId, input.userId, input.token, input.stagingKey],
-    },
-    {
-      sql: `INSERT INTO exports (id, user_id, r2_key, platform, output_width, output_height, file_size, mime_type, status, created_at, job_id)
-            SELECT ?, ?, ?, ?, ?, ?, ?, 'video/mp4', 'completed', ?, ?
-            WHERE EXISTS (
-              SELECT 1 FROM export_jobs WHERE id = ? AND user_id = ? AND status = 'completed'
-                AND result_export_id = ? AND result_r2_key = ?
-            )`,
-      args: [exportId, input.userId, input.finalKey, input.platform, input.outputWidth, input.outputHeight, input.fileSize, createdAt, input.jobId, input.jobId, input.userId, exportId, input.finalKey],
-    },
-  ], 'write');
-  if (results[0].rowsAffected !== 1) return { kind: 'claim_lost' };
-  if (results[1].rowsAffected !== 1) throw new Error('export_finalization_record_missing');
+  const bytes = BigInt(Math.trunc(input.fileSize));
 
-  return {
-    kind: 'completed',
-    export: {
-      id: exportId,
-      userId: input.userId,
-      r2Key: input.finalKey,
-      platform: input.platform,
-      outputWidth: input.outputWidth,
-      outputHeight: input.outputHeight,
-      fileSize: input.fileSize,
-      mimeType: 'video/mp4',
-      status: 'completed',
-      createdAt,
-      jobId: input.jobId,
-    },
-  };
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.exportJob.updateMany({
+      where: {
+        id: input.jobId,
+        userId: input.userId,
+        status: 'finalizing',
+        finalizingToken: input.token,
+        stagingR2Key: input.stagingKey,
+        resultExportId: null,
+      },
+      data: {
+        status: 'completed',
+        resultR2Key: input.finalKey,
+        resultExportId: exportId,
+        resultFileSize: bytes,
+        completedAt: now,
+        finalizingAt: null,
+        finalizingToken: null,
+      },
+    });
+    if (updated.count !== 1) return { kind: 'claim_lost' } as const;
+
+    const row = await tx.export.create({
+      data: {
+        id: exportId,
+        userId: input.userId,
+        r2Key: input.finalKey,
+        platform: input.platform,
+        outputWidth: input.outputWidth,
+        outputHeight: input.outputHeight,
+        fileSize: bytes,
+        mimeType: 'video/mp4',
+        status: 'completed',
+        createdAt: now,
+        jobId: input.jobId,
+      },
+    });
+    return { kind: 'completed', export: mapExport(row) } as const;
+  });
 }
 
 export async function findExportById(exportId: string): Promise<ExportRecord | undefined> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'SELECT id, user_id, r2_key, platform, output_width, output_height, file_size, mime_type, status, created_at, job_id FROM exports WHERE id = ?',
-    args: [exportId],
-  });
-  if (result.rows.length === 0) return undefined;
-  const row = result.rows[0];
-  return {
-    id: row.id as string,
-    userId: row.user_id as string,
-    r2Key: row.r2_key as string,
-    platform: row.platform as string,
-    outputWidth: Number(row.output_width),
-    outputHeight: Number(row.output_height),
-    fileSize: Number(row.file_size),
-    mimeType: row.mime_type as string,
-    status: row.status as string,
-    createdAt: row.created_at as string,
-    jobId: row.job_id as string | null,
-  };
+  const row = await getPrisma().export.findUnique({ where: { id: exportId } });
+  return row ? mapExport(row) : undefined;
 }
 
 export async function findExportByIdAndUser(exportId: string, userId: string): Promise<ExportRecord | undefined> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'SELECT id, user_id, r2_key, platform, output_width, output_height, file_size, mime_type, status, created_at, job_id FROM exports WHERE id = ? AND user_id = ?',
-    args: [exportId, userId],
+  const row = await getPrisma().export.findFirst({ where: { id: exportId, userId } });
+  return row ? mapExport(row) : undefined;
+}
+
+/** Every export r2_key owned by a user. Used by account deletion to purge R2. */
+export async function listUserExportR2Keys(userId: string): Promise<string[]> {
+  await ensureMigrated();
+  const rows = await getPrisma().export.findMany({
+    where: { userId },
+    select: { r2Key: true },
   });
-  if (result.rows.length === 0) return undefined;
-  const row = result.rows[0];
-  return {
-    id: row.id as string,
-    userId: row.user_id as string,
-    r2Key: row.r2_key as string,
-    platform: row.platform as string,
-    outputWidth: Number(row.output_width),
-    outputHeight: Number(row.output_height),
-    fileSize: Number(row.file_size),
-    mimeType: row.mime_type as string,
-    status: row.status as string,
-    createdAt: row.created_at as string,
-    jobId: row.job_id as string | null,
-  };
+  return rows.map((r) => r.r2Key);
+}
+
+/** The user's export list, newest first. Used by GET /api/exports. */
+export async function listUserExports(userId: string, take = 100): Promise<ExportRecord[]> {
+  await ensureMigrated();
+  const limit = Number.isFinite(take) && take > 0 ? Math.trunc(take) : 100;
+  const rows = await getPrisma().export.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+  });
+  return rows.map(mapExport);
+}
+
+export async function deleteExportByIdAndUser(exportId: string, userId: string): Promise<boolean> {
+  await ensureMigrated();
+  const result = await getPrisma().export.deleteMany({ where: { id: exportId, userId } });
+  return result.count > 0;
+}
+
+/** Clamps a storage-byte decrement at zero, mirroring the old MAX(0, …) update. */
+export async function decrementStorageBytes(userId: string, bytes: number): Promise<void> {
+  await ensureMigrated();
+  await getPrisma().$executeRaw`
+    UPDATE user_stats
+    SET storage_bytes = GREATEST(0, storage_bytes - ${BigInt(Math.trunc(bytes))})
+    WHERE user_id = ${userId}`;
 }
 
 export async function atomicIncrementDownloadCount(userId: string, maxDownloads: number): Promise<boolean> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: `UPDATE user_stats
-          SET download_count = download_count + 1
-          WHERE user_id = ?
-          AND ? > download_count`,
-    args: [userId, maxDownloads],
+  const result = await getPrisma().userStats.updateMany({
+    where: { userId, downloadCount: { lt: maxDownloads } },
+    data: { downloadCount: { increment: 1 } },
   });
-  return result.rowsAffected > 0;
+  return result.count > 0;
 }
 
 export async function ensureUserStatsRow(userId: string): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
-  await db.execute({
-    sql: `INSERT INTO user_stats (user_id, download_count, upload_count, storage_bytes)
-          VALUES (?, 0, 0, 0)
-          ON CONFLICT(user_id) DO NOTHING`,
-    args: [userId],
+  await getPrisma().userStats.createMany({
+    data: [{ userId }],
+    skipDuplicates: true,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Monthly export quota
+// ---------------------------------------------------------------------------
 
 export function getMonthStartIso(now = new Date()): string {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
@@ -589,62 +744,53 @@ export function getCurrentPeriod(now = new Date()): string {
 
 export async function getMonthlyExportCount(userId: string, now = new Date()): Promise<number> {
   await ensureMigrated();
-  const db = getDb();
+  const prisma = getPrisma();
   const period = getCurrentPeriod(now);
   // Prefer atomic counter table if populated
-  const counterResult = await db.execute({
-    sql: `SELECT count FROM monthly_export_counts WHERE user_id = ? AND period = ?`,
-    args: [userId, period],
+  const counter = await prisma.monthlyExportCount.findFirst({
+    where: { userId, period },
+    select: { count: true },
   });
-  if (counterResult.rows.length > 0) {
-    return Number(counterResult.rows[0].count) || 0;
-  }
+  if (counter) return counter.count;
   // Fallback to timestamp scan for historical data before counter table
-  const monthStart = getMonthStartIso(now);
-  const result = await db.execute({
-    sql: `SELECT COUNT(*) as cnt FROM exports WHERE user_id = ? AND created_at >= ?`,
-    args: [userId, monthStart],
-  });
-  return Number(result.rows[0]?.cnt) || 0;
+  const monthStart = new Date(getMonthStartIso(now));
+  return prisma.export.count({ where: { userId, createdAt: { gte: monthStart } } });
 }
 
 export async function atomicTryConsumeMonthlyExport(userId: string, limit: number, now = new Date()): Promise<{ allowed: boolean; count: number }> {
   await ensureMigrated();
-  const db = getDb();
+  const prisma = getPrisma();
   const period = getCurrentPeriod(now);
   // Ensure row exists (0 count) — ignore if already exists
-  await db.execute({
-    sql: `INSERT OR IGNORE INTO monthly_export_counts (user_id, period, count) VALUES (?, ?, 0)`,
-    args: [userId, period],
+  await prisma.monthlyExportCount.createMany({
+    data: [{ userId, period }],
+    skipDuplicates: true,
   });
   // Atomic increment only if count < limit
-  const updateResult = await db.execute({
-    sql: `UPDATE monthly_export_counts SET count = count + 1 WHERE user_id = ? AND period = ? AND count < ?`,
-    args: [userId, period, limit],
+  const updateResult = await prisma.monthlyExportCount.updateMany({
+    where: { userId, period, count: { lt: limit } },
+    data: { count: { increment: 1 } },
   });
-  const allowed = updateResult.rowsAffected > 0;
-  const res = await db.execute({
-    sql: `SELECT count FROM monthly_export_counts WHERE user_id = ? AND period = ?`,
-    args: [userId, period],
+  const row = await prisma.monthlyExportCount.findFirst({
+    where: { userId, period },
+    select: { count: true },
   });
-  const count = Number(res.rows[0]?.count) || 0;
-  return { allowed, count };
+  return { allowed: updateResult.count > 0, count: row?.count ?? 0 };
 }
 
 export async function atomicRevertMonthlyExport(userId: string, now = new Date()): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
   const period = getCurrentPeriod(now);
-  await db.execute({
-    sql: `UPDATE monthly_export_counts SET count = MAX(0, count - 1) WHERE user_id = ? AND period = ?`,
-    args: [userId, period],
-  });
+  await getPrisma().$executeRaw`
+    UPDATE monthly_export_counts
+    SET count = GREATEST(0, count - 1)
+    WHERE user_id = ${userId} AND period = ${period}`;
 }
 
 // ---------------------------------------------------------------------------
-// Daily recording ledger (BUS-001). Same atomic pattern as the monthly
-// counter: INSERT-OR-IGNORE the day row, then a single conditional UPDATE.
-// Concurrent requests cannot overspend the budget; failures revert.
+// Daily recording ledger (BUS-001). Same atomic pattern as the monthly counter:
+// create the day row, then a single conditional UPDATE. Concurrent requests
+// cannot overspend the budget; failures revert.
 // ---------------------------------------------------------------------------
 
 export function getCurrentDay(now = new Date()): string {
@@ -653,14 +799,12 @@ export function getCurrentDay(now = new Date()): string {
 
 export async function getDailyRecordedSeconds(userId: string, now = new Date()): Promise<number> {
   await ensureMigrated();
-  const db = getDb();
   const day = getCurrentDay(now);
-  const result = await db.execute({
-    sql: `SELECT seconds FROM daily_recording_seconds WHERE user_id = ? AND day = ?`,
-    args: [userId, day],
+  const row = await getPrisma().dailyRecordingSecond.findFirst({
+    where: { userId, day },
+    select: { seconds: true },
   });
-  if (result.rows.length === 0) return 0;
-  return Number(result.rows[0]?.seconds) || 0;
+  return row?.seconds ?? 0;
 }
 
 export async function atomicTryConsumeRecordingSeconds(
@@ -670,18 +814,18 @@ export async function atomicTryConsumeRecordingSeconds(
   now = new Date(),
 ): Promise<{ allowed: boolean; seconds: number }> {
   await ensureMigrated();
-  const db = getDb();
+  const prisma = getPrisma();
   const day = getCurrentDay(now);
   const charge = Number.isFinite(secondsToCharge) && secondsToCharge > 0 ? secondsToCharge : 0;
-  await db.execute({
-    sql: `INSERT OR IGNORE INTO daily_recording_seconds (user_id, day, seconds) VALUES (?, ?, 0)`,
-    args: [userId, day],
+  await prisma.dailyRecordingSecond.createMany({
+    data: [{ userId, day }],
+    skipDuplicates: true,
   });
-  const updateResult = await db.execute({
-    sql: `UPDATE daily_recording_seconds SET seconds = seconds + ? WHERE user_id = ? AND day = ? AND seconds + ? <= ?`,
-    args: [charge, userId, day, charge, limit],
+  const updateResult = await prisma.dailyRecordingSecond.updateMany({
+    where: { userId, day, seconds: { lte: limit - charge } },
+    data: { seconds: { increment: charge } },
   });
-  const allowed = updateResult.rowsAffected > 0;
+  const allowed = updateResult.count > 0;
   return { allowed, seconds: await getDailyRecordedSeconds(userId, now) };
 }
 
@@ -691,54 +835,37 @@ export async function atomicRevertRecordingSeconds(
   now = new Date(),
 ): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
   const day = getCurrentDay(now);
   const revert = Number.isFinite(secondsToRevert) && secondsToRevert > 0 ? secondsToRevert : 0;
-  await db.execute({
-    sql: `UPDATE daily_recording_seconds SET seconds = MAX(0, seconds - ?) WHERE user_id = ? AND day = ?`,
-    args: [revert, userId, day],
-  });
+  await getPrisma().$executeRaw`
+    UPDATE daily_recording_seconds
+    SET seconds = GREATEST(0, seconds - ${revert})
+    WHERE user_id = ${userId} AND day = ${day}`;
 }
 
-function mapExportJobRow(row: Record<string, unknown>): ExportJobRecord {
-  return {
-    id: row.id as string,
-    userId: row.user_id as string,
-    configJson: row.config_json as string,
-    status: row.status as ExportJobStatus,
-    progress: Number(row.progress),
-    stagingR2Key: row.staging_r2_key as string | null,
-    resultR2Key: row.result_r2_key as string | null,
-    resultExportId: row.result_export_id as string | null,
-    resultFileSize: Number(row.result_file_size),
-    errorMessage: row.error_message as string | null,
-    retryCount: Number(row.retry_count),
-    createdAt: row.created_at as string,
-    startedAt: row.started_at as string | null,
-    finalizingAt: row.finalizing_at as string | null,
-    completedAt: row.completed_at as string | null,
-  };
-}
+// ---------------------------------------------------------------------------
+// Export jobs
+// ---------------------------------------------------------------------------
 
 export async function createExportJob(
   userId: string,
   configJson: string,
 ): Promise<ExportJobRecord> {
   await ensureMigrated();
-  const db = getDb();
   const id = `ej-${crypto.randomUUID()}`;
-  const now = new Date().toISOString();
-  await db.execute({
-    sql: `INSERT INTO export_jobs (id, user_id, config_json, status, progress, retry_count, created_at)
-          VALUES (?, ?, ?, 'pending', 0, 0, ?)`,
-    args: [id, userId, configJson, now],
+  const now = new Date();
+  const row = await getPrisma().exportJob.create({
+    data: {
+      id,
+      userId,
+      configJson,
+      status: 'pending',
+      progress: 0,
+      retryCount: 0,
+      createdAt: now,
+    },
   });
-  return {
-    id, userId, configJson, status: 'pending', progress: 0,
-    stagingR2Key: null, resultR2Key: null, resultExportId: null, resultFileSize: 0,
-    errorMessage: null, retryCount: 0, createdAt: now,
-    startedAt: null, finalizingAt: null, completedAt: null,
-  };
+  return mapExportJob(row);
 }
 
 export function isValidExportJobTransition(fromStatus: ExportJobStatus, toStatus: ExportJobStatus): boolean {
@@ -771,69 +898,43 @@ export async function updateExportJobStatus(
   userId?: string,
 ): Promise<boolean> {
   await ensureMigrated();
-  const db = getDb();
+  const prisma = getPrisma();
 
-  let currentStatusQuery = 'SELECT status FROM export_jobs WHERE id = ?';
-  const currentArgs: (string | number | null)[] = [jobId];
-  if (userId) {
-    currentStatusQuery += ' AND user_id = ?';
-    currentArgs.push(userId);
-  }
-  const currentResult = await db.execute({
-    sql: currentStatusQuery,
-    args: currentArgs,
+  const current = await prisma.exportJob.findFirst({
+    where: userId ? { id: jobId, userId } : { id: jobId },
+    select: { status: true, startedAt: true },
   });
-  const currentStatus = currentResult.rows[0]?.status as ExportJobStatus | undefined;
-  if (!currentStatus) return false;
+  if (!current) return false;
+  const currentStatus = current.status as ExportJobStatus;
 
   if (status !== currentStatus && !isValidExportJobTransition(currentStatus, status)) {
     return false;
   }
 
-  const sets: string[] = ['status = ?'];
-  const args: (string | number | null)[] = [status];
+  const data: Prisma.ExportJobUpdateManyMutationInput = { status };
 
   if (status === 'encoding' || status === 'uploading') {
-    sets.push("started_at = COALESCE(started_at, CURRENT_TIMESTAMP)");
+    // COALESCE(started_at, now()): never overwrite an existing start time.
+    if (current.startedAt === null) data.startedAt = new Date();
   }
   if (status !== 'finalizing') {
-    sets.push('finalizing_at = NULL, finalizing_token = NULL');
+    data.finalizingAt = null;
+    data.finalizingToken = null;
   }
   if (status === 'completed' || status === 'failed') {
-    sets.push("completed_at = CURRENT_TIMESTAMP");
+    data.completedAt = new Date();
   }
-  if (patch.progress !== undefined) {
-    sets.push('progress = ?');
-    args.push(patch.progress);
-  }
-  if (patch.resultR2Key !== undefined) {
-    sets.push('result_r2_key = ?');
-    args.push(patch.resultR2Key);
-  }
-  if (patch.resultExportId !== undefined) {
-    sets.push('result_export_id = ?');
-    args.push(patch.resultExportId);
-  }
-  if (patch.resultFileSize !== undefined) {
-    sets.push('result_file_size = ?');
-    args.push(patch.resultFileSize);
-  }
-  if (patch.errorMessage !== undefined) {
-    sets.push('error_message = ?');
-    args.push(patch.errorMessage);
-  }
+  if (patch.progress !== undefined) data.progress = patch.progress;
+  if (patch.resultR2Key !== undefined) data.resultR2Key = patch.resultR2Key;
+  if (patch.resultExportId !== undefined) data.resultExportId = patch.resultExportId;
+  if (patch.resultFileSize !== undefined) data.resultFileSize = BigInt(Math.trunc(patch.resultFileSize));
+  if (patch.errorMessage !== undefined) data.errorMessage = patch.errorMessage;
 
-  let whereClause = 'WHERE id = ?';
-  args.push(jobId);
-  if (userId) {
-    whereClause += ' AND user_id = ?';
-    args.push(userId);
-  }
-  const result = await db.execute({
-    sql: `UPDATE export_jobs SET ${sets.join(', ')} ${whereClause}`,
-    args,
+  const result = await prisma.exportJob.updateMany({
+    where: userId ? { id: jobId, userId } : { id: jobId },
+    data,
   });
-  return result.rowsAffected > 0;
+  return result.count > 0;
 }
 
 const EXPORT_FINALIZATION_LEASE_MS = 30 * 60 * 1000;
@@ -846,47 +947,49 @@ export async function claimExportJobFinalization(
   now = new Date(),
 ): Promise<boolean> {
   await ensureMigrated();
-  const cutoff = new Date(now.getTime() - EXPORT_FINALIZATION_LEASE_MS).toISOString();
-  const result = await getDb().execute({
-    sql: `UPDATE export_jobs
-          SET status = 'finalizing', finalizing_at = ?, finalizing_token = ?
-          WHERE id = ? AND user_id = ? AND staging_r2_key = ? AND result_export_id IS NULL
-            AND (status IN ('pending', 'encoding', 'uploading')
-              OR (status = 'finalizing' AND finalizing_at <= ?))`,
-    args: [now.toISOString(), token, jobId, userId, stagingKey, cutoff],
+  const cutoff = new Date(now.getTime() - EXPORT_FINALIZATION_LEASE_MS);
+  const result = await getPrisma().exportJob.updateMany({
+    where: {
+      id: jobId,
+      userId,
+      stagingR2Key: stagingKey,
+      resultExportId: null,
+      OR: [
+        { status: { in: ['pending', 'encoding', 'uploading'] } },
+        { status: 'finalizing', finalizingAt: { lte: cutoff } },
+      ],
+    },
+    data: { status: 'finalizing', finalizingAt: now, finalizingToken: token },
   });
-  return result.rowsAffected === 1;
+  return result.count === 1;
 }
 
 export async function releaseExportJobFinalization(jobId: string, userId: string, token: string): Promise<void> {
   await ensureMigrated();
-  await getDb().execute({
-    sql: `UPDATE export_jobs SET status = 'uploading', finalizing_at = NULL, finalizing_token = NULL
-          WHERE id = ? AND user_id = ? AND status = 'finalizing' AND finalizing_token = ?`,
-    args: [jobId, userId, token],
+  await getPrisma().exportJob.updateMany({
+    where: { id: jobId, userId, status: 'finalizing', finalizingToken: token },
+    data: { status: 'uploading', finalizingAt: null, finalizingToken: null },
   });
 }
 
 export async function setExportJobStagingKey(jobId: string, userId: string, stagingKey: string): Promise<boolean> {
   await ensureMigrated();
-  const result = await getDb().execute({
-    sql: `UPDATE export_jobs SET staging_r2_key = ?
-          WHERE id = ? AND user_id = ? AND status IN ('pending', 'encoding', 'uploading')
-            AND result_export_id IS NULL`,
-    args: [stagingKey, jobId, userId],
+  const result = await getPrisma().exportJob.updateMany({
+    where: {
+      id: jobId,
+      userId,
+      status: { in: ['pending', 'encoding', 'uploading'] },
+      resultExportId: null,
+    },
+    data: { stagingR2Key: stagingKey },
   });
-  return result.rowsAffected === 1;
+  return result.count === 1;
 }
 
 export async function findExportJobById(jobId: string): Promise<ExportJobRecord | undefined> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'SELECT * FROM export_jobs WHERE id = ?',
-    args: [jobId],
-  });
-  if (result.rows.length === 0) return undefined;
-  return mapExportJobRow(result.rows[0]);
+  const row = await getPrisma().exportJob.findUnique({ where: { id: jobId } });
+  return row ? mapExportJob(row) : undefined;
 }
 
 export async function findExportJobByIdAndUser(
@@ -894,13 +997,8 @@ export async function findExportJobByIdAndUser(
   userId: string,
 ): Promise<ExportJobRecord | undefined> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'SELECT * FROM export_jobs WHERE id = ? AND user_id = ?',
-    args: [jobId, userId],
-  });
-  if (result.rows.length === 0) return undefined;
-  return mapExportJobRow(result.rows[0]);
+  const row = await getPrisma().exportJob.findFirst({ where: { id: jobId, userId } });
+  return row ? mapExportJob(row) : undefined;
 }
 
 /**
@@ -921,52 +1019,46 @@ export async function findExportJobByIdAndUser(
  *   because `exports.job_id` is declared `ON DELETE SET NULL`: the export and
  *   its R2 object survive intact while the stale job row is reclaimed.
  */
-const CLEANABLE_EXPORT_JOB_STATUSES = `('pending', 'encoding', 'uploading', 'failed')`;
+const CLEANABLE_EXPORT_JOB_STATUSES = ['pending', 'encoding', 'uploading', 'failed'] as const;
 
 export async function deleteOldExportJobs(maxAgeMs: number): Promise<number> {
   await ensureMigrated();
-  const db = getDb();
-  const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
-  const result = await db.execute({
-    sql: `DELETE FROM export_jobs
-          WHERE created_at < ?
-            AND status IN ${CLEANABLE_EXPORT_JOB_STATUSES}`,
-    args: [cutoff],
+  const cutoff = new Date(Date.now() - maxAgeMs);
+  const result = await getPrisma().exportJob.deleteMany({
+    where: { createdAt: { lt: cutoff }, status: { in: [...CLEANABLE_EXPORT_JOB_STATUSES] } },
   });
-  return result.rowsAffected;
+  return result.count;
 }
 
 export async function getOldExportJobs(maxAgeMs: number): Promise<{ r2Key: string }[]> {
   await ensureMigrated();
-  const db = getDb();
-  const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
-  const result = await db.execute({
-    sql: `SELECT result_r2_key FROM export_jobs
-          WHERE created_at < ?
-            AND result_r2_key IS NOT NULL
-            AND status IN ${CLEANABLE_EXPORT_JOB_STATUSES}
-            AND result_r2_key NOT IN (SELECT r2_key FROM exports)`,
-    args: [cutoff],
-  });
-  return result.rows.map((row) => ({ r2Key: row.result_r2_key as string }));
+  const cutoff = new Date(Date.now() - maxAgeMs);
+  // The correlated NOT IN against `exports.r2_key` has no concise Prisma Client
+  // equivalent; raw SQL with a bound parameter keeps the exact semantics.
+  const rows = await getPrisma().$queryRaw<{ result_r2_key: string }[]>`
+    SELECT result_r2_key FROM export_jobs
+    WHERE created_at < ${cutoff}
+      AND result_r2_key IS NOT NULL
+      AND status IN ('pending', 'encoding', 'uploading', 'failed')
+      AND result_r2_key NOT IN (SELECT r2_key FROM exports)`;
+  return rows.map((row) => ({ r2Key: row.result_r2_key }));
 }
+
+// ---------------------------------------------------------------------------
+// Webhook / notification claims
+// ---------------------------------------------------------------------------
 
 export async function isWebhookProcessed(orderId: string): Promise<boolean> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: `SELECT 1 FROM processed_webhooks WHERE order_id = ? LIMIT 1`,
-    args: [orderId],
-  });
-  return result.rows.length > 0;
+  const count = await getPrisma().processedWebhook.count({ where: { orderId } });
+  return count > 0;
 }
 
 export async function markWebhookProcessed(orderId: string): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
-  await db.execute({
-    sql: `INSERT OR IGNORE INTO processed_webhooks (order_id) VALUES (?)`,
-    args: [orderId],
+  await getPrisma().processedWebhook.createMany({
+    data: [{ orderId }],
+    skipDuplicates: true,
   });
 }
 
@@ -978,21 +1070,16 @@ export async function markWebhookProcessed(orderId: string): Promise<void> {
  */
 export async function tryClaimWebhookOrder(orderId: string): Promise<boolean> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: `INSERT OR IGNORE INTO processed_webhooks (order_id) VALUES (?)`,
-    args: [orderId],
+  const result = await getPrisma().processedWebhook.createMany({
+    data: [{ orderId }],
+    skipDuplicates: true,
   });
-  return Number(result.rowsAffected) > 0;
+  return result.count > 0;
 }
 
 export async function releaseWebhookClaim(orderId: string): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
-  await db.execute({
-    sql: 'DELETE FROM processed_webhooks WHERE order_id = ?',
-    args: [orderId],
-  });
+  await getPrisma().processedWebhook.deleteMany({ where: { orderId } });
 }
 
 /**
@@ -1010,12 +1097,11 @@ export async function releaseWebhookClaim(orderId: string): Promise<void> {
  */
 export async function tryClaimOrderNotification(orderId: string, kind: string): Promise<boolean> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'INSERT OR IGNORE INTO order_notifications (order_id, kind) VALUES (?, ?)',
-    args: [orderId, kind],
+  const result = await getPrisma().orderNotification.createMany({
+    data: [{ orderId, kind }],
+    skipDuplicates: true,
   });
-  return Number(result.rowsAffected) > 0;
+  return result.count > 0;
 }
 
 /**
@@ -1025,63 +1111,63 @@ export async function tryClaimOrderNotification(orderId: string, kind: string): 
  */
 export async function releaseOrderNotification(orderId: string, kind: string): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
-  await db.execute({
-    sql: 'DELETE FROM order_notifications WHERE order_id = ? AND kind = ?',
-    args: [orderId, kind],
-  });
+  await getPrisma().orderNotification.deleteMany({ where: { orderId, kind } });
 }
+
+// ---------------------------------------------------------------------------
+// Account lockout
+// ---------------------------------------------------------------------------
 
 const LOCKOUT_THRESHOLD = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 
 export async function recordFailedLogin(email: string): Promise<{ locked: boolean; attempts: number }> {
   await ensureMigrated();
-  const db = getDb();
-  const now = new Date().toISOString();
-  await db.execute({
-    sql: `UPDATE users SET
-            failed_login_attempts = failed_login_attempts + 1,
-            locked_until = CASE
-              WHEN failed_login_attempts + 1 >= ? THEN datetime('now', '+15 minutes')
-              ELSE locked_until
-            END
-          WHERE email = ? AND (locked_until IS NULL OR locked_until < datetime('now'))`,
-    args: [LOCKOUT_THRESHOLD, email.toLowerCase()],
+  const prisma = getPrisma();
+  const now = new Date();
+  const lockMinutes = Math.round(LOCKOUT_DURATION_MS / 60000);
+  // The CASE arms on the pre-increment count and stamps `locked_until` with a
+  // server-side interval, so the lock is measured against the database clock and
+  // racing logins cannot unlock a row early.
+  await prisma.$executeRaw`
+    UPDATE users SET
+      failed_login_attempts = COALESCE(failed_login_attempts, 0) + 1,
+      locked_until = CASE
+        WHEN COALESCE(failed_login_attempts, 0) + 1 >= ${LOCKOUT_THRESHOLD}
+          THEN now() + make_interval(mins => ${lockMinutes})
+        ELSE locked_until
+      END
+    WHERE email = ${email.toLowerCase()} AND (locked_until IS NULL OR locked_until < now())`;
+  const row = await prisma.user.findUnique({
+    where: { email: email.toLowerCase() },
+    select: { failedLoginAttempts: true, lockedUntil: true },
   });
-  const result = await db.execute({
-    sql: 'SELECT failed_login_attempts, locked_until FROM users WHERE email = ?',
-    args: [email.toLowerCase()],
-  });
-  const row = result.rows[0];
   if (!row) return { locked: false, attempts: 0 };
-  const attempts = Number(row.failed_login_attempts);
-  const lockedUntil = row.locked_until as string | null;
-  return { locked: lockedUntil !== null && new Date(lockedUntil) > new Date(now), attempts };
+  const attempts = row.failedLoginAttempts ?? 0;
+  return { locked: row.lockedUntil !== null && row.lockedUntil > now, attempts };
 }
 
 export async function isAccountLocked(email: string): Promise<boolean> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: 'SELECT locked_until FROM users WHERE email = ?',
-    args: [email.toLowerCase()],
+  const row = await getPrisma().user.findUnique({
+    where: { email: email.toLowerCase() },
+    select: { lockedUntil: true },
   });
-  const row = result.rows[0];
-  if (!row || !row.locked_until) return false;
-  return new Date(row.locked_until as string) > new Date();
+  if (!row || !row.lockedUntil) return false;
+  return row.lockedUntil > new Date();
 }
 
 export async function resetFailedLogins(email: string): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
-  await db.execute({
-    sql: "UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE email = ?",
-    args: [email.toLowerCase()],
+  await getPrisma().user.updateMany({
+    where: { email: email.toLowerCase() },
+    data: { failedLoginAttempts: 0, lockedUntil: null },
   });
 }
 
-// --- Pending orders for payment verification ---
+// ---------------------------------------------------------------------------
+// Pending orders for payment verification
+// ---------------------------------------------------------------------------
 
 export async function createPendingOrder(order: {
   orderId: string;
@@ -1091,45 +1177,45 @@ export async function createPendingOrder(order: {
   currency: string;
 }): Promise<void> {
   await ensureMigrated();
-  const db = getDb();
-  const insertSql = `INSERT OR IGNORE INTO pending_orders (order_id, user_id, plan, amount, currency) VALUES (?, ?, ?, ?, ?)`;
-  const insertArgs = [order.orderId, order.userId, order.plan, order.amount, order.currency];
+  const prisma = getPrisma();
+  // `ON CONFLICT (order_id) DO NOTHING` preserves idempotent re-creation while
+  // still surfacing a genuine foreign-key / NOT NULL violation (unlike the old
+  // `INSERT OR IGNORE`, which swallowed every constraint error).
   try {
-    await db.execute({ sql: insertSql, args: insertArgs });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? String(e.message) : String(e);
-    if (msg.includes('FOREIGN KEY') || msg.includes('SQLITE_CONSTRAINT')) {
-      // Fallback: temporarily disable FK to allow ephemeral/OAuth stub inserts
-      try {
-        await db.execute('PRAGMA foreign_keys = OFF');
-        try {
-          await db.execute({ sql: insertSql, args: insertArgs });
-        } finally {
-          await db.execute('PRAGMA foreign_keys = ON');
-        }
-      } catch {
-        // The FK-off retry failed too. Rethrow the original constraint error so
-        // the caller never returns a payable order with no persisted row.
-        throw e;
-      }
-    } else {
-      throw e;
-    }
+    await prisma.pendingOrder.createMany({
+      data: [
+        {
+          orderId: order.orderId,
+          userId: order.userId,
+          plan: order.plan,
+          amount: new Prisma.Decimal(order.amount),
+          currency: order.currency,
+        },
+      ],
+      skipDuplicates: true,
+    });
+  } catch (e) {
+    // Preserve the stable `pending_order_not_persisted` contract callers and
+    // logs rely on, while keeping the underlying constraint reason.
+    throw new Error(
+      `pending_order_not_persisted: order ${order.orderId} was rejected by a constraint (${
+        e instanceof Error ? e.message : String(e)
+      })`,
+    );
   }
 
-  // `INSERT OR IGNORE` discards ANY constraint violation silently — including
-  // NOT NULL and "no such column" — so a call that returns without throwing is
-  // not proof that a row exists. Both the webhook and the return-trip verify
-  // key off this row: if it silently failed to write, a *paid* order becomes a
-  // permanent 404 "Unknown order" with no plan activation and no error anywhere.
-  // Verify the write instead of trusting OR IGNORE.
-  const persisted = await db.execute({
-    sql: `SELECT 1 FROM pending_orders WHERE order_id = ? LIMIT 1`,
-    args: [order.orderId],
+  // The old `INSERT OR IGNORE` discarded ANY constraint violation silently, so a
+  // call that returned without throwing was not proof a row existed. Both the
+  // webhook and the return-trip verify key off this row: if it silently failed to
+  // write, a *paid* order becomes a permanent 404 with no plan activation. Verify
+  // the write instead of trusting the conflict clause.
+  const persisted = await prisma.pendingOrder.findUnique({
+    where: { orderId: order.orderId },
+    select: { orderId: true },
   });
-  if (persisted.rows.length === 0) {
+  if (!persisted) {
     throw new Error(
-      `pending_order_not_persisted: order ${order.orderId} was rejected by a constraint and silently ignored by INSERT OR IGNORE`,
+      `pending_order_not_persisted: order ${order.orderId} was rejected by a constraint and silently ignored`,
     );
   }
 }
@@ -1149,21 +1235,19 @@ export async function findRecentUnsettledPendingOrder(
   windowMs: number,
 ): Promise<{ orderId: string; createdAt: string } | null> {
   await ensureMigrated();
-  const db = getDb();
-  const since = new Date(Date.now() - windowMs).toISOString();
-  const result = await db.execute({
-    sql: `SELECT p.order_id, p.created_at
-          FROM pending_orders p
-          LEFT JOIN processed_webhooks w ON w.order_id = p.order_id
-          WHERE p.user_id = ? AND w.order_id IS NULL
-            AND datetime(p.created_at) > datetime(?)
-          ORDER BY datetime(p.created_at) DESC
-          LIMIT 1`,
-    args: [userId, since],
-  });
-  const row = result.rows[0];
+  const since = new Date(Date.now() - windowMs);
+  const rows = await getPrisma().$queryRaw<
+    { order_id: string; created_at: Date }[]
+  >`SELECT p.order_id, p.created_at
+    FROM pending_orders p
+    LEFT JOIN processed_webhooks w ON w.order_id = p.order_id
+    WHERE p.user_id = ${userId} AND w.order_id IS NULL
+      AND p.created_at > ${since}
+    ORDER BY p.created_at DESC
+    LIMIT 1`;
+  const row = rows[0];
   if (!row) return null;
-  return { orderId: String(row.order_id), createdAt: String(row.created_at) };
+  return { orderId: row.order_id, createdAt: toIso(row.created_at) };
 }
 
 export async function findPendingOrder(orderId: string): Promise<{
@@ -1174,18 +1258,48 @@ export async function findPendingOrder(orderId: string): Promise<{
   currency: string;
 } | null> {
   await ensureMigrated();
-  const db = getDb();
-  const result = await db.execute({
-    sql: `SELECT order_id, user_id, plan, amount, currency FROM pending_orders WHERE order_id = ? LIMIT 1`,
-    args: [orderId],
-  });
-  const row = result.rows[0];
+  const row = await getPrisma().pendingOrder.findUnique({ where: { orderId } });
   if (!row) return null;
   return {
-    orderId: row.order_id as string,
-    userId: row.user_id as string,
-    plan: row.plan as string,
-    amount: row.amount as number,
-    currency: row.currency as string,
+    orderId: row.orderId,
+    userId: row.userId,
+    plan: row.plan,
+    amount: Number(row.amount),
+    currency: row.currency,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Account deletion helpers. The route deletes R2 first, then these DB rows, in
+// the same order the old raw SQL used.
+// ---------------------------------------------------------------------------
+
+export async function deleteUserById(userId: string): Promise<boolean> {
+  await ensureMigrated();
+  const result = await getPrisma().user.deleteMany({ where: { id: userId } });
+  return result.count > 0;
+}
+
+/**
+ * Deletes the child rows owned by a user before the account row. Each statement
+ * is independently guarded, mirroring the old route's per-delete try/catch so a
+ * single failure cannot strand the rest of the cleanup.
+ */
+export async function purgeUserOwnedData(userId: string): Promise<void> {
+  await ensureMigrated();
+  const prisma = getPrisma();
+  const steps: Array<() => Promise<unknown>> = [
+    () => prisma.export.deleteMany({ where: { userId } }),
+    () => prisma.exportJob.deleteMany({ where: { userId } }),
+    () => prisma.monthlyExportCount.deleteMany({ where: { userId } }),
+    () => prisma.userStats.deleteMany({ where: { userId } }),
+    () => prisma.pendingOrder.deleteMany({ where: { userId } }),
+  ];
+  for (const step of steps) {
+    try {
+      await step();
+    } catch {
+      // Continue — the final users delete cascades whatever remains.
+    }
+  }
 }

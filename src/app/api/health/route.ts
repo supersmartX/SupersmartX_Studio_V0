@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDb, getDbIdentity } from '@/lib/db/driver';
+import { getPrisma, getDbIdentity } from '@/lib/db/prisma';
 import { ensureMigrated } from '@/lib/db';
 import { getR2ConfigurationError } from '@/lib/r2';
 import { auth } from '@/auth';
@@ -7,11 +7,11 @@ import { auth } from '@/auth';
 export async function GET() {
   const checks: Record<string, string> = {};
 
-  // Database check
+  // Database check. `ensureMigrated` proves connectivity (and, on a fresh
+  // database, writes the legacy `schema_meta` version marker exactly as the old
+  // libSQL runner did at startup).
   try {
     await ensureMigrated();
-    const db = getDb();
-    await db.execute('SELECT 1');
     checks.database = 'ok';
   } catch (e) {
     checks.database = 'error';
@@ -50,12 +50,11 @@ export async function GET() {
       if (identity.host) checks.db_host = identity.host;
     }
     try {
-      const db = getDb();
-      const version = await db.execute({
-        sql: 'SELECT value FROM schema_meta WHERE key = ?',
-        args: ['schema_version'],
+      const meta = await getPrisma().schemaMeta.findUnique({
+        where: { key: 'schema_version' },
+        select: { value: true },
       });
-      checks.schema_version = version.rows.length > 0 ? String(version.rows[0].value) : 'none';
+      checks.schema_version = meta ? meta.value : 'none';
     } catch {
       checks.schema_version = 'unreadable';
     }

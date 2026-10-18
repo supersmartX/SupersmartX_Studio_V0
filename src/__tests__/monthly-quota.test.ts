@@ -1,13 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { resetDb } from '@/lib/db/driver';
+import { resetDb } from '@/__tests__/helpers/db';
 import { setMigrated } from '@/lib/db/index';
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 import { createUser, getMonthlyExportCount, atomicTryConsumeMonthlyExport, atomicRevertMonthlyExport, createExport } from '@/lib/db';
 import { getCurrentPeriod } from '@/lib/db';
 
-function clean() { resetDb(); setMigrated(false); process.env.TURSO_DATABASE_URL = 'file::memory:'; }
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
 
-describe('monthly export quota atomic', () => {
+function clean() { resetDb(); setMigrated(false); }
+
+describeDb('monthly export quota atomic', () => {
   beforeEach(clean); afterEach(clean);
 
   it('free 3rd export succeeds', async () => {

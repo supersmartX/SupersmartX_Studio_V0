@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { resetDb } from '@/lib/db/driver';
+import { resetDb } from '@/__tests__/helpers/db';
 import { setMigrated } from '@/lib/db/index';
-
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 
 import {
   createUser,
@@ -13,13 +11,16 @@ import {
   deleteOldExportJobs,
 } from '@/lib/db';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
-describe('export_jobs', () => {
+describeDb('export_jobs', () => {
   beforeEach(() => {
     cleanTestData();
   });
@@ -28,7 +29,7 @@ describe('export_jobs', () => {
     cleanTestData();
   });
 
-  describe('createExportJob', () => {
+  describeDb('createExportJob', () => {
     it('creates a job with pending status', async () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       const job = await createExportJob(user.id, '{"platformId":"youtube-landscape"}');
@@ -49,7 +50,7 @@ describe('export_jobs', () => {
     });
   });
 
-  describe('updateExportJobStatus', () => {
+  describeDb('updateExportJobStatus', () => {
     it('transitions from pending to encoding', async () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       const job = await createExportJob(user.id, '{}');
@@ -135,7 +136,7 @@ describe('export_jobs', () => {
     });
   });
 
-  describe('findExportJobByIdAndUser', () => {
+  describeDb('findExportJobByIdAndUser', () => {
     it('finds job owned by user', async () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       const job = await createExportJob(user.id, '{}');
@@ -161,7 +162,7 @@ describe('export_jobs', () => {
     });
   });
 
-  describe('deleteOldExportJobs', () => {
+  describeDb('deleteOldExportJobs', () => {
     it('deletes old jobs', async () => {
       const user = await createUser('test@example.com', 'Test User', 'password123');
       await createExportJob(user.id, '{}');

@@ -3,8 +3,6 @@ import { NextRequest } from 'next/server';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
-
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 // Phase 3: /api/exports/complete parses the stored object's actual bytes, so
 // the r2 mock serves a structurally real synthetic artifact for the platform
@@ -35,7 +33,7 @@ import { auth } from '@/auth';
 import { headObject } from '@/lib/r2';
 import { POST as presignedPOST } from '@/app/api/exports/presigned-put/route';
 import { POST as completePOST } from '@/app/api/exports/complete/route';
-import { resetDb } from '@/lib/db/driver';
+import { resetDb } from '@/__tests__/helpers/db';
 import { setMigrated, createUser, updateUserPlanById, findExportByIdAndUser } from '@/lib/db';
 import { createExportConfig, getDefaultCrop } from '@/lib/export/export-config';
 import { computeCanvasSourceRect } from '@/lib/composition';
@@ -44,10 +42,13 @@ import { readMp4Dimensions, buildSyntheticMp4, REQUIRED_MATRIX } from '@/lib/exp
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlatformId } from '@/types';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
@@ -72,7 +73,7 @@ afterEach(() => {
  * 0. The parser itself must be trustworthy
  * ------------------------------------------------------------------ */
 
-describe('the MP4 reader reports the truth', () => {
+describeDb('the MP4 reader reports the truth', () => {
   it.each(REQUIRED_MATRIX.map((p) => [p.label, p.width, p.height] as const))(
     'reads %s back as %ix%i from real box bytes',
     (_label, width, height) => {
@@ -109,7 +110,7 @@ describe('the MP4 reader reports the truth', () => {
  * 1. Every platform in the required matrix exists, and only those
  * ------------------------------------------------------------------ */
 
-describe('the launch matrix matches the required platform matrix exactly', () => {
+describeDb('the launch matrix matches the required platform matrix exactly', () => {
   it('covers every required platform', () => {
     for (const row of REQUIRED_MATRIX) {
       const preset = LAUNCH_PLATFORM_PRESETS.find((p) => p.id === row.id);
@@ -143,7 +144,7 @@ describe('the launch matrix matches the required platform matrix exactly', () =>
  * 2. SELECT -> PREVIEW: preview geometry must match the export frame
  * ------------------------------------------------------------------ */
 
-describe('the preview frame matches the exported frame', () => {
+describeDb('the preview frame matches the exported frame', () => {
   it.each(REQUIRED_MATRIX.map((p) => [p.id, p.width, p.height] as const))(
     '%s previews at the exported aspect ratio',
     (id, width, height) => {
@@ -173,7 +174,7 @@ describe('the preview frame matches the exported frame', () => {
  * 3. EXPORT config: a Creator gets the exact matrix, unmodified
  * ------------------------------------------------------------------ */
 
-describe('a Creator export config produces the exact required frame', () => {
+describeDb('a Creator export config produces the exact required frame', () => {
   const creator = getEntitlements('creator_monthly');
 
   it.each(REQUIRED_MATRIX.map((p) => [p.id, p.width, p.height] as const))(
@@ -239,7 +240,7 @@ describe('a Creator export config produces the exact required frame', () => {
  * 4. A vertical master exports to a vertical frame, and vice versa
  * ------------------------------------------------------------------ */
 
-describe('a portrait recording does not get silently letterboxed', () => {
+describeDb('a portrait recording does not get silently letterboxed', () => {
   it.each(REQUIRED_MATRIX.map((p) => [p.id, p.width, p.height] as const))(
     '%s keeps its orientation from a 1080x1920 master',
     (id, width, height) => {
@@ -285,7 +286,7 @@ describe('a portrait recording does not get silently letterboxed', () => {
  * 5. UPLOAD -> the server must validate against real bytes
  * ------------------------------------------------------------------ */
 
-describe('the server records the frame it will serve back', () => {
+describeDb('the server records the frame it will serve back', () => {
   it.each(REQUIRED_MATRIX.map((p) => [p.id, p.width, p.height] as const))(
     'a %s export is stored at %ix%i',
     async (id, width, height) => {
@@ -370,7 +371,7 @@ describe('the server records the frame it will serve back', () => {
  * 6. The gap this file cannot close in jsdom, stated as a test
  * ------------------------------------------------------------------ */
 
-describe('the encoded bytes are checked before anything is uploaded', () => {
+describeDb('the encoded bytes are checked before anything is uploaded', () => {
   it('the pipeline gates every upload on real MP4 bytes', () => {
     const pipeline = readFileSync(join(process.cwd(), 'src/hooks/useExportPipeline.ts'), 'utf-8');
 

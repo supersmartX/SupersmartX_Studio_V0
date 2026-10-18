@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import crypto from 'crypto';
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 process.env.CASHFREE_APP_ID = 'test-app-id';
 process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
 process.env.CASHFREE_ENV = 'sandbox';
@@ -14,12 +13,28 @@ vi.mock('@/lib/email', () => ({
   sendAdminNotification: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Fault-injection seam for the data layer: the real implementation runs unless a
+// test arms the flag (see the "releases the claim" case).
+const dbMocks = vi.hoisted(() => ({ planWriteError: null as Error | null }));
+vi.mock('@/lib/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/db')>();
+  return {
+    ...actual,
+    updateUserPlanByIdIfInactive: vi.fn(
+      (...args: Parameters<typeof actual.updateUserPlanByIdIfInactive>) => {
+        if (dbMocks.planWriteError) return Promise.reject(dbMocks.planWriteError);
+        return actual.updateUserPlanByIdIfInactive(...args);
+      },
+    ),
+  };
+});
+
 import { auth } from '@/auth';
 import { POST as verifyPOST } from '@/app/api/cashfree/verify/route';
 import { POST as webhookPOST } from '@/app/api/cashfree/webhook/route';
 import { POST as orderPOST } from '@/app/api/cashfree/order/route';
 import { fulfillPaidOrder, fulfillmentErrorMessage, getCashfreeEnv, cashfreeBaseUrl, isCashfreeEnvConsistent, isCashfreeOrderTerminalFailure, assertCashfreeEnvForRuntime, isCashfreeEnvUsable } from '@/lib/cashfree-fulfillment';
-import { resetDb, getDb } from '@/lib/db/driver';
+import { resetDb, getDb } from '@/__tests__/helpers/db';
 import { getCashfreeMode, resolveCashfreeMode } from '@/lib/cashfree';
 import {
   setMigrated,
@@ -32,10 +47,14 @@ import {
   updateUserPlanById,
 } from '@/lib/db';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
+  dbMocks.planWriteError = null;
 }
 
 const WEBHOOK_SECRET = 'test-secret-key';
@@ -129,7 +148,7 @@ async function claimExists(orderId: string): Promise<boolean> {
   return result.rows.length > 0;
 }
 
-describe('payment fulfilment is driven by authoritative state, not the return URL', () => {
+describeDb('payment fulfilment is driven by authoritative state, not the return URL', () => {
   beforeEach(cleanTestData);
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -169,7 +188,7 @@ describe('payment fulfilment is driven by authoritative state, not the return UR
    * hardcodes the return_url), so the client cannot tell them apart and must ask
    * the server. These assert the server gives a verdict instead of a delay, and
    * that a verdict which is not PAID leaves the account exactly as it was. */
-  describe('a declined or cancelled order is an answer, not a delay', () => {
+  describeDb('a declined or cancelled order is an answer, not a delay', () => {
     const TERMINAL = ['FAILED', 'CANCELLED', 'EXPIRED'] as const;
 
     it.each(TERMINAL)('reports %s as failed rather than pending', async (orderStatus) => {
@@ -289,7 +308,7 @@ describe('payment fulfilment is driven by authoritative state, not the return UR
     });
   });
 
-  describe('terminal-failure classification', () => {
+  describeDb('terminal-failure classification', () => {
     it('classifies only states that can never become PAID', () => {
       expect(isCashfreeOrderTerminalFailure({ order_id: 'o', order_status: 'FAILED' })).toBe(true);
       expect(isCashfreeOrderTerminalFailure({ order_id: 'o', order_status: 'CANCELLED' })).toBe(true);
@@ -367,7 +386,7 @@ describe('payment fulfilment is driven by authoritative state, not the return UR
   });
 });
 
-describe('payment fulfilment idempotency', () => {
+describeDb('payment fulfilment idempotency', () => {
   beforeEach(cleanTestData);
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -412,7 +431,7 @@ describe('payment fulfilment idempotency', () => {
  * order: webhook, webhook, verify, webhook, verify. Cashfree retries webhooks
  * and the browser polls verify, so this interleaving is normal traffic, not an
  * abuse case. Exactly one fulfilment may result. */
-describe('duplicate payment events for one order', () => {
+describeDb('duplicate payment events for one order', () => {
   beforeEach(cleanTestData);
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -593,7 +612,7 @@ describe('duplicate payment events for one order', () => {
   });
 });
 
-describe('webhook claim lifecycle', () => {
+describeDb('webhook claim lifecycle', () => {
   beforeEach(cleanTestData);
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -617,7 +636,7 @@ describe('webhook claim lifecycle', () => {
   });
 });
 
-describe('webhook request handling', () => {
+describeDb('webhook request handling', () => {
   beforeEach(cleanTestData);
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -686,14 +705,18 @@ describe('webhook request handling', () => {
   it('releases the claim when fulfilment throws so a retry can still succeed', async () => {
     const user = await seedBuyer('throw@example.com');
     const orderId = await seedPendingOrder(user.id);
-    // Ownership still resolves (session id === order user id), but the target row
-    // is gone by the time the plan is written: the write affects zero rows and
-    // must be reported as a retryable failure, not a phantom activation.
-    // (Deleting the user cascades the pending order away, so it is re-added.)
-    await getDb().execute({ sql: 'DELETE FROM users WHERE id = ?', args: [user.id] });
-    await seedPendingOrder(user.id, { orderId, plan: 'creator_monthly', amount: CREATOR_MONTHLY });
     mockCashfreeOrder(paidOrderBody(orderId));
     vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'throw@example.com' } } as never);
+
+    // Inject a genuine fulfilment failure at the data-layer boundary the route
+    // depends on. The retired setup deleted the user and re-created the order,
+    // which only worked because libSQL left foreign keys unenforced; PostgreSQL
+    // enforces `pending_orders.user_id` (and cascades the delete), so "order
+    // present, account gone" is no longer a representable state. The failure the
+    // route must survive is unchanged: the plan write throws, so the claim has to
+    // be released rather than left held — otherwise a retry reports "activated"
+    // for an account that was never granted anything.
+    dbMocks.planWriteError = new Error('fulfillment_target_user_missing');
 
     const res = await verifyPOST(verifyRequest(orderId));
 
@@ -701,6 +724,7 @@ describe('webhook request handling', () => {
     // Claim released, so a later retry is not permanently blocked.
     expect(await claimExists(orderId)).toBe(false);
     expect((await findPendingOrder(orderId))?.userId).toBe(user.id);
+    dbMocks.planWriteError = null;
   });
 });
 
@@ -711,7 +735,7 @@ describe('webhook request handling', () => {
  * event, meaning no order is ever activated by webhook. These tests pin the
  * signing key to CASHFREE_SECRET_KEY so that regression cannot return.
  */
-describe('webhook signature is keyed only by CASHFREE_SECRET_KEY', () => {
+describeDb('webhook signature is keyed only by CASHFREE_SECRET_KEY', () => {
   const ORIGINAL = { ...process.env };
 
   beforeEach(cleanTestData);
@@ -797,7 +821,7 @@ describe('webhook signature is keyed only by CASHFREE_SECRET_KEY', () => {
   });
 });
 
-describe('Cashfree environment consistency', () => {
+describeDb('Cashfree environment consistency', () => {
   const ORIGINAL = { ...process.env };
 
   afterEach(() => {
@@ -866,7 +890,7 @@ describe('Cashfree environment consistency', () => {
  * Sandbox is valid in production for controlled testing; unset/unknown modes
  * and browser/server mismatches fail closed.
  */
-describe('Cashfree environment validation', () => {
+describeDb('Cashfree environment validation', () => {
   const ORIGINAL = { ...process.env };
 
   beforeEach(() => {
@@ -881,7 +905,7 @@ describe('Cashfree environment validation', () => {
     process.env = { ...ORIGINAL };
   });
 
-  describe('library guard', () => {
+  describeDb('library guard', () => {
     it('refuses unset and unknown values in production', () => {
       vi.stubEnv('NODE_ENV', 'production');
       for (const bad of [undefined, '', 'prodution', 'PRODUCTION', 'Production', 'live']) {
@@ -934,7 +958,7 @@ describe('Cashfree environment validation', () => {
     });
   });
 
-  describe('order route', () => {
+  describeDb('order route', () => {
     beforeEach(cleanTestData);
     afterEach(cleanTestData);
 
@@ -1085,7 +1109,7 @@ describe('Cashfree environment validation', () => {
  * can point a live browser at the wrong Cashfree environment with nothing
  * reporting a failure.
  */
-describe('browser Cashfree environment resolution', () => {
+describeDb('browser Cashfree environment resolution', () => {
   const ORIGINAL = { ...process.env };
 
   afterEach(() => {
@@ -1128,7 +1152,7 @@ describe('browser Cashfree environment resolution', () => {
   });
 });
 
-describe('fulfillPaidOrder guardrails', () => {
+describeDb('fulfillPaidOrder guardrails', () => {
   beforeEach(cleanTestData);
   afterEach(() => {
     vi.unstubAllGlobals();

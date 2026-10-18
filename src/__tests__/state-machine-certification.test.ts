@@ -9,11 +9,10 @@
  * agrees with the implementation.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import crypto from 'crypto';
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 process.env.CASHFREE_APP_ID = 'test-app-id';
 process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
 process.env.CASHFREE_ENV = 'sandbox';
@@ -26,7 +25,7 @@ vi.mock('@/lib/email', () => ({
 
 import { auth } from '@/auth';
 import { POST as webhookPOST } from '@/app/api/cashfree/webhook/route';
-import { resetDb, getDb } from '@/lib/db/driver';
+import { resetDb, getDb } from '@/__tests__/helpers/db';
 import {
   setMigrated,
   createUser,
@@ -36,13 +35,16 @@ import {
   tryClaimWebhookOrder,
 } from '@/lib/db';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 const WEBHOOK_SECRET = 'test-secret-key';
 const CREATOR_MONTHLY = 349;
 
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 function mockCashfreeOrder(body: Record<string, unknown>) {
@@ -98,24 +100,30 @@ async function isClaimHeld(orderId: string): Promise<boolean> {
  * production call site stayed broken.
  */
 async function breakNotificationLedger() {
-  await getDb().execute('DROP TABLE order_notifications');
+  await getDb().execute('DROP TABLE IF EXISTS order_notifications CASCADE');
 }
 
 async function restoreNotificationLedger() {
   await getDb().execute(`
     CREATE TABLE IF NOT EXISTS order_notifications (
-      order_id TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+      order_id text NOT NULL,
+      kind text NOT NULL,
+      sent_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (order_id, kind)
     )
   `);
 }
 
-describe('STATE 6 — duplicate payment events must grant Creator exactly once', () => {
+describeDb('STATE 6 — duplicate payment events must grant Creator exactly once', () => {
   beforeEach(() => {
     cleanTestData();
     vi.unstubAllGlobals();
+  });
+
+  // Fault injection drops a real table. Recreate it after every test so a failure
+  // mid-test cannot leave the schema broken for the rest of the suite.
+  afterEach(async () => {
+    await restoreNotificationLedger();
   });
 
   it('a failing receipt send must not release the fulfilment claim and re-extend the subscription', async () => {
@@ -177,7 +185,7 @@ describe('STATE 6 — duplicate payment events must grant Creator exactly once',
   });
 });
 
-describe('STATE 3/12 — the master recording is never destroyed by navigation', () => {
+describeDb('STATE 3/12 — the master recording is never destroyed by navigation', () => {
   it('"Open My Library" must navigate without discarding the take', () => {
     const source = readStudioPageSource();
     const openLibrary = extractHandler(source, 'handleOpenLibrary');

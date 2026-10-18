@@ -1,11 +1,10 @@
-/* Launch-contract lifecycle tests (Guest/Free/Creator + anti-lockout).
+﻿/* Launch-contract lifecycle tests (Guest/Free/Creator + anti-lockout).
  * Requires the local dev database (data/supersmartx.db); skipped when a
- * shared TURSO_DATABASE_URL is configured so CI never writes test rows
+ * a shared/production database is configured so CI never writes test rows
  * into shared infrastructure. Uses fake camera/mic devices.
  */
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { studioReady, grantMediaPermissions } from './helpers';
-import { createClient, type Client } from '@libsql/client';
+import { studioReady, grantMediaPermissions, db } from './helpers';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -28,28 +27,18 @@ test.beforeEach(async ({ context, browserName }) => {
 test.setTimeout(420_000);
 
 test.skip(
-  !!process.env.TURSO_DATABASE_URL,
-  'lifecycle spec needs the local dev database file; skipping against shared DB',
+  !process.env.DATABASE_URL,
+  'lifecycle spec needs a disposable PostgreSQL dev database; skipping when DATABASE_URL is unset',
 );
 
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
-
-let _db: Client | null = null;
-function db(): Client {
-  if (!_db) {
-    const dataDir = path.resolve(__dirname, '..', 'data');
-    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-    _db = createClient({ url: `file:${path.join(dataDir, 'supersmartx.db')}` });
-  }
-  return _db;
-}
 
 /**
  * Delegates to the shared helper.
  *
  * This was a local copy that only knew about the Welcome dialog's "Get Started"
  * button. A fresh document has no camera, so the InitOverlay is the only control
- * that acquires one — and after `apiRegister` + `page.reload()` that is exactly
+ * that acquires one â€” and after `apiRegister` + `page.reload()` that is exactly
  * what is on screen. The local copy left the record button disabled and burned
  * the full 240s deadline, reporting it as "record button stayed disabled" even
  * though the product was fine. One helper, so the fix cannot drift per spec.
@@ -112,7 +101,7 @@ async function userIdByEmail(email: string): Promise<string> {
 
 async function seedStuckJobs(userId: string, count: number) {
   // Aged 7h so they qualify as abandoned (staleness window is 6h).
-  // Fresh active jobs must STILL count — only stale ones are ignored.
+  // Fresh active jobs must STILL count â€” only stale ones are ignored.
   const old = new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString();
   for (let i = 0; i < count; i++) {
     await db().execute({
@@ -148,7 +137,7 @@ const unlockedIn = (page: Page, label: string) => previewSwitcher(page).locator(
 // Every test in this file records a take before exporting it.
 test.skip(({ browserName }) => browserName !== 'chromium', 'requires fake media devices');
 
-test('guest locks + guest→auth preserves work', async ({ page }) => {
+test('guest locks + guestâ†’auth preserves work', async ({ page }) => {
   const email = `e2eguest${Date.now()}@example.com`;
   try {
     await page.goto('/studio');
@@ -245,7 +234,7 @@ test('free locked formats show upgrade prompt, send no export', async ({ page })
     await expect(lockedIn(page)).toHaveCount(6);
     await expect(unlockedIn(page, 'YouTube')).toHaveCount(1);
 
-    // Click a locked platform (YouTube Shorts) → upgrade prompt, no export sent.
+    // Click a locked platform (YouTube Shorts) â†’ upgrade prompt, no export sent.
     // This runs before the export dialog opens, since the dialog's backdrop
     // covers the switcher.
     let exportCalls = 0;
@@ -267,3 +256,4 @@ test('free locked formats show upgrade prompt, send no export', async ({ page })
     await cleanupTestData(email);
   }
 });
+

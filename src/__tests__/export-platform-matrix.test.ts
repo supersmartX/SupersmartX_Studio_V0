@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
-
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/r2', () => ({
   isR2Configured: () => true,
@@ -19,15 +17,18 @@ import { auth } from '@/auth';
 import { POST as createJobPOST } from '@/app/api/export-jobs/route';
 import { POST as presignedPOST } from '@/app/api/exports/presigned-put/route';
 import { POST as completePOST } from '@/app/api/exports/complete/route';
-import { resetDb } from '@/lib/db/driver';
+import { resetDb } from '@/__tests__/helpers/db';
 import { setMigrated, createUser, updateUserPlanById, createExportJob, updateExportJobStatus } from '@/lib/db';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlatformId } from '@/types';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
@@ -63,7 +64,7 @@ function presignedRequest(platformId: PlatformId) {
  * the export path would let a caller set arbitrary dimensions and bypass the
  * single source of truth, so every stage must reject it — not just the UI.
  */
-describe('custom platform is rejected by every export stage', () => {
+describeDb('custom platform is rejected by every export stage', () => {
   beforeEach(cleanTestData);
   afterEach(() => {
     vi.clearAllMocks();
@@ -113,7 +114,7 @@ describe('custom platform is rejected by every export stage', () => {
   });
 });
 
-describe('portrait presets survive the server entitlement check', () => {
+describeDb('portrait presets survive the server entitlement check', () => {
   beforeEach(cleanTestData);
   afterEach(() => {
     vi.clearAllMocks();

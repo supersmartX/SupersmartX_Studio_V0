@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
-
 vi.mock('@/lib/r2', () => ({
   isR2Configured: () => true,
   getR2ConfigurationError: () => null,
@@ -11,8 +9,12 @@ vi.mock('@/lib/r2', () => ({
 
 import { deleteRecording } from '@/lib/r2';
 import { GET, POST } from '@/app/api/export-jobs/cleanup/route';
-import { resetDb, getDb } from '@/lib/db/driver';
+import { resetDb, getDb } from '@/__tests__/helpers/db';
 import { setMigrated, createUser, createExport, findExportById } from '@/lib/db';
+
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
 
 const SECRET = 'a-cleanup-secret-for-tests';
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -21,7 +23,6 @@ const OLD = '2000-01-01T00:00:00.000Z';
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 let counter = 0;
@@ -56,7 +57,7 @@ function cronRequest(headers: Record<string, string> = {}): NextRequest {
   return new NextRequest('http://localhost/api/export-jobs/cleanup', { method: 'GET', headers });
 }
 
-describe('GET /api/export-jobs/cleanup — Vercel cron invocation', () => {
+describeDb('GET /api/export-jobs/cleanup — Vercel cron invocation', () => {
   beforeEach(() => {
     cleanTestData();
     vi.clearAllMocks();
@@ -116,7 +117,7 @@ describe('GET /api/export-jobs/cleanup — Vercel cron invocation', () => {
   });
 });
 
-describe('GET /api/export-jobs/cleanup — what it may and may not delete', () => {
+describeDb('GET /api/export-jobs/cleanup — what it may and may not delete', () => {
   beforeEach(() => {
     cleanTestData();
     vi.clearAllMocks();

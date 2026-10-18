@@ -1,7 +1,7 @@
-/* Track 1 — Platform → Export correctness repro.
+﻿/* Track 1 â€” Platform â†’ Export correctness repro.
  *
  * Selected platform must determine the exported MP4 dimensions end to end:
- *   switcher pick → exportConfig → encoder output bytes.
+ *   switcher pick â†’ exportConfig â†’ encoder output bytes.
  *
  * Method: record ONE real take with fake media, then for each launch aspect
  * pick the platform chip, open the export sheet, assert the sheet shows the
@@ -11,7 +11,7 @@
  *
  * The R2 PUT is stubbed at the network edge (presigned-put returns a routable
  * upload URL whose PUT is captured and answered 200). The bytes asserted are
- * the encoder's real output — nothing is mocked above the storage edge.
+ * the encoder's real output â€” nothing is mocked above the storage edge.
  *
  * No conditional guards: every expect must pass or the test fails loudly.
  */
@@ -47,7 +47,7 @@ test.beforeEach(async ({ context, browserName }) => {
 test.setTimeout(1_200_000);
 
 test.skip(
-  !!process.env.TURSO_DATABASE_URL,
+  !process.env.DATABASE_URL,
   'needs the local dev database file; skipping against shared DB',
 );
 test.skip(({ browserName }) => browserName !== 'chromium', 'requires fake media devices');
@@ -137,7 +137,7 @@ test('selected platform determines the encoded MP4 dimensions', async ({ page })
     for (const c of CASES) {
       // 1. Pick the platform in the review switcher.
       await switcher(page).locator(`button[title="${c.title}"]`).click();
-      await expect(page.getByText(`${c.label} ·`, { exact: false }).first()).toBeVisible({
+      await expect(page.getByText(`${c.label} Â·`, { exact: false }).first()).toBeVisible({
         timeout: 10000,
       });
 
@@ -147,8 +147,8 @@ test('selected platform determines the encoded MP4 dimensions', async ({ page })
       const dialog = page.getByRole('dialog', { name: 'Export recording' });
       await dialog.waitFor({ state: 'visible', timeout: 15000 });
 
-      // 3. The sheet must show the preset dimensions — no silent 16:9 fallback.
-      await expect(dialog.getByText(`${c.width} × ${c.height}`).first()).toBeVisible({
+      // 3. The sheet must show the preset dimensions â€” no silent 16:9 fallback.
+      await expect(dialog.getByText(`${c.width} Ã— ${c.height}`).first()).toBeVisible({
         timeout: 10000,
       });
 
@@ -158,19 +158,19 @@ test('selected platform determines the encoded MP4 dimensions', async ({ page })
         { timeout: 120000 },
       );
       const donePromise = dialog.getByText('Video exported').waitFor({ timeout: 600000 });
-      await dialog.getByRole('button', { name: `Export ${c.label} · ${c.width}×${c.height}` }).click();
+      await dialog.getByRole('button', { name: `Export ${c.label} Â· ${c.width}Ã—${c.height}` }).click();
       const jobResp = await jobPromise;
       expect(jobResp.status(), `${c.title}: export job POST must succeed`).toBe(201);
       const { jobId } = (await jobResp.json()) as { jobId: string };
       expect(typeof jobId, `${c.title}: server must return a job id`).toBe('string');
       await donePromise;
 
-      // 5. The done caption must name the preset dimensions…
-      await expect(dialog.getByText(`${c.width} × ${c.height}`).first()).toBeVisible({
+      // 5. The done caption must name the preset dimensionsâ€¦
+      await expect(dialog.getByText(`${c.width} Ã— ${c.height}`).first()).toBeVisible({
         timeout: 10000,
       });
 
-      // 6. …and the downloaded file must decode at exactly those dimensions.
+      // 6. â€¦and the downloaded file must decode at exactly those dimensions.
       const dlPromise = page.waitForEvent('download', { timeout: 60000 });
       await dialog.getByRole('button', { name: 'Download Video' }).click();
       const dl = await dlPromise;
@@ -199,3 +199,4 @@ test('selected platform determines the encoded MP4 dimensions', async ({ page })
     await cleanupTestUser(email);
   }
 });
+

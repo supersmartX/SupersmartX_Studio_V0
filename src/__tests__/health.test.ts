@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/auth', () => ({ auth: vi.fn(async () => null) }));
-vi.mock('@/lib/db/driver', () => ({
-  getDb: () => ({ execute: vi.fn(async () => ({ rows: [{ '1': 1 }] })) }),
-  getDbIdentity: () => ({ provider: 'turso', host: 'db.example.turso.io', durable: true }),
+vi.mock('@/lib/db/prisma', () => ({
+  getPrisma: () => ({
+    schemaMeta: { findUnique: vi.fn(async () => ({ value: '14' })) },
+  }),
+  getDbIdentity: () => ({ provider: 'postgres', host: 'db.example.supabase.co', durable: true }),
 }));
 vi.mock('@/lib/db', () => ({ ensureMigrated: vi.fn(async () => {}) }));
 
@@ -58,8 +60,9 @@ describe('health endpoint (acceptance: deploy traceability + information hiding)
     expect(['configured', 'not_configured']).toContain(body.checks.r2);
     // Database target diagnostics are exposed to operators so a deployment can
     // be proven to point at the intended database — host only, never a token.
-    expect(body.checks.db_provider).toBe('turso');
-    expect(body.checks.db_host).toBe('db.example.turso.io');
+    expect(body.checks.db_provider).toBe('postgres');
+    expect(body.checks.db_host).toBe('db.example.supabase.co');
+    expect(body.checks.schema_version).toBe('14');
     // Still no secrets or connection strings in the authenticated payload
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain('SECRET');

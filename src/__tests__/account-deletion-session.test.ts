@@ -1,18 +1,33 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
-
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/r2', () => ({
   listUserRecordings: vi.fn(async () => []),
   deleteRecording: vi.fn(async () => undefined),
 }));
 
+// Fault-injection seam for the data layer. The real functions are the default
+// (so every other case exercises them); the flag lets one test make the
+// tombstone write fail so the route's fail-closed path is exercised. The retired
+// version spied on the libSQL `getDb().execute`; the route now writes through
+// Prisma, so the seam moves to the db module itself.
+const dbMocks = vi.hoisted(() => ({ tombstoneError: null as Error | null }));
+vi.mock('@/lib/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/db')>();
+  return {
+    ...actual,
+    recordDeletedIdentity: vi.fn((...args: Parameters<typeof actual.recordDeletedIdentity>) => {
+      if (dbMocks.tombstoneError) return Promise.reject(dbMocks.tombstoneError);
+      return actual.recordDeletedIdentity(...args);
+    }),
+  };
+});
+
 import { auth } from '@/auth';
 import { listUserRecordings, deleteRecording } from '@/lib/r2';
 import { DELETE as deleteAccount } from '@/app/api/user/delete/route';
-import { resetDb, getDb } from '@/lib/db/driver';
+import { resetDb, getDb } from '@/__tests__/helpers/db';
 import {
   setMigrated,
   createUser,
@@ -26,10 +41,14 @@ import {
 import { resolveSessionUser } from '@/lib/auth-identity';
 import { reconcileSessionVersion } from '@/lib/session-version';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
+  dbMocks.tombstoneError = null;
 }
 
 const EMAIL = 'reclaim@example.com';
@@ -53,7 +72,7 @@ async function userExists(id: string): Promise<boolean> {
  * Every test below walks the real path: JWT claim -> resolveSessionUser ->
  * session-version reconciliation.
  */
-describe('account deletion retires every token for the identity', () => {
+describeDb('account deletion retires every token for the identity', () => {
   beforeEach(() => {
     cleanTestData();
     vi.clearAllMocks();
@@ -162,20 +181,16 @@ describe('account deletion retires every token for the identity', () => {
   it('fails closed: if the tombstone cannot be written, the account is kept', async () => {
     const user = await createUser(EMAIL, 'Old', 'hash');
     vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: EMAIL } } as never);
-    const realExecute = getDb().execute.bind(getDb());
-    const failing = vi.spyOn(getDb(), 'execute').mockImplementation(async (stmt: any, ...rest: any[]) => {
-      if (typeof stmt === 'object' && typeof stmt?.sql === 'string' && stmt.sql.includes('deleted_identities')) {
-        throw new Error('tombstone write failed');
-      }
-      return (realExecute as any)(stmt, ...rest);
-    });
+    // The tombstone write is the point of no return: if it fails, the account
+    // row must survive so the identity is not silently re-provisionable.
+    dbMocks.tombstoneError = new Error('tombstone write failed');
 
     const res = await deleteAccount(deleteRequest());
 
     expect(res.status).toBe(500);
     // The row survives, so the identity is not silently re-provisionable.
     expect(await userExists(user.id)).toBe(true);
-    failing.mockRestore();
+    dbMocks.tombstoneError = null;
     expect(await getDeletedIdentitySessionVersion(EMAIL)).toBeNull();
   });
 
@@ -214,7 +229,7 @@ describe('account deletion retires every token for the identity', () => {
   });
 });
 
-describe('session-version reconciliation', () => {
+describeDb('session-version reconciliation', () => {
   it('refuses a token whose version no longer matches', () => {
     expect(reconcileSessionVersion(3, 4)).toBeNull();
     expect(reconcileSessionVersion(4, 3)).toBeNull();

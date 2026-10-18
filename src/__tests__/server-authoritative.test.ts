@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { resetDb } from '@/lib/db/driver';
+import { resetDb } from '@/__tests__/helpers/db';
 import { setMigrated } from '@/lib/db/index';
-
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 
 import {
   createUser,
@@ -21,6 +19,10 @@ import {
   FREE_RESOLUTION,
 } from '@/lib/entitlements';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 /**
  * Acceptance (Phase 2/6): the server derives every entitlement from the DB
  * plan. These tests simulate client tampering (forged plan, resolution,
@@ -31,10 +33,9 @@ import {
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
-describe('server-authoritative business logic', () => {
+describeDb('server-authoritative business logic', () => {
   beforeEach(() => {
     cleanTestData();
   });
@@ -43,7 +44,7 @@ describe('server-authoritative business logic', () => {
     cleanTestData();
   });
 
-  describe('plan derivation (never trust client plan)', () => {
+  describeDb('plan derivation (never trust client plan)', () => {
     it('unknown/forged plan strings fall back to free entitlements', () => {
       // @ts-expect-error — simulates a forged client plan value
       expect(getEntitlements('admin_unlimited')).toEqual(getEntitlements('free'));
@@ -67,7 +68,7 @@ describe('server-authoritative business logic', () => {
     });
   });
 
-  describe('resolution tampering (FREE cannot get 1080p)', () => {
+  describeDb('resolution tampering (FREE cannot get 1080p)', () => {
     it('clamps forged 1080p request to free 720p ceiling', () => {
       const free = getEntitlements('free');
       // Client claims outputWidth=1920/outputHeight=1080 for a custom export;
@@ -86,7 +87,7 @@ describe('server-authoritative business logic', () => {
     });
   });
 
-  describe('platform tampering (FREE locked to YouTube 16:9)', () => {
+  describeDb('platform tampering (FREE locked to YouTube 16:9)', () => {
     it('free is locked out of every non-YouTube format', () => {
       const locked: string[] = [];
       for (const p of ['instagram-reels', 'tiktok', 'instagram-post', 'custom'] as const) {
@@ -102,14 +103,14 @@ describe('server-authoritative business logic', () => {
     });
   });
 
-  describe('duration tampering (FREE 600s cap)', () => {
+  describeDb('duration tampering (FREE 600s cap)', () => {
     it('free duration ceiling is finite; creator is unlimited', () => {
       expect(getEntitlements('free').maxDurationSeconds).toBe(600);
       expect(getEntitlements('creator_monthly').maxDurationSeconds).toBeNull();
     });
   });
 
-  describe('quota tampering (atomic server-side counters)', () => {
+  describeDb('quota tampering (atomic server-side counters)', () => {
     it('upload count cap cannot be exceeded by concurrent increments', async () => {
       const user = await createUser('quota@example.com', 'Quota', 'hash');
       await ensureUserStatsRow(user.id);

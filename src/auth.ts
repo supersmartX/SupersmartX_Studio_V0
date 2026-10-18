@@ -115,15 +115,14 @@ const fullAuthConfig = {
               await ensureMigration();
               const existing = await findUserByEmail(token.email as string);
               if (!existing) {
-                const { getDb } = await import('./lib/db/driver');
-                const { ensureMigrated } = await import('./lib/db');
-                await ensureMigrated();
-                const db = getDb();
+                const { ensureOAuthUser } = await import('./lib/db');
                 const stubHash = `$oauth$${(globalThis.crypto?.randomUUID?.() || Date.now().toString(36))}`;
                 try {
-                  await db.execute({
-                    sql: 'INSERT OR IGNORE INTO users (id, email, name, password_hash, created_at, plan) VALUES (?, ?, ?, ?, ?, ?)',
-                    args: [token.id as string, (token.email as string).toLowerCase(), (user.name || token.name || 'User') as string, stubHash, new Date().toISOString(), 'free'],
+                  await ensureOAuthUser({
+                    id: token.id as string,
+                    email: token.email as string,
+                    name: (user.name || token.name || 'User') as string,
+                    passwordHash: stubHash,
                   });
                 } catch (e) {
                   // Never swallow: a failed first-login insert leaves an OAuth
@@ -135,9 +134,10 @@ const fullAuthConfig = {
                     errorCode: (e instanceof Error ? e.message : String(e)).slice(0, 200),
                   });
                 }
-                // `INSERT OR IGNORE` no-ops on a constraint violation, so a
-                // successful call is not proof the row exists. Verify it, and
-                // log loudly when a real login produced no durable user.
+                // `skipDuplicates` no-ops when a row already owns the id or the
+                // email, so a successful call is not proof *this* id exists.
+                // Verify it, and log loudly when a real login produced no
+                // durable user.
                 const persisted = await findUserByEmail(token.email as string).catch(() => undefined);
                 if (!persisted) {
                   logger.error('auth.oauth_user_not_persisted', {

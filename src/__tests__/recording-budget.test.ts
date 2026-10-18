@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { resetDb } from '@/lib/db/driver';
+import { resetDb } from '@/__tests__/helpers/db';
 import { setMigrated } from '@/lib/db/index';
-
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 
 import {
   createUser,
@@ -17,10 +15,13 @@ import {
   FREE_DAILY_RECORDING_SECONDS,
 } from '@/lib/entitlements';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 let n = 0;
@@ -31,7 +32,7 @@ const email = () => `budget-${++n}-${Date.now()}@example.com`;
  * request body) decides the daily recording budget. localStorage is never
  * read here — by construction the DB row is the only authority.
  */
-describe('server-side daily recording ledger', () => {
+describeDb('server-side daily recording ledger', () => {
   beforeEach(() => {
     cleanTestData();
   });
@@ -40,7 +41,7 @@ describe('server-side daily recording ledger', () => {
     cleanTestData();
   });
 
-  describe('allowance derivation (no duplicated entitlement logic)', () => {
+  describeDb('allowance derivation (no duplicated entitlement logic)', () => {
     it('free gets the 600s daily budget; creator is unlimited', () => {
       expect(getDailyRecordingAllowanceSeconds('free')).toBe(FREE_DAILY_RECORDING_SECONDS);
       expect(getDailyRecordingAllowanceSeconds(null)).toBe(FREE_DAILY_RECORDING_SECONDS);
@@ -53,7 +54,7 @@ describe('server-side daily recording ledger', () => {
     });
   });
 
-  describe('charge computation (claim vs verified-byte floor)', () => {
+  describeDb('charge computation (claim vs verified-byte floor)', () => {
     const FLOOR_150MB = (150 * 1024 * 1024) / (12_000_000 / 8); // = 100.8s
 
     it('honest claim above the floor is charged as-claimed', () => {
@@ -78,7 +79,7 @@ describe('server-side daily recording ledger', () => {
     });
   });
 
-  describe('atomic ledger (BUS-001: 1,2,3,8,12)', () => {
+  describeDb('atomic ledger (BUS-001: 1,2,3,8,12)', () => {
     it('normal recording within allowance is allowed and accumulated', async () => {
       const user = await createUser(email(), 'U', 'hash');
       const r1 = await atomicTryConsumeRecordingSeconds(user.id, 100, 600);

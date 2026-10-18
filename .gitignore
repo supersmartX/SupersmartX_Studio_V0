@@ -35,6 +35,11 @@ probe-*
 /data/users.json
 /data/reset-tokens.json
 
+# Stage 4 migration snapshots. A snapshot is a full copy of production data —
+# emails, password hashes, order ids — so it must never be committable, and the
+# directory is ignored wholesale rather than per-file.
+/data/migration/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

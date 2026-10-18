@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Session } from 'next-auth';
-import { resetDb } from '@/lib/db/driver';
+import { resetDb } from '@/__tests__/helpers/db';
 import { setMigrated } from '@/lib/db/index';
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 // isR2Configured() validates shapes, so the fixture must be a well-formed
 // (fictional) account id: 32 hex characters, like a real Cloudflare account.
 process.env.R2_ACCOUNT_ID = '0123456789abcdef0123456789abcdef';
@@ -18,6 +17,10 @@ import { auth } from '@/auth';
 import { GET } from '@/app/api/download/route';
 import { createUser, updateUserPlanById, createExport } from '@/lib/db';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 // NextAuth's `auth` is overloaded (middleware + session getter); narrow to
 // the session-getter signature for mocking.
 const mockAuth = vi.mocked(auth as unknown as () => Promise<Session | null>);
@@ -29,7 +32,6 @@ function sessionFor(id: string, email: string) {
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 const FUTURE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -67,7 +69,7 @@ async function downloadAs(userId: string | null, email: string, exportId?: strin
   return GET(new NextRequest(url));
 }
 
-describe('creator download across platform ratios', () => {
+describeDb('creator download across platform ratios', () => {
   beforeEach(() => cleanTestData());
   afterEach(() => {
     cleanTestData();

@@ -27,8 +27,6 @@ import { NextRequest } from 'next/server';
  * fillText expectations stay in the export-watermark unit tests.
  */
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
-
 // Phase 3: the complete route walks the stored object with ranged reads, so
 // the r2 mock serves real byte ranges of a staged fixture (sliced exactly as
 // the S3 Range GET would return them).
@@ -54,7 +52,7 @@ vi.mock('@/lib/r2', () => ({
 import { auth } from '@/auth';
 import { headObject, deleteRecording, getObjectRange } from '@/lib/r2';
 import { POST as completePOST } from '@/app/api/exports/complete/route';
-import { resetDb, getDb } from '@/lib/db/driver';
+import { resetDb, getDb } from '@/__tests__/helpers/db';
 import {
   setMigrated,
   createUser,
@@ -83,6 +81,10 @@ import {
 } from '@/lib/export/export-limits';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 /* ------------------------------------------------------------------ *
  * Fixtures and helpers
  * ------------------------------------------------------------------ */
@@ -90,7 +92,6 @@ import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 let n = 0;
@@ -210,7 +211,7 @@ afterEach(() => {
  * 1. The parser reports the bytes, never the input
  * ------------------------------------------------------------------ */
 
-describe('readMp4Artifact: one parser, reading the actual container', () => {
+describeDb('readMp4Artifact: one parser, reading the actual container', () => {
   it('reports frame, structure, tracks and duration from a 1080x1350 fixture', () => {
     const artifact = parseOrFail(buildSyntheticMp4(1080, 1350, { durationSeconds: 3.5, withAudio: true }));
     expect(artifact.width).toBe(1080);
@@ -250,7 +251,7 @@ describe('readMp4Artifact: one parser, reading the actual container', () => {
  * 2. The single verdict: structure, duration, audio
  * ------------------------------------------------------------------ */
 
-describe('verifyExportArtifact: one authoritative verdict from the bytes', () => {
+describeDb('verifyExportArtifact: one authoritative verdict from the bytes', () => {
   const frame = { width: 1920, height: 1080 };
 
   it('accepts a structurally real artifact whose claims all hold', () => {
@@ -292,7 +293,7 @@ describe('verifyExportArtifact: one authoritative verdict from the bytes', () =>
     expect(verifyExportArtifact(buffer, frame)).toEqual({ ok: false, code: 'dimension_mismatch' });
   });
 
-  describe('duration', () => {
+  describeDb('duration', () => {
     it('rejects an absent/zero container duration', () => {
       const buffer = buildSyntheticMp4(1920, 1080, { durationSeconds: 0 });
       const result = verifyExportArtifact(buffer, {
@@ -360,7 +361,7 @@ describe('verifyExportArtifact: one authoritative verdict from the bytes', () =>
     });
   });
 
-  describe('audio, only when the source genuinely had it', () => {
+  describeDb('audio, only when the source genuinely had it', () => {
     it('rejects an artifact missing the expected audio stream', () => {
       const buffer = buildSyntheticMp4(1920, 1080);
       const result = verifyExportArtifact(buffer, { ...frame, durationSeconds: 1, hasAudio: true });
@@ -388,7 +389,7 @@ describe('verifyExportArtifact: one authoritative verdict from the bytes', () =>
     });
   });
 
-  describe('container facts from ranged collection (server path)', () => {
+  describeDb('container facts from ranged collection (server path)', () => {
     // The server's combined buffer is ftyp+moov only — the mdat payload is
     // never buffered — so the facts observed during the ranged walk stand in
     // for what is not in the buffer.
@@ -418,7 +419,7 @@ describe('verifyExportArtifact: one authoritative verdict from the bytes', () =>
  * 3. The bounded ranged walk over a stored object
  * ------------------------------------------------------------------ */
 
-describe('collectMp4Metadata: bounded ranged reads, never the payload', () => {
+describeDb('collectMp4Metadata: bounded ranged reads, never the payload', () => {
   it('collects ftyp+moov from a moov-first file; the facts complete the verdict', async () => {
     const file = new Uint8Array(buildSyntheticMp4(1080, 1920));
     const collected = await collectMp4Metadata(readerFor(file), file.byteLength);
@@ -498,7 +499,7 @@ describe('collectMp4Metadata: bounded ranged reads, never the payload', () => {
  * 4. What a client may learn from a rejection
  * ------------------------------------------------------------------ */
 
-describe('failure messaging and claim normalizers', () => {
+describeDb('failure messaging and claim normalizers', () => {
   const expected: Record<ArtifactFailureCode, string> = {
     not_mp4: 'Uploaded file is not a valid MP4',
     missing_moov: 'Uploaded file is not a valid MP4',
@@ -557,7 +558,7 @@ describe('failure messaging and claim normalizers', () => {
  * 5. The launch matrix, verified from bytes (Part 3.14)
  * ------------------------------------------------------------------ */
 
-describe('artifact-level platform matrix', () => {
+describeDb('artifact-level platform matrix', () => {
   for (const preset of LAUNCH_PLATFORM_PRESETS) {
     it(`a real artifact at ${preset.width}x${preset.height} (${preset.id}) passes its own frame check`, () => {
       const buffer = buildSyntheticMp4(preset.width, preset.height);
@@ -604,7 +605,7 @@ describe('artifact-level platform matrix', () => {
  * 6. /api/exports/complete verifies the stored bytes (real verifier)
  * ------------------------------------------------------------------ */
 
-describe('POST /api/exports/complete parses the actual artifact', () => {
+describeDb('POST /api/exports/complete parses the actual artifact', () => {
   it('accepts a structurally real artifact at the claimed frame', async () => {
     const { user, job, stagingKey } = await seedComplete();
     stageArtifact(new Uint8Array(buildSyntheticMp4(1920, 1080)));

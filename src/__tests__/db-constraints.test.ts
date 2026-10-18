@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { resetDb, getDb } from '@/lib/db/driver';
+import { resetDb, getDb } from '@/__tests__/helpers/db';
 import { setMigrated } from '@/lib/db/index';
-
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 
 import {
   ensureMigrated,
@@ -16,13 +14,16 @@ import {
   deleteOldExportJobs,
 } from '@/lib/db';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
-describe('database constraints (acceptance: Data Integrity)', () => {
+describeDb('database constraints (acceptance: Data Integrity)', () => {
   beforeEach(() => {
     cleanTestData();
   });
@@ -31,10 +32,15 @@ describe('database constraints (acceptance: Data Integrity)', () => {
     cleanTestData();
   });
 
-  it('enables foreign-key enforcement on the connection', async () => {
+  it('enforces foreign keys (PostgreSQL enforces constraints unconditionally)', async () => {
     await ensureMigrated();
-    const result = await getDb().execute('PRAGMA foreign_keys');
-    expect(Number(result.rows[0]?.foreign_keys)).toBe(1);
+    // libSQL left foreign-key enforcement off per connection and needed an
+    // explicit `PRAGMA foreign_keys = ON`. PostgreSQL has no such switch: the
+    // constraints are always enforced, so the assertion is that they exist.
+    const result = await getDb().execute({
+      sql: "SELECT COUNT(*) AS cnt FROM pg_constraint WHERE contype = 'f'",
+    });
+    expect(Number(result.rows[0]?.cnt)).toBeGreaterThan(0);
   });
 
   it('rejects child rows referencing a nonexistent user', async () => {

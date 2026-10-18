@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import crypto from 'crypto';
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 process.env.CASHFREE_APP_ID = 'test-app-id';
 process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
 process.env.CASHFREE_ENV = 'sandbox';
@@ -39,7 +38,7 @@ import { DELETE as userDeleteDELETE } from '@/app/api/user/delete/route';
 import { DELETE as exportDeleteDELETE } from '@/app/api/exports/[id]/route';
 import { GET as downloadGET } from '@/app/api/download/route';
 import { POST as forgotPOST } from '@/app/api/auth/forgot-password/route';
-import { resetDb, getDb } from '@/lib/db/driver';
+import { resetDb, getDb } from '@/__tests__/helpers/db';
 import {
   setMigrated,
   createUser,
@@ -51,10 +50,13 @@ import {
   setExportJobStagingKey,
 } from '@/lib/db';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 /** The order route's bespoke per-IP limiter lives on globalThis — reset it. */
@@ -100,7 +102,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Phase 2.2 — completion and final result metadata are server-authored
 // ---------------------------------------------------------------------------
-describe('Phase 2.2: server-authoritative completion', () => {
+describeDb('Phase 2.2: server-authoritative completion', () => {
   function completeBody(jobId: string, key: string) {
     return new NextRequest('http://localhost/api/exports/complete', {
       method: 'POST',
@@ -162,7 +164,7 @@ describe('Phase 2.2: server-authoritative completion', () => {
 // ---------------------------------------------------------------------------
 // Phase 2.8 — production geo/currency authority
 // ---------------------------------------------------------------------------
-describe('Phase 2.8: server-verified geo is authoritative in production', () => {
+describeDb('Phase 2.8: server-verified geo is authoritative in production', () => {
   function orderReq(opts: { country?: string; currency?: string; headers?: Record<string, string> } = {}) {
     return new NextRequest('http://localhost/api/cashfree/order', {
       method: 'POST',
@@ -233,7 +235,7 @@ describe('Phase 2.8: server-verified geo is authoritative in production', () => 
 // ---------------------------------------------------------------------------
 // Phase 2.6 — one payable order at a time
 // ---------------------------------------------------------------------------
-describe('Phase 2.6: overlapping pending orders', () => {
+describeDb('Phase 2.6: overlapping pending orders', () => {
   function orderReq() {
     n += 1;
     return new NextRequest('http://localhost/api/cashfree/order', {
@@ -321,7 +323,7 @@ describe('Phase 2.6: overlapping pending orders', () => {
 // ---------------------------------------------------------------------------
 // Phase 2.6 — signed webhook freshness (replay window)
 // ---------------------------------------------------------------------------
-describe('Phase 2.6: webhook replay freshness', () => {
+describeDb('Phase 2.6: webhook replay freshness', () => {
   function signedWebhook(orderId: string, timestampSeconds: number) {
     const raw = JSON.stringify({
       event_type: 'PAYMENT_SUCCESS',
@@ -360,7 +362,7 @@ describe('Phase 2.6: webhook replay freshness', () => {
 // ---------------------------------------------------------------------------
 // Phase 2.9 — rate-limit boundaries on high-risk mutations
 // ---------------------------------------------------------------------------
-describe('Phase 2.9: rate-limit boundaries', () => {
+describeDb('Phase 2.9: rate-limit boundaries', () => {
   function ghostAuth() {
     vi.mocked(auth).mockResolvedValue({ user: { id: `ghost-${n}-${Math.random().toString(36).slice(2, 8)}` } } as never);
   }
@@ -424,7 +426,7 @@ describe('Phase 2.9: rate-limit boundaries', () => {
 // ---------------------------------------------------------------------------
 // Phase 2.4/2.5 — download only signs objects inside the caller's namespace
 // ---------------------------------------------------------------------------
-describe('Phase 2.4/2.5: download object-key guards', () => {
+describeDb('Phase 2.4/2.5: download object-key guards', () => {
   async function seedExport(user: { id: string }, r2Key: string) {
     return createExport({
       userId: user.id,
@@ -481,7 +483,7 @@ describe('Phase 2.4/2.5: download object-key guards', () => {
 // ---------------------------------------------------------------------------
 // Phase 2.10 — forgot-password answers identically on both paths
 // ---------------------------------------------------------------------------
-describe('Phase 2.10: forgot-password enumeration safety', () => {
+describeDb('Phase 2.10: forgot-password enumeration safety', () => {
   function forgotReq(email: string) {
     return new NextRequest('http://localhost/api/auth/forgot-password', {
       method: 'POST',

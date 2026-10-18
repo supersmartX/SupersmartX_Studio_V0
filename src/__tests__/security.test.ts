@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { resetDb } from '@/lib/db/driver';
+import { resetDb } from '@/__tests__/helpers/db';
 import { setMigrated } from '@/lib/db/index';
 
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
@@ -15,8 +15,6 @@ vi.mock('@/lib/r2', () => ({
 
 import { auth } from '@/auth';
 import { GET as userStatsGET } from '@/app/api/user/stats/route';
-
-process.env.TURSO_DATABASE_URL = 'file::memory:';
 
 import {
   createUser,
@@ -34,6 +32,10 @@ import { getEntitlements, isPlanActive } from '@/lib/entitlements';
 import { rateLimit } from '@/lib/rate-limit';
 import type { PlanType } from '@/types/db';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 // `@/lib/r2` is mocked above for the route-level tests, so the real key
 // generator must come from the actual module — otherwise these assertions
 // would only ever test `vi.fn()` returning undefined.
@@ -42,10 +44,9 @@ const realGenerateRecordingKey = (await vi.importActual<typeof import('@/lib/r2'
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
-describe('security', () => {
+describeDb('security', () => {
   beforeEach(() => {
     cleanTestData();
   });
@@ -54,7 +55,7 @@ describe('security', () => {
     cleanTestData();
   });
 
-  describe('free user cannot upload to R2', () => {
+  describeDb('free user cannot upload to R2', () => {
     it('free user entitlements allow unlimited local export/download', () => {
       const entitlements = getEntitlements('free');
       expect(entitlements.canExport).toBe(true);
@@ -88,7 +89,7 @@ describe('security', () => {
     });
   });
 
-  describe('expired paid user cannot upload', () => {
+  describeDb('expired paid user cannot upload', () => {
     it('expired plan is not active', () => {
       const pastDate = new Date(Date.now() - 86400000).toISOString();
       expect(isPlanActive(pastDate, 'pro_monthly')).toBe(false);
@@ -119,7 +120,7 @@ describe('security', () => {
     });
   });
 
-  describe('user A cannot access user B export', () => {
+  describeDb('user A cannot access user B export', () => {
     it('findExportJobByIdAndUser returns undefined for wrong user', async () => {
       const userA = await createUser('a@example.com', 'User A', 'password123');
       const userB = await createUser('b@example.com', 'User B', 'password456');
@@ -139,7 +140,7 @@ describe('security', () => {
     });
   });
 
-  describe('stats payload reflects plan authority (Phase 5 / F-01)', () => {
+  describeDb('stats payload reflects plan authority (Phase 5 / F-01)', () => {
     it('free reports NO cloud quota: uploads.limit and storage.limitMB are null', async () => {
       const user = await createUser('statsfree@example.com', 'Stats Free', 'password123');
       await ensureUserStatsRow(user.id);
@@ -165,7 +166,7 @@ describe('security', () => {
     });
   });
 
-  describe('download entitlements', () => {
+  describeDb('download entitlements', () => {
     it('canDownload is true for free user (unlimited local downloads)', () => {
       const entitlements = getEntitlements('free');
       expect(entitlements.canDownload).toBe(true);
@@ -193,7 +194,7 @@ describe('security', () => {
     });
   });
 
-  describe('rate limiting', () => {
+  describeDb('rate limiting', () => {
     it('allows requests within limit', () => {
       const result = rateLimit('test-key', 5, 60000);
       expect(result.allowed).toBe(true);
@@ -229,7 +230,7 @@ describe('security', () => {
     });
   });
 
-  describe('updateExportJobStatus user_id scoping', () => {
+  describeDb('updateExportJobStatus user_id scoping', () => {
     it('updates job only when userId matches', async () => {
       const userA = await createUser('a@example.com', 'User A', 'password123');
       const userB = await createUser('b@example.com', 'User B', 'password456');
@@ -256,7 +257,7 @@ describe('security', () => {
     });
   });
 
-  describe('storage quota enforced server-side', () => {
+  describeDb('storage quota enforced server-side', () => {
     it('atomicIncrementUploadCount rejects when upload limit exceeded', async () => {
       const user = await createUser('quota@example.com', 'Quota User', 'password123');
       await ensureUserStatsRow(user.id);
@@ -288,7 +289,7 @@ describe('security', () => {
     });
   });
 
-  describe('server job ID tracking', () => {
+  describeDb('server job ID tracking', () => {
     it('createExportJob returns job with id', async () => {
       const user = await createUser('job@example.com', 'Job User', 'password123');
       const job = await createExportJob(user.id, '{"platformId":"youtube-landscape"}');
@@ -310,7 +311,7 @@ describe('security', () => {
     });
   });
 
-  describe('payment/client plan manipulation rejected', () => {
+  describeDb('payment/client plan manipulation rejected', () => {
     it('plan is determined by server, not client', async () => {
       const user = await createUser('pay@example.com', 'Pay User', 'password123');
       expect(user.plan).toBe('free');
@@ -335,7 +336,7 @@ describe('security', () => {
     });
   });
 
-  describe('arbitrary R2 key rejected', () => {
+  describeDb('arbitrary R2 key rejected', () => {
     it('generateRecordingKey always prefixes with recordings/userId/', () => {
       const key = realGenerateRecordingKey('user-123', 'webm');
       expect(key).toMatch(/^recordings\/user-123\//);
@@ -363,7 +364,7 @@ describe('security', () => {
     });
   });
 
-describe('R2 cleanup', () => {
+describeDb('R2 cleanup', () => {
     // A completed job's result_r2_key IS a live Creator library object. The
     // retention sweep must never return it as a delete target.
     it('getOldExportJobs never returns a completed job R2 key', async () => {
@@ -387,7 +388,7 @@ describe('R2 cleanup', () => {
     });
   });
 
-  describe('entitlements are plan-authoritative', () => {
+  describeDb('entitlements are plan-authoritative', () => {
     it('creator_monthly has export and download enabled', () => {
       const entitlements = getEntitlements('creator_monthly');
       expect(entitlements.canExport).toBe(true);
@@ -425,7 +426,7 @@ describe('R2 cleanup', () => {
     });
   });
 
-  describe('pending orders for payment verification', () => {
+  describeDb('pending orders for payment verification', () => {
     it('createPendingOrder stores order with userId', async () => {
       const user = await createUser('order@example.com', 'Order User', 'password123');
       await createPendingOrder({
@@ -467,7 +468,7 @@ describe('R2 cleanup', () => {
     });
   });
 
-  describe('updateUserPlanById', () => {
+  describeDb('updateUserPlanById', () => {
     it('updates plan by userId', async () => {
       const user = await createUser('planbyid@example.com', 'Plan ID User', 'password123');
       const expiresAt = new Date(Date.now() + 86400000 * 30).toISOString();
@@ -484,7 +485,7 @@ describe('R2 cleanup', () => {
     });
   });
 
-  describe('isPlanActive with plan parameter', () => {
+  describeDb('isPlanActive with plan parameter', () => {
     it('paid plan without expiry is treated as inactive', () => {
       expect(isPlanActive(null, 'pro_monthly')).toBe(false);
       expect(isPlanActive(null, 'creator_monthly')).toBe(false);

@@ -96,7 +96,7 @@ export default function PrivacyPage() {
               <li><strong>ipapi.co / ip-api.com:</strong> Approximate country lookup used to localize pricing and payment options</li>
               <li><strong>Gravatar:</strong> Public avatar image requests derived from your email address when your profile image is displayed</li>
               <li><strong>Google sign-in:</strong> Optional authentication provider when enabled for the Service</li>
-              <li><strong>Remote libSQL database:</strong> Stores account, access, payment-fulfillment and export metadata. The database provider is set by the production deployment.</li>
+              <li><strong>Remote PostgreSQL database (Supabase):</strong> Stores account, access, payment-fulfillment and export metadata. The database provider is set by the production deployment.</li>
               <li><strong>Google Fonts:</strong> Serves fonts used by the public website</li>
               <li><strong>CloudFront:</strong> Serves embedded product-demo media</li>
               <li><strong>Discord:</strong> An optional external link for feedback; information submitted there is provided to Discord</li>

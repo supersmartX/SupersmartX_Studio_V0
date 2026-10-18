@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { findExportByIdAndUser, findUserById, ensureMigrated } from '@/lib/db';
+import { findExportByIdAndUser, findUserById, deleteExportByIdAndUser, decrementStorageBytes } from '@/lib/db';
 import { deleteRecording } from '@/lib/r2';
-import { getDb } from '@/lib/db/driver';
 import { rateLimit } from '@/lib/rate-limit';
 
 // Phase 2.9: deletion is a high-risk export mutation (DB row + R2 object), so
@@ -32,12 +31,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     if (exp.r2Key && !exp.r2Key.startsWith('local/')) {
       try { await deleteRecording(exp.r2Key); } catch (e) { console.warn('R2 delete failed', e); }
     }
-    await ensureMigrated();
-    const db = getDb();
-    await db.execute({ sql: `DELETE FROM exports WHERE id = ? AND user_id = ?`, args: [id, session.user.id] });
+    await deleteExportByIdAndUser(id, session.user.id);
     // Optionally update user storage counters — decrement storage_bytes
     try {
-      await db.execute({ sql: `UPDATE user_stats SET storage_bytes = MAX(0, storage_bytes - ?) WHERE user_id = ?`, args: [exp.fileSize, session.user.id] });
+      await decrementStorageBytes(session.user.id, exp.fileSize);
     } catch {}
     return NextResponse.json({ success: true });
   } catch (e) {

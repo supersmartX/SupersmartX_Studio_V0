@@ -1,13 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-process.env.TURSO_DATABASE_URL = 'file::memory:';
-
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 
 import { auth } from '@/auth';
 import { PATCH } from '@/app/api/export-jobs/[id]/route';
-import { resetDb } from '@/lib/db/driver';
+import { resetDb } from '@/__tests__/helpers/db';
 import {
   setMigrated,
   createUser,
@@ -16,10 +14,13 @@ import {
   updateExportJobStatus,
 } from '@/lib/db';
 
+// Database-backed suite: runs only when DATABASE_URL points at a throwaway
+// PostgreSQL database; otherwise the cases are reported as skipped.
+const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+
 function cleanTestData() {
   resetDb();
   setMigrated(false);
-  process.env.TURSO_DATABASE_URL = 'file::memory:';
 }
 
 let n = 0;
@@ -49,7 +50,7 @@ function patchReq(jobId: string, body: Record<string, unknown>) {
  * same-state updates must be accepted as progress writes. Terminal states
  * must remain inescapable.
  */
-describe('PATCH /api/export-jobs/[id] transitions', () => {
+describeDb('PATCH /api/export-jobs/[id] transitions', () => {
   beforeEach(() => {
     cleanTestData();
     vi.clearAllMocks();
