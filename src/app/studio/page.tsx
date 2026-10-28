@@ -1223,10 +1223,6 @@ export default function HomePage() {
     setIsInspectorOpen((prev) => !prev);
   }, [recorder.recordingState, isReview, isStudio, showToast]);
 
-  const handleSettingsClick = useCallback(() => {
-    handleToggleInspector();
-  }, [handleToggleInspector]);
-
   const handleShowShortcuts = useCallback(() => {
     showToast('Space: Start / Stop recording · P: Pause / Resume · M: Mute microphone · ↑ ↓: Move text · Esc: Close');
   }, [showToast]);
@@ -1716,7 +1712,6 @@ export default function HomePage() {
                 onCancelCountdown={() =>
                   recorder.cancelCountdown(masterRecordingData ? 'completed' : 'idle')
                 }
-                onSettingsClick={handleSettingsClick}
               />
             )}
           </main>

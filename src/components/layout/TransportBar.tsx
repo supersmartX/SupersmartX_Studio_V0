@@ -15,7 +15,6 @@ import {
   PlayIcon,
   RecordIcon,
   RefreshIcon,
-  SettingsIcon,
   StopIcon,
 } from '@/components/icons';
 
@@ -55,7 +54,6 @@ interface TransportBarProps {
   onResume: () => void;
   onStop: () => void;
   onConfirmStop?: () => void;
-  onSettingsClick: () => void;
   /**
    * Shown (with the countdown state) as the transport's way out of a 3-2-1
    * that started by accident. The canvas overlay has its own cancel; this
@@ -324,7 +322,6 @@ export function TransportBar({
   onResume,
   onStop,
   onConfirmStop,
-  onSettingsClick,
   onCancelCountdown,
   videoDevices,
   audioDevices,
@@ -716,18 +713,10 @@ export function TransportBar({
         )}
       </div>
 
-      {/* Right: Settings — opens the settings panel (teleprompter, countdown, mirror, …).
-          `flex-1` mirrors the left zone exactly, which is what keeps the primary
-          action optically centred in the bar instead of drifting to the right. */}
-      <div className="ml-2 sm:ml-0 shrink-0 sm:flex-1 flex items-center justify-end min-w-0">
-        <button
-          onClick={onSettingsClick}
-          aria-label="Settings"
-          className="flex items-center justify-center w-11 h-11 rounded-full transition-colors text-text-muted hover:text-text-primary hover:bg-white/[0.06]"
-        >
-          <SettingsIcon className="w-[18px] h-[18px]" />
-        </button>
-      </div>
+      {/* Right zone: an empty mirror of the left zone. `flex-1` on both sides
+          is what keeps the primary action optically centred in the bar.
+          Settings has a single entry point in the header. */}
+      <div className="ml-2 sm:ml-0 shrink-0 sm:flex-1 min-w-0" aria-hidden="true" />
     </footer>
   );
 }

@@ -47,7 +47,6 @@ function renderBarProps(state: RecordingState) {
     onResume: vi.fn(),
     onStop: vi.fn(),
     onConfirmStop: vi.fn(),
-    onSettingsClick: vi.fn(),
     onCancelCountdown: vi.fn(),
     videoDevices: [],
     audioDevices: [],

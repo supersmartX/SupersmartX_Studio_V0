@@ -23,7 +23,6 @@ function props(state: RecordingState = 'idle') {
     onResume: vi.fn(),
     onStop: vi.fn(),
     onConfirmStop: vi.fn(),
-    onSettingsClick: vi.fn(),
     onCancelCountdown: vi.fn(),
     videoDevices: [],
     audioDevices: [],
