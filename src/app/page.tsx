@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
@@ -15,6 +15,92 @@ const NAV_LINKS = [
   { label: 'Studio', href: '#top' },
   { label: 'How It Works', href: '#how-it-works' },
   { label: 'Pricing', href: '#pricing' },
+];
+
+// The operational waste the page argues against. Kept as data so the section
+// and the copy stay in one place.
+const WASTE_ITEMS = [
+  'Re-recording',
+  'Eye-drift errors',
+  'Awkward pauses',
+  'Manual timeline editing',
+  'Platform-specific reformatting',
+  'Re-cropping footage',
+  'Unnecessary desktop editing workflows',
+];
+
+const METRICS = [
+  { value: '1 Take', label: 'Target recording cycle' },
+  { value: 'Zero', label: 'Timeline editing needed' },
+  { value: '3 Formats', label: 'Native 9:16, 16:9, 1:1 outputs' },
+];
+
+const FLOW_STEPS = [
+  {
+    stage: 'Script',
+    title: 'Voice-Sync Cadence Prompter',
+    description:
+      'Paste your script. The prompt dynamically tracks your natural speaking velocity, eliminating eye-dart and awkward pauses without requiring manual speed adjustment.',
+  },
+  {
+    stage: 'Record',
+    title: 'Real-Time Precision Capture Engine',
+    description:
+      'Capture direct 1080p video straight through your browser pipeline with zero latency, background noise filtering, and no desktop apps choking device memory.',
+  },
+  {
+    stage: 'Publish',
+    title: 'Multi-Platform Instant Export Pipeline',
+    description:
+      'Render native, perfectly framed aspect ratios for YouTube, Reels, and Shorts simultaneously without touching timeline software or re-cropping footage.',
+  },
+];
+
+const FREE_FEATURES = [
+  '3-minute teleprompter sessions',
+  'Up to 10 minutes recording / day',
+  'Standard 720p output preview',
+];
+
+// First item is the economic anchor of the tier and is rendered highlighted.
+const CREATOR_FEATURES = [
+  'Saves 15+ hours/month in recording retakes',
+  'Voice-activated dynamic teleprompter engine',
+  'Unlimited recording duration & cloud library',
+  'Unbranded crystal-clear 1080p multi-format exports',
+];
+
+// Drives both the visible FAQ and the FAQPage structured data, so the two can
+// never drift apart.
+const FAQ_ITEMS = [
+  {
+    q: 'Will it work with my camera and microphone?',
+    a: 'Yes. SupersmartX Studio uses the webcam and microphone your computer already has — built-in or USB. There is no extra hardware to buy and nothing to install.',
+  },
+  {
+    q: 'Can my browser really capture 1080p video?',
+    a: 'Yes. Capture runs directly through the browser pipeline at native 1080p with zero latency, so no desktop app is competing for your device memory while you record.',
+  },
+  {
+    q: 'How fast can I go from script to recording?',
+    a: 'Paste your script, press record, and the prompter follows your natural speaking pace. There is nothing to set up first — ready in 30 seconds, no downloads or installs required.',
+  },
+  {
+    q: 'Do I need editing software or editing skills?',
+    a: 'No. There is no timeline to edit. Creator Pro renders native, perfectly framed 9:16, 16:9 and 1:1 ratios without re-cropping footage or touching timeline software.',
+  },
+  {
+    q: 'What do I need to get started?',
+    a: 'A browser, a camera and a microphone. Ready in 30 seconds · No downloads or installs required.',
+  },
+  {
+    q: 'How much does SupersmartX Studio cost?',
+    a: 'Free forever with a standard teleprompter (3 minutes per recording), YouTube 16:9, 720p, unlimited local downloads and watermark. Free recording is limited to up to 10 minutes per browser profile per local calendar day. This is a device-local limit and may reset if site data is cleared or you switch browser profiles. Creator access is a one-time payment for 1 month or 1 year; access expires at the end of the purchased term with no automatic renewal.',
+  },
+  {
+    q: 'Is there a watermark on the free plan?',
+    a: 'Yes, free exports include a SupersmartX watermark. Creator exports have none.',
+  },
 ];
 
 function GrainOverlay() {
@@ -34,24 +120,46 @@ function GrainOverlay() {
   );
 }
 
+// Confined to the hero: below the fold the page is a solid canvas so the copy
+// sections sit on a stable contrast surface.
 function HeroVideo() {
   return (
-      <div className="lsx-hero-photo" style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
-      <video
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="auto"
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-      >
+    <div className="lsx-hero-photo" aria-hidden="true">
+      <video autoPlay muted loop playsInline preload="auto">
         <source
           src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260818_072341_50851634-bbc3-4c33-9acc-7647d4db44aa.mp4"
           type="video/mp4"
         />
       </video>
-      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.5) 100%)' }} />
+      <div className="lsx-hero-scrim" />
     </div>
+  );
+}
+
+function FlowStepIcon({ index }: { index: number }) {
+  if (index === 0) {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+        <path d="m15 5 4 4" />
+      </svg>
+    );
+  }
+  if (index === 1) {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+        <circle cx="12" cy="13" r="3" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 12h8" />
+      <path d="M4 18V6" />
+      <path d="M12 18V6" />
+      <path d="m17 12 3-2v8l-3-2" />
+    </svg>
   );
 }
 
@@ -123,7 +231,7 @@ export default function LandingPage() {
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   // Dismissal that returns the keyboard to the control that opened the menu.
-  // Actions inside the menu (a section link, Log in, Start Free) deliberately
+  // Actions inside the menu (a section link, Log in, Launch Studio) deliberately
   // do NOT use this: focus must follow the action, not snap back to the burger.
   const dismissMenu = useCallback(() => {
     setMenuOpen(false);
@@ -243,8 +351,14 @@ export default function LandingPage() {
           __html: `
 @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Instrument+Serif:ital@1&display=swap');
 
-.lsx-hero-photo { opacity: 0; transition: opacity 1.05s cubic-bezier(0.16, 1, 0.3, 1); }
+.lsx-hero-photo { position: absolute; inset: 0; z-index: 0; opacity: 0; transition: opacity 1.05s cubic-bezier(0.16, 1, 0.3, 1); }
+.lsx-hero-photo video { width: 100%; height: 100%; object-fit: cover; }
 .lsx-hero-photo.lsx-is-in { opacity: 1; }
+.lsx-hero-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(9,9,11,0.58) 0%, rgba(9,9,11,0.4) 42%, rgba(9,9,11,0.92) 100%);
+}
 
 .lsx-page {
   position: relative;
@@ -253,6 +367,7 @@ export default function LandingPage() {
   grid-template-rows: auto 1fr auto;
   min-height: 100vh;
   min-height: 100dvh;
+  background: var(--color-canvas);
 }
 
 .lsx-header {
@@ -372,6 +487,16 @@ export default function LandingPage() {
   height: var(--lsx-hero-btn-h, 42px);
   padding: 0 18px;
 }
+/* The primary CTA label is a full sentence: allow it to wrap rather than clip
+   on narrow phones instead of inheriting .lsx-btn's nowrap. */
+.lsx-hero-cta {
+  height: auto;
+  min-height: var(--lsx-hero-btn-h, 42px);
+  padding: 12px 22px;
+  line-height: 1.25;
+  white-space: normal;
+  text-align: center;
+}
 .lsx-hero-ghost {
   background: var(--color-surface);
   border: 1px solid rgba(255,255,255,0.1);
@@ -383,10 +508,12 @@ export default function LandingPage() {
 }
 
 .lsx-hero {
+  position: relative;
+  overflow: hidden;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
-  padding: 8px 24px var(--lsx-hero-gap, 64px);
+  padding: 72px 24px var(--lsx-hero-gap, 88px);
   min-height: 0;
 }
 
@@ -397,7 +524,7 @@ export default function LandingPage() {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: var(--lsx-copy-max, 860px);
+  max-width: var(--lsx-copy-max, 900px);
   width: 100%;
 }
 
@@ -448,7 +575,7 @@ export default function LandingPage() {
 }
 
 .lsx-lede {
-  max-width: var(--lsx-lede-max, 470px);
+  max-width: var(--lsx-lede-max, 620px);
   margin-top: 18px;
   color: var(--color-text-secondary);
   font-size: var(--lsx-lede, 15.5px);
@@ -462,7 +589,14 @@ export default function LandingPage() {
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
-  margin-top: 26px;
+  margin-top: 28px;
+}
+
+.lsx-cta-support {
+  margin-top: 16px;
+  font-size: var(--lsx-support, 12.5px);
+  letter-spacing: -0.005em;
+  color: rgba(255,255,255,0.55);
 }
 
 .lsx-burger {
@@ -527,29 +661,32 @@ export default function LandingPage() {
 }
 
 @media (min-width: 1600px) {
-  .lsx-page { --lsx-logo: 17px; --lsx-nav: 15px; --lsx-nav-h: 44px; --lsx-btn: 15px; --lsx-btn-h: 44px; --lsx-hero-btn-h: 48px; --lsx-h1: 64px; --lsx-lede: 18px; --lsx-badge: 13.5px; --lsx-stat-size: 15px; --lsx-header-y: 28px; --lsx-header-x: 64px; --lsx-stats-x: 96px; --lsx-stats-y: 44px; --lsx-copy-max: 980px; --lsx-lede-max: 540px; }
+  .lsx-page { --lsx-logo: 17px; --lsx-nav: 15px; --lsx-nav-h: 44px; --lsx-btn: 15px; --lsx-btn-h: 44px; --lsx-hero-btn-h: 48px; --lsx-h1: 64px; --lsx-lede: 18px; --lsx-badge: 13.5px; --lsx-support: 14px; --lsx-header-y: 28px; --lsx-header-x: 64px; --lsx-copy-max: 980px; --lsx-lede-max: 680px; }
 }
 @media (min-width: 1920px) {
-  .lsx-page { --lsx-logo: 18px; --lsx-nav: 16px; --lsx-nav-h: 48px; --lsx-btn: 16px; --lsx-btn-h: 48px; --lsx-hero-btn-h: 52px; --lsx-h1: 76px; --lsx-lede: 20px; --lsx-badge: 14.5px; --lsx-stat-size: 16px; --lsx-header-y: 32px; --lsx-header-x: 80px; --lsx-stats-x: 120px; --lsx-stats-y: 52px; --lsx-copy-max: 1120px; --lsx-lede-max: 620px; }
+  .lsx-page { --lsx-logo: 18px; --lsx-nav: 16px; --lsx-nav-h: 48px; --lsx-btn: 16px; --lsx-btn-h: 48px; --lsx-hero-btn-h: 52px; --lsx-h1: 76px; --lsx-lede: 20px; --lsx-badge: 14.5px; --lsx-support: 15px; --lsx-header-y: 32px; --lsx-header-x: 80px; --lsx-copy-max: 1120px; --lsx-lede-max: 740px; }
 }
 @media (min-width: 2560px) {
-  .lsx-page { --lsx-h1: 88px; --lsx-lede: 22px; --lsx-header-x: 120px; --lsx-stats-x: 160px; --lsx-copy-max: 1280px; --lsx-lede-max: 680px; }
+  .lsx-page { --lsx-h1: 88px; --lsx-lede: 22px; --lsx-header-x: 120px; --lsx-copy-max: 1280px; --lsx-lede-max: 800px; }
 }
 @media (min-width: 901px) and (max-width: 1599px) {
-  .lsx-page { --lsx-h1: 54px; --lsx-lede: 16px; --lsx-header-x: 48px; --lsx-stats-x: 80px; --lsx-copy-max: 900px; }
+  .lsx-page { --lsx-h1: 54px; --lsx-lede: 16px; --lsx-header-x: 48px; --lsx-copy-max: 900px; }
 }
 @media (min-width: 901px) and (max-width: 1279px) {
-  .lsx-page { --lsx-logo: 15px; --lsx-nav: 13px; --lsx-nav-h: 40px; --lsx-btn: 13px; --lsx-btn-h: 40px; --lsx-hero-btn-h: 40px; --lsx-h1: 42px; --lsx-lede: 15px; --lsx-badge: 12px; --lsx-stat-size: 12.5px; --lsx-header-y: 16px; --lsx-header-x: 28px; --lsx-stats-x: 36px; --lsx-stats-y: 28px; --lsx-hero-gap: 64px; --lsx-copy-max: 760px; --lsx-lede-max: 440px; }
+  .lsx-page { --lsx-logo: 15px; --lsx-nav: 13px; --lsx-nav-h: 40px; --lsx-btn: 13px; --lsx-btn-h: 40px; --lsx-hero-btn-h: 40px; --lsx-h1: 42px; --lsx-lede: 15px; --lsx-badge: 12px; --lsx-support: 12px; --lsx-header-y: 16px; --lsx-header-x: 28px; --lsx-hero-gap: 88px; --lsx-copy-max: 760px; --lsx-lede-max: 560px; }
 }
 @media (min-width: 901px) and (max-height: 850px) {
-  .lsx-page { --lsx-header-y: 14px; --lsx-stats-y: 24px; --lsx-hero-gap: 48px; --lsx-h1: 40px; }
+  .lsx-page { --lsx-header-y: 14px; --lsx-hero-gap: 64px; --lsx-h1: 40px; }
 }
 @media (min-width: 901px) and (max-height: 720px) {
-  .lsx-page { --lsx-h1: 34px; --lsx-lede: 14px; --lsx-hero-gap: 32px; --lsx-nav-h: 40px; --lsx-btn-h: 40px; --lsx-hero-btn-h: 40px; }
+  .lsx-page { --lsx-h1: 34px; --lsx-lede: 14px; --lsx-hero-gap: 48px; --lsx-nav-h: 40px; --lsx-btn-h: 40px; --lsx-hero-btn-h: 40px; }
 }
 
 @media (min-width: 901px) {
   .lsx-page { min-height: 100vh; min-height: 100dvh; }
+  /* Fill the first screen minus the header so the hero reads as a full stage
+     instead of a short band above the next section. */
+  .lsx-hero { min-height: calc(100vh - 90px); min-height: calc(100svh - 90px); }
 }
 
 @media (max-width: 900px) {
@@ -557,14 +694,19 @@ export default function LandingPage() {
   .lsx-header-cta-wrap { display: none; }
   .lsx-burger { display: flex; }
   .lsx-site-nav { display: none; }
-  .lsx-hero { padding: 20px 20px 64px; align-items: flex-end; }
-  .lsx-page { --lsx-logo: 16px; --lsx-btn: 15px; --lsx-btn-h: 46px; --lsx-hero-btn-h: 48px; --lsx-h1: 36px; --lsx-lede: 16.5px; --lsx-badge: 13.5px; --lsx-header-x: 18px; --lsx-hero-gap: 36px; --lsx-copy-max: 100%; --lsx-lede-max: 100%; }
+  .lsx-hero { padding: 48px 20px 56px; min-height: auto; }
+  .lsx-page { --lsx-logo: 16px; --lsx-btn: 15px; --lsx-btn-h: 46px; --lsx-hero-btn-h: 50px; --lsx-h1: 34px; --lsx-lede: 16px; --lsx-badge: 13.5px; --lsx-support: 13px; --lsx-header-x: 18px; --lsx-hero-gap: 56px; --lsx-copy-max: 100%; --lsx-lede-max: 100%; }
+  .lsx-hero h1 { line-height: 1.16; }
 }
 
 @media (max-width: 560px) {
-  .lsx-page { --lsx-h1: 34px; --lsx-lede: 16px; --lsx-header-x: 16px; }
-  .lsx-hero-actions { flex-direction: column; width: 100%; }
+  .lsx-page { --lsx-h1: 30px; --lsx-lede: 15.5px; --lsx-header-x: 16px; }
+  .lsx-hero-actions { flex-direction: column; width: 100%; max-width: 340px; }
   .lsx-hero-actions .lsx-btn { width: 100%; }
+}
+
+@media (max-width: 380px) {
+  .lsx-page { --lsx-h1: 27px; }
 }
 
 .lsx-mobile-nav-overlay {
@@ -617,16 +759,17 @@ export default function LandingPage() {
 
 .lsx-section {
   position: relative;
-  padding: 96px 24px;
+  padding: 104px 24px;
   border-top: 1px solid rgba(255,255,255,0.06);
+  background: var(--color-canvas);
 }
 .lsx-section-inner {
-  max-width: 960px;
+  max-width: 1040px;
   margin: 0 auto;
 }
 .lsx-section-header {
   text-align: center;
-  margin-bottom: 64px;
+  margin-bottom: 56px;
 }
 .lsx-section-label {
   display: inline-block;
@@ -634,7 +777,7 @@ export default function LandingPage() {
   border-radius: 5px;
   border: 1px solid rgba(124,58,237,0.25);
   background: rgba(124,58,237,0.08);
-  color: var(--color-accent-hover);
+  color: var(--color-accent-text);
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.05em;
@@ -643,12 +786,13 @@ export default function LandingPage() {
 }
 .lsx-section-title {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-size: 36px;
+  font-size: clamp(28px, 3.6vw, 40px);
   font-weight: 500;
   letter-spacing: -0.03em;
   line-height: 1.15;
   color: #fff;
   margin-bottom: 14px;
+  text-wrap: balance;
 }
 .lsx-section-subtitle {
   /* 0.45 fell just under WCAG AA (4.5:1) against the page background at 16px.
@@ -656,84 +800,233 @@ export default function LandingPage() {
   color: rgba(255,255,255,0.5);
   font-size: 16px;
   line-height: 1.6;
-  max-width: 480px;
+  max-width: 560px;
   margin: 0 auto;
 }
 
-.lsx-steps {
-  display: flex;
-  align-items: flex-start;
-  gap: 0;
-}
-.lsx-step {
-  flex: 1;
+/* ── Problem / outcome ─────────────────────────────────────────────────── */
+.lsx-lead-in {
   text-align: center;
-  padding: 0 24px;
+  font-size: 15px;
+  color: rgba(255,255,255,0.5);
+  margin: -28px 0 30px;
+}
+.lsx-waste-grid {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 0;
+}
+.lsx-waste-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 18px;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.02);
+  font-size: 14.5px;
+  line-height: 1.35;
+  color: rgba(255,255,255,0.58);
+}
+.lsx-waste-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: rgba(239,68,68,0.7);
+}
+.lsx-waste-text {
+  text-decoration: line-through;
+  text-decoration-color: rgba(239,68,68,0.5);
+  text-decoration-thickness: 1px;
+}
+
+/* ── Value engine ──────────────────────────────────────────────────────── */
+.lsx-metrics {
   position: relative;
+  padding: 76px 24px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background:
+    radial-gradient(ellipse 70% 120% at 50% 0%, rgba(124,58,237,0.12), transparent 65%),
+    var(--color-canvas);
 }
-.lsx-step-number {
-  display: inline-flex;
+.lsx-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  max-width: 1040px;
+  margin: 0 auto;
+  text-align: center;
+}
+.lsx-metric-value {
+  font-size: clamp(32px, 4.4vw, 52px);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  color: #fff;
+}
+.lsx-metric-label {
+  margin-top: 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.48);
+}
+
+/* ── Mechanism / workflow ──────────────────────────────────────────────── */
+.lsx-flow-steps {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+  margin: 0;
+  padding: 0;
+}
+.lsx-flow-step {
+  position: relative;
+  padding: 28px 26px 30px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.07);
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.012));
+}
+.lsx-flow-step::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -15px;
+  width: 8px;
+  height: 8px;
+  border-top: 1.5px solid rgba(139,92,246,0.55);
+  border-right: 1.5px solid rgba(139,92,246,0.55);
+  transform: translateY(-50%) rotate(45deg);
+}
+.lsx-flow-step:last-child::after { display: none; }
+.lsx-flow-head {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(124,58,237,0.12);
-  border: 1px solid rgba(124,58,237,0.25);
-  /* §8 landing contrast: was var(--color-accent-hover) (#8B5CF6), which
-     measures 4.38:1 on this card's purple-tinted fill — just under AA. Lifted
-     locally to clear 4.5:1 while keeping the purple hue. The token itself is
-     deliberately untouched; it is shared with the studio. */
-  color: rgb(146, 100, 250);
-  font-size: 13px;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.lsx-flow-step-num {
+  font-size: 12px;
   font-weight: 600;
-  margin-bottom: 20px;
-  margin-right: 12px;
-  vertical-align: middle;
+  letter-spacing: 0.08em;
+  color: var(--color-accent-text);
 }
-.lsx-step-icon {
-  display: inline-flex;
+.lsx-flow-stage {
+  padding-left: 10px;
+  border-left: 1px solid rgba(255,255,255,0.14);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.42);
+}
+.lsx-flow-icon {
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: rgba(124,58,237,0.12);
+  border: 1px solid rgba(124,58,237,0.24);
   color: var(--color-accent-hover);
-  margin-bottom: 20px;
-  vertical-align: middle;
+  margin-bottom: 18px;
 }
-.lsx-step-title {
+.lsx-flow-step-title {
   font-size: 17px;
   font-weight: 500;
-  color: #fff;
   letter-spacing: -0.02em;
+  color: #fff;
   margin-bottom: 10px;
 }
-.lsx-step-desc {
+.lsx-flow-step-desc {
   font-size: 14px;
   line-height: 1.65;
-  /* §8 landing contrast: was 0.4 alpha = 3.74:1 on the page background. */
+  color: rgba(255,255,255,0.55);
+}
+
+/* ── Pricing ───────────────────────────────────────────────────────────── */
+.lsx-plan-note {
+  margin: 22px 0 24px;
+  font-size: 12.5px;
+  line-height: 1.5;
   color: rgba(255,255,255,0.5);
-  max-width: 260px;
+}
+/* Equal-height cards leave the shorter plan with dead space, so pin each CTA
+   to the card floor and let the copy above it stay top-aligned. */
+.lsx-page .lsx-pricing-card { display: flex; flex-direction: column; }
+.lsx-page .lsx-pricing-btn { margin-top: auto; }
+
+/* ── Final CTA ─────────────────────────────────────────────────────────── */
+.lsx-final {
+  position: relative;
+  padding: 104px 24px 120px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  text-align: center;
+  background:
+    radial-gradient(ellipse 60% 90% at 50% 100%, rgba(124,58,237,0.14), transparent 62%),
+    var(--color-canvas);
+}
+.lsx-final-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 720px;
   margin: 0 auto;
 }
-.lsx-step-connector {
-  width: 60px;
-  height: 1px;
-  background: rgba(255,255,255,0.08);
-  margin-top: 48px;
-  flex-shrink: 0;
+.lsx-final-title {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: clamp(30px, 4.2vw, 48px);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+  color: #fff;
+  margin-bottom: 32px;
+  text-wrap: balance;
+}
+.lsx-final-title em {
+  font-family: 'Instrument Serif', 'Times New Roman', Times, serif;
+  font-style: italic;
+  font-weight: 400;
+  font-size: 1.08em;
+  letter-spacing: -0.03em;
+  color: var(--color-accent-text);
+}
+.lsx-final-btn {
+  height: auto;
+  min-height: 52px;
+  padding: 14px 28px;
+  font-size: 15px;
+  line-height: 1.25;
+  white-space: normal;
+  text-align: center;
+}
+.lsx-final .lsx-cta-support { color: rgba(255,255,255,0.5); }
+
+@media (max-width: 900px) {
+  .lsx-section { padding: 76px 20px; }
+  .lsx-section-header { margin-bottom: 40px; }
+  .lsx-waste-grid { grid-template-columns: 1fr; gap: 10px; }
+  .lsx-metrics { padding: 56px 20px; }
+  .lsx-metrics-grid { grid-template-columns: 1fr; gap: 32px; }
+  .lsx-flow-steps { grid-template-columns: 1fr; gap: 34px; }
+  .lsx-flow-step::after {
+    top: auto;
+    bottom: -21px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%) rotate(135deg);
+  }
+  .lsx-final { padding: 80px 20px 88px; }
 }
 
 @media (max-width: 700px) {
   .lsx-section { padding: 64px 20px; }
-  .lsx-section-title { font-size: 28px; }
-  .lsx-section-subtitle { font-size: 15px; }
-  .lsx-steps { flex-direction: column; align-items: center; gap: 0; }
-  .lsx-step { padding: 0; max-width: 320px; }
-  .lsx-step-connector { width: 1px; height: 40px; margin: 0; }
   .lsx-pricing-grid { grid-template-columns: 1fr; max-width: 400px; }
   .lsx-pricing-toggle-btn { padding: 8px 14px; font-size: 12px; }
 }
@@ -788,6 +1081,7 @@ export default function LandingPage() {
 .lsx-footer {
   border-top: 1px solid rgba(255,255,255,0.06);
   padding: 48px var(--lsx-header-x, 40px);
+  background: var(--color-canvas);
 }
 .lsx-footer-bottom {
   display: flex;
@@ -836,7 +1130,6 @@ export default function LandingPage() {
       />
 
       <GrainOverlay />
-      <HeroVideo />
       <JsonLd
         data={{
           '@context': 'https://schema.org',
@@ -853,29 +1146,28 @@ export default function LandingPage() {
           '@context': 'https://schema.org',
           '@type': 'HowTo',
           name: 'How to record with SupersmartX Studio',
-          totalTime: 'PT5M',
-          step: [
-            { '@type': 'HowToStep', name: 'Write your script', text: 'Type or paste your script. The teleprompter scrolls at your pace.' },
-            { '@type': 'HowToStep', name: 'Record yourself', text: 'Use your webcam with teleprompter overlay. Pause and resume until it feels right.' },
-            { '@type': 'HowToStep', name: 'Preview and export', text: 'Preview how your video looks on any platform. Export the one you need.' },
-          ],
+          totalTime: 'PT2M',
+          step: FLOW_STEPS.map((step, i) => ({
+            '@type': 'HowToStep',
+            position: i + 1,
+            name: step.title,
+            text: step.description,
+          })),
         }}
       />
       <JsonLd
         data={{
           '@context': 'https://schema.org',
           '@type': 'FAQPage',
-          mainEntity: [
-            { '@type': 'Question', name: 'What is SupersmartX Studio?', acceptedAnswer: { '@type': 'Answer', text: 'SupersmartX Studio is a Creator Content Studio — a browser-based tool that turns your script into a camera-ready, platform-ready video.' } },
-            { '@type': 'Question', name: 'How much does SupersmartX Studio cost?', acceptedAnswer: { '@type': 'Answer', text: `Free forever. Free recording is limited to up to 10 minutes per browser profile per local calendar day. This is a device-local limit and may reset if site data is cleared or you switch browser profiles. Creator access is a one-time payment for 1 month or 1 year; access expires at the end of the purchased term with no automatic renewal.` } },
-            { '@type': 'Question', name: 'Is there a watermark on the free plan?', acceptedAnswer: { '@type': 'Answer', text: 'Yes, free exports include a watermark. Creator has no watermark.' } },
-          ],
+          mainEntity: FAQ_ITEMS.map((item) => ({
+            '@type': 'Question',
+            name: item.q,
+            acceptedAnswer: { '@type': 'Answer', text: item.a },
+          })),
         }}
       />
 
-      <div
-        className="lsx-page"
-      >
+      <div className="lsx-page">
         <header className="lsx-header">
           <Link href="/" className="lsx-logo lsx-appear" style={{ '--lsx-d': '0.08s' } as React.CSSProperties} aria-label="SupersmartX Studio">
             SUPERSMARTX{/* §8 landing contrast: `text-accent` (#7C3AED) is the studio's fill
@@ -968,7 +1260,7 @@ export default function LandingPage() {
                     onClick={() => router.push('/studio')}
                     className="lsx-btn lsx-btn-solid"
                   >
-                    Start Free
+                    Launch Studio
                   </button>
                 </>
               )}
@@ -991,35 +1283,39 @@ export default function LandingPage() {
         </header>
 
         <main className="lsx-hero" id="top">
+          <HeroVideo />
           <div className="lsx-hero-copy">
             <div className="lsx-badge lsx-appear lsx-appear--pop" style={{ '--lsx-d': '0.22s' } as React.CSSProperties}>
               <svg className="lsx-badge-star" width="18" height="20" viewBox="0 0 24 24" fill="white" aria-hidden="true">
                 <path d="M12 2.6C12.55 2.6 12.88 3.15 13.08 4.7c.62 4.7 1.52 5.6 6.22 6.22 1.55.2 2.1.53 2.1 1.08s-.55.88-2.1 1.08c-4.7.62-5.6 1.52-6.22 6.22-.2 1.55-.53 2.1-1.08 2.1s-.88-.55-1.08-2.1c-.62-4.7-1.52-5.6-6.22-6.22C3.15 12.88 2.6 12.55 2.6 12s.55-.88 2.1-1.08c4.7-.62 5.6-1.52 6.22-6.22C11.12 3.15 11.45 2.6 12 2.6Z" />
               </svg>
-              <span>Browser-based Creator Content Studio</span>
+              <span>SuperSmartX Studio</span>
             </div>
 
             <h1>
               <span className="lsx-headline-line lsx-appear lsx-appear--mask" style={{ '--lsx-d': '0.42s' } as React.CSSProperties}>
-                Record <em>once</em>. Publish
+                Stop Wasting{' '}
+              </span>
+              <span className="lsx-headline-line lsx-appear lsx-appear--mask" style={{ '--lsx-d': '0.52s' } as React.CSSProperties}>
+                <em>3 Hours</em> Re-Recording{' '}
               </span>
               <span className="lsx-headline-line lsx-appear lsx-appear--mask" style={{ '--lsx-d': '0.62s' } as React.CSSProperties}>
-                everywhere.
+                Video Takes.
               </span>
             </h1>
 
             <p className="lsx-lede lsx-appear lsx-appear--soft" style={{ '--lsx-d': '0.82s', animationDuration: '1.25s' } as React.CSSProperties}>
-              Turn your script into a camera-ready, platform-ready video without learning video editing.
+              The browser-based studio that turns rough scripts into platform-ready Reels, Shorts, and YouTube videos in one take—with voice-paced prompting and zero manual timeline editing.
             </p>
 
             <div className="lsx-hero-actions">
               <button
                 type="button"
                 onClick={() => router.push('/studio')}
-                className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-appear lsx-appear--btn"
+                className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-hero-cta lsx-appear lsx-appear--btn"
                 style={{ '--lsx-d': '0.96s' } as React.CSSProperties}
               >
-                Start Recording — Free
+                Launch Studio in Browser — No Card Required
               </button>
               <button
                 type="button"
@@ -1032,64 +1328,80 @@ export default function LandingPage() {
                 See how it works
               </button>
             </div>
+
+            <p className="lsx-cta-support lsx-appear lsx-appear--soft" style={{ '--lsx-d': '1.16s' } as React.CSSProperties}>
+              Ready in 30 seconds · No downloads or installs required
+            </p>
           </div>
         </main>
 
-        <section className="lsx-section lsx-how" id="how-it-works">
+        <section className="lsx-section" id="operational-waste" aria-labelledby="waste-title">
           <div className="lsx-section-inner">
             <div className="lsx-section-header">
-              <span className="lsx-section-label">How It Works</span>
-              <h2 className="lsx-section-title">Script to screen in three steps</h2>
-              <p className="lsx-section-subtitle">No downloads. No complicated software. Just open your browser and start recording.</p>
+              <span className="lsx-section-label">Operational waste</span>
+              <h2 id="waste-title" className="lsx-section-title">Creators do not want another recording tool.</h2>
             </div>
-            <div className="lsx-steps">
-              <div className="lsx-step">
-                <div className="lsx-step-number">1</div>
-                <div className="lsx-step-icon">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
-                    <path d="m15 5 4 4"/>
-                  </svg>
-                </div>
-                <h3 className="lsx-step-title">Write your script</h3>
-                <p className="lsx-step-desc">Type or paste your script. The built-in teleprompter scrolls at your pace so you never lose your place.</p>
-              </div>
-              <div className="lsx-step-connector" />
-              <div className="lsx-step">
-                <div className="lsx-step-number">2</div>
-                <div className="lsx-step-icon">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
-                    <circle cx="12" cy="13" r="3"/>
-                  </svg>
-                </div>
-                <h3 className="lsx-step-title">Record yourself</h3>
-                <p className="lsx-step-desc">Use your webcam with a real-time teleprompter overlay. Pause, resume, and re-record until it feels right.</p>
-              </div>
-              <div className="lsx-step-connector" />
-              <div className="lsx-step">
-                <div className="lsx-step-number">3</div>
-                <div className="lsx-step-icon">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M4 12h8"/>
-                    <path d="M4 18V6"/>
-                    <path d="M12 18V6"/>
-                    <path d="m17 12 3-2v8l-3-2"/>
-                  </svg>
-                </div>
-                <h3 className="lsx-step-title">Preview &amp; export</h3>
-                <p className="lsx-step-desc">Preview how your video looks on YouTube, Reels, Shorts, or any platform. Export the one you need.</p>
-              </div>
-            </div>
+            <p className="lsx-lead-in">They want to eliminate:</p>
+            <ul className="lsx-waste-grid">
+              {WASTE_ITEMS.map((item) => (
+                <li key={item} className="lsx-waste-item">
+                  <span className="lsx-waste-mark" aria-hidden="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </span>
+                  <span className="lsx-waste-text">{item}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
 
-        <section className="lsx-section lsx-pricing" id="pricing">
+        <section className="lsx-metrics" aria-label="Product outcomes">
+          <div className="lsx-metrics-grid">
+            {METRICS.map((metric) => (
+              <div key={metric.value} className="lsx-metric">
+                <p className="lsx-metric-value">{metric.value}</p>
+                <p className="lsx-metric-label">{metric.label}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="lsx-section" id="how-it-works" aria-labelledby="flow-title">
+          <div className="lsx-section-inner">
+            <div className="lsx-section-header">
+              <span className="lsx-section-label">How it works</span>
+              <h2 id="flow-title" className="lsx-section-title">Script → Record → Publish</h2>
+              <p className="lsx-section-subtitle">
+                Voice-paced prompting + precision capture + instant multi-format export.
+              </p>
+            </div>
+            <ol className="lsx-flow-steps">
+              {FLOW_STEPS.map((step, i) => (
+                <li key={step.title} className="lsx-flow-step">
+                  <div className="lsx-flow-head">
+                    <span className="lsx-flow-step-num">{String(i + 1).padStart(2, '0')}</span>
+                    <span className="lsx-flow-stage">{step.stage}</span>
+                  </div>
+                  <div className="lsx-flow-icon">
+                    <FlowStepIcon index={i} />
+                  </div>
+                  <h3 className="lsx-flow-step-title">{step.title}</h3>
+                  <p className="lsx-flow-step-desc">{step.description}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        <section className="lsx-section lsx-pricing" id="pricing" aria-labelledby="pricing-title">
           <div className="lsx-section-inner">
             <div className="lsx-section-header">
               <span className="lsx-section-label">Pricing</span>
-              <h2 className="lsx-section-title">Start free. Upgrade when ready.</h2>
-              <p className="lsx-section-subtitle">Local pricing available in supported countries.</p>
+              <h2 id="pricing-title" className="lsx-section-title">Start free. Upgrade when ready.</h2>
+              <p className="lsx-section-subtitle">One-time payment — no automatic renewal.</p>
             </div>
 
             {/* Billing period toggle */}
@@ -1115,17 +1427,18 @@ export default function LandingPage() {
             <div className="lsx-pricing-grid">
               <div className="lsx-pricing-card">
                 <div className="lsx-pricing-card-header">
-                  <h3 className="lsx-pricing-plan">{PRICING_PLANS.free.name}</h3>
+                  <h3 className="lsx-pricing-plan">Free Plan</h3>
                   <div className="lsx-pricing-price">{formatZero(0)}<span className="lsx-pricing-period">/forever</span></div>
                 </div>
                 <ul className="lsx-pricing-features">
-                  {PRICING_PLANS.free.features.map((f) => (
-                    <li key={f.text} className={`lsx-pricing-feature ${f.highlight ? 'lsx-pricing-feature--highlight' : ''}`}>
+                  {FREE_FEATURES.map((text) => (
+                    <li key={text} className="lsx-pricing-feature">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                      {f.text}
+                      {text}
                     </li>
                   ))}
                 </ul>
+                <p className="lsx-plan-note">Ideal for testing browser compatibility</p>
                 <button
                   type="button"
                   onClick={() => router.push('/studio')}
@@ -1135,9 +1448,9 @@ export default function LandingPage() {
                 </button>
               </div>
               <div className="lsx-pricing-card lsx-pricing-card--pro">
-                <div className="lsx-pricing-badge">Popular</div>
+                <div className="lsx-pricing-badge">High-ROI Tier</div>
                 <div className="lsx-pricing-card-header">
-                  <h3 className="lsx-pricing-plan">{PRICING_PLANS.creator.name}</h3>
+                  <h3 className="lsx-pricing-plan">Creator Pro</h3>
                   <div className="lsx-pricing-price">{format(billingPeriod === 'monthly' ? currentPricing.creatorMonthly : currentPricing.creatorYearly)}<span className="lsx-pricing-period"> for {billingPeriod === 'monthly' ? '1 month' : '1 year'}</span></div>
                   {billingPeriod === 'yearly' && (
                     <p className="lsx-pricing-note">One-time payment for 1 year of access (equivalent to {format(currentPricing.creatorYearly / 12)}/month).</p>
@@ -1147,10 +1460,10 @@ export default function LandingPage() {
                   )}
                 </div>
                 <ul className="lsx-pricing-features">
-                  {PRICING_PLANS.creator.features.map((f) => (
-                    <li key={f.text} className={`lsx-pricing-feature ${f.highlight ? 'lsx-pricing-feature--highlight' : ''}`}>
+                  {CREATOR_FEATURES.map((text, i) => (
+                    <li key={text} className={`lsx-pricing-feature ${i === 0 ? 'lsx-pricing-feature--highlight' : ''}`}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                      {f.text}
+                      {text}
                     </li>
                   ))}
                 </ul>
@@ -1170,36 +1483,11 @@ export default function LandingPage() {
           <div className="lsx-section-inner">
             <div className="lsx-section-header">
               <span className="lsx-section-label">FAQ</span>
-              <h2 id="faq-title" className="lsx-section-title">Frequently asked questions</h2>
-              <p className="lsx-section-subtitle">Answers about pricing, recording limits, and privacy.</p>
+              <h2 id="faq-title" className="lsx-section-title">Everything that holds creators back</h2>
+              <p className="lsx-section-subtitle">Hardware, browser performance, speed and editing — answered before you start.</p>
             </div>
             <div className="max-w-3xl mx-auto space-y-4 text-left">
-              {[
-                {
-                  q: 'What is SupersmartX Studio?',
-                  a: 'SupersmartX Studio is a Creator Content Studio — a browser-based tool that turns your script into a camera-ready, platform-ready video. Write your script, record with a teleprompter overlay, preview how it looks on any platform, and export.',
-                },
-                {
-                  q: 'Who is SupersmartX Studio for?',
-                  a: 'Creators, educators, founders, sales teams, teachers and podcasters who need to record presentations, YouTube videos, courses and pitches.',
-                },
-                {
-                  q: 'How does it work?',
-                  a: 'Write or paste your script, record with your webcam using the teleprompter overlay, then preview how your video looks on YouTube, Reels, Shorts, or any platform. Export the one you need.',
-                },
-                {
-                  q: 'How much does SupersmartX Studio cost?',
-                  a: `Free forever with standard teleprompter (3 minutes per recording), YouTube 16:9, 720p, unlimited local downloads and watermark. Free recording is limited to up to 10 minutes per browser profile per local calendar day. This is a device-local limit and may reset if site data is cleared or you switch browser profiles. Creator access is a one-time payment for 1 month or 1 year; access expires at the end of the purchased term with no automatic renewal.`,
-                },
-                {
-                  q: 'Is there a watermark on the free plan?',
-                  a: 'Yes, free exports include a SupersmartX watermark. Creator exports have no watermark.',
-                },
-                {
-                  q: 'What is the maximum recording length?',
-                  a: 'Free recording is limited to up to 10 minutes per browser profile per local calendar day. This is a device-local limit and may reset if site data is cleared or you switch browser profiles. Creator has unlimited recording duration and sessions; export count is unlimited, but each file is limited to 2 GiB (about 28 min 5 sec at current 1080p settings).',
-                },
-              ].map((item) => (
+              {FAQ_ITEMS.map((item) => (
                 <details key={item.q} className="group bg-white/[0.02] border border-white/5 rounded-xl p-5 open:bg-white/[0.03]">
                   <summary className="cursor-pointer list-none flex items-center justify-between gap-4">
                     <h3 className="text-[15px] font-medium text-white">{item.q}</h3>
@@ -1209,6 +1497,22 @@ export default function LandingPage() {
                 </details>
               ))}
             </div>
+          </div>
+        </section>
+
+        <section className="lsx-final" aria-labelledby="final-cta-title">
+          <div className="lsx-final-inner">
+            <h2 id="final-cta-title" className="lsx-final-title">
+              Platform-ready videos <em>in one take</em>.
+            </h2>
+            <button
+              type="button"
+              onClick={() => router.push('/studio')}
+              className="lsx-btn lsx-btn-solid lsx-final-btn"
+            >
+              Launch Studio in Browser — No Card Required
+            </button>
+            <p className="lsx-cta-support">Ready in 30 seconds · No downloads or installs required</p>
           </div>
         </section>
 
@@ -1289,7 +1593,7 @@ export default function LandingPage() {
                 onClick={() => { router.push('/studio'); closeMenu(); }}
                 className="lsx-btn lsx-btn-solid lsx-mobile-nav-btn"
               >
-                Start Free
+                Launch Studio
               </button>
             </div>
           </div>

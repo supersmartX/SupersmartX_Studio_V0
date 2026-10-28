@@ -48,15 +48,15 @@ test.beforeEach(async ({ context, browserName }) => {
 });
 
 test.describe('Smoke Test - Landing Page', () => {
-  test('hero matches spec: "Record once. Publish everywhere."', async ({ page }) => {
+  test('hero matches spec: "Stop Wasting 3 Hours Re-Recording Video Takes."', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    const heading = page.getByRole('heading', { name: /Record once.*Publish/ });
+    const heading = page.getByRole('heading', { name: /Stop Wasting 3 Hours.*Video Takes/ });
     await expect(heading).toBeVisible();
   });
 
-  test('CTA: "Start Recording — Free" navigates to studio', async ({ page }) => {
+  test('CTA: "Launch Studio in Browser — No Card Required" navigates to studio', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('button', { name: 'Start Recording — Free' }).first().click();
+    await page.getByRole('button', { name: 'Launch Studio in Browser — No Card Required' }).first().click();
     await expect(page).toHaveURL(/\/studio/);
   });
 
@@ -68,11 +68,11 @@ test.describe('Smoke Test - Landing Page', () => {
     await expect(section).toBeVisible();
   });
 
-  test('how-it-works: Script → Record → Preview & export', async ({ page }) => {
+  test('how-it-works: Script → Record → Publish', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('heading', { name: 'Write your script' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Record yourself' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Preview & export' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Voice-Sync Cadence Prompter' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Real-Time Precision Capture Engine' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Multi-Platform Instant Export Pipeline' })).toBeVisible();
   });
 
   test('pricing shows Free and Creator (not Pro)', async ({ page }) => {
