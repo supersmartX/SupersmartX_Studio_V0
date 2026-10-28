@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { LAUNCH_PLATFORM_PRESETS, DEFAULT_PLATFORM_ID } from '@/constants';
+import { isCreatorPlan } from '@/lib/entitlements';
 import type { PlatformId } from '@/types';
 
 interface RecordingFormatPickerProps {
@@ -25,7 +26,9 @@ export function RecordingFormatPicker({
   userPlan,
   onUpgradeRequired,
 }: RecordingFormatPickerProps) {
-  const isCreator = userPlan === 'creator_monthly' || userPlan === 'creator_yearly';
+  // The shared entitlement check — pro_* legacy plans were paying customers
+  // the picker wrongly presented as Free (it only matched creator_*).
+  const isCreator = isCreatorPlan(userPlan);
   const selected = LAUNCH_PLATFORM_PRESETS.find((p) => p.id === recordingPlatformId)
     ?? LAUNCH_PLATFORM_PRESETS.find((p) => p.id === DEFAULT_PLATFORM_ID)!;
 
@@ -38,7 +41,7 @@ export function RecordingFormatPicker({
         <button
           type="button"
           onClick={() => onUpgradeRequired('youtube-shorts')}
-          className="shrink-0 whitespace-nowrap text-[12px] font-medium text-accent-text hover:underline"
+          className="shrink-0 whitespace-nowrap inline-flex items-center min-h-[24px] text-[12px] font-medium text-accent-text hover:underline"
         >
           All formats with Creator
         </button>
@@ -71,8 +74,12 @@ export function RecordingFormatPicker({
  * Free-only handheld nudge: a widescreen-only plan on a portrait-held phone
  * produces a postage-stamp capture. Ask the user to rotate; never blocks —
  * the camera keeps working for users who cannot rotate.
+ *
+ * `suppressed` keeps the row in the flow while a take is in flight (invisible,
+ * non-interactive, hidden from assistive tech) so starting a recording never
+ * makes the canvas jump when this advice disappears.
  */
-export function FreeRotateNudge() {
+export function FreeRotateNudge({ suppressed = false }: { suppressed?: boolean }) {
   const [isPortrait, setIsPortrait] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -87,7 +94,11 @@ export function FreeRotateNudge() {
   if (!isPortrait || dismissed) return null;
 
   return (
-    <div className="flex items-center justify-center gap-3 px-4 py-2" role="status">
+    <div
+      className={`flex items-center justify-center gap-3 px-4 py-2 ${suppressed ? 'invisible pointer-events-none' : ''}`}
+      role={suppressed ? undefined : 'status'}
+      aria-hidden={suppressed || undefined}
+    >
       <p className="text-[12px] text-text-secondary">
         <span className="font-semibold text-text-primary">Rotate your device</span> for widescreen
         recording — Free records YouTube 16:9.
@@ -96,6 +107,7 @@ export function FreeRotateNudge() {
         type="button"
         onClick={() => setDismissed(true)}
         aria-label="Dismiss rotate suggestion"
+        tabIndex={suppressed ? -1 : undefined}
         className="rounded-md px-2 py-1 text-[12px] text-text-muted hover:text-text-primary hover:bg-elevated min-w-[44px] min-h-[44px]"
       >
         ✕

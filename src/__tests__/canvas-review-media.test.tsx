@@ -3,16 +3,16 @@ import { render, fireEvent, act } from '@testing-library/react';
 import { Canvas } from '@/components/layout/Canvas';
 
 /**
- * Phase 1 items 3 + 4 — capture-dimension accuracy and the review audio path.
+ * Phase 1 item 4 — the review audio path (the canvas dimension chip is gone
+ * as part of the clean-canvas redesign):
  *
- * Dimension badge (item 3):
- *   - with actual capture dimensions (live track settings, or the probed
- *     take under review) it shows THOSE numbers;
- *   - before any capture exists it shows the configured target explicitly
- *     labelled "Target …" so the UI never claims a resolution it is not
- *     delivering.
+ * Before the redesign Canvas carried a permanent "1920 × 1080 / Target …"
+ * read-out. That was technical dashboard for a live creator surface: the real
+ * dimensions now surface in the RecordingStatusLine (track settings, during a
+ * take) and the review preset row (platform + dimensions, after it). These
+ * tests pin the NEW contract: the canvas never shows any dimension numbers.
  *
- * Review audio (item 4):
+ * Review audio:
  *   - audible when the browser allows unmuted autoplay; when policy blocks
  *     it, playback falls back to muted WITH a visible mute/unmute control
  *     (never a stranded-silent player);
@@ -20,15 +20,12 @@ import { Canvas } from '@/components/layout/Canvas';
  *     the review player's own state — nothing here touches the mic.
  */
 
-const CONFIG = { width: 1920, height: 1080 } as never;
-
 function renderCanvas(props: Partial<Parameters<typeof Canvas>[0]> = {}) {
   return render(
     <Canvas
       focusViewEnabled={false}
       onFocusViewToggle={() => {}}
       aspectRatio="16:9"
-      recordingConfig={CONFIG}
       {...props}
     >
       <div data-testid="preview-children" />
@@ -36,39 +33,32 @@ function renderCanvas(props: Partial<Parameters<typeof Canvas>[0]> = {}) {
   );
 }
 
-describe('Canvas capture dimension badge', () => {
+/** "×" is also the multiplication sign the old badge used — the strictest
+ *  probe is on the digit-pair pattern with the sign. */
+const DIMENSION_PATTERN = /\d+\s*×\s*\d+/;
+
+describe('Canvas does not render a dimensions readout (clean-canvas redesign)', () => {
   beforeEach(() => {
     vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockImplementation(
       (() => Promise.resolve()) as () => Promise<void>,
     );
   });
 
-  it('labels the configured dimensions as a Target before any capture exists', () => {
-    const { getByText } = renderCanvas({ captureSize: null });
-    expect(getByText('Target 1920 × 1080')).toBeDefined();
+  it('no dimension numbers before any capture exists', () => {
+    const { container } = renderCanvas();
+    expect(container.textContent).not.toMatch(DIMENSION_PATTERN);
+    expect(container.textContent).not.toMatch(/Target/);
   });
 
-  it('shows the actual capture dimensions, never the configured target', () => {
-    // e.g. a 640×480 camera stream under a 1920×1080 configuration — the
-    // badge must report what capture is really delivering.
-    const { getByText, queryByText } = renderCanvas({ captureSize: { width: 640, height: 480 } });
-    expect(getByText('640 × 480')).toBeDefined();
-    expect(queryByText('Target 1920 × 1080')).toBeNull();
-    expect(queryByText('1920 × 1080')).toBeNull();
+  it('no dimension numbers while a live capture is mounted', () => {
+    // Children stand in for a live camera preview; no chip may appear over it.
+    const { container } = renderCanvas();
+    expect(container.textContent).not.toMatch(DIMENSION_PATTERN);
   });
 
-  it('shows the take\'s own dimensions during review', () => {
-    const { getByText } = renderCanvas({
-      reviewVideoUrl: 'blob:review',
-      captureSize: { width: 1280, height: 720 },
-    });
-    expect(getByText('1280 × 720')).toBeDefined();
-  });
-
-  it('falls back to the labelled target when capture dimensions are unknown', () => {
-    // width 0 = restored/legacy data with no known source size.
-    const { getByText } = renderCanvas({ captureSize: { width: 0, height: 0 } });
-    expect(getByText('Target 1920 × 1080')).toBeDefined();
+  it('no dimension numbers during review of a take', () => {
+    const { container } = renderCanvas({ reviewVideoUrl: 'blob:review' });
+    expect(container.textContent).not.toMatch(DIMENSION_PATTERN);
   });
 });
 

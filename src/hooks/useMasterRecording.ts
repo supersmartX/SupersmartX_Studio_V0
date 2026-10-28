@@ -1,8 +1,18 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { MasterRecording } from '@/types';
+import type { MasterRecording, RecordingMetadata } from '@/types';
 import { getLatestRecording, saveRecording, cleanupExpired, deleteRecording, type StoredRecording } from '@/lib/recording-store';
+import { deriveAspectRatioLabel } from '@/lib/recording/aspect-ratio';
+
+interface UseMasterRecordingOptions {
+  /**
+   * Called when the finished take could not be written to the local library
+   * (IndexedDB full / blocked). The take is still usable in this session —
+   * the caller surfaces a toast so the user knows it won't survive a reload.
+   */
+  onSaveError?: () => void;
+}
 
 interface UseMasterRecordingReturn {
   masterRecording: MasterRecording | null;
@@ -17,7 +27,7 @@ interface UseMasterRecordingReturn {
    * script for the rest of its life regardless of what the global editor
    * does afterwards.
    */
-  createMasterRecording: (blob: Blob, duration: number, hasAudio: boolean, sourceWidth?: number, sourceHeight?: number, script?: string) => MasterRecording;
+  createMasterRecording: (blob: Blob, duration: number, hasAudio: boolean, sourceWidth?: number, sourceHeight?: number, script?: string, recordingMetadata?: RecordingMetadata) => MasterRecording;
   /**
    * Workflow B only. Attach an EXISTING library recording: adopts the stored
    * row's identity verbatim and never writes a new row, so previewing or
@@ -56,14 +66,24 @@ interface UseMasterRecordingReturn {
   isLibraryOriginal: boolean;
 }
 
-export function useMasterRecording(): UseMasterRecordingReturn {
+export function useMasterRecording({ onSaveError }: UseMasterRecordingOptions = {}): UseMasterRecordingReturn {
   const [masterRecording, setMasterRecording] = useState<MasterRecording | null>(null);
   const [isRestored, setIsRestored] = useState(false);
   const blobUrlRef = useRef<string>('');
   // Latest-value ref: the restore read is async, so it must be able to see a
   // master that was created while the read was in flight.
   const masterRef = useRef<MasterRecording | null>(null);
+  // In-flight library write. An explicit delete must run AFTER it: IndexedDB
+  // transactions are independent, so a fast "Record Again" could delete the
+  // row first and let the pending put recreate it, resurrecting a discarded
+  // take on the next visit.
+  const savePromiseRef = useRef<Promise<void> | null>(null);
   const restoreStartedRef = useRef(false);
+  // Latest-value ref for the save-error callback: `createMasterRecording` has
+  // an empty dependency array, so it reads this ref rather than closing over a
+  // callback that would go stale (and re-mint the callback on every render).
+  const onSaveErrorRef = useRef(onSaveError);
+  onSaveErrorRef.current = onSaveError;
   // Set when the user explicitly started a clean creation session ("New
   // Video"). The restore read is async, so without this a read already in
   // flight when "New Video" was clicked would land afterwards and re-attach the
@@ -80,7 +100,7 @@ export function useMasterRecording(): UseMasterRecordingReturn {
   masterRef.current = masterRecording;
 
   const createMasterRecording = useCallback(
-    (blob: Blob, duration: number, hasAudio: boolean, sourceWidth = 0, sourceHeight = 0, script?: string): MasterRecording => {
+    (blob: Blob, duration: number, hasAudio: boolean, sourceWidth = 0, sourceHeight = 0, script?: string, recordingMetadata?: RecordingMetadata): MasterRecording => {
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
       }
@@ -96,6 +116,7 @@ export function useMasterRecording(): UseMasterRecordingReturn {
         extension: blob.type?.includes('mp4') ? 'mp4' : 'webm',
         duration,
         hasAudio,
+        recordingMetadata,
         sourceWidth,
         sourceHeight,
         createdAt: new Date().toISOString(),
@@ -130,7 +151,7 @@ export function useMasterRecording(): UseMasterRecordingReturn {
       masterRef.current = recording;
       setIsRestored(false);
 
-      saveRecording({
+      const savePromise = saveRecording({
         id: recording.id,
         name: '',
         blob: recording.blob,
@@ -140,13 +161,22 @@ export function useMasterRecording(): UseMasterRecordingReturn {
         hasAudio: recording.hasAudio,
         width: recording.sourceWidth,
         height: recording.sourceHeight,
-        aspectRatio: '16:9',
+        aspectRatio: deriveAspectRatioLabel(recording.sourceWidth, recording.sourceHeight),
         createdAt: recording.createdAt,
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         // DC-1: the row is the snapshot's permanent home — reopening this
         // video after any document hop brings the same script back.
         script: recording.script,
-      }).catch(() => {});
+        recordingMetadata: recording.recordingMetadata,
+      });
+      savePromiseRef.current = savePromise;
+      savePromise.catch(() => {
+        // The take is still live in this session (it holds its own blob + object
+        // URL), so this is not fatal — but the library row is the copy that
+        // survives a reload, and it was never written. Silence here meant the
+        // user only found out after a refresh, when the take was simply gone.
+        onSaveErrorRef.current?.();
+      });
 
       cleanupExpired().catch(() => {});
 
@@ -179,6 +209,7 @@ export function useMasterRecording(): UseMasterRecordingReturn {
       extension: stored.extension,
       duration: stored.duration,
       hasAudio: stored.hasAudio,
+      recordingMetadata: stored.recordingMetadata,
       sourceWidth: stored.width,
       sourceHeight: stored.height,
       createdAt: stored.createdAt,
@@ -246,6 +277,8 @@ export function useMasterRecording(): UseMasterRecordingReturn {
 
   const clearMasterRecording = useCallback(() => {
     const current = masterRef.current;
+    const pendingSave = savePromiseRef.current;
+    savePromiseRef.current = null;
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = '';
@@ -270,8 +303,16 @@ export function useMasterRecording(): UseMasterRecordingReturn {
     // The IndexedDB row is the only copy of these bytes. Leaving it behind
     // meant "record again" / "open library" merely HID the take: the next
     // restore pulled the very same recording straight back out of storage.
+    // Delete now, and repeat after a just-started save settles: an in-flight
+    // put can otherwise recreate the row after this delete.
     if (current) {
       void deleteRecording(current.id);
+      if (pendingSave) {
+        void pendingSave
+          .catch(() => {})
+          .then(() => deleteRecording(current.id))
+          .catch(() => {});
+      }
     }
   }, []);
 
@@ -321,6 +362,7 @@ export function useMasterRecording(): UseMasterRecordingReturn {
         extension: stored.extension,
         duration: stored.duration,
         hasAudio: stored.hasAudio,
+        recordingMetadata: stored.recordingMetadata,
         sourceWidth: stored.width,
         sourceHeight: stored.height,
         createdAt: stored.createdAt,

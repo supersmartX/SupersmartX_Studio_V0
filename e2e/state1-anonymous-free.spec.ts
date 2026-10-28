@@ -251,7 +251,9 @@ test.describe('STATE 1 — Anonymous Free', () => {
     await recordTake(page);
 
     await page.reload();
-    await studioReady(page);
+    // The completed take reopens in review (no Start button by design); wait
+    // for the restored review before navigating to the library.
+    await expect(page.getByText('Your recording is ready.')).toBeVisible({ timeout: 30_000 });
 
     // The take is durable locally, with no account involved.
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Recordings' }).click();

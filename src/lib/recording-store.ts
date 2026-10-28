@@ -1,7 +1,8 @@
 'use client';
 
-const DB_NAME = 'sxs-studio';
-const DB_VERSION = 2;
+import { openStudioDatabase } from '@/lib/studio-db';
+import type { RecordingMetadata } from '@/types';
+
 const STORE_NAME = 'recordings';
 const RECORDING_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -13,6 +14,7 @@ export interface StoredRecording {
   extension: string;
   duration: number;
   hasAudio: boolean;
+  recordingMetadata?: RecordingMetadata;
   width: number;
   height: number;
   aspectRatio: string;
@@ -27,64 +29,33 @@ export interface StoredRecording {
 }
 
 function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') {
-      reject(new Error('IndexedDB not available'));
-      return;
-    }
-
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      // Idempotent migration for shared DB 'sxs-studio' — ensure both stores exist
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-        store.createIndex('createdAt', 'createdAt', { unique: false });
-        store.createIndex('expiresAt', 'expiresAt', { unique: false });
-      }
-      // Ensure local-exports store exists (shared with local-exports-store.ts)
-      if (!db.objectStoreNames.contains('local-exports')) {
-        const store = db.createObjectStore('local-exports', { keyPath: 'id' });
-        store.createIndex('createdAt', 'createdAt', { unique: false });
-        store.createIndex('expiresAt', 'expiresAt', { unique: false });
-      }
-    };
-
-    request.onblocked = () => console.warn('[IDB] open blocked — close other tabs');
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+  return openStudioDatabase();
 }
 
 export async function saveRecording(recording: StoredRecording): Promise<void> {
-  try {
-    const db = await openDB();
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
+  const db = await openDB();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
 
-    const now = Date.now();
-    const record = {
-      ...recording,
-      createdAt: recording.createdAt || new Date().toISOString(),
-      expiresAt: new Date(now + RECORDING_TTL_MS).toISOString(),
+  const now = Date.now();
+  const record = {
+    ...recording,
+    createdAt: recording.createdAt || new Date().toISOString(),
+    expiresAt: new Date(now + RECORDING_TTL_MS).toISOString(),
+  };
+
+  store.put(record);
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
     };
-
-    store.put(record);
-
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        reject(tx.error);
-      };
-    });
-  } catch (e) {
-    console.warn('Failed to save recording to IndexedDB:', e instanceof Error ? e.message : 'unknown');
-  }
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error ?? new Error('IndexedDB write failed'));
+    };
+  });
 }
 
 export async function getRecording(id: string): Promise<StoredRecording | null> {

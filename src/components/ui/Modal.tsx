@@ -11,6 +11,11 @@ interface ModalProps {
   title?: string;
   maxWidth?: string;
   ariaLabel?: string;
+  /**
+   * `alertdialog` for destructive confirmations, which must interrupt the
+   * user; plain dialogs keep the default `dialog` role.
+   */
+  role?: 'dialog' | 'alertdialog';
 }
 
 /**
@@ -24,9 +29,13 @@ interface ModalProps {
  */
 const openModals: symbol[] = [];
 
-export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg', ariaLabel }: ModalProps) {
+export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg', ariaLabel, role = 'dialog' }: ModalProps) {
   const { isClosing, shouldRender, handleClose, swipeHandlers } = useModalAnimation(isOpen, onClose);
   const contentRef = useRef<HTMLDivElement>(null);
+  // The control that opened this dialog, so closing returns focus to it.
+  // Without this, dismissing a dialog dumped keyboard focus back onto <body>
+  // and the user had to tab all the way back to where they were.
+  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   // UX-012: this used to focus `focusable[0]`, and because the header's Close
   // button is rendered BEFORE {children}, that was ALWAYS the Close button —
@@ -37,6 +46,27 @@ export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg',
   //   2. otherwise the first focusable that is not the header Close;
   //   3. otherwise the first focusable (e.g. a dialog whose only control is Close).
   // Close stays in the DOM, in tab order, and Escape/trap/restore are untouched.
+  // Capture the trigger when the dialog opens; hand focus back when it is gone.
+  // Runs on the same `shouldRender` latch as the focus-in effect below, so the
+  // trigger is recorded before anything inside the dialog takes focus.
+  useEffect(() => {
+    if (shouldRender) {
+      const active = document.activeElement;
+      returnFocusRef.current = active instanceof HTMLElement ? active : null;
+      return;
+    }
+    // Closed: only pull focus back if it would otherwise be lost (i.e. it is
+    // still on <body> or a detached node), so we never steal focus from a
+    // dialog that opened on top of this one.
+    const target = returnFocusRef.current;
+    returnFocusRef.current = null;
+    const active = document.activeElement;
+    const focusIsLost = active === null || active === document.body || active === document.documentElement || !active.isConnected;
+    if (target && target.isConnected && focusIsLost) {
+      target.focus();
+    }
+  }, [shouldRender]);
+
   useEffect(() => {
     if (!shouldRender || !contentRef.current) return;
     const root = contentRef.current;
@@ -101,7 +131,7 @@ export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg',
   return (
     <div
       className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`}
-      role="dialog"
+      role={role}
       aria-modal="true"
       aria-label={ariaLabel || title}
       {...swipeHandlers}
@@ -121,10 +151,14 @@ export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg',
         `}
       >
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-border-subtle">
-          <h2 className="text-sm font-semibold text-text-primary">{title || ''}</h2>
+          {/* Only emit a heading when the dialog actually has a name — an empty
+              <h2> is a phantom landmark in the accessibility tree. */}
+          {title && (
+            <h2 className="text-sm font-semibold text-text-primary">{title}</h2>
+          )}
           <button
             onClick={handleClose}
-            className="p-2.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            className="ml-auto p-2.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label="Close"
           >
             <CloseIcon className="w-4 h-4" />

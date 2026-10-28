@@ -140,6 +140,48 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     closeModal();
   }, [closeModal]);
 
+  // The dialog panel — the boundary for the Tab trap below, and the root the
+  // initial-focus effect queries. Declared up here because the trap effect
+  // closes over it.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // The control that opened this dialog, so closing hands focus back to it.
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+
+  // Escape dismisses; Tab is trapped inside the sheet. This dialog is modal in
+  // every other respect (backdrop, scroll lock, aria-modal), so keyboard focus
+  // must not be able to fall out onto the page behind it.
+  useEffect(() => {
+    if (!shouldRender) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusable = Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first || !root.contains(document.activeElement)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (document.activeElement === last || !root.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [shouldRender, handleClose]);
+
   const handleSubscribe = useCallback(async () => {
     if (!isAuthenticated) {
       handleClose();
@@ -250,7 +292,15 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       handleClose();
     } catch (err) {
       setStep('error');
-      setErrorMessage(err instanceof Error ? err.message : 'Something went wrong');
+      // Never surface a raw technical string (a fetch failure, a Prisma message,
+      // a DOMException). Anything that isn't a short, human sentence is replaced.
+      const raw = err instanceof Error ? err.message : '';
+      const looksTechnical = !raw || raw.length > 120 || /exception|prisma|undefined|cannot read|null|stack|\/[a-z]+\/|::|error:/i.test(raw);
+      setErrorMessage(
+        looksTechnical
+          ? 'We could not reach the payment service. Check your connection and try again.'
+          : raw,
+      );
     }
   }, [selectedPlan, selectedTier, billingPeriod, currentPricing, name, email, phone, step, showToast, isAuthenticated, onAuthRequired, session, handleClose]);
 
@@ -260,8 +310,6 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   // explicit opt-in marker, else the first control that is not the header
   // Close). Deliberately NOT a refactor into the shared Modal: unifying the
   // dialog systems is Phase 6 work and out of this phase's scope.
-  const dialogRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     if (!shouldRender || isLoadingPricing) return;
     const root = dialogRef.current;
@@ -292,6 +340,28 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     // Waiting until real content exists is what makes the task-control rule
     // below mean anything.
   }, [shouldRender, step, isLoadingPricing]);
+
+  // Record the trigger when the sheet opens; hand focus back once it is gone.
+  // Only restores when focus would otherwise be lost, so a dialog stacked on
+  // top of this one keeps its own focus.
+  useEffect(() => {
+    if (shouldRender) {
+      const active = document.activeElement;
+      returnFocusRef.current = active instanceof HTMLElement ? active : null;
+      return;
+    }
+    const target = returnFocusRef.current;
+    returnFocusRef.current = null;
+    const active = document.activeElement;
+    const focusIsLost =
+      active === null ||
+      active === document.body ||
+      active === document.documentElement ||
+      !active.isConnected;
+    if (target && target.isConnected && focusIsLost) {
+      target.focus();
+    }
+  }, [shouldRender]);
 
   if (!shouldRender) return null;
 
@@ -364,10 +434,11 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
               {step === 'select' && (
                 <div className="flex flex-col gap-8">
                   {/* Billing period toggle */}
-                  <div className="lsx-pricing-toggle">
+                  <div className="lsx-pricing-toggle" role="group" aria-label="Billing period">
                     <button
                       type="button"
                       onClick={() => setBillingPeriod('monthly')}
+                      aria-pressed={billingPeriod === 'monthly'}
                       className={`lsx-pricing-toggle-btn ${billingPeriod === 'monthly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
                     >
                       1 month
@@ -375,6 +446,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     <button
                       type="button"
                       onClick={() => setBillingPeriod('yearly')}
+                      aria-pressed={billingPeriod === 'yearly'}
                       className={`lsx-pricing-toggle-btn ${billingPeriod === 'yearly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
                     >
                       1 year <span className="lsx-pricing-toggle-save">{formatSavingsPercent(currentPricing.creatorMonthly, currentPricing.creatorYearly)}</span>
@@ -466,8 +538,9 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
 
                   <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-2">
-                      <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">Full Name</label>
+                      <label htmlFor="pricing-name" className="text-xs font-semibold uppercase tracking-wider text-text-muted">Full Name</label>
                       <input
+                        id="pricing-name"
                         type="text"
                         placeholder="Your name"
                         value={name}
@@ -477,8 +550,9 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                       />
                     </div>
                     <div className="flex flex-col gap-2">
-                      <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">Email Address</label>
+                      <label htmlFor="pricing-email" className="text-xs font-semibold uppercase tracking-wider text-text-muted">Email Address</label>
                       <input
+                        id="pricing-email"
                         type="email"
                         placeholder="you@example.com"
                         value={email}
@@ -502,8 +576,9 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                       )}
                     </div>
                     <div className="flex flex-col gap-2">
-                      <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">Phone Number <span className="normal-case text-[10px]">(with country code)</span></label>
+                      <label htmlFor="pricing-phone" className="text-xs font-semibold uppercase tracking-wider text-text-muted">Phone Number <span className="normal-case text-[10px]">(with country code)</span></label>
                       <input
+                        id="pricing-phone"
                         type="tel"
                         placeholder="+919999999999"
                         value={phone}
@@ -571,7 +646,17 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     <p className="text-xs text-text-secondary mt-1">Your Free plan is still active. You can try again whenever you&apos;re ready.</p>
                   </div>
                   <div className="flex flex-col gap-2 w-full max-w-[200px]">
-                    <Button variant="secondary" onClick={() => setStep('form')}>Try again</Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        // Clear the stale failure so the form doesn't reopen
+                        // showing an error for a submit the user hasn't made yet.
+                        setErrorMessage('');
+                        setStep('form');
+                      }}
+                    >
+                      Try again
+                    </Button>
                     <Button variant="ghost" onClick={handleClose}>Continue with Free</Button>
                   </div>
                 </div>

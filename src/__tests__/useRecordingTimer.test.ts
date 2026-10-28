@@ -200,4 +200,45 @@ describe('useRecordingTimer — approval wording locks', () => {
     });
     expect(result.current.elapsedSeconds).toBe(0);
   });
+
+  it('counts wall-clock time when hidden-tab throttling skips ticks', () => {
+    const { result } = setup(600);
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(result.current.elapsedSeconds).toBe(3);
+
+    // A background tab throttles the interval: one callback arrives after a
+    // minute of wall time. A tick-increment counter would report 4 seconds.
+    act(() => {
+      vi.setSystemTime(new Date(Date.now() + 60_000));
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(result.current.elapsedSeconds).toBe(64);
+  });
+
+  it('enforces the cap on wall-clock time after a throttled tick', () => {
+    const { result, stopRecording, showToast } = setup(600);
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    act(() => {
+      vi.setSystemTime(new Date(Date.now() + 700_000));
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(result.current.elapsedSeconds).toBe(600);
+    expect(showToast).toHaveBeenCalledWith(
+      'Recording stopped — device-local Free recording allowance reached for today',
+    );
+
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(stopRecording).toHaveBeenCalledTimes(1);
+  });
 });

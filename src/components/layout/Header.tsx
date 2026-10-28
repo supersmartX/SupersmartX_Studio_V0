@@ -1,31 +1,40 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import { ShareIcon, DownloadIcon, SettingsIcon } from '@/components/icons';
 import { isCreatorPlan } from '@/lib/entitlements';
+import { useDismissOnOutsideClick } from '@/hooks/useDismissOnOutsideClick';
 
 interface HeaderProps {
-  isMobile: boolean;
   hasRecording: boolean;
   onExport: () => void;
   onShare: () => void;
   onToggleInspector?: () => void;
+  /** Wired to the inspector toggle so AT can announce open/closed state. */
+  isInspectorOpen?: boolean;
   onSignIn?: () => void;
   userPlan?: string;
   onPricingClick?: () => void;
+  /**
+   * Slot for the compact-layout navigation (the hamburger). Rendered at the
+   * far left of the app bar so it reads as the primary menu, and empty on
+   * desktop where the side rail already provides those destinations.
+   */
+  compactNav?: React.ReactNode;
 }
 
 export function Header({
-  isMobile,
   hasRecording,
   onExport,
   onShare,
   onToggleInspector,
+  isInspectorOpen,
   onSignIn,
   userPlan = 'free',
   onPricingClick,
+  compactNav,
 }: HeaderProps) {
   const { data: session } = useSession();
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -33,25 +42,26 @@ export function Header({
   const [signingOut, setSigningOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowUserMenu(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  const closeUserMenu = useCallback(() => setShowUserMenu(false), []);
+  // Outside-click AND Escape both dismiss the menu (keyboard users were
+  // previously trapped: Escape did nothing).
+  useDismissOnOutsideClick(menuRef, showUserMenu, closeUserMenu);
 
   const user = session?.user;
   const isCreator = isCreatorPlan(userPlan);
 
   return (
-    <header className="h-12 border-b border-border-subtle bg-surface flex items-center px-3 sm:px-5 justify-between shrink-0 z-30 safe-area-top">
-      {/* Left: Logo */}
+    <header className="h-12 border-b border-border-subtle bg-surface flex items-center px-3 sm:px-5 justify-between shrink-0 z-30">
+      {/* Left: menu (compact) + Logo */}
       <div className="flex items-center min-w-0">
+        {compactNav}
         <Link href="/" className="py-2.5 text-[14px] font-semibold tracking-tight text-text-primary truncate hover:text-text-secondary transition-colors" aria-label="SupersmartX Studio">
-          SupersmartX<span className="text-accent-text font-normal"> Studio</span>
+          SupersmartX
+          {/* Phones run out of room once Share/Export/Inspector appear, and the
+              brand ellipsised to "SupersmartX S…". Drop the qualifier there —
+              the app bar is already inside the Studio — so the name stays whole.
+              The link keeps the full accessible name. */}
+          <span className="hidden sm:inline text-accent-text font-normal"> Studio</span>
         </Link>
       </div>
 
@@ -60,7 +70,10 @@ export function Header({
         {hasRecording && (
           <button
             onClick={onShare}
-            aria-label="Share recording"
+            // The share control shares the STUDIO link (navigator.share /
+            // clipboard of window.location.href) — not a media file, so the
+            // name says what it actually does.
+            aria-label="Share Studio link"
             className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] justify-center"
           >
             <ShareIcon className="w-3.5 h-3.5" />
@@ -85,6 +98,7 @@ export function Header({
             onClick={onToggleInspector}
             className="p-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label="Toggle inspector panel"
+            aria-expanded={isInspectorOpen}
           >
             <SettingsIcon className="w-4 h-4" />
           </button>
@@ -164,7 +178,7 @@ export function Header({
         ) : (
           <button
             onClick={onSignIn}
-            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] justify-center"
+            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] justify-center whitespace-nowrap"
           >
             Log in
           </button>

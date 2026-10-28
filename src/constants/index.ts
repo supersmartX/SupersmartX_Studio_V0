@@ -83,15 +83,27 @@ export function isLaunchPlatform(id: string): id is PlatformId {
 
 export const DEFAULT_SETTINGS: TeleprompterSettings = {
   fontFamily: "'Inter', sans-serif",
-  fontSize: 36,
+  fontSize: 32,
   scrollSpeed: 30,
   scrollSpeedMultiplier: 1.0,
-  areaWidth: 448,
+  areaWidth: 640,
   areaHeight: 80,
   textStartPosition: 15,
   textAlignment: 'center',
   textColor: '#FFFFFF',
 };
+
+/**
+ * Teleprompter safe area: the first line must never sit under the top control
+ * rail (Focus View + REC/PAUSED), and the focal guideway must move with it.
+ *
+ * The rail is one row — 12px offset + the 44px control on `sm` and up (8px +
+ * 44px below), so its bottom edge is 56px / 52px. 64px clears that with air.
+ * This was 104px while the REC pill lived on a second row; on a phone the
+ * preview box is only ~200px tall, so 104px of masked chrome left the reading
+ * band ~33px (9px in landscape) — a single clipped line.
+ */
+export const TELEPROMPTER_SAFE_TOP_PX = 64;
 
 export const NUDGE_AMOUNT_BUTTON = 50;
 export const NUDGE_AMOUNT_KEYBOARD = 40;

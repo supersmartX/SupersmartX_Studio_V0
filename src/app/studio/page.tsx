@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { NUDGE_AMOUNT_KEYBOARD, PLATFORM_PRESETS, DEFAULT_PLATFORM_ID } from '@/constants';
 
@@ -23,24 +23,35 @@ import { useStudioCamera } from '@/hooks/useStudioCamera';
 import { useRecordingTimer } from '@/hooks/useRecordingTimer';
 import { useStudioUI } from '@/hooks/useStudioUI';
 import { useHydrated } from '@/hooks/useHydrated';
-import { getEntitlements, isCreatorPlan, isPlatformLockedForUser, canVoiceFollow, FREE_DAILY_RECORDING_SECONDS } from '@/lib/entitlements';
+import { getEntitlements, isCreatorPlan, isPlatformLockedForUser, canVoiceFollow } from '@/lib/entitlements';
 import { getPreviewCropGeometry } from '@/lib/composition';
 import { consumePendingDownloadExportId, hasPendingDownload } from '@/lib/auth-guard';
 import { isReviewState, resolveStudioPhase } from '@/lib/review-state';
 import { addDailyRecordingSeconds, canRecordToday, getDailyRecordingRemainingInFlight } from '@/lib/daily-recording';
 import { getTeleprompterSessionCap, getTeleprompterRemainingInSession } from '@/lib/teleprompter-session';
+import { runRecordingPreflight } from '@/lib/recording/preflight';
+import { readTrackCaptureInfo } from '@/lib/recording/capture-constraints';
+import { deriveAspectRatioLabel } from '@/lib/recording/aspect-ratio';
+import { getRecording, saveRecording, type StoredRecording } from '@/lib/recording-store';
+import {
+  createRecordingRecoverySink,
+  findRecoverableSession,
+  assembleRecoveryBlob,
+  sweepAbandonedSessions,
+  type RecordingRecoverySink,
+} from '@/lib/recording/recovery';
+import { deleteChunkSession, type RecordingBackupState } from '@/lib/recording/chunk-store';
 
 import { Header } from '@/components/layout/Header';
 import { IconRail } from '@/components/layout/IconRail';
-import { BottomNav } from '@/components/layout/BottomNav';
+import { CompactNavMenu } from '@/components/layout/CompactNavMenu';
 import { InspectorPanel } from '@/components/layout/InspectorPanel';
 import { Canvas } from '@/components/layout/Canvas';
-import { DeviceSelectorBar } from '@/components/layout/DeviceSelectorBar';
 import { RecordingFormatPicker, FreeRotateNudge } from '@/components/studio/RecordingFormatPicker';
 import { TransportBar } from '@/components/layout/TransportBar';
 import { Footer } from '@/components/layout/Footer';
 import { CameraPreview } from '@/components/studio/CameraPreview';
-import { EyeLineGuide } from '@/components/studio/EyeLineGuide';
+import { CameraOffOverlay } from '@/components/studio/CameraOffOverlay';
 import { TeleprompterOverlay } from '@/components/studio/TeleprompterOverlay';
 import { RecordingBadge } from '@/components/studio/RecordingBadge';
 import { Timer } from '@/components/studio/Timer';
@@ -49,14 +60,18 @@ import { InitOverlay } from '@/components/studio/InitOverlay';
 import { FocalGuideway } from '@/components/studio/FocalGuideway';
 import { WelcomeModal } from '@/components/dialogs/WelcomeModal';
 import { ExportModal } from '@/components/dialogs/ExportModal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PricingModal } from '@/components/dialogs/PricingModal';
 import { UpgradePromptModal } from '@/components/dialogs/UpgradePromptModal';
 import { ActivationModal } from '@/components/dialogs/ActivationModal';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { PlatformPreviewSwitcher } from '@/components/studio/PlatformPreviewSwitcher';
 import { RecordingsPanel } from '@/components/studio/LibraryPanel';
+import { RecordingStatusLine } from '@/components/studio/RecordingStatusLine';
 import { Toast } from '@/components/common/Toast';
-import type { TabType, PlatformId, PlatformPreset } from '@/types';
+import { TrashIcon } from '@/components/icons';
+import { formatTime } from '@/utils/format';
+import type { TabType, PlatformId, PlatformPreset, MasterRecording } from '@/types';
 
 export default function HomePage() {
   // Base hooks (called first, no ordering dependency)
@@ -76,14 +91,17 @@ export default function HomePage() {
   // Core infrastructure hooks
   const { settings, recordingConfig } = useStudioConfig();
   const camera = useCamera();
-  const recorder = useRecorder(camera.stream, recordingConfig);
+  const recorder = useRecorder(camera.stream);
 
-  // Camera management hook (needs settings + recorder state)
-  const { handleCameraInitialize, handleVideoDeviceChange, handleAudioDeviceChange } = useStudioCamera({
-    recordingState: recorder.recordingState,
+  // Camera management hook (device auto-selection is driven by the page, so
+  // the hook stays a set of stable callbacks).
+  const { handleCameraInitialize, handleVideoDeviceChange, handleAudioDeviceChange, autoSelectDevices } = useStudioCamera({
     settings,
     camera,
   });
+  useEffect(() => {
+    autoSelectDevices();
+  }, [autoSelectDevices]);
 
   const ui = useStudioUI();
   const {
@@ -95,7 +113,12 @@ export default function HomePage() {
     restoreMasterRecording,
     isRestored,
     isLibraryOriginal,
-  } = useMasterRecording();
+  } = useMasterRecording({
+    // Surfaced instead of a silent no-op: the take works in this session, but
+    // the library row (the copy that survives a reload) was never written.
+    onSaveError: () =>
+      showToast('Your video is ready here, but we could not save it to your library. Keep this tab open to export it.'),
+  });
   // Guard: completion effect must run once per recording blob.
   // `ui` is a new object every render, so including it in deps would
   // re-create the master recording (and revoke the preview URL) on every
@@ -103,6 +126,18 @@ export default function HomePage() {
   // blob ERR_FILE_NOT_FOUND.
   const setDrawerVisible = ui.setIsDrawerVisible;
   const processedRecordingRef = useRef<Blob | null>(null);
+
+  // Local recovery copy (Phase 9) — one sink per page. The recorder feeds it
+  // every chunk; it publishes the REAL backup state the status line shows.
+  const recoverySinkRef = useRef<RecordingRecoverySink | null>(null);
+  if (!recoverySinkRef.current) {
+    recoverySinkRef.current = createRecordingRecoverySink();
+  }
+  const recoverySink = recoverySinkRef.current;
+  const [backupState, setBackupState] = useState<RecordingBackupState>('inactive');
+  useEffect(() => {
+    return recoverySink.subscribe(() => setBackupState(recoverySink.getState()));
+  }, [recoverySink]);
 
   // The active creation phase drives progressive disclosure across the UI.
   // 'preparing' → script + teleprompter focused; 'recording' → camera only;
@@ -122,6 +157,35 @@ export default function HomePage() {
   };
   const isReview = isReviewState(reviewState);
   const inspectorContext = resolveStudioPhase(reviewState);
+
+  // Stop unmounts the focused Stop button, which drops keyboard focus to the
+  // document body. Move it to the review surface once the take is ready so the
+  // next Tab reaches Delete / Retake / Export instead of starting over in the
+  // header. Only a real capture→review transition does this; opening a library
+  // recording (or reloading into review) should not steal focus.
+  const reviewTrayRef = useRef<HTMLDivElement | null>(null);
+  const wasCapturingRef = useRef(false);
+  useEffect(() => {
+    const capturing =
+      recorder.recordingState === 'recording' ||
+      recorder.recordingState === 'paused' ||
+      recorder.recordingState === 'countdown';
+    if (capturing) {
+      wasCapturingRef.current = true;
+      return;
+    }
+    if (!wasCapturingRef.current || !isReview || !masterRecordingData) return;
+    wasCapturingRef.current = false;
+    // One frame for the tray to commit; focusing a node from the same commit
+    // that removed Stop is a no-op in some browsers. If the user already moved
+    // on (Export opened its dialog, a header control was clicked), leave that
+    // focus alone instead of pulling it into the tray mid-action.
+    window.setTimeout(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      reviewTrayRef.current?.focus({ preventScroll: true });
+    }, 80);
+  }, [recorder.recordingState, isReview, masterRecordingData]);
 
   const [pendingPricingAfterAuth, setPendingPricingAfterAuth] = useState(false);
   // Checkout intent from landing page (e.g. ?checkout=creator_monthly → open payment form directly)
@@ -172,12 +236,15 @@ export default function HomePage() {
   // Free capture is YouTube 16:9 widescreen only. A persisted Creator choice
   // (or a stale upgrade-restore) must not leak a locked capture format into
   // a Free session — the picker itself blocks the selection, this is the
-  // backstop.
+  // backstop. Loading is NOT Free: while the session is unresolved the plan
+  // reads as 'free', so running this then would reset a Creator's chosen
+  // format on every page load before their plan arrived.
   useEffect(() => {
+    if (sessionStatus === 'loading') return;
     if (!isCreatorUser && settings.platformId !== DEFAULT_PLATFORM_ID) {
       settings.setPlatformId(DEFAULT_PLATFORM_ID);
     }
-  }, [isCreatorUser, settings]);
+  }, [isCreatorUser, settings, sessionStatus]);
 
   // Contextual upgrade (S12): a Free user clicks a locked platform → show the
   // "Create for {platform}" prompt instead of a generic pricing modal.
@@ -411,10 +478,15 @@ export default function HomePage() {
   // Stopping a take releases the camera immediately (OS indicator off).
   // Review always plays the recorded Blob, never the live stream, and the
   // next Start re-acquires a clean stream (see handleRecordStart).
+  // Stable identities on purpose: this callback is a dependency of the
+  // recording timer, so re-creating it every render re-armed that effect
+  // continuously.
+  const recorderStop = recorder.stopRecording;
+  const cameraStop = camera.stop;
   const handleStopAndReleaseCamera = useCallback(() => {
-    recorder.stopRecording();
-    camera.stop();
-  }, [recorder, camera]);
+    recorderStop();
+    cameraStop();
+  }, [recorderStop, cameraStop]);
 
   const { elapsedSeconds, resetTimer } = useRecordingTimer({
     recordingState: recorder.recordingState,
@@ -422,14 +494,40 @@ export default function HomePage() {
     showToast,
     maxDurationSeconds: recordingCap,
     resetOnComplete: false,
-  });  const isRecordingOrPaused = recorder.recordingState === 'recording' || recorder.recordingState === 'paused';
-  // During SSR the server renders the full 10-min allowance (no localStorage access).
-  // Before hydration completes, keep that same value to avoid a mismatch; once
-  // hydrated, switch to the real localStorage-backed remaining budget.
-  const dailyRemainingRaw = isCreatorUser
-    ? null
-    : getDailyRecordingRemainingInFlight(isRecordingOrPaused ? elapsedSeconds : 0);
-  const dailyRemainingDisplay = isCreatorUser ? null : (hydrated ? dailyRemainingRaw : FREE_DAILY_RECORDING_SECONDS);
+  });
+
+  const isRecordingOrPaused = recorder.recordingState === 'recording' || recorder.recordingState === 'paused';
+
+  // A physical camera/microphone loss is a real capture failure, not a UI
+  // toggle. `useCamera` reports it as an error and releases the remaining
+  // track; stop the take here so the user reviews the real footage instead of
+  // watching a frozen frame under a REC badge. During the countdown, cancel
+  // instead of capturing a dead stream.
+  const previousCameraStatusRef = useRef(camera.status);
+  useEffect(() => {
+    const previous = previousCameraStatusRef.current;
+    previousCameraStatusRef.current = camera.status;
+    if (camera.status !== 'error' || previous !== 'ready') return;
+
+    if (recorder.recordingState === 'countdown') {
+      showToast(camera.errorMessage ?? 'Your camera or microphone was disconnected.');
+      recorder.cancelCountdown(masterRecordingData ? 'completed' : 'idle');
+    } else if (
+      recorder.recordingState === 'recording' ||
+      recorder.recordingState === 'paused'
+    ) {
+      showToast(camera.errorMessage ?? 'Your camera or microphone was disconnected.');
+      handleStopAndReleaseCamera();
+    }
+  }, [
+    camera.status,
+    camera.errorMessage,
+    recorder.recordingState,
+    recorder.cancelCountdown,
+    masterRecordingData,
+    handleStopAndReleaseCamera,
+    showToast,
+  ]);
 
   // Free teleprompter: fresh 3 min allowance PER RECORDING SESSION (capped by the remaining
   // daily recording budget). It hides at the cap but the camera keeps recording, and it never
@@ -453,6 +551,12 @@ export default function HomePage() {
       ? `Teleprompter limit reached (3 min per recording on Free). Upgrade to Creator for unlimited.`
       : `Free plan: ${Math.max(1, Math.ceil((teleprompterRemainingDisplay ?? 0) / 60))} min teleprompter for this recording`;
 
+  // Camera on/off — defaults to ON. Toggling disables/enables the video track
+  // on the live stream so the mic and the take stay alive while video is off.
+  // Initialized to `true` on both server and client to avoid a hydration
+  // mismatch; the persisted preference is applied after mount.
+  const [isCameraOn, setIsCameraOn] = useState(true);
+
   // UX-002 (item 5): the ONE condition that decides whether Start is enabled.
   // Extracted from the inline expression at the TransportBar so the blocker
   // message below is derived from exactly the same state that gates the button —
@@ -460,9 +564,16 @@ export default function HomePage() {
   //
   // Start is enabled by a live stream, OR a camera that was already initialized
   // (Start re-acquires on demand), OR a restored review — and never while a
-  // permission request is in flight.
+  // permission request is in flight or while the user has deliberately turned
+  // their camera off. A video take with the video track disabled is a black
+  // recording, so "off" is a blocker, not a silent capture choice.
   const canStartRecording =
-    (!!camera.stream || camera.hasInitialized || isReview) && camera.status !== 'requesting';
+    isCameraOn &&
+    (!!camera.stream || camera.hasInitialized || isReview) &&
+    camera.status !== 'requesting' &&
+    // A failed/disconnected camera must not leave Start looking armed: the
+    // overlay's Retry is the recovery path, and the hint below says so.
+    camera.status !== 'error';
 
   // The matching reason, in the same order. `null` means "nothing is blocking
   // you" and the transport renders no hint at all. This names the real blocker
@@ -479,15 +590,21 @@ export default function HomePage() {
     ? camera.status === 'requesting'
       ? 'Allow camera and microphone access to start recording.'
       : camera.status === 'error'
-        ? 'Camera setup failed. Use Retry on the canvas to try again.'
-        : 'Enable Camera & Microphone on the canvas to start recording.'
+        ? camera.permissionBlocked
+          ? 'Camera or microphone access is blocked. Allow it in your browser settings, then use Retry.'
+          : 'Camera setup failed. Use Retry on the canvas to try again.'
+        : !camera.stream && !camera.hasInitialized
+          ? 'Enable Camera & Microphone on the canvas to start recording.'
+          : !isCameraOn
+            ? 'Turn your camera on to start recording.'
+            : 'Enable Camera & Microphone on the canvas to start recording.'
     : null;
 
   // Local UI state
   const isMobile = useMediaQuery('(max-width: 640px)');
   // The side rail + docked inspector need 1280px before they stop squeezing the
   // canvas, so everything below `xl` uses the bottom nav and a drawer inspector.
-  // Kept in sync with the `xl` breakpoint used by IconRail/BottomNav/InspectorPanel.
+  // Kept in sync with the `xl` breakpoint used by IconRail/CompactNavMenu/InspectorPanel.
   const isCompactLayout = useMediaQuery('(max-width: 1279px)');
   const [activePanel, setActivePanel] = useState<TabType | 'record' | 'share'>('studio');
   const [isMicMuted, setIsMicMuted] = useState(false);
@@ -496,6 +613,20 @@ export default function HomePage() {
   // device switch), whose fresh tracks arrive enabled. Without this the button
   // reported "muted" while the recording captured live audio.
   useMicMuteSync(isMicMuted, camera.stream);
+  // Apply the persisted camera-on preference after mount so hydration stays
+  // consistent (server always renders the camera-ON default).
+  useEffect(() => {
+    let persisted = true;
+    try { persisted = localStorage.getItem('sxs-camera-on') !== 'false'; } catch { /* ignore */ }
+    setIsCameraOn(persisted);
+    // Disable/enable the video track on the live stream so the mic and take
+    // stay alive while video is off. No-op if no stream yet.
+    const stream = camera.stream;
+    if (stream) {
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) videoTrack.enabled = persisted;
+    }
+  }, [camera.stream]);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   // Preview as — separate from export platform. Declared up here because
   // "New Video" resets it as part of ending the creation session.
@@ -504,6 +635,15 @@ export default function HomePage() {
   useEffect(() => {
     if (isCompactLayout) setIsInspectorOpen(false);
   }, [isCompactLayout]);
+  // First paint, compact layouts: the drawer starts open (the desktop
+  // default) and useMediaQuery only resolves AFTER mount, so below xl it
+  // flashed open-then-shut on every load. Closing in the layout phase —
+  // before paint — removes the flash. (Layout effect on the server is a
+  // no-op warning, hence the guard.)
+  const usePrePaintEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+  usePrePaintEffect(() => {
+    if (window.matchMedia('(max-width: 1279px)').matches) setIsInspectorOpen(false);
+  }, []);
   const prompterContainerRef = useRef<HTMLDivElement>(null);
 
   // Voice speech-follow teleprompter (CR-002): Creator-only, client-side,
@@ -542,7 +682,12 @@ export default function HomePage() {
   // It must not reuse clearMasterRecording: that deletes the IndexedDB row,
   // which is the only copy of the bytes, so the previous take has to be
   // DETACHED here and left in the library, reachable from Library only.
-  const handleNewVideo = useCallback(() => {
+  // A destructive session transition asks first. One shared dialog (the same
+  // one the Library and Export sheet use) instead of window.confirm, so the
+  // question is branded, keyboard-trappable and cancelled with Escape.
+  const [pendingConfirm, setPendingConfirm] = useState<'new-video' | 'delete-take' | null>(null);
+
+  const startNewVideoSession = useCallback(() => {
     ui.setIsDrawerVisible(false);
     // 'completed' keeps review alive on its own (see isReviewState), so the
     // capture session has to go back to idle or review survives with no take.
@@ -555,7 +700,37 @@ export default function HomePage() {
     // DC-1: a new video starts with an empty script. The outgoing take keeps
     // ITS script in its own row; the editor is a fresh draft area from here.
     scriptStorage.clearScript();
-  }, [ui, recorder, releaseMasterRecording, clearJobs, setExportConfig, scriptStorage.clearScript]);
+  }, [ui, recorder, releaseMasterRecording, clearJobs, setExportConfig, setPreviewPlatformId, setActivePanel, scriptStorage.clearScript]);
+
+  const discardSessionTake = useCallback(() => {
+    ui.setIsDrawerVisible(false);
+    recorder.resetRecording();
+    clearMasterRecording();
+    clearJobs();
+    setExportConfig(null);
+  }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
+
+  const handleNewVideo = useCallback(() => {
+    // Never destroy a take in flight. New Video is a "start over" for an
+    // IDLE session; during a countdown/recording it would silently discard
+    // what the camera just captured, so it says so instead.
+    if (
+      recorder.recordingState === 'countdown' ||
+      recorder.recordingState === 'recording' ||
+      recorder.recordingState === 'paused'
+    ) {
+      showToast('Stop the recording first — New Video would discard this take.');
+      return;
+    }
+    // An unsaved script DRAFT (no take to carry its snapshot) would be lost
+    // without a word. Once a take exists its script lives in the master's
+    // row, so no confirmation is needed there.
+    if (!masterRecordingData && scriptStorage.script.trim()) {
+      setPendingConfirm('new-video');
+      return;
+    }
+    startNewVideoSession();
+  }, [recorder.recordingState, masterRecordingData, scriptStorage.script, showToast, startNewVideoSession]);
 
   // Restore the master recording from IndexedDB. This is the only thing that
   // carries a take across a cross-document navigation (Google OAuth, the
@@ -567,6 +742,86 @@ export default function HomePage() {
       restoreMasterRecording();
     }
   }, [masterRecordingData, restoreMasterRecording]);
+
+  // Interrupted-take recovery (Phase 9). If the previous document crashed /
+  // was refreshed / was killed while a take was recording, its chunks are
+  // still in local recovery storage. Once, per document: sweep expired
+  // debris, reassemble the latest recoverable session (if any) and attach it
+  // exactly like a freshly finished take. A take that is already held (a
+  // restore beat it, or the user recorded) is never overwritten — the
+  // recovered session stays in storage until its TTL.
+  const recoveryAdoptedRef = useRef(false);
+  const masterRecordingRef = useRef<MasterRecording | null>(masterRecordingData);
+  masterRecordingRef.current = masterRecordingData;
+  // Recovered takes join the 24h master-recording library TTL.
+  const RECOVERY_TTL_MS = 24 * 60 * 60 * 1000;
+  useEffect(() => {
+    if (!hydrated || recoveryAdoptedRef.current) return;
+    recoveryAdoptedRef.current = true;
+    const recover = async () => {
+      void sweepAbandonedSessions(recoverySink.getSessionId());
+      const session = await findRecoverableSession();
+      if (!session || masterRecordingRef.current) return;
+      // A previous document may have saved this recovery under its session id
+      // but been killed before deleting the chunks. Re-adopting it would
+      // charge the Free budget twice and surface a duplicate take.
+      const alreadyAdopted = await getRecording(session.sessionId);
+      if (alreadyAdopted) {
+        void deleteChunkSession(session.sessionId);
+        return;
+      }
+      const take = await assembleRecoveryBlob(session);
+      if (!take || masterRecordingRef.current) return;
+      // The take joins the library as a REAL row and is attached through the
+      // Workflow-B machinery (openStoredRecording): after a reload there is no
+      // in-flight take to reach the 'completed' state createMasterRecording's
+      // review contract expects, so an interrupted take reviews exactly like
+      // an opened library recording (isRestored) — which it now is.
+      const storedFromRecovery: StoredRecording = {
+        id: take.sessionId,
+        name: 'Recovered recording',
+        blob: take.blob,
+        mimeType: take.mimeType,
+        extension: take.extension,
+        duration: take.duration,
+        hasAudio: take.hasAudio,
+        recordingMetadata: take.recordingMetadata,
+        width: take.width,
+        height: take.height,
+        aspectRatio: deriveAspectRatioLabel(take.width, take.height),
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + RECOVERY_TTL_MS).toISOString(),
+        script: scriptStorage.script ?? undefined,
+      };
+      let saved = true;
+      try {
+        await saveRecording(storedFromRecovery);
+      } catch {
+        saved = false;
+      }
+      // Free-plan honesty: this take DID record, so it consumes the daily
+      // budget the normal completion path would have charged at its stop —
+      // but only once the library row exists. A failed adoption is retried by
+      // the next document and must not be charged again if that retry works.
+      if (saved && !isCreatorUser && take.duration > 0) {
+        addDailyRecordingSeconds(take.duration);
+      }
+      openStoredRecording(storedFromRecovery);
+      if (saved) {
+        // Adoption succeeded: the recovery rows have served their purpose.
+        void deleteChunkSession(take.sessionId);
+        showToast('Your previous recording was recovered.');
+      } else {
+        // Keep the rows for the retry, and do not pretend the library copy
+        // exists — it does not.
+        showToast('Your previous recording is ready here, but we could not save it to your library. Keep this tab open to export it.');
+      }
+    };
+    void recover();
+    // The late-value guard reads masterRecordingRef.current at await time, so
+    // this effect intentionally runs once (per document) instead of on master
+    // changes.
+  }, [hydrated, recoveryAdoptedRef, recoverySink, openStoredRecording, showToast, isCreatorUser, masterRecordingRef, scriptStorage.script]);
 
   // DC-1 — the attached video's script SNAPSHOT is authoritative for that
   // video. Fires whenever a master attaches (fresh completion, library open,
@@ -622,9 +877,18 @@ export default function HomePage() {
           URL.revokeObjectURL(blobUrl);
         };
 
+        // A take that lasted less than a second still becomes a library row
+        // that reads 00:00. Nothing downstream will warn, so the take says it
+        // itself while Review is on screen and "Retake" is one click away.
+        const warnIfSubSecond = (duration: number) => {
+          if (Number.isFinite(duration) && duration < 1) {
+            showToast('That take is under a second — retake before exporting.');
+          }
+        };
+
         videoEl.onloadedmetadata = () => {
-          const actualWidth = videoEl.videoWidth || recordingConfig.width;
-          const actualHeight = videoEl.videoHeight || recordingConfig.height;
+          const actualWidth = videoEl.videoWidth || result.width || recordingConfig.width;
+          const actualHeight = videoEl.videoHeight || result.height || recordingConfig.height;
           // Authoritative media duration: what actually plays back. The
           // recorder's active-clock figure (also pause-aware) is the
           // fallback when the container reports a non-finite duration.
@@ -638,26 +902,36 @@ export default function HomePage() {
             result.hasAudio,
             actualWidth,
             actualHeight,
-            scriptSnapshot
+            scriptSnapshot,
+            {
+              ...result.metadata,
+              duration: mediaDuration,
+              fileSize: result.blob.size,
+              averageFileBitrate: mediaDuration > 0 ? Math.round((result.blob.size * 8) / mediaDuration) : null,
+            }
           );
+          warnIfSubSecond(mediaDuration);
         };
 
         videoEl.onerror = () => {
           cleanupProbe();
-          // Fallback to config dimensions
+          // Fall back to the capture track's real settings (never a target
+          // nobody delivered), then the configured target.
           createMasterRecording(
             result.blob,
             result.duration,
             result.hasAudio,
-            recordingConfig.width,
-            recordingConfig.height,
-            scriptSnapshot
+            result.width || recordingConfig.width,
+            result.height || recordingConfig.height,
+            scriptSnapshot,
+            result.metadata
           );
+          warnIfSubSecond(result.duration);
         };
       }
 
     resetTimer();
-  }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height, isCreatorUser, setDrawerVisible, resetTimer, scriptStorage.script]);
+  }, [recorder.recordingState, recorder.recordingResult, createMasterRecording, recordingConfig.width, recordingConfig.height, isCreatorUser, setDrawerVisible, resetTimer, scriptStorage.script, showToast]);
 
   // Free: the teleprompter allowance runs per recording (3 min, capped by the recording
   // budget). When it runs out mid-take the prompter hides — but the CAMERA KEEPS RECORDING.
@@ -683,6 +957,29 @@ export default function HomePage() {
     }
   }, [elapsedSeconds, recorder, showToast, isCreatorUser, teleprompterSessionCap]);
 
+  // The teleprompter driver pair, shared by Start, keyboard Resume and the
+  // TransportBar Resume (previously three copies — two of which drifted).
+  // Scroll advances by ELAPSED time, not a fixed per-tick increment: when a
+  // backgrounded tab clamps intervals to ≥1s, the prompter keeps its
+  // configured px/second average instead of nearly freezing.
+  const buildScrollAndCheckEnd = useCallback(() => ({
+    scrollCallback: (elapsedMs: number) => {
+      if (voiceEngagedRef.current) return;
+      if (!prompterContainerRef.current) return;
+      const container = prompterContainerRef.current;
+      // Historic behavior: (speed/20) * multiplier px per 50ms tick.
+      const pxPerMs = (settings.teleprompter.scrollSpeed / 20) * settings.teleprompter.scrollSpeedMultiplier / 50;
+      container.scrollTop += Math.max(0, pxPerMs * elapsedMs);
+    },
+    checkEndCallback: (): boolean => {
+      if (!prompterContainerRef.current) return false;
+      const container = prompterContainerRef.current;
+      const scrolledHeight = container.scrollTop + container.clientHeight;
+      const scrollableHeight = container.scrollHeight;
+      return scrolledHeight >= scrollableHeight - 5;
+    },
+  }), [voiceEngagedRef, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier]);
+
   const handleRecordStart = useCallback(async () => {
     // Free: enforce 10 min TOTAL recording per day (downloads stay unlimited)
     if (!isCreatorUser && !canRecordToday()) {
@@ -702,7 +999,27 @@ export default function HomePage() {
     if (!liveStream) {
       if (!camera.hasInitialized && !isReview) return;
       liveStream = await handleCameraInitialize();
-      if (!liveStream) return;
+      if (!liveStream) {
+        // The overlay now carries the reason (permission denied, device in
+        // use, disconnected…); this names the moment so the click that just
+        // did nothing is explained rather than silent.
+        showToast('We could not reconnect to your camera. Check the details on the canvas, then try again.');
+        return;
+      }
+    }
+
+    // Real preflight (Phase 12): only checks already proven by this point
+    // (codec support, live tracks, storage/policy warnings) — it adds no
+    // device probing. A fatal issue stops the click loudly; a warning (e.g.
+    // storage nearly full) is surfaced and recording proceeds.
+    const preflight = await runRecordingPreflight({ stream: liveStream });
+    const fatalIssue = preflight.issues.find((issue) => issue.severity === 'fatal');
+    if (fatalIssue) {
+      showToast(fatalIssue.message);
+      return;
+    }
+    for (const issue of preflight.issues) {
+      if (issue.severity === 'warning') showToast(issue.message);
     }
 
     if (prompterContainerRef.current) {
@@ -713,24 +1030,7 @@ export default function HomePage() {
 
     resetTimer();
 
-    const scrollCallback = () => {
-      // While the voice driver owns the position the timed driver idles
-      // (CR-002) — no competing writers, no jump when it hands back.
-      if (voiceEngagedRef.current) return;
-      if (!prompterContainerRef.current) return;
-      const container = prompterContainerRef.current;
-      const speed = settings.teleprompter.scrollSpeed;
-      const multiplier = settings.teleprompter.scrollSpeedMultiplier;
-      container.scrollTop += (speed / 20) * multiplier;
-    };
-
-    const checkEndCallback = (): boolean => {
-      if (!prompterContainerRef.current) return false;
-      const container = prompterContainerRef.current;
-      const scrolledHeight = container.scrollTop + container.clientHeight;
-      const scrollableHeight = container.scrollHeight;
-      return scrolledHeight >= scrollableHeight - 5;
-    };
+    const { scrollCallback, checkEndCallback } = buildScrollAndCheckEnd();
 
     // FC-1.0 countdown + DC-2: the countdown setting decides whether capture
     // waits; the teleprompter's auto-stop is the only stop that announces
@@ -738,8 +1038,12 @@ export default function HomePage() {
     recorder.startRecording(scrollCallback, checkEndCallback, liveStream, {
       countdown: settings.countdownEnabled,
       onScriptEnd: () => showToast('Script ended — recording stopped'),
+      // A MediaRecorder failure used to be console-only: the UI fell back to
+      // idle with no word. The hook supplies the human-readable message.
+      onError: (message) => showToast(message),
+      recovery: recoverySink,
     });
-  }, [camera, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, settings.countdownEnabled, resetTimer, isCreatorUser, showToast, ui, handleCameraInitialize, isReview, resetVoiceFollow, voiceEngagedRef]);
+  }, [camera, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, settings.countdownEnabled, resetTimer, isCreatorUser, showToast, ui, handleCameraInitialize, isReview, resetVoiceFollow, buildScrollAndCheckEnd, recoverySink]);
 
   const handleRecordStop = useCallback(() => {
     if (recorder.recordingState === 'recording' || recorder.recordingState === 'paused') {
@@ -774,20 +1078,47 @@ export default function HomePage() {
   //   back to it.
   //
   //   Workflow A: the explicit discard of the take recorded in this session.
-  //   It deletes the only copy of the bytes, so it says so first; cancelling
-  //   leaves the take, the sheet and the review exactly as they were.
+  //   It deletes the only copy of the bytes, so it says so first — the Export
+  //   sheet raises the shared ConfirmDialog (gated by
+  //   `practiceAgainDiscardsTake`) and only calls this once the user agrees.
+  //   This handler therefore performs the discard it is asked to perform;
+  //   nothing else calls it.
   const handlePracticeAgain = useCallback(() => {
     if (isLibraryOriginal) {
       handleNewVideo();
       return;
     }
-    if (!window.confirm('Record Again discards this take and deletes it from your library. Continue?')) return;
+    discardSessionTake();
+  }, [isLibraryOriginal, handleNewVideo, discardSessionTake]);
+
+  // Review → Retake. This is deliberately NON-destructive: the take on screen
+  // is already a library row, so starting another take leaves it there and
+  // creates a new row when the next take stops. That is different from the
+  // export-success "Record Again", which confirms a discard. The review copy
+  // says which one is happening so the user never has to guess.
+  const handleReviewRetake = useCallback(() => {
     ui.setIsDrawerVisible(false);
-    recorder.resetRecording();
-    clearMasterRecording();
-    clearJobs();
-    setExportConfig(null);
-  }, [isLibraryOriginal, handleNewVideo, ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
+    // A take can be stopped while the camera is off (the toggle stays live
+    // mid-take). Review hides the live device chips, so there would be no way
+    // to switch it back on before a new take. Retake means "record again with
+    // the camera", so restore it rather than starting a black take under a
+    // Camera-off overlay.
+    if (!isCameraOn) {
+      setIsCameraOn(true);
+      try { localStorage.setItem('sxs-camera-on', 'true'); } catch { /* ignore */ }
+      showToast('Camera turned on for your retake.');
+    }
+    void handleRecordStart();
+  }, [ui, handleRecordStart, isCameraOn, showToast]);
+
+  // Review → Delete. Only a take created in this session may be destroyed
+  // from here. A library original (or a recovered take, which is adopted as
+  // one) is the user's existing video and is deleted from the Library, where
+  // that consequence is explicit — never as a side effect of review.
+  const handleReviewDelete = useCallback(() => {
+    if (!masterRecordingData || isLibraryOriginal) return;
+    setPendingConfirm('delete-take');
+  }, [masterRecordingData, isLibraryOriginal]);
 
   // "Open My Library" is a navigation, not a discard. It must leave the master
   // recording untouched: this button sits on the post-export success screen, so
@@ -828,6 +1159,21 @@ export default function HomePage() {
     setIsMicMuted((prev) => !prev);
   }, []);
 
+  const handleCameraToggle = useCallback(() => {
+    setIsCameraOn((prev) => {
+      const next = !prev;
+      try { localStorage.setItem('sxs-camera-on', String(next)); } catch { /* ignore */ }
+      // Disable/enable the video track on the live stream so the mic and take
+      // stay alive while video is off. No-op if no stream yet.
+      const stream = camera.stream;
+      if (stream) {
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) videoTrack.enabled = next;
+      }
+      return next;
+    });
+  }, [camera.stream]);
+
   // DC-3 / UX-001 — ONE meaning for every label, at every breakpoint:
   //
   //   "Studio"     -> navigation. It goes to the Studio view and does nothing
@@ -845,9 +1191,41 @@ export default function HomePage() {
     setActivePanel(panel);
   }, []);
 
+  const isStudio = activePanel === 'studio';
+
+  // The inspector edits the LIVE setup (camera, mirror, teleprompter). While
+  // a take is in flight the canvas is the recording surface — swapping it for
+  // settings mid-recording is never what the user meant, so the toggle says
+  // so instead. Outside the Studio panel there is nothing to toggle (the
+  // inspector is not rendered), so the control lands the user on Studio
+  // first rather than silently doing nothing.
   const handleToggleInspector = useCallback(() => {
+    if (
+      recorder.recordingState === 'countdown' ||
+      recorder.recordingState === 'recording' ||
+      recorder.recordingState === 'paused'
+    ) {
+      showToast('Finish your recording to change studio settings.');
+      return;
+    }
+    // Review has no prepare-only sections on purpose: showing an empty
+    // "Inspector" here would be a dead drawer. Retake is the way back to a
+    // recording setup, and Export is the way out with this take.
+    if (isReview) {
+      showToast('Your recording is ready. Retake to record again, or export it now.');
+      return;
+    }
+    if (!isStudio) {
+      setActivePanel('studio');
+      setIsInspectorOpen(true);
+      return;
+    }
     setIsInspectorOpen((prev) => !prev);
-  }, []);
+  }, [recorder.recordingState, isReview, isStudio, showToast]);
+
+  const handleSettingsClick = useCallback(() => {
+    handleToggleInspector();
+  }, [handleToggleInspector]);
 
   const handleShowShortcuts = useCallback(() => {
     showToast('Space: Start / Stop recording · P: Pause / Resume · M: Mute microphone · ↑ ↓: Move text · Esc: Close');
@@ -858,37 +1236,21 @@ export default function HomePage() {
   useKeyboardShortcuts({
     onRecordStop: handleRecordStop,
     onRecordPause: recorder.pauseRecording,
-    onRecordResume: () =>
-      recorder.resumeRecording(
-        () => {
-          if (voiceEngagedRef.current) return; // voice driver owns the position (CR-002)
-          if (!prompterContainerRef.current) return;
-          const container = prompterContainerRef.current;
-          const speed = settings.teleprompter.scrollSpeed;
-          const multiplier = settings.teleprompter.scrollSpeedMultiplier;
-          container.scrollTop += (speed / 20) * multiplier;
-        },
-        () => {
-          if (!prompterContainerRef.current) return false;
-          const container = prompterContainerRef.current;
-          return (
-            container.scrollTop + container.clientHeight >=
-            container.scrollHeight - 5
-          );
-        }
-      ),
+    onRecordResume: () => {
+      const { scrollCallback, checkEndCallback } = buildScrollAndCheckEnd();
+      recorder.resumeRecording(scrollCallback, checkEndCallback);
+    },
     onMicToggle: handleMicToggle,
     onNudgeUp: handleNudgeUp,
     onNudgeDown: handleNudgeDown,
     onCloseDrawer: handleDismissDrawer,
     isRecording: recorder.recordingState === 'recording',
     isPaused: recorder.recordingState === 'paused',
-    canRecord: !!camera.stream,
+    canRecord: canStartRecording,
     isDrawerVisible: ui.isDrawerVisible,
+    canNudge: prompterScript.length > 0,
     showNudgeToast: showToast,
   });
-
-  const isStudio = activePanel === 'studio';
 
   // Single authority for review playback: the take may be audible only while
   // the review surface itself owns the user's attention. Pricing, upgrade,
@@ -902,6 +1264,15 @@ export default function HomePage() {
     welcomeModal.isVisible ||
     lockedPlatform !== null;
 
+  // z-drawer (150) renders above z-modal (100), so the compact-layout
+  // inspector drawer left open would sit ON TOP of any blocking modal —
+  // covering the very surface the user just asked for. Every blocking modal
+  // therefore dismisses the drawer; the docked (xl) inspector is in normal
+  // flow and needs no such handling.
+  useEffect(() => {
+    if (isBlockingModalOpen && isCompactLayout) setIsInspectorOpen(false);
+  }, [isBlockingModalOpen, isCompactLayout]);
+
   const previewPreset = PLATFORM_PRESETS.find((p) => p.id === previewPlatformId) ?? PLATFORM_PRESETS[0];
   // Review crop geometry from the SAME production math the export uses
   // (getDefaultCrop → cover). Shape (Canvas box) and crop move together.
@@ -914,22 +1285,12 @@ export default function HomePage() {
       ).style
     : undefined;
 
-  // Dimension accuracy: the badge shows what capture ACTUALLY is, never the
-  // configured target dressed up as a captured resolution.
-  //   - review      → the take's probed (real) dimensions;
-  //   - live camera → the active MediaStream track's own settings;
-  //   - no stream   → null, so Canvas labels the configured target as a
-  //                   target rather than claiming it as capture.
-  const activeVideoTrack = camera.stream?.getVideoTracks?.()[0];
-  const trackSettings = activeVideoTrack?.getSettings?.();
-  const liveCaptureSize =
-    trackSettings && trackSettings.width && trackSettings.height
-      ? { width: trackSettings.width, height: trackSettings.height }
-      : null;
-  const captureSize =
-    isReview && masterRecordingData && masterRecordingData.sourceWidth > 0 && masterRecordingData.sourceHeight > 0
-      ? { width: masterRecordingData.sourceWidth, height: masterRecordingData.sourceHeight }
-      : liveCaptureSize;
+  // Dimension truth is used by the RecordingStatusLine while a take is in
+  // flight: the ACTUAL MediaStream track settings, never a configured target
+  // dressed up as capture (the old always-on dimensions chip was removed with
+  // the clean-canvas redesign; during a take the status line owns the real
+  // numbers, and outside a take the UI simply doesn't claim any).
+  const liveCaptureInfo = readTrackCaptureInfo(camera.stream);
 
   const inspectorProps = {
     settings: settings.teleprompter,
@@ -956,6 +1317,20 @@ export default function HomePage() {
     },
   };
 
+  const pendingConfirmCopy = pendingConfirm === 'delete-take'
+    ? {
+        title: 'Delete this recording?',
+        message: 'It will be removed from this browser and cannot be undone.',
+        confirmLabel: 'Delete recording',
+        cancelLabel: 'Keep recording',
+      }
+    : {
+        title: 'Start a new video?',
+        message: 'Your unsaved script draft will be cleared. This cannot be undone.',
+        confirmLabel: 'Start new video',
+        cancelLabel: 'Keep editing',
+      };
+
   return (
     <>
       <WelcomeModal
@@ -969,22 +1344,41 @@ export default function HomePage() {
         onExploreStudio={welcomeModal.closeModal}
       />
 
-      <div className="h-screen flex flex-col bg-canvas overflow-hidden">
+      {/* The export sheet is modal in every respect, so its background must be
+          inert as well as visually dimmed: without it the header/nav/main stayed
+          focusable and clickable behind the backdrop. The sheet itself renders
+          outside this shell, so it is unaffected. */}
+      <div
+        className="h-screen flex flex-col bg-canvas overflow-hidden"
+        inert={ui.isDrawerVisible || undefined}
+      >
         <Header
-          isMobile={isMobile}
           hasRecording={isReview && !!masterRecordingData}
           onExport={() => ui.setIsDrawerVisible(true)}
           onShare={share}
           onToggleInspector={handleToggleInspector}
+          isInspectorOpen={isInspectorOpen}
           onSignIn={() => {
             setAuthIntent('login');
             ui.handleAuthRequired();
           }}
           userPlan={userPlan}
           onPricingClick={handlePricingClick}
+          compactNav={
+            <CompactNavMenu
+              activePanel={activePanel}
+              onPanelChange={handleCompactNav}
+              onNewVideo={handleNewVideo}
+              onSettingsToggle={handleToggleInspector}
+            />
+          }
         />
 
-        <div className="flex-1 min-h-0 flex overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))] xl:pb-0">
+        {/* Compact layouts no longer pin a navigation bar to the bottom of the
+            viewport: those destinations now live behind the hamburger in the
+            app bar above. The row keeps no bottom reservation, so the canvas
+            and the transport reclaim the 3.5rem they used to pay for it. */}
+        <div className="flex-1 min-h-0 flex overflow-hidden">
           <IconRail
             activePanel={activePanel}
             onPanelChange={handleCompactNav}
@@ -993,46 +1387,71 @@ export default function HomePage() {
           />
 
           <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden" role="main">
-            <div className={`flex-1 min-h-0 flex flex-col overflow-hidden ${isStudio ? '' : 'hidden'}`}>
-              {recorder.recordingState !== 'countdown' && recorder.recordingState !== 'recording' && recorder.recordingState !== 'paused' && (
-                <DeviceSelectorBar
-                  videoDevices={camera.videoDevices}
-                  audioDevices={camera.audioDevices}
-                  selectedVideoDevice={settings.selectedVideoDevice}
-                  selectedAudioDevice={settings.selectedAudioDevice}
-                  onVideoDeviceChange={handleVideoDeviceChange}
-                  onAudioDeviceChange={handleAudioDeviceChange}
-                  onRefresh={camera.refreshDevices}
+            <div className={`relative flex-1 min-h-0 flex flex-col overflow-hidden ${isStudio ? '' : 'hidden'}`}>
+              {/* Recording-format line: the one pre-record choice that changes
+                  what the CAMERA captures. A single quiet line above the
+                  canvas — the device selections that used to share this row
+                  moved behind the mic / camera chevrons in the transport.
+                  IMPORTANT: the row reserves its height for the WHOLE studio
+                  session (contents hide during a take) so starting or stopping
+                  never reflows the canvas — no layout jump. */}
+              <div className="w-full flex items-center justify-center min-h-11 px-3 py-0.5 shrink-0 overflow-hidden">
+                {!isReview && recorder.recordingState !== 'countdown' && recorder.recordingState !== 'recording' && recorder.recordingState !== 'paused' && (
+                  <RecordingFormatPicker
+                    recordingPlatformId={settings.platformId}
+                    onSelect={(id) => settings.setPlatformId(id)}
+                    userPlan={session?.user?.plan || 'free'}
+                    onUpgradeRequired={(id) => handlePlatformUpgradeRequired(id)}
+                  />
+                )}
+              </div>
+              {/* The capture session is 'completed' from the instant the
+                  recorder finishes until the async metadata probe + master
+                  create land (and a restored take can arrive the same way):
+                  in that gap isReview is true but there is no take to draw
+                  yet. Without this the canvas showed a black frame with no
+                  explanation. */}
+              {isReview && !masterRecordingData && (
+                <div
+                  role="status"
+                  className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-canvas/80 backdrop-blur-sm"
                 >
-                  {!isReview && (
-                    <RecordingFormatPicker
-                      recordingPlatformId={settings.platformId}
-                      onSelect={(id) => settings.setPlatformId(id)}
-                      userPlan={session?.user?.plan || 'free'}
-                      onUpgradeRequired={(id) => handlePlatformUpgradeRequired(id)}
-                    />
-                  )}
-                </DeviceSelectorBar>
+                  <div className="w-7 h-7 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                  <span className="text-[12px] font-medium text-text-secondary">Finishing your recording…</span>
+                </div>
               )}
-              {!isReview && !isCreatorUser && isMobile && <FreeRotateNudge />}
+
+              {!isCreatorUser && isMobile && (
+                // Keep the row reserved in review too: hiding it would hand
+                // its height back to the canvas at Stop and shift the frame.
+                <FreeRotateNudge suppressed={isReview || recorder.recordingState !== 'idle'} />
+              )}
 
               <Canvas
                 focusViewEnabled={focusView.isEnabled}
                 onFocusViewToggle={focusView.toggle}
                 aspectRatio={isReview ? previewPreset.aspectRatio : settings.aspectRatio}
-                recordingConfig={recordingConfig}
                 reviewVideoUrl={isReview && masterRecordingData ? masterRecordingData.url : undefined}
                 reviewAspectRatio={isReview ? previewPreset.aspectRatio : undefined}
                 reviewVideoStyle={reviewCropStyle}
+                reviewDuration={isReview && masterRecordingData ? masterRecordingData.duration : undefined}
                 reviewHasAudio={isReview && masterRecordingData ? masterRecordingData.hasAudio : false}
                 reviewActive={isReview && isStudio && !ui.isDrawerVisible && !isBlockingModalOpen}
-                captureSize={captureSize}
+                statusBadge={<RecordingBadge recordingState={recorder.recordingState} />}
               >
                 <CameraPreview
                   stream={camera.stream}
                   isMirrored={settings.isMirrored}
                   focusViewEnabled={focusView.isEnabled}
                 />
+
+                {/* Camera-off state: an honest overlay over the frozen frame.
+                    Only when the capture session exists AND the user turned
+                    the video track off — never a fake stream, and it disappears
+                    the instant the track is live again. */}
+                {!isReview && camera.hasInitialized && camera.status !== 'error' && camera.stream && !isCameraOn && (
+                  <CameraOffOverlay onEnable={handleCameraToggle} isMicMuted={isMicMuted} />
+                )}
 
                 {teleprompterDisabled ? (
                   <div className="absolute inset-0 z-20 flex items-center justify-center p-4">
@@ -1059,9 +1478,17 @@ export default function HomePage() {
 
                 <FocalGuideway position={settings.teleprompter.textStartPosition} />
 
-                {camera.stream && !isReview && <EyeLineGuide />}
-
-                <RecordingBadge recordingState={recorder.recordingState} />
+                {/* Phase 13 status line: real capture geometry + the real
+                    state of the local recovery copy, only while a take or
+                    countdown is in flight. */}
+                {(recorder.recordingState === 'recording' || recorder.recordingState === 'paused' || recorder.recordingState === 'countdown') && (
+                  <RecordingStatusLine
+                    capture={liveCaptureInfo && recorder.recordingState !== 'countdown'
+                      ? { width: liveCaptureInfo.width, height: liveCaptureInfo.height, frameRate: liveCaptureInfo.frameRate || undefined }
+                      : null}
+                    backupState={recorder.recordingState === 'countdown' ? 'inactive' : backupState}
+                  />
+                )}
 
                 {/* CR-002: while voice follow is engaged but blocked
                     (permission denied / fatal recognition error) the
@@ -1079,6 +1506,7 @@ export default function HomePage() {
 
                 <Timer
                   isRunning={recorder.recordingState === 'recording'}
+                  isPaused={recorder.recordingState === 'paused'}
                   elapsedSeconds={elapsedSeconds}
                 />
 
@@ -1087,62 +1515,133 @@ export default function HomePage() {
                   // The state itself is the truth: `countdown` is only ever
                   // entered when the countdown setting is on (FC-1.0).
                   isVisible={recorder.recordingState === 'countdown'}
-                  onCancel={recorder.cancelCountdown}
+                  // A countdown started over an existing take (review →
+                  // Record again) must fall BACK to review when cancelled —
+                  // 'idle' would exit review and hide a take the user still
+                  // has. Fresh session: idle, as before.
+                  onCancel={() =>
+                    recorder.cancelCountdown(masterRecordingData ? 'completed' : 'idle')
+                  }
                 />
 
-                {!camera.isInitialized && !camera.hasInitialized && (
+                {/* Shown before first enable AND after a failure/disconnect so
+                    Retry is always the visible recovery. Never during an
+                    active capture: the user must keep seeing (and reaching)
+                    Stop — the overlay returns the moment the take ends. */}
+                {!camera.isInitialized &&
+                  (!camera.hasInitialized || camera.status === 'error') &&
+                  recorder.recordingState !== 'recording' &&
+                  recorder.recordingState !== 'paused' && (
                   <InitOverlay
                     onInitialize={handleCameraInitialize}
                     status={camera.status === 'ready' ? 'idle' : camera.status}
                     errorMessage={camera.errorMessage}
+                    permissionBlocked={camera.permissionBlocked}
                   />
                 )}
               </Canvas>
 
-              {/* "Preview as" platform switcher — only during review */}
+              {/* Review: WATCH → DECIDE → CONTINUE. The take is already the
+                  active library recording the moment it stops, so say that
+                  plainly instead of leaving the user to infer it from a video
+                  that simply appeared.
+                  The tray is an OVERLAY, not another flow row: the format line
+                  and rotate advisory above the canvas stay reserved, so Stop
+                  does not resize or re-centre the frame the user just shot.
+                  Retake is non-destructive; Delete is offered only for a take
+                  created in this session. */}
               {isReview && masterRecordingData && (
-                <>
-                  <PlatformPreviewSwitcher
-                    selectedPlatformId={previewPlatformId}
-                    onSelect={setPreviewPlatformId}
-                    isLocked={(id) => !isCreatorUser && isPlatformLockedForUser(id, session?.user?.plan || 'free')}
-                    onLockedClick={(id) => {
-                      handlePlatformUpgradeRequired(id);
-                    }}
-                  />
-                  <div className="flex items-center justify-center gap-3 pb-3">
-                    <span className="text-[12px] text-text-secondary">
-                      {previewPreset.label} · {previewPreset.sublabel}
-                    </span>
-                    <button
-                      onClick={() => {
-                        // Drive the export from the previewed platform directly:
-                        // the modal must open on the SAME platform the user just
-                        // previewed (single source of truth: PLATFORM_PRESETS).
-                        const srcW = masterRecordingData.sourceWidth || 1920;
-                        const srcH = masterRecordingData.sourceHeight || 1080;
-                        settings.setPlatformId(previewPlatformId);
-                        selectPlatform(
-                          previewPlatformId,
-                          srcW,
-                          srcH,
-                          getEntitlements(userPlan).maxResolution,
-                        );
-                        ui.setIsDrawerVisible(true);
-                      }}
-                      className="px-5 py-2 rounded-lg bg-accent text-white text-[13px] font-semibold hover:bg-accent/90 transition-colors"
-                    >
-                      Export
-                    </button>
+                <div
+                  ref={reviewTrayRef}
+                  data-review-tray
+                  role="region"
+                  aria-label="Recording ready. Review your recording."
+                  tabIndex={-1}
+                  className="pointer-events-none absolute inset-x-0 bottom-0 z-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                >
+                  <div className="pointer-events-auto border-t border-white/[0.06] bg-canvas/90 px-3 pb-1.5 pt-2 shadow-[0_-16px_40px_rgba(0,0,0,0.45)] backdrop-blur-md sm:px-5">
+                    <div className="mx-auto flex max-w-5xl flex-col gap-1.5">
+                      <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
+                        <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
+                        <span className="text-[12px] font-semibold text-text-primary">
+                          Your recording is ready.
+                        </span>
+                        <span className="text-[11px] font-mono tabular-nums text-text-secondary">
+                          {formatTime(masterRecordingData.duration)}
+                        </span>
+                        <span aria-hidden="true" className="text-[11px] text-text-muted">·</span>
+                        <span className="text-[11px] text-text-muted">Saved in this browser</span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        {!isLibraryOriginal && (
+                          <button
+                            type="button"
+                            onClick={handleReviewDelete}
+                            aria-label="Delete recording"
+                            title="Delete this take"
+                            className="flex items-center justify-center gap-1.5 min-w-[44px] min-h-[44px] px-3 rounded-lg text-text-muted ring-1 ring-white/[0.08] hover:text-recording hover:bg-recording/10 transition-colors"
+                          >
+                            <TrashIcon className="w-4 h-4" />
+                            <span className="hidden sm:inline text-[12px] font-medium">Delete</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleReviewRetake}
+                          aria-label="Retake"
+                          aria-describedby="review-retake-note"
+                          className="flex flex-col items-center justify-center min-h-[44px] px-4 rounded-lg bg-white/[0.06] ring-1 ring-white/[0.08] text-text-primary hover:bg-white/[0.1] transition-colors leading-tight"
+                        >
+                          <span className="text-[13px] font-semibold">Retake</span>
+                          <span aria-hidden="true" className="text-[9px] font-normal text-text-muted">
+                            keeps this take
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            // Drive the export from the previewed platform directly:
+                            // the modal must open on the SAME platform the user just
+                            // previewed (single source of truth: PLATFORM_PRESETS).
+                            const srcW = masterRecordingData.sourceWidth || 1920;
+                            const srcH = masterRecordingData.sourceHeight || 1080;
+                            settings.setPlatformId(previewPlatformId);
+                            selectPlatform(
+                              previewPlatformId,
+                              srcW,
+                              srcH,
+                              getEntitlements(userPlan).maxResolution,
+                            );
+                            ui.setIsDrawerVisible(true);
+                          }}
+                          className="min-h-[44px] px-5 rounded-lg bg-accent text-white text-[13px] font-semibold hover:bg-accent/90 transition-colors"
+                        >
+                          Export
+                        </button>
+                      </div>
+
+                      <p id="review-retake-note" className="sr-only">
+                        Retake starts a new take. This recording stays in your library.
+                      </p>
+
+                      <PlatformPreviewSwitcher
+                        compact
+                        selectedPlatformId={previewPlatformId}
+                        onSelect={setPreviewPlatformId}
+                        isLocked={(id) => !isCreatorUser && isPlatformLockedForUser(id, session?.user?.plan || 'free')}
+                        onLockedClick={(id) => {
+                          handlePlatformUpgradeRequired(id);
+                        }}
+                      />
+                    </div>
                   </div>
-                </>
+                </div>
               )}
             </div>
 
             {activePanel === 'library' && (
               <div className="flex-1 min-h-0 overflow-auto">
                 <RecordingsPanel
-                  isMobile={isMobile}
                   isAuthenticated={!!session?.user}
                   userPlan={userPlan}
                   refreshKey={exportJobs.length}
@@ -1189,33 +1688,35 @@ export default function HomePage() {
                 hasRecording={isReview}
                 isMicMuted={isMicMuted}
                 elapsedSeconds={elapsedSeconds}
-                dailyRemainingSeconds={dailyRemainingDisplay}
-                dailyRemainingTotalSeconds={FREE_DAILY_RECORDING_SECONDS}
                 recordBlockerHint={recordBlockerHint}
                 onMicToggle={handleMicToggle}
+                onCameraToggle={handleCameraToggle}
+                isCameraOn={isCameraOn}
+                // No live stream means these chips are not live controls. They
+                // used to read "Camera on / Mic on" before permission was even
+                // granted, and stayed "on" through a permission failure.
+                captureActive={!!camera.stream && camera.status === 'ready'}
+                // Device picking lives behind the mic / camera chevrons now
+                // (clean-canvas redesign) — same state and handlers the old
+                // DeviceSelectorBar wrote; only the surface moved.
+                videoDevices={camera.videoDevices}
+                audioDevices={camera.audioDevices}
+                selectedVideoDevice={settings.selectedVideoDevice}
+                selectedAudioDevice={settings.selectedAudioDevice}
+                onVideoDeviceChange={handleVideoDeviceChange}
+                onAudioDeviceChange={handleAudioDeviceChange}
+                onRefreshDevices={camera.refreshDevices}
                 onStart={handleRecordStart}
                 onPause={recorder.pauseRecording}
-                onResume={() =>
-                  recorder.resumeRecording(
-                    () => {
-                      if (voiceEngagedRef.current) return; // voice driver owns the position (CR-002)
-                      if (!prompterContainerRef.current) return;
-                      const container = prompterContainerRef.current;
-                      const speed = settings.teleprompter.scrollSpeed;
-                      const multiplier = settings.teleprompter.scrollSpeedMultiplier;
-                      container.scrollTop += (speed / 20) * multiplier;
-                    },
-                    () => {
-                      if (!prompterContainerRef.current) return false;
-                      const container = prompterContainerRef.current;
-                      return (
-                        container.scrollTop + container.clientHeight >=
-                        container.scrollHeight - 5
-                      );
-                    }
-                  )
-                }
+                onResume={() => {
+                  const { scrollCallback, checkEndCallback } = buildScrollAndCheckEnd();
+                  recorder.resumeRecording(scrollCallback, checkEndCallback);
+                }}
                 onStop={handleStopAndReleaseCamera}
+                onCancelCountdown={() =>
+                  recorder.cancelCountdown(masterRecordingData ? 'completed' : 'idle')
+                }
+                onSettingsClick={handleSettingsClick}
               />
             )}
           </main>
@@ -1231,14 +1732,10 @@ export default function HomePage() {
           </div>
         </div>
 
-        <BottomNav
-          activePanel={activePanel}
-          onPanelChange={handleCompactNav}
-          onNewVideo={handleNewVideo}
-          onSettingsToggle={handleToggleInspector}
+        <Footer
+          showShortcuts={isStudio}
+          onShowShortcuts={handleShowShortcuts}
         />
-
-        <Footer showShortcuts={isStudio} onShowShortcuts={handleShowShortcuts} />
       </div>
 
       <ExportModal
@@ -1247,6 +1744,9 @@ export default function HomePage() {
         onClose={handleDismissDrawer}
         initialPlatformId={previewPlatformId}
         onPracticeAgain={handlePracticeAgain}
+        // Workflow A destroys this session's take, so the sheet must ask;
+        // Workflow B only detaches a library original, so it must not.
+        practiceAgainDiscardsTake={!isLibraryOriginal}
         onOpenLibrary={handleOpenLibrary}
         onShare={share}
         showToast={showToast}
@@ -1259,8 +1759,30 @@ export default function HomePage() {
         onDownloadLimitReached={handleUpgradeClick}
         exportConfig={exportConfig}
         onSelectPlatform={selectPlatform}
+        // The format switch lives in the review tray, which is hidden while the
+        // Library panel is visible (exporting a stored recording from there).
+        // Reveal it so the "Change format" handoff has a visible target.
+        onChangeFormat={() => setActivePanel('studio')}
         onStartExport={startExport}
         onCancelExport={() => cancelExport(exportJobs[exportJobs.length - 1]?.id || '')}
+      />
+
+      {/* New Video / Review delete both end a session, sometimes destroying the
+          only copy of a take. They ask here, in the same dialog the rest of the
+          Studio uses, instead of a native window.confirm. */}
+      <ConfirmDialog
+        isOpen={pendingConfirm !== null}
+        title={pendingConfirmCopy.title}
+        message={pendingConfirmCopy.message}
+        confirmLabel={pendingConfirmCopy.confirmLabel}
+        cancelLabel={pendingConfirmCopy.cancelLabel}
+        onConfirm={() => {
+          const action = pendingConfirm;
+          setPendingConfirm(null);
+          if (action === 'new-video') startNewVideoSession();
+          else if (action === 'delete-take') discardSessionTake();
+        }}
+        onCancel={() => setPendingConfirm(null)}
       />
 
       <PricingModal

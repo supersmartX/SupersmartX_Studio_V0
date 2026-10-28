@@ -92,13 +92,17 @@ describe('useMicMuteSync', () => {
   });
 
   it('the mute button reports the same single state the tracks read', () => {
-    // TransportBar's aria-pressed and the track.enabled writes both derive
-    // from the page's one `isMicMuted` value, so indicator and captured
-    // audio cannot disagree.
+    // The transport's mute indicator and the track.enabled writes both derive
+    // from the page's one `isMicMuted` value, so indicator and captured audio
+    // cannot disagree. The clean-canvas redesign moved the button into the
+    // DeviceChip (aria-pressed flows through a prop), so the pinned string is
+    // the exact call site that feeds it — still literally `isMicMuted`, never
+    // a derived or second state. Without a live stream the chip is not a live
+    // control, so it drops aria-pressed instead of asserting "on".
     const transport = readFileSync(
       join(process.cwd(), 'src', 'components', 'layout', 'TransportBar.tsx'),
       'utf8',
     );
-    expect(transport).toContain('aria-pressed={isMicMuted}');
+    expect(transport).toContain('ariaPressed={captureActive ? isMicMuted : undefined}');
   });
 });

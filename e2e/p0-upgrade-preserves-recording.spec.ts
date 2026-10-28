@@ -15,7 +15,7 @@
  *     â†’ studio returns
  *     â†’ THE SAME RECORDED VIDEO IS STILL THERE          <-- the P0 assertion
  *     â†’ selects Instagram Reels â†’ preview becomes 9:16
- *     â†’ export â†’ 1080Ã—1920 MP4, no watermark
+ *     â†’ export â†’ 1080×1920 MP4, no watermark
  *     â†’ R2 upload â†’ Library â†’ Download
  *
  * Why this file is mostly hermetic, and where the seams are
@@ -288,7 +288,7 @@ test.skip(!process.env.DATABASE_URL, 'P0 gate needs a disposable PostgreSQL dev 
 test.skip(({ browserName }) => browserName !== 'chromium', 'requires fake media devices');
 test.skip(!R2_READY, 'P0 gate needs real R2 credentials (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME) â€” the R2 upload â†’ Library â†’ Download tail cannot be faked, because /api/exports/complete verifies the object server-side with headObject');
 
-test('P0: Free records, upgrades, and the same recording survives all the way to a downloaded 1080Ã—1920 Reel', async ({ page }) => {
+test('P0: Free records, upgrades, and the same recording survives all the way to a downloaded 1080×1920 Reel', async ({ page }) => {
   let recorded: StoredRecord | null = null;
 
   try {
@@ -487,8 +487,8 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       const dialog = page.getByRole('dialog', { name: 'Export recording' });
       await dialog.waitFor({ state: 'visible', timeout: 15000 });
 
-      await expect(dialog.getByText(`${REELS.ratio} Â· ${REELS.width} Ã— ${REELS.height}`)).toBeVisible({ timeout: 10000 });
-      await expect(dialog.getByRole('button', { name: new RegExp(`^Export ${REELS.label}\\s*Â·\\s*${REELS.width}Ã—${REELS.height}`) })).toBeVisible();
+      await expect(dialog.getByText(`${REELS.ratio} · ${REELS.width} × ${REELS.height}`)).toBeVisible({ timeout: 10000 });
+      await expect(dialog.getByRole('button', { name: new RegExp(`^Export ${REELS.label}\\s*·\\s*${REELS.width}×${REELS.height}`) })).toBeVisible();
 
       // The Free-tier upsell copy must be gone now that the user is a Creator.
       await expect(dialog.getByText(/Other formats need Creator/i)).toHaveCount(0);
@@ -496,9 +496,9 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
     });
 
     /* ================================================================
-     * 6. EXPORT â†’ 1080Ã—1920 MP4, NO WATERMARK, R2 UPLOAD
+     * 6. EXPORT â†’ 1080×1920 MP4, NO WATERMARK, R2 UPLOAD
      * ================================================================ */
-    await test.step('Export produces a watermarked-free 1080Ã—1920 MP4 on R2', async () => {
+    await test.step('Export produces a watermarked-free 1080×1920 MP4 on R2', async () => {
       const dialog = page.getByRole('dialog', { name: 'Export recording' });
 
       const presigned = page.waitForResponse(
@@ -535,13 +535,13 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       expect(completed.r2Key).toContain('/');
 
       await dialog.getByText('Video exported').waitFor({ state: 'visible', timeout: 180000 });
-      await expect(dialog.getByText(`${REELS.width} Ã— ${REELS.height}`, { exact: false }).first()).toBeVisible();
+      await expect(dialog.getByText(`${REELS.width} × ${REELS.height}`, { exact: false }).first()).toBeVisible();
 
       // No watermark: the watermarked branch is the local-only one, so an empty
       // local-exports store after a paid export is the proof.
       expect(await readLocalExportCount(page), 'a Creator export must never touch the watermarked local path').toBe(0);
 
-      // The encoded file really is 1080Ã—1920 â€” measured on the finished blob,
+      // The encoded file really is 1080×1920 â€” measured on the finished blob,
       // not on the label above it.
       const dimensions = await dialog.locator('video').last().evaluate(
         (el) =>
@@ -590,8 +590,8 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       await savedExports.waitFor({ state: 'visible', timeout: 20000 });
 
       // The cloud row is labelled with the format and the real dimensions.
-      const cloudRow = page.locator('div').filter({ hasText: new RegExp(`${REELS.width}Ã—${REELS.height}`) }).last();
-      await expect(cloudRow.getByText(`${REELS.width}Ã—${REELS.height}`)).toBeVisible({ timeout: 30000 });
+      const cloudRow = page.locator('div').filter({ hasText: new RegExp(`${REELS.width}×${REELS.height}`) }).last();
+      await expect(cloudRow.getByText(`${REELS.width}×${REELS.height}`)).toBeVisible({ timeout: 30000 });
 
       const downloadResponse = page.waitForResponse(
         (r) => r.url().includes('/api/download') && r.request().method() === 'GET',
@@ -600,7 +600,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       const download = page.waitForEvent('download', { timeout: 120000 });
 
       await page.locator('div')
-        .filter({ hasText: new RegExp(`${REELS.width}Ã—${REELS.height}`) })
+        .filter({ hasText: new RegExp(`${REELS.width}×${REELS.height}`) })
         .last()
         .getByRole('button', { name: 'Download', exact: true })
         .click();

@@ -6,6 +6,7 @@ import { Slider } from '@/components/ui/Slider';
 import { Toggle } from '@/components/ui/Toggle';
 import { Select } from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { CloseIcon, ChevronDownIcon } from '@/components/icons';
 import { FONT_FAMILIES } from '@/constants';
 import { InspirationLoader } from '@/components/editor/InspirationLoader';
@@ -78,29 +79,90 @@ export function InspectorPanel({
   voiceFollow,
 }: InspectorPanelProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
+  // Focus restoration: remember what opened the drawer so focus can go back
+  // there on close (UX-012 — never strand the keyboard cursor).
+  const invokerRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
 
+  const queryFocusables = useCallback((root: HTMLElement) =>
+    Array.from(
+      root.querySelectorAll<HTMLElement>(
+        // [data-focus-skip] opts a control out of initial focus (the drawer's
+        // Close button) so opening never lands the cursor on "leave".
+        'button:not([data-focus-skip]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    ), []);
+
+  const restoreFocus = (el: HTMLElement | null) => {
+    if (el && document.contains(el)) el.focus();
+  };
+
+  // Enter/exit focus management — keyed only on isOpen so unrelated re-renders
+  // (typing in the script, collapsing sections) never steal focus.
+  useEffect(() => {
+    if (!isDrawer) return;
+
+    // The close branch must run even if the drawer node is already gone.
+    // Otherwise a transient open→closed mount (compact first paint starts
+    // "open", then the layout effect closes it) can leave `wasOpenRef` true,
+    // and the NEXT open skips focusing the drawer. Keyboard focus then stays on
+    // the toggle outside the dialog, so Escape never reaches the drawer handler
+    // and the panel becomes a keyboard dead end.
+    if (!isOpen) {
+      if (wasOpenRef.current) {
+        wasOpenRef.current = false;
+        restoreFocus(invokerRef.current);
+        invokerRef.current = null;
+      }
+      return;
+    }
+
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
+      invokerRef.current = document.activeElement as HTMLElement | null;
+    }
+
+    // Focus just after the opening click's event dispatch. Focusing inside that
+    // dispatch let the clicked trigger steal focus straight back, so the dialog
+    // opened while keyboard events (including Escape) still targeted the trigger
+    // outside it. A short delay also gets past the `invisible` → visible
+    // transition: focusing a still-hidden node is a silent no-op.
+    const timer = window.setTimeout(() => {
+      const drawer = drawerRef.current;
+      if (!drawer || drawer.contains(document.activeElement)) return;
+      queryFocusables(drawer)[0]?.focus();
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [isDrawer, isOpen, queryFocusables]);
+
+  // If the drawer unmounts while open, send focus back to its invoker.
+  useEffect(() => () => {
+    if (wasOpenRef.current) restoreFocus(invokerRef.current);
+  }, []);
+
+  // Tab trap — focusables are RE-QUERIED on every keydown: collapsing a
+  // section unmounts nodes, so a stale first/last pair would silently let Tab
+  // escape the trap.
   useEffect(() => {
     if (!isDrawer || !isOpen) return;
     const drawer = drawerRef.current;
     if (!drawer) return;
 
-    const focusableEls = drawer.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    const firstEl = focusableEls[0];
-    const lastEl = focusableEls[focusableEls.length - 1];
-
-    firstEl?.focus();
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { onClose?.(); return; }
       if (e.key !== 'Tab') return;
-      if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl?.focus(); }
-      else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl?.focus(); }
+      const els = queryFocusables(drawer);
+      if (els.length === 0) return;
+      const firstEl = els[0];
+      const lastEl = els[els.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && active === firstEl) { e.preventDefault(); lastEl.focus(); }
+      else if (!e.shiftKey && active === lastEl) { e.preventDefault(); firstEl.focus(); }
+      else if (!drawer.contains(active)) { e.preventDefault(); firstEl.focus(); }
     };
     drawer.addEventListener('keydown', handleKeyDown);
     return () => drawer.removeEventListener('keydown', handleKeyDown);
-  }, [isDrawer, isOpen, onClose]);
+  }, [isDrawer, isOpen, onClose, queryFocusables]);
 
   const updateSettings = (partial: Partial<TeleprompterSettings>) => {
     onSettingsChange({ ...settings, ...partial });
@@ -141,24 +203,53 @@ export function InspectorPanel({
   // the disposal panel recedes entirely so it never competes with the recording.
   // Review collapses for the same reason: every panel section is prepare-only, so
   // the drawer would render as an empty titled "Publish" region — a false
-  // affordance. Review keeps its own canvas hierarchy (PREVIEW AS → Export).
-  if (inspectorContext === 'recording' || inspectorContext === 'review') return null;
+  // affordance. Review keeps its own canvas hierarchy (RECORDING READY → Export).
+  //
+  // On desktop the aside still reserves its CURRENT width while receded. If it
+  // were unmounted, its 300px would be handed to the canvas at the exact moment
+  // the countdown begins, and the camera would visibly jump larger (and shrink
+  // again on Stop). Keeping the empty column means the frame the user framed
+  // is the frame that records. Compact layouts are an overlay drawer and have
+  // no geometry to preserve.
+  if (inspectorContext === 'recording' || inspectorContext === 'review') {
+    if (isDrawer) return null;
+    return (
+      <aside
+        aria-hidden="true"
+        className={`hidden xl:block h-full shrink-0 overflow-hidden transition-all duration-[180ms] ease-out ${
+          isOpen ? 'w-[300px]' : 'w-0'
+        }`}
+      />
+    );
+  }
 
   // Compact (< 1280px): full-height slide-in drawer from the right, over the canvas.
   // Wide (>= 1280px): inline aside that shares the row with the IconRail.
   if (isDrawer) {
     return (
       <>
+        {/* Purely a pointer convenience: it dismisses the drawer on tap. The
+            same outcome is available to everyone else via Escape and the
+            "Toggle inspector panel" button, so it is removed from the
+            accessibility tree — matching the Modal backdrop. */}
         {isOpen && (
-          <div className="fixed inset-0 z-drawer drawer-backdrop animate-fade-in" onClick={onClose} />
+          <div
+            className="fixed inset-0 z-drawer drawer-backdrop animate-fade-in"
+            onClick={onClose}
+            aria-hidden="true"
+          />
         )}
         <div
           ref={drawerRef}
           className={`fixed top-0 right-0 h-full w-[85vw] max-w-[360px] bg-surface border-l border-border-default shadow-2xl z-drawer flex flex-col overflow-hidden transition-all duration-[180ms] ease-out ${
-            isOpen ? 'translate-x-0' : 'translate-x-full'
+            // `invisible` (kept visible through the exit transition by
+            // transition-all) removes the closed drawer from the tab order and
+            // the accessibility tree — it must not linger as an off-screen,
+            // tabbable, aria-modal dialog.
+            isOpen ? 'translate-x-0' : 'translate-x-full invisible'
           }`}
-          role="dialog"
-          aria-modal="true"
+          role={isOpen ? 'dialog' : undefined}
+          aria-modal={isOpen ? true : undefined}
           aria-label="Inspector panel"
         >
           <PanelHeader label={headerLabel} onClose={onClose} />
@@ -169,12 +260,14 @@ export function InspectorPanel({
   }
 
   // Desktop: inline aside panel — respects isOpen so the Settings icon
-  // beside Profile (Header) and BottomNav Settings actually open/close it.
+  // beside Profile (Header) and the compact menu's Settings actually open/close it.
   // Uses CSS transition for smooth spatial continuity (180ms ease-out).
   return (
     <aside
       className={`hidden xl:flex h-full border-l border-border-subtle bg-surface flex-col shrink-0 overflow-hidden transition-all duration-[180ms] ease-out ${
-        isOpen ? 'w-[300px] opacity-100' : 'w-0 opacity-0 border-l-0'
+        // `invisible` pairs with aria-hidden so the collapsed panel's clipped
+        // controls leave the tab order too (aria-hidden + focusable = violation).
+        isOpen ? 'w-[300px] opacity-100' : 'w-0 opacity-0 border-l-0 invisible'
       }`}
       aria-label="Inspector panel"
       aria-hidden={!isOpen}
@@ -201,6 +294,7 @@ export function InspectorPanel({
  */
 function InspectorScrollArea({ children }: { children: React.ReactNode }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [atTop, setAtTop] = useState(true);
   const [atBottom, setAtBottom] = useState(true);
 
@@ -212,16 +306,21 @@ function InspectorScrollArea({ children }: { children: React.ReactNode }) {
     setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= 1);
   }, []);
 
-  // Collapse/expand changes the content height without firing a scroll event, so
-  // the edges have to be re-measured after every render as well.
+  // Collapse/expand changes the content height without firing a scroll event,
+  // so the edges are re-measured when the content box resizes — a ResizeObserver
+  // instead of running on every unrelated render (typing, toggles).
   useEffect(() => {
     syncEdges();
-  });
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => syncEdges());
+    if (contentRef.current) ro.observe(contentRef.current);
+    return () => ro.disconnect();
+  }, [syncEdges]);
 
   return (
     <div className="relative flex-1 min-h-0">
       <div ref={scrollerRef} onScroll={syncEdges} className="h-full overflow-y-auto">
-        {children}
+        <div ref={contentRef}>{children}</div>
       </div>
       {!atTop && (
         <div
@@ -242,10 +341,12 @@ function InspectorScrollArea({ children }: { children: React.ReactNode }) {
 function PanelHeader({ label, onClose }: { label: string; onClose?: () => void }) {
   return (
     <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
-      <span className="text-[13px] font-semibold text-text-primary">{label}</span>
+      <span className="text-body-sm font-semibold text-text-primary">{label}</span>
       {onClose && (
         <button
           onClick={onClose}
+          // data-focus-skip: opening the drawer must not land focus on "leave".
+          data-focus-skip=""
           className="p-2 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
           aria-label="Close inspector"
         >
@@ -323,6 +424,9 @@ function InspectorContent({
         return { script: false, teleprompter: false, camera: true };
     }
   });
+  // Clearing the script discards the user's draft, so it asks first — through
+  // the shared ConfirmDialog, like every other destructive action.
+  const [confirmClearScript, setConfirmClearScript] = useState(false);
 
   const toggleSection = (section: string) => {
     setCollapsedSections((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -335,7 +439,7 @@ function InspectorContent({
     if (!inspectorContext) return;
     const phasePresets: Record<InspectorContext, Record<string, boolean>> = {
       // Preparing: script + teleprompter are the primary inputs. Camera config stays
-      // available but collapsed (camera/mic switching lives in the DeviceSelectorBar).
+      // available but collapsed (camera/mic switching lives in the transport's device chips).
       preparing: { script: false, teleprompter: false, camera: true },
       // Recording: camera is the only surface — everything collapses.
       recording: { script: true, teleprompter: true, camera: true },
@@ -360,14 +464,16 @@ function InspectorContent({
             className="group flex items-center justify-between w-full text-left min-h-[44px] px-2 -mx-2 rounded-md transition-colors hover:bg-elevated"
             aria-expanded={!collapsedSections.script}
           >
-            <h3 className="text-[12px] font-semibold text-text-secondary">Script</h3>
+            {/* span, not h3: headings are flow content and are invalid inside
+                <button>; the button's own accessible name carries the label. */}
+            <span className="text-caption font-semibold text-text-secondary">Script</span>
             <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.script ? '-rotate-90' : ''}`} />
           </button>
 
           {!collapsedSections.script && (<>
           <div className="flex items-center justify-between">
-            <span className="text-xs text-text-secondary">{wordCount} words</span>
-            <span className="text-[12px] text-text-secondary">{Math.round(progress)}% of target</span>
+            <span className="text-caption text-text-secondary">{wordCount} words</span>
+            <span className="text-caption text-text-secondary">{Math.round(progress)}% of target</span>
           </div>
 
           <div
@@ -387,22 +493,25 @@ function InspectorContent({
           <textarea
             value={script}
             onChange={(e) => onScriptChange(e.target.value)}
-            className="w-full min-h-[120px] bg-elevated border border-border-subtle rounded-lg p-3 text-[13px] text-text-primary placeholder-text-muted resize-none outline-none focus:border-accent transition-colors leading-relaxed"
+            className="w-full min-h-[120px] bg-elevated border border-border-subtle rounded-lg p-3 text-body-sm text-text-primary placeholder-text-muted resize-none outline-none focus:border-accent transition-colors leading-relaxed"
             placeholder="Paste or write your script here..."
             aria-label="Script Editor"
           />
 
           <div className="flex items-center justify-between">
-            <span className="text-[12px] text-text-secondary flex items-center gap-1.5">
+            <span className="text-caption text-text-secondary flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-success" />
               Saved locally
             </span>
             <button
               onClick={() => {
-                if (script.trim() && !window.confirm('Clear your script? This cannot be undone.')) return;
+                if (script.trim()) {
+                  setConfirmClearScript(true);
+                  return;
+                }
                 onClearScript();
               }}
-              className="relative text-[12px] text-text-secondary hover:text-text-primary transition-colors after:absolute after:-inset-x-2 after:-inset-y-[11px] after:content-['']"
+              className="relative inline-flex items-center min-h-[24px] text-caption text-text-secondary hover:text-text-primary transition-colors after:absolute after:-inset-x-2 after:-inset-y-[11px] after:content-['']"
               suppressHydrationWarning
             >
               Clear
@@ -414,7 +523,7 @@ function InspectorContent({
               on purpose — the script is written to this browser's localStorage
               by useScriptStorage, so it survives a reload on this device and
               nothing more. No cloud, no sync, no account recovery implied. */}
-          <p className="text-[11px] leading-relaxed text-text-muted">
+          <p className="text-overline leading-relaxed text-text-muted">
             Your script is saved in this browser, so you can close the tab and pick up
             where you left off. Clearing site data removes it.
           </p>
@@ -436,7 +545,7 @@ function InspectorContent({
             className="group flex items-center justify-between w-full text-left min-h-[44px] px-2 -mx-2 rounded-md transition-colors hover:bg-elevated"
             aria-expanded={!collapsedSections.teleprompter}
           >
-            <h3 className="text-[12px] font-semibold text-text-secondary">Teleprompter</h3>
+            <span className="text-caption font-semibold text-text-secondary">Teleprompter</span>
             <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.teleprompter ? '-rotate-90' : ''}`} />
           </button>
 
@@ -444,11 +553,11 @@ function InspectorContent({
 
           {teleprompterNotice && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-elevated border border-border-subtle">
-              <span className="text-[12px] text-text-secondary leading-snug">{teleprompterNotice}</span>
+              <span className="text-caption text-text-secondary leading-snug">{teleprompterNotice}</span>
               {teleprompterNotice.includes('limit reached') && (
                 <button
                   onClick={onUpgradeClick}
-                  className="shrink-0 ml-auto px-2.5 py-1 rounded-md bg-accent/20 text-accent text-[11px] font-semibold hover:bg-accent/30"
+                  className="shrink-0 ml-auto px-3 min-h-[40px] rounded-md bg-accent/20 text-accent-text text-overline font-semibold hover:bg-accent/30 transition-colors"
                 >
                   Upgrade
                 </button>
@@ -529,7 +638,7 @@ function InspectorContent({
 
           {/* Position */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-[13px] text-text-secondary">Position</span>
+            <span className="text-body-sm text-text-secondary">Position</span>
             <div className="flex gap-1" role="group" aria-label="Text alignment">
               {(['left', 'center', 'right'] as TextAlignment[]).map((align) => (
                 <button
@@ -565,7 +674,7 @@ function InspectorContent({
 
           {/* Text Color */}
           <div className="flex items-center justify-between">
-            <span className="text-[13px] text-text-secondary">Text Color</span>
+            <span className="text-body-sm text-text-secondary">Text Color</span>
             <input
               type="color"
               value={settings.textColor}
@@ -592,16 +701,18 @@ function InspectorContent({
             className="group flex items-center justify-between w-full text-left min-h-[44px] px-2 -mx-2 rounded-md transition-colors hover:bg-elevated"
             aria-expanded={!collapsedSections.camera}
           >
-            <h3 className="text-[12px] font-semibold text-text-secondary">Camera &amp; Preview</h3>
+            <span className="text-caption font-semibold text-text-secondary">Camera &amp; Preview</span>
             <ChevronDownIcon className={`w-3.5 h-3.5 text-text-secondary transition-transform ${collapsedSections.camera ? '-rotate-90' : ''}`} />
           </button>
 
           {!collapsedSections.camera && (<>
-          {/* Device picking lives in the DeviceSelectorBar directly above the canvas.
-              Repeating the same two selects here produced two controls writing to the
-              same state, so this section only owns preview behaviour. */}
-          <p className="text-[11px] text-text-muted">
-            Switch camera or microphone from the bar above the canvas.
+          {/* Device picking no longer lives in the inspector (and the old
+              DeviceSelectorBar row is gone too): it is behind the mic / camera
+              chevrons in the transport bar. Repeating the device lists here
+              would mean two controls writing the same state, so this section
+              only owns preview behaviour. */}
+          <p className="text-overline text-text-muted">
+            Switch camera or microphone from the transport bar under the canvas.
           </p>
 
           <Toggle
@@ -628,6 +739,18 @@ function InspectorContent({
         </div>
       </Card>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmClearScript}
+        title="Clear your script?"
+        message="This removes the script draft saved in this browser. It cannot be undone."
+        confirmLabel="Clear script"
+        onConfirm={() => {
+          setConfirmClearScript(false);
+          onClearScript();
+        }}
+        onCancel={() => setConfirmClearScript(false)}
+      />
     </div>
   );
 }

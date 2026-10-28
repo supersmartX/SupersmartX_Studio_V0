@@ -6,7 +6,6 @@ import { PLATFORM_PRESETS, DEFAULT_PLATFORM_ID } from '@/constants';
 
 interface UseRecordingConfigReturn {
   config: RecordingConfiguration;
-  isConfiguring: boolean;
   setPlatformId: (id: PlatformId) => void;
   setCustomAspectRatio: (ratio: AspectRatio) => void;
   setCustomDimensions: (width: number, height: number) => void;
@@ -54,7 +53,6 @@ export function useRecordingConfig(): UseRecordingConfigReturn {
   const [videoDeviceId, setVideoDeviceId] = useState('');
   const [audioDeviceId, setAudioDeviceId] = useState('');
   const [isMirrored, setIsMirrored] = useState(true);
-  const [isConfiguring, setIsConfiguring] = useState(false);
 
   // Derive current configuration
   const config = useMemo(() => {
@@ -78,29 +76,22 @@ export function useRecordingConfig(): UseRecordingConfigReturn {
     return { width: config.width, height: config.height };
   }, [config.width, config.height]);
 
-  // Set platform with configuration update flag
+  // Set platform preference
   const setPlatformId = useCallback((id: PlatformId) => {
-    setIsConfiguring(true);
     setPlatformIdState(id);
-    // Clear configuring flag after a short delay to allow React to process
-    setTimeout(() => setIsConfiguring(false), 100);
   }, []);
 
-  // Set custom aspect ratio with configuration update flag
+  // Set custom aspect ratio
   const setCustomAspectRatio = useCallback((ratio: AspectRatio) => {
-    setIsConfiguring(true);
     setCustomAspectRatioState(ratio);
-    setTimeout(() => setIsConfiguring(false), 100);
   }, []);
 
   // Set custom dimensions with validation
   const setCustomDimensions = useCallback((width: number, height: number) => {
-    setIsConfiguring(true);
     const validWidth = Math.max(1, Math.min(1920, Math.floor(width)));
     const validHeight = Math.max(1, Math.min(1080, Math.floor(height)));
     setCustomWidth(validWidth);
     setCustomHeight(validHeight);
-    setTimeout(() => setIsConfiguring(false), 100);
   }, []);
 
   // Set video device
@@ -120,8 +111,6 @@ export function useRecordingConfig(): UseRecordingConfigReturn {
 
   // Update multiple config properties
   const updateConfig = useCallback((updates: Partial<RecordingConfiguration>) => {
-    setIsConfiguring(true);
-    
     if (updates.platformId !== undefined) {
       setPlatformIdState(updates.platformId);
     }
@@ -143,24 +132,19 @@ export function useRecordingConfig(): UseRecordingConfigReturn {
     if (updates.isMirrored !== undefined) {
       setIsMirrored(updates.isMirrored);
     }
-    
-    setTimeout(() => setIsConfiguring(false), 100);
   }, []);
 
   // Reset to default configuration
   const resetConfig = useCallback(() => {
-    setIsConfiguring(true);
     setPlatformIdState(DEFAULT_PLATFORM_ID);
     setCustomAspectRatioState('16:9');
     setCustomWidth(1920);
     setCustomHeight(1080);
     setIsMirrored(true);
-    setTimeout(() => setIsConfiguring(false), 100);
   }, []);
 
   return {
     config,
-    isConfiguring,
     setPlatformId,
     setCustomAspectRatio,
     setCustomDimensions,

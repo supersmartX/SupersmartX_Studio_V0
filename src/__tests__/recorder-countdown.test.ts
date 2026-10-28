@@ -81,15 +81,27 @@ describe('countdown behavior', () => {
       result.current.startRecording(() => {}, () => false);
     });
     expect(result.current.recordingState).toBe('countdown');
+    // The first beat is visible immediately — no dead 800ms blank state.
+    expect(result.current.countdownText).toBe('3');
     // Nothing captured yet: the MediaRecorder does not exist during the count.
     expect(recorderCreations).toBe(0);
 
     act(() => vi.advanceTimersByTime(800));
-    expect(result.current.countdownText).toBe('3');
+    expect(result.current.countdownText).toBe('2');
     expect(result.current.recordingState).toBe('countdown');
 
-    // 3199ms in: still counting (fourth tick lands at 3200ms).
-    act(() => vi.advanceTimersByTime(2399));
+    act(() => vi.advanceTimersByTime(800));
+    expect(result.current.countdownText).toBe('1');
+    expect(result.current.recordingState).toBe('countdown');
+
+    // The final beat is a word, not a fourth number, and still records nothing.
+    act(() => vi.advanceTimersByTime(800));
+    expect(result.current.countdownText).toBe('Record');
+    expect(result.current.recordingState).toBe('countdown');
+    expect(recorderCreations).toBe(0);
+
+    // 3199ms in: still counting (the capture tick lands at 3200ms).
+    act(() => vi.advanceTimersByTime(799));
     expect(result.current.recordingState).toBe('countdown');
     expect(recorderCreations).toBe(0);
 
@@ -125,7 +137,7 @@ describe('countdown behavior', () => {
     expect(result.current.recordingState).toBe('countdown');
     // The navigation guard is live while the countdown runs.
     act(() => vi.advanceTimersByTime(1600));
-    expect(result.current.countdownText).toBe('2');
+    expect(result.current.countdownText).toBe('1');
 
     act(() => result.current.cancelCountdown());
 

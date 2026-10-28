@@ -72,6 +72,8 @@ export default function LandingPage() {
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
   const user = session?.user;
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -120,6 +122,17 @@ export default function LandingPage() {
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
+  // Dismissal that returns the keyboard to the control that opened the menu.
+  // Actions inside the menu (a section link, Log in, Start Free) deliberately
+  // do NOT use this: focus must follow the action, not snap back to the burger.
+  const dismissMenu = useCallback(() => {
+    setMenuOpen(false);
+    const button = menuButtonRef.current;
+    // The burger is not rendered at ≥901px, where the menu force-closes on
+    // resize — a focus() there would silently drop focus to <body>.
+    if (button && button.offsetParent !== null) button.focus({ preventScroll: true });
+  }, []);
+
   useEffect(() => {
     document.documentElement.style.height = menuOpen ? 'auto' : '';
     document.documentElement.style.overflow = menuOpen ? 'hidden' : '';
@@ -143,14 +156,43 @@ export default function LandingPage() {
   }, [closeMenu]);
 
   useEffect(() => {
+    if (!menuOpen) return;
+    const menu = menuRef.current;
+    // Modal focus contract, matching ExportModal: move focus into the dialog
+    // on open, keep Tab cycling inside it, and Escape closes + restores.
+    const initial =
+      menu?.querySelector<HTMLElement>('.lsx-mobile-nav-link') ??
+      menu?.querySelector<HTMLElement>('button, a[href]');
+    initial?.focus({ preventScroll: true });
+
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeMenu();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        dismissMenu();
+        return;
+      }
+      if (e.key !== 'Tab' || !menu) return;
+      const focusables = Array.from(
+        menu.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')
+      ).filter((el) => el.offsetParent !== null);
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (!activeEl || !menu.contains(activeEl)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (!e.shiftKey && activeEl === last) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && activeEl === first) {
+        e.preventDefault();
+        last.focus();
+      }
     };
-    if (menuOpen) {
-      document.addEventListener('keydown', handleKey);
-      return () => document.removeEventListener('keydown', handleKey);
-    }
-  }, [menuOpen, closeMenu]);
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [menuOpen, dismissMenu]);
 
   useEffect(() => {
     const cleanupFns: Array<() => void> = [];
@@ -503,7 +545,7 @@ export default function LandingPage() {
   .lsx-page { --lsx-header-y: 14px; --lsx-stats-y: 24px; --lsx-hero-gap: 48px; --lsx-h1: 40px; }
 }
 @media (min-width: 901px) and (max-height: 720px) {
-  .lsx-page { --lsx-h1: 34px; --lsx-lede: 14px; --lsx-hero-gap: 32px; --lsx-stats-y: 18px; --lsx-nav-h: 40px; --lsx-btn-h: 40px; --lsx-hero-btn-h: 40px; }
+  .lsx-page { --lsx-h1: 34px; --lsx-lede: 14px; --lsx-hero-gap: 32px; --lsx-nav-h: 40px; --lsx-btn-h: 40px; --lsx-hero-btn-h: 40px; }
 }
 
 @media (min-width: 901px) {
@@ -516,7 +558,6 @@ export default function LandingPage() {
   .lsx-burger { display: flex; }
   .lsx-site-nav { display: none; }
   .lsx-hero { padding: 20px 20px 64px; align-items: flex-end; }
-  .lsx-stats { flex-direction: column; align-items: center; gap: 16px; white-space: normal; padding: 20px 24px 48px; }
   .lsx-page { --lsx-logo: 16px; --lsx-btn: 15px; --lsx-btn-h: 46px; --lsx-hero-btn-h: 48px; --lsx-h1: 36px; --lsx-lede: 16.5px; --lsx-badge: 13.5px; --lsx-header-x: 18px; --lsx-hero-gap: 36px; --lsx-copy-max: 100%; --lsx-lede-max: 100%; }
 }
 
@@ -610,7 +651,9 @@ export default function LandingPage() {
   margin-bottom: 14px;
 }
 .lsx-section-subtitle {
-  color: rgba(255,255,255,0.45);
+  /* 0.45 fell just under WCAG AA (4.5:1) against the page background at 16px.
+     0.5 clears it while keeping the subtitle clearly secondary to the heading. */
+  color: rgba(255,255,255,0.5);
   font-size: 16px;
   line-height: 1.6;
   max-width: 480px;
@@ -765,6 +808,12 @@ export default function LandingPage() {
   transition: color 0.2s ease;
   /* UX-007: 18px-tall legal links grow to a ≥40px hit box (no layout shift). */
   position: relative;
+  /* A 12px text box is below WCAG 2.5.8's 24px target height even though the
+     ::after hit area is large; give the link itself the minimum box so the
+     measured target and the real target agree. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
 }
 .lsx-footer-link::after {
   content: '';
@@ -927,6 +976,7 @@ export default function LandingPage() {
           </div>
 
           <button
+            ref={menuButtonRef}
             type="button"
             className={`lsx-burger${menuOpen ? ' is-open' : ''}`}
             aria-controls="lsx-mobile-nav"
@@ -966,7 +1016,7 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={() => router.push('/studio')}
-                className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-appear lsx-appear--btn lsx-hero-solid"
+                className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-appear lsx-appear--btn"
                 style={{ '--lsx-d': '0.96s' } as React.CSSProperties}
               >
                 Start Recording — Free
@@ -1043,10 +1093,11 @@ export default function LandingPage() {
             </div>
 
             {/* Billing period toggle */}
-            <div className="lsx-pricing-toggle">
+            <div className="lsx-pricing-toggle" role="group" aria-label="Billing period">
               <button
                 type="button"
                 onClick={() => setBillingPeriod('monthly')}
+                aria-pressed={billingPeriod === 'monthly'}
                 className={`lsx-pricing-toggle-btn ${billingPeriod === 'monthly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
               >
                       1 month
@@ -1054,6 +1105,7 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={() => setBillingPeriod('yearly')}
+                aria-pressed={billingPeriod === 'yearly'}
                 className={`lsx-pricing-toggle-btn ${billingPeriod === 'yearly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
               >
                       1 year <span className="lsx-pricing-toggle-save">{formatSavingsPercent(currentPricing.creatorMonthly, currentPricing.creatorYearly)}</span>
@@ -1179,26 +1231,29 @@ export default function LandingPage() {
 
       {menuOpen && (
         <div
+          ref={menuRef}
           id="lsx-mobile-nav"
           className="lsx-mobile-nav-overlay"
           role="dialog"
           aria-modal="true"
           aria-label="Navigation menu"
         >
+          {/* Purely decorative click-to-dismiss layer. It must NOT be a focusable
+              control: it carried the same accessible name as the real Close
+              button ("Close menu"), which made that name ambiguous, and added a
+              phantom tab stop to a transparent overlay. aria-hidden + no tabIndex
+              removes both; the Close button below is the keyboard path. */}
           <div
             className="lsx-mobile-nav-backdrop"
-            onClick={closeMenu}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') closeMenu(); }}
-            role="button"
-            tabIndex={0}
-            aria-label="Close menu"
+            onClick={dismissMenu}
+            aria-hidden="true"
           />
           <div className="lsx-mobile-nav-content">
               <button
                 type="button"
                 className="lsx-mobile-nav-close"
-                onClick={closeMenu}
-                aria-label="Close menu"
+                onClick={dismissMenu}
+                aria-label="Close navigation menu"
               >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18" />

@@ -30,7 +30,7 @@ export function CountdownOverlay({ countdownText, isVisible, onCancel }: Countdo
       const gain = ctx.createGain();
       oscillator.connect(gain);
       gain.connect(ctx.destination);
-      oscillator.frequency.value = countdownText === '0' ? 880 : 660;
+      oscillator.frequency.value = countdownText === 'Record' ? 880 : 660;
       oscillator.type = 'sine';
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
@@ -48,28 +48,50 @@ export function CountdownOverlay({ countdownText, isVisible, onCancel }: Countdo
     if (!isVisible) prevTextRef.current = '';
   }, [isVisible]);
 
+  // The recorder publishes the first beat immediately (3), then 2, 1 and a
+  // final Record cue before capture begins. Cancelling stays available from
+  // the first frame, in both this overlay and the transport.
+  const show = isVisible && !!countdownText;
+  const isRecordCue = countdownText === 'Record';
+
   return (
     <div
-      className={`absolute inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-canvas/80 backdrop-blur-sm transition-opacity duration-200 ${
-        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      // Keep the framing visible: this is the last check of hair/lighting
+      // before the take starts. 55% is enough contrast for the numeral while
+      // the camera stays readable instead of going near-black.
+      className={`absolute inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-canvas/55 backdrop-blur-sm transition-opacity duration-200 ${
+        show ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`}
-      aria-hidden={!isVisible}
+      aria-hidden={!show}
     >
+      {/* A STABLE live region: the visible cue is replaced on every beat
+          (for the animation), so putting aria-live on the replaced node can
+          miss announcements. Screen readers hear useful words, not just the
+          digit. */}
+      <span aria-live="assertive" aria-atomic="true" className="sr-only">
+        {show ? (isRecordCue ? 'Recording now' : `Starting in ${countdownText}`) : ''}
+      </span>
+
       <span
         key={countdownText}
-        aria-live="assertive"
-        className="text-7xl font-bold text-accent drop-shadow-[0_0_40px_rgba(124,58,237,0.5)] animate-countdown"
+        data-testid="countdown-value"
+        aria-hidden="true"
+        className={
+          isRecordCue
+            ? 'text-5xl sm:text-6xl font-semibold tracking-[0.04em] text-white drop-shadow-[0_0_60px_rgba(124,58,237,0.45)] animate-countdown'
+            : 'text-8xl sm:text-9xl font-semibold tabular-nums text-white drop-shadow-[0_0_60px_rgba(124,58,237,0.45)] animate-countdown'
+        }
       >
         {countdownText}
       </span>
 
       {/* The countdown must be cancellable: cancelling leaves the recorder
           idle (no capture session, no quota/teleprompter consumed). */}
-      {isVisible && onCancel && (
+      {show && onCancel && (
         <button
           onClick={onCancel}
           aria-label="Cancel countdown"
-          className="px-5 py-2.5 rounded-lg bg-black/60 backdrop-blur-sm border border-white/15 text-white/90 text-[13px] font-medium hover:bg-black/80 hover:text-white transition-colors min-h-[44px]"
+          className="px-4 py-2 rounded-full bg-white/[0.08] ring-1 ring-white/10 text-white/80 text-[12px] font-medium hover:bg-white/[0.14] hover:text-white transition-colors min-h-[44px]"
         >
           Cancel
         </button>

@@ -1,8 +1,9 @@
 'use client';
 
-import { ReactNode, useRef, useEffect, useState } from 'react';
-import { EyeIcon, AudioIcon as SpeakerIcon, SpeakerMutedIcon } from '@/components/icons';
-import type { AspectRatio, RecordingConfiguration } from '@/types';
+import { ReactNode } from 'react';
+import { EyeIcon } from '@/components/icons';
+import { ReviewPlayer } from '@/components/studio/ReviewPlayer';
+import type { AspectRatio } from '@/types';
 import { getPreviewBoxContainerStyle, getPreviewBoxStyle } from '@/lib/composition';
 
 interface CanvasProps {
@@ -10,13 +11,17 @@ interface CanvasProps {
   focusViewEnabled: boolean;
   onFocusViewToggle: () => void;
   aspectRatio: AspectRatio;
-  recordingConfig: RecordingConfiguration;
-  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
   /** When provided, Canvas shows this recorded video instead of children (review mode) */
   reviewVideoUrl?: string;
   reviewAspectRatio?: AspectRatio;
   /** Shared-geometry crop style for the review video (same math as export) */
   reviewVideoStyle?: React.CSSProperties;
+  /**
+   * The take's real length. MediaRecorder blobs report a non-finite
+   * `video.duration` until the last fragment is read, so the review transport
+   * needs the recorded length to size its clock and scrubber.
+   */
+  reviewDuration?: number;
   /**
    * Single-audible-player discipline: the review take plays only while its
    * surface is the foreground (studio panel visible, export drawer closed).
@@ -31,12 +36,12 @@ interface CanvasProps {
    */
   reviewHasAudio?: boolean;
   /**
-   * The dimensions capture is ACTUALLY running at (live MediaStream track
-   * settings, or the probed dimensions of the take under review). When absent
-   * (no stream yet), the badge falls back to the configured target and labels
-   * it as configuration — never as a captured resolution.
+   * Live-state pill (recording / paused) rendered in the same top rail as the
+   * Focus View control. One rail instead of two stacked rows keeps the
+   * teleprompter's safe area at 64px, which matters on a ~200px-tall phone
+   * preview box.
    */
-  captureSize?: { width: number; height: number } | null;
+  statusBadge?: ReactNode;
 }
 
 export function Canvas({
@@ -44,71 +49,16 @@ export function Canvas({
   focusViewEnabled,
   onFocusViewToggle,
   aspectRatio,
-  recordingConfig,
-  onCanvasReady,
   reviewVideoUrl,
   reviewAspectRatio,
   reviewVideoStyle,
+  reviewDuration,
   reviewActive = true,
   reviewHasAudio,
-  captureSize,
+  statusBadge,
 }: CanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const activeRatio = reviewAspectRatio || aspectRatio;
   const isReview = !!reviewVideoUrl;
-  // Review-player mute — deliberately independent from the microphone mute
-  // (`isMicMuted`): one governs what the CAMERA captured, this one governs
-  // playback of the recorded asset. They must never be wired together.
-  const [reviewMuted, setReviewMuted] = useState(true);
-
-  // Create and manage the recording canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    canvas.width = recordingConfig.width;
-    canvas.height = recordingConfig.height;
-
-    if (onCanvasReady) {
-      onCanvasReady(canvas);
-    }
-  }, [recordingConfig.width, recordingConfig.height, onCanvasReady]);
-
-  // Auto-play review video while its surface is foreground. Attempt playback
-  // AUDIBLE first; browsers that block unmuted playback without a user gesture
-  // fall back to muted — the visible sound toggle below supplies exactly that
-  // gesture, so the review can never be stranded silently muted with no way
-  // to hear it. When the surface stops being foreground (library opened,
-  // export drawer opened), pause so no take plays behind other UI; returning
-  // resumes exactly where it left off.
-  const prevReviewUrlRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (!isReview || !videoRef.current) return;
-    const video = videoRef.current;
-    if (reviewVideoUrl !== prevReviewUrlRef.current) {
-      // A new take: restart from the beginning and attempt audible playback.
-      prevReviewUrlRef.current = reviewVideoUrl;
-      video.currentTime = 0;
-      video.muted = false;
-      setReviewMuted(false);
-    }
-    if (!reviewActive) {
-      video.pause();
-      return;
-    }
-    video.play().catch(() => {
-      video.muted = true;
-      setReviewMuted(true);
-      video.play().catch(() => {});
-    });
-  }, [isReview, reviewVideoUrl, reviewActive]);
-
-  // Single writer of the element's mute property (mirrors useMicMuteSync's
-  // role for track.enabled): the button state and playback can't diverge.
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.muted = reviewMuted;
-  }, [reviewMuted, reviewVideoUrl]);
 
   return (
     <div
@@ -121,76 +71,63 @@ export function Canvas({
            by `w-full`/`h-full` + aspect-*, because those make `aspect-ratio`
            inert and let the box take the container's ratio — which silently
            changed the composition relative to the export. */
-        className="relative bg-canvas rounded-xl overflow-hidden ring-1 ring-white/[0.06]"
+        /* `isolate` is load-bearing: without it every layer inside this box
+           (guides, countdown, the camera-init prompt) competes in the page's
+           single stacking context, so an inner `z-40` painted straight over the
+           `z-header: 30` app bar and blocked whatever the bar drops over the
+           canvas — the compact menu's items, the user menu. Scoping the canvas
+           keeps its internal order intact while chrome stays on top; modals,
+           the drawer and the toast sit outside this box and still win, as their
+           tokens require. */
+        className="relative isolate bg-canvas rounded-xl overflow-hidden ring-1 ring-white/[0.06]"
         style={{
           ...getPreviewBoxStyle(activeRatio),
           boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
         }}
       >
-        {/* Hidden recording canvas for actual video capture */}
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-          style={{ display: 'none' }}
-          aria-hidden="true"
-        />
-
         {isReview ? (
-          /* Review mode: show recorded video with platform aspect ratio.
-             The style carries the shared export crop geometry (centered
-             cover today); the box shape + video crop change together. */
-          <video
-            ref={videoRef}
-            src={reviewVideoUrl}
-            style={reviewVideoStyle}
-            className="absolute inset-0 w-full h-full object-cover"
-            playsInline
-            loop
+          /* Review mode: the recorded take, with its own transport (play,
+             pause, scrub, restart, sound). The box shape carries the shared
+             export crop geometry, so the frame and the file agree. */
+          <ReviewPlayer
+            videoUrl={reviewVideoUrl!}
+            videoStyle={reviewVideoStyle}
+            recordedDuration={reviewDuration}
+            hasAudio={!!reviewHasAudio}
+            isActive={reviewActive}
           />
         ) : (
           children
         )}
 
-        {/* Review sound control — only when the asset actually has audio.
-             This is the affordance that makes muted-by-policy playback
-             audible (one tap = the gesture autoplay policy wants). It has
-             nothing to do with the microphone's recording mute. */}
-        {isReview && reviewHasAudio && (
-          <button
-            onClick={() => setReviewMuted((m) => !m)}
-            aria-label={reviewMuted ? 'Unmute review playback' : 'Mute review playback'}
-            aria-pressed={!reviewMuted}
-            className="absolute top-2 left-2 sm:top-3 sm:left-3 z-20 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-black/60 backdrop-blur-sm text-white/90 hover:bg-black/80 hover:text-white text-[11px] font-medium transition-colors min-w-[44px] min-h-[44px] justify-center"
-          >
-            {reviewMuted ? <SpeakerMutedIcon className="w-4 h-4" /> : <SpeakerIcon className="w-4 h-4" />}
-            <span>{reviewMuted ? 'Turn sound on' : 'Turn sound off'}</span>
-          </button>
-        )}
-
-        {/* Focus View Toggle - moved to top-left to avoid Timer overlap at top-right */}
+        {/* Focus View Toggle + live-state pill — one top-left rail. The rail,
+            not the button, owns the offset so the pill can sit beside the
+            control instead of adding a second row over the script. */}
         {!isReview && (
-          <button
-            onClick={onFocusViewToggle}
-            className={`absolute top-2 left-2 sm:top-3 sm:left-3 z-20 flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors min-w-[44px] min-h-[44px] justify-center ${
-              focusViewEnabled
-                ? 'bg-accent/20 text-accent-text border border-accent/30'
-                : 'bg-black/85 backdrop-blur-sm text-white/80 hover:bg-black/90'
-            }`}
-          >
-            <EyeIcon className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Focus View</span>
-          </button>
+          <div className="absolute top-2 left-2 sm:top-3 sm:left-3 z-20 flex items-center gap-2">
+            <button
+              onClick={onFocusViewToggle}
+              aria-label="Focus View"
+              aria-pressed={focusViewEnabled}
+              title="Focus View"
+              className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-full text-[11px] font-medium backdrop-blur-md transition-colors min-w-[44px] min-h-[44px] justify-center ${
+                focusViewEnabled
+                  ? 'bg-accent/25 text-white ring-1 ring-accent/40'
+                  : 'bg-black/25 text-white/70 hover:bg-black/40 hover:text-white ring-1 ring-white/[0.06]'
+              }`}
+            >
+              <EyeIcon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Focus View</span>
+            </button>
+            {statusBadge}
+          </div>
         )}
 
-        {/* Capture dimensions badge. With a live capture (or a take under
-            review) it reports the ACTUAL dimensions; before capture it shows
-            the configured target, explicitly labelled as configuration so the
-            UI never claims a resolution the stream is not delivering. */}
-        <div className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 z-20 px-2 py-1 rounded-md bg-black/85 backdrop-blur-sm text-white/80 text-[10px] font-medium tabular-nums">
-          {captureSize && captureSize.width > 0 && captureSize.height > 0
-            ? `${captureSize.width} × ${captureSize.height}`
-            : `Target ${recordingConfig.width} × ${recordingConfig.height}`}
-        </div>
+        {/* Capture-dimensions chip removed (clean-canvas redesign): a permanent
+            "1920 × 1080" read-out was technical dashboard, not creator
+            information. Real geometry still surfaces where it earns its place —
+            the RecordingStatusLine during a take (track settings), the review
+            preset row under the canvas (platform + take dimensions). */}
       </div>
     </div>
   );

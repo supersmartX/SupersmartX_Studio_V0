@@ -129,6 +129,34 @@ describe('useMasterRecording blob URL lifecycle', () => {
     expect(recording.sourceWidth).toBe(0);
     expect(recording.sourceHeight).toBe(0);
   });
+
+  it('reports a failed library write instead of pretending the take was saved', async () => {
+    vi.stubGlobal('indexedDB', {
+      open: vi.fn(() => {
+        const request: Record<string, unknown> = {
+          onupgradeneeded: null,
+          onblocked: null,
+          onsuccess: null,
+          onerror: null,
+          error: new Error('quota exceeded'),
+        };
+        setTimeout(() => (request.onerror as (() => void) | null)?.(), 0);
+        return request;
+      }),
+    });
+    const onSaveError = vi.fn();
+    const { result } = renderHook(() => useMasterRecording({ onSaveError }));
+
+    act(() => {
+      result.current.createMasterRecording(mockBlob, 30, true, 1920, 1080);
+    });
+
+    await vi.waitFor(() => {
+      expect(onSaveError).toHaveBeenCalledTimes(1);
+    });
+    // The take is still usable in this document — its object URL exists.
+    expect(result.current.masterRecording?.url).toContain('blob:');
+  });
 });
 
 describe('duration regression — recorder timestamp is authoritative', () => {

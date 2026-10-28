@@ -1,6 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { recordRecordingDiagnostic } from '@/lib/recording/diagnostics';
+import {
+  createFrameObservationAccumulator,
+  observePreviewFrame,
+  summarizeFrameObservation,
+} from '@/lib/recording/frame-observation';
 
 interface CameraPreviewProps {
   stream: MediaStream | null;
@@ -20,9 +26,33 @@ export function CameraPreview({
     setPlayError(false);
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let frameCallbackId: number | null = null;
+    const videoTrack = stream && typeof stream.getVideoTracks === 'function' ? stream.getVideoTracks()[0] ?? null : null;
+    let actualTrackFps: number | null = null;
+    try {
+      const fps = videoTrack?.getSettings?.().frameRate;
+      actualTrackFps = typeof fps === 'number' && Number.isFinite(fps) ? fps : null;
+    } catch {
+      // Track FPS is unavailable in some browsers and test doubles.
+    }
+    const frameObservation = createFrameObservationAccumulator(30, actualTrackFps);
     if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(() => {
+      const video = videoRef.current;
+      video.srcObject = stream;
+      const observeFrame = (now: number, metadata: VideoFrameCallbackMetadata) => {
+        if (cancelled) return;
+        observePreviewFrame(frameObservation, now, metadata.presentedFrames);
+        frameCallbackId = video.requestVideoFrameCallback(observeFrame);
+      };
+      if (typeof video.requestVideoFrameCallback === 'function') {
+        frameCallbackId = video.requestVideoFrameCallback(observeFrame);
+      } else {
+        recordRecordingDiagnostic('preview.frame-observation-unavailable', {
+          actualTrackFps,
+          observedPlaybackFps: null,
+        });
+      }
+      video.play().catch(() => {
         // Attaching a fresh stream to a (re)mounted element can transiently
         // reject even with permission granted (proven by live probe:
         // remount-after-review rejected the first play() in Chromium while
@@ -39,6 +69,12 @@ export function CameraPreview({
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
+      if (frameCallbackId !== null && videoRef.current?.cancelVideoFrameCallback) {
+        videoRef.current.cancelVideoFrameCallback(frameCallbackId);
+      }
+      if (frameObservation.count > 0) {
+        recordRecordingDiagnostic('preview.frame-observation', { ...summarizeFrameObservation(frameObservation) });
+      }
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }

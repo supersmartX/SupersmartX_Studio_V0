@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getAllRecordings, deleteRecording, renameRecording, type StoredRecording } from '@/lib/recording-store';
-import { getAllLocalExports, deleteLocalExport, type LocalExport } from '@/lib/local-exports-store';
+import { getAllLocalExports, deleteLocalExport, LOCAL_EXPORTS_CHANGED_EVENT, type LocalExport } from '@/lib/local-exports-store';
 import { formatTime, formatRelativeTime, formatDate, formatFileSize, formatQualityLabel, formatRecordingFormat, exportStatusLabel, platformDisplayName } from '@/utils/format';
 import { isCreatorPlan } from '@/lib/entitlements';
 import { setPendingDownload, stashPendingDownloadExportId } from '@/lib/auth-guard';
 import { useDismissOnOutsideClick } from '@/hooks/useDismissOnOutsideClick';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Button } from '@/components/ui/Button';
 import { PlatformPreviewSwitcher } from '@/components/studio/PlatformPreviewSwitcher';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
@@ -16,7 +18,6 @@ import { PlayIcon, SettingsIcon } from '@/components/icons';
 
 interface RecordingsPanelProps {
   onExportRecording?: (recording: StoredRecording) => void;
-  isMobile?: boolean;
   isAuthenticated?: boolean;
   userPlan?: PlanType | 'free';
   refreshKey?: number;
@@ -71,7 +72,7 @@ function RecordingThumbnail({ recording }: { recording: StoredRecording }) {
   }, [recording.blob]);
 
   return (
-    <div className="relative aspect-video overflow-hidden rounded-lg bg-[#111217] border border-border-subtle">
+    <div className="relative aspect-video overflow-hidden rounded-lg bg-surface border border-border-subtle">
       {!hasError ? (
         <video
           src={sourceUrl || undefined}
@@ -177,22 +178,22 @@ function ExistingRecordingModal({
         )}
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={() => setIsChoosingPlatform((open) => !open)}
-            className="min-h-9 rounded-md border border-border-subtle px-3 py-2 text-xs font-medium text-text-secondary hover:border-border-strong hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
             aria-expanded={isChoosingPlatform}
           >
             Change Platform
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
             onClick={() => onExport(recording)}
-            className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
             aria-label={`Export this video${selected ? ` as ${selected.label}` : ''}`}
           >
             <PlayIcon className="h-3.5 w-3.5" /> Export
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
@@ -208,9 +209,41 @@ function CloudPreviewModal({ url, title, meta, onClose }: { url: string; title: 
   );
 }
 
+/**
+ * A locally stored export row. One definition for the Creator and Free
+ * branches below — the two were verbatim duplicates that drifted apart the
+ * moment one of them changed.
+ */
+function LocalExportRow({
+  exp,
+  onDownload,
+  onAskDelete,
+}: {
+  exp: LocalExport;
+  onDownload: (exp: LocalExport) => void;
+  onAskDelete: (id: string) => void;
+}) {
+  return (
+    <div className="p-2.5 rounded-lg bg-elevated border border-border-subtle flex flex-col gap-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-caption font-medium text-text-primary truncate">{exp.platform} (local)</span>
+        <span className="text-overline text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
+      </div>
+      <div className="flex items-center gap-2 text-overline text-text-secondary">
+        <span>{formatFileSize(exp.fileSize)}</span>
+        <span>·</span>
+        <span>{formatRelativeTime(exp.createdAt)}</span>
+      </div>
+      <div className="flex gap-1.5 mt-1 items-center">
+        <Button size="sm" variant="primary" onClick={() => onDownload(exp)}>Download</Button>
+        <Button size="sm" variant="destructive" className="ml-auto" onClick={() => onAskDelete(exp.id)}>Delete</Button>
+      </div>
+    </div>
+  );
+}
+
 export function RecordingsPanel({
   onExportRecording,
-  isMobile,
   isAuthenticated,
   userPlan = 'free',
   refreshKey,
@@ -241,11 +274,14 @@ export function RecordingsPanel({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const [previewRecording, setPreviewRecording] = useState<StoredRecording | null>(null);
+  // Inline confirm for export deletion — deleting an export used to happen on
+  // the first stray click while recordings got a confirm step.
+  const [confirmDeleteExportKey, setConfirmDeleteExportKey] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Dismiss the card menu on outside click or Escape — never for critical
   // dialogs (this menu only holds safe actions: export/rename/details/delete
-  // prompt, and delete itself still asks for confirmation).
+  // prompt, and both recording and export deletion ask for confirmation).
   useDismissOnOutsideClick(menuRef, openMenuId !== null, () => setOpenMenuId(null));
 
   const loadRecordings = useCallback(async () => {
@@ -337,14 +373,35 @@ export function RecordingsPanel({
     loadLocalExports();
   }, [loadCloudExports, loadLocalExports, refreshKey]);
 
+  // A Free export is saved from the export dialog while this panel stays
+  // mounted underneath it, so the panel must listen for the store's write
+  // instead of relying on a remount to see the row it just created.
+  useEffect(() => {
+    const refreshLocalExports = () => { void loadLocalExports(); };
+    window.addEventListener(LOCAL_EXPORTS_CHANGED_EVENT, refreshLocalExports);
+    return () => window.removeEventListener(LOCAL_EXPORTS_CHANGED_EVENT, refreshLocalExports);
+  }, [loadLocalExports]);
+
   const handleDeleteCloud = useCallback(async (id: string) => {
-    const res = await fetch(`/api/exports/${id}`, { method: 'DELETE' });
-    if (res.ok) setCloudExports(prev => prev.filter(e => e.id !== id));
+    try {
+      const res = await fetch(`/api/exports/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setCloudExports(prev => prev.filter(e => e.id !== id));
+      } else {
+        // Never fail silently — the row stays and the user must learn why.
+        setCloudError('Could not delete this export. Please try again.');
+      }
+    } catch {
+      setCloudError('Could not delete this export. Please try again.');
+    } finally {
+      setConfirmDeleteExportKey(null);
+    }
   }, []);
 
   const handleDeleteLocal = useCallback(async (id: string) => {
     await deleteLocalExport(id);
     setLocalExports(prev => prev.filter(e => e.id !== id));
+    setConfirmDeleteExportKey(null);
   }, []);
 
   const handlePreviewCloud = useCallback(async (id: string) => {
@@ -407,6 +464,15 @@ export function RecordingsPanel({
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }, []);
 
+  const renderLocalRow = (exp: LocalExport) => (
+    <LocalExportRow
+      key={exp.id}
+      exp={exp}
+      onDownload={handleDownloadLocal}
+      onAskDelete={(id) => setConfirmDeleteExportKey(`local:${id}`)}
+    />
+  );
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -416,7 +482,11 @@ export function RecordingsPanel({
             <h2 className="text-xl font-semibold tracking-tight text-text-primary">Recordings</h2>
             <p className="mt-1 text-xs text-text-secondary">Your original recordings · Available for 24 hours</p>
           </div>
-          <span className="shrink-0 text-xs text-text-muted">{recordings.length} {recordings.length === 1 ? 'recording' : 'recordings'}</span>
+          {/* Only show a count once the list has loaded — "0 recordings"
+              during load was a lie the skeleton below immediately contradicted. */}
+          {isLoaded && (
+            <span className="shrink-0 text-caption text-text-muted">{recordings.length} {recordings.length === 1 ? 'recording' : 'recordings'}</span>
+          )}
         </div>
       </div>
 
@@ -460,27 +530,9 @@ export function RecordingsPanel({
                 key={recording.id}
                 className="group relative overflow-visible rounded-xl border border-border-subtle bg-surface shadow-sm transition-colors hover:border-border-strong"
               >
-                {confirmDeleteId === recording.id ? (
-                  <div className="flex min-h-[180px] flex-col items-center justify-center gap-3 p-5 text-center">
-                    <span className="text-sm font-medium text-text-primary">Delete this recording?</span>
-                    <span className="text-xs text-text-secondary">This removes it from local storage.</span>
-                    <div className="flex items-center gap-2">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(recording.id); }}
-                      className="rounded-md bg-red-500/10 px-3 py-1.5 text-xs font-medium text-recording hover:bg-red-500/20"
-                    >
-                      Delete
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
-                      className="rounded-md bg-elevated px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary"
-                    >
-                      Keep recording
-                    </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
+                {/* Deletion asks in the shared ConfirmDialog at the panel
+                    root, so the card itself never has to swap out. */}
+                <>
                     <RecordingThumbnail recording={recording} />
                     <div className="p-4">
                       <div className="flex items-start justify-between gap-3">
@@ -532,15 +584,15 @@ export function RecordingsPanel({
                         {formatTime(recording.duration)} · {recording.width} × {recording.height} · {formatFileSize(recording.blob.size)}
                       </p>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <button onClick={() => setPreviewRecording(recording)} className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label={`Preview ${getItemLabel(recording)}`}>
+                        <Button size="sm" variant="primary" onClick={() => setPreviewRecording(recording)} aria-label={`Preview ${getItemLabel(recording)}`}>
                           <PlayIcon className="h-3.5 w-3.5" /> Preview
-                        </button>
-                        <button onClick={() => onExportRecording?.(recording)} aria-label={`Export ${getItemLabel(recording)}`} className="min-h-9 rounded-md border border-border-subtle px-3 py-2 text-xs font-medium text-text-secondary hover:border-border-strong hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => onExportRecording?.(recording)} aria-label={`Export ${getItemLabel(recording)}`}>
                           Export
-                        </button>
+                        </Button>
                       </div>
                       {detailsId === recording.id && (
-                        <div className="mt-3 rounded-md border border-border-subtle bg-elevated/50 p-3 text-[11px] text-text-secondary">
+                        <div className="mt-3 rounded-md border border-border-subtle bg-elevated/50 p-3 text-overline text-text-secondary">
                           <div className="flex items-center gap-1.5 font-medium text-text-primary"><SettingsIcon className="h-3 w-3" /> Recording details</div>
                           <p className="mt-1">Format: {formatRecordingFormat(recording.mimeType, recording.extension)}</p>
                           <p className="mt-0.5">Sound: {recording.hasAudio ? 'With sound' : 'Silent'}</p>
@@ -548,8 +600,7 @@ export function RecordingsPanel({
                         </div>
                       )}
                     </div>
-                  </>
-                )}
+                </>
               </div>
             ))}
           </div>
@@ -567,7 +618,19 @@ export function RecordingsPanel({
         {isAuthenticated && canUseCloudLibrary && (
           <>
             {cloudLoading ? (
-              <p className="text-[12px] text-text-secondary">Loading cloud exports...</p>
+              <div className="flex flex-col gap-2" role="status" aria-label="Loading cloud exports">
+                {[1, 2].map((i) => (
+                  <div key={i} className="p-2.5 rounded-lg bg-elevated/50 border border-border-subtle animate-pulse">
+                    <div className="h-3 w-32 bg-border-subtle rounded" />
+                    <div className="h-2.5 w-40 bg-border-subtle rounded mt-2" />
+                    <div className="flex gap-1.5 mt-3">
+                      <div className="h-7 w-16 bg-border-subtle rounded" />
+                      <div className="h-7 w-20 bg-border-subtle rounded" />
+                      <div className="h-7 w-16 bg-border-subtle rounded ml-auto" />
+                    </div>
+                  </div>
+                ))}
+              </div>
             ) : cloudError ? (
               <p className="text-[12px] text-recording" role="alert">{cloudError}</p>
             ) : cloudExports.length === 0 ? (
@@ -578,20 +641,20 @@ export function RecordingsPanel({
                 return (
                 <div key={exp.id} className="p-2.5 rounded-lg bg-elevated border border-border-subtle flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-[12px] font-medium text-text-primary truncate">{platformDisplayName(exp.platform)}{quality ? ` · ${quality}` : ''}</span>
-                    <span className="text-[11px] text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
+                    <span className="text-caption font-medium text-text-primary truncate">{platformDisplayName(exp.platform)}{quality ? ` · ${quality}` : ''}</span>
+                    <span className="text-overline text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-[11px] text-text-secondary">
+                  <div className="flex items-center gap-2 text-overline text-text-secondary">
                     <span>{formatFileSize(exp.fileSize)}</span>
                     <span>·</span>
                     <span>{formatRelativeTime(exp.createdAt)}</span>
                     <span>·</span>
                     <span>{exportStatusLabel(exp.status)}</span>
                   </div>
-                  <div className="flex gap-1.5 mt-1">
-                    <button onClick={() => handlePreviewCloud(exp.id)} className="text-[11px] px-2 py-1 rounded bg-accent/10 text-accent hover:bg-accent/20" disabled={previewLoading}>Preview</button>
-                    <button onClick={() => handleDownloadCloud(exp.id)} className="text-[11px] px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover">Download</button>
-                    <button onClick={() => handleDeleteCloud(exp.id)} className="text-[11px] px-2 py-1 rounded bg-red-500/10 text-recording hover:bg-red-500/20 ml-auto">Delete</button>
+                  <div className="flex gap-1.5 mt-1 items-center">
+                    <Button size="sm" variant="secondary" onClick={() => handlePreviewCloud(exp.id)} disabled={previewLoading}>Preview</Button>
+                    <Button size="sm" variant="primary" onClick={() => handleDownloadCloud(exp.id)}>Download</Button>
+                    <Button size="sm" variant="destructive" className="ml-auto" onClick={() => setConfirmDeleteExportKey(`cloud:${exp.id}`)}>Delete</Button>
                   </div>
                 </div>
                 );
@@ -601,23 +664,7 @@ export function RecordingsPanel({
         )}
         {isAuthenticated && canUseCloudLibrary ? (
           localExports.length > 0 ? (
-            localExports.map(exp => (
-              <div key={exp.id} className="p-2.5 rounded-lg bg-elevated border border-border-subtle flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[12px] font-medium text-text-primary truncate">{exp.platform} (local)</span>
-                  <span className="text-[11px] text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
-                </div>
-                <div className="flex items-center gap-2 text-[11px] text-text-secondary">
-                  <span>{formatFileSize(exp.fileSize)}</span>
-                  <span>·</span>
-                  <span>{formatRelativeTime(exp.createdAt)}</span>
-                </div>
-                <div className="flex gap-1.5 mt-1">
-                  <button onClick={() => handleDownloadLocal(exp)} className="text-[11px] px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover">Download</button>
-                  <button onClick={() => handleDeleteLocal(exp.id)} className="text-[11px] px-2 py-1 rounded bg-red-500/10 text-recording hover:bg-red-500/20 ml-auto">Delete</button>
-                </div>
-              </div>
-            ))
+            localExports.map(renderLocalRow)
           ) : null
         ) : (
           localExports.length === 0 ? (
@@ -627,23 +674,7 @@ export function RecordingsPanel({
               <p className="mt-1 text-xs leading-relaxed text-text-secondary">Your exported videos are saved locally on this device for 7 days.</p>
             </div>
           ) : (
-            localExports.map(exp => (
-              <div key={exp.id} className="p-2.5 rounded-lg bg-elevated border border-border-subtle flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[12px] font-medium text-text-primary truncate">{exp.platform} (local)</span>
-                  <span className="text-[11px] text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
-                </div>
-                <div className="flex items-center gap-2 text-[11px] text-text-secondary">
-                  <span>{formatFileSize(exp.fileSize)}</span>
-                  <span>·</span>
-                  <span>{formatRelativeTime(exp.createdAt)}</span>
-                </div>
-                <div className="flex gap-1.5 mt-1">
-                  <button onClick={() => handleDownloadLocal(exp)} className="text-[11px] px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover">Download</button>
-                  <button onClick={() => handleDeleteLocal(exp.id)} className="text-[11px] px-2 py-1 rounded bg-red-500/10 text-recording hover:bg-red-500/20 ml-auto">Delete</button>
-                </div>
-              </div>
-            ))
+            localExports.map(renderLocalRow)
           )
         )}
       </div>
@@ -651,7 +682,7 @@ export function RecordingsPanel({
       {/* Footer count */}
       {recordings.length > 0 && (
         <div className="px-4 py-2 border-t border-border-subtle">
-          <span className="text-[12px] text-text-secondary">{recordings.length} recording{recordings.length !== 1 ? 's' : ''}</span>
+          <span className="text-caption text-text-secondary">{recordings.length} recording{recordings.length !== 1 ? 's' : ''}</span>
         </div>
       )}
 
@@ -678,6 +709,36 @@ export function RecordingsPanel({
           onClose={() => { setPreviewUrl(null); setPreviewCloudMeta(''); }}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDeleteId !== null}
+        title="Delete this recording?"
+        message="It will be removed from this browser and cannot be undone."
+        confirmLabel="Delete recording"
+        cancelLabel="Keep recording"
+        onConfirm={() => {
+          const id = confirmDeleteId;
+          setConfirmDeleteId(null);
+          if (id) void handleDelete(id);
+        }}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmDeleteExportKey !== null}
+        title="Delete this export?"
+        message="The exported file will be removed. The recording itself stays in your library."
+        confirmLabel="Delete export"
+        onConfirm={() => {
+          const key = confirmDeleteExportKey;
+          setConfirmDeleteExportKey(null);
+          if (!key) return;
+          const id = key.slice(key.indexOf(':') + 1);
+          if (key.startsWith('cloud:')) void handleDeleteCloud(id);
+          else void handleDeleteLocal(id);
+        }}
+        onCancel={() => setConfirmDeleteExportKey(null)}
+      />
     </div>
   );
 }

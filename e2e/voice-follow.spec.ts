@@ -8,7 +8,7 @@
  *   - speech-follow: spoken (injected) transcripts advance the prompter,
  *     mismatches HOLD the position, interim results need stability;
  *   - hold paths: disabling, and recording pause, freeze the position;
- *   - FC-1.1 Â§6 Item 8 (DC-2): reading to the end of the script fires the
+ *   - FC-1.1 §6 Item 8 (DC-2): reading to the end of the script fires the
  *     FROZEN auto-stop path with the exact toast, through the existing
  *     geometry check â€” the recorder pipeline itself is untouched.
  *
@@ -357,7 +357,7 @@ test('creator without browser SpeechRecognition support: no voice follow control
     await removeSpeechSupport(page);
     await page.goto('/studio');
     await studioReady(page);
-    // Entitled but unsupported â†’ the control is not offered (FC-1.1 Â§8 lim. 7).
+    // Entitled but unsupported â†’ the control is not offered (FC-1.1 §8 lim. 7).
     await expect(voiceSwitch(page)).toHaveCount(0);
   } finally {
     await cleanupTestUser(email);

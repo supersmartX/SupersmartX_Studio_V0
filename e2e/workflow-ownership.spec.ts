@@ -39,6 +39,7 @@ import {
   readMasterRecordings,
   newVideoButton,
   compactStudioTab,
+  openCompactNav,
   recordingsNav,
   grantMediaPermissions,
 } from './helpers';
@@ -81,6 +82,9 @@ function libraryCards(page: Page) {
 }
 
 async function gotoLibrary(page: Page) {
+  // Compact layouts disclose the destinations behind the hamburger; on desktop
+  // this is a no-op because the side rail already shows them.
+  await openCompactNav(page);
   await recordingsNav(page).click();
   await expect(page.getByRole('heading', { name: 'Recordings' })).toBeVisible({ timeout: 30_000 });
   await expect(libraryCards(page).first()).toBeVisible({ timeout: 30_000 });
@@ -355,6 +359,7 @@ test.describe('TEST 9 — compact navigation: the Studio tab never resets the se
 
     // Navigate away through the compact nav and come back: navigation only.
     await gotoLibrary(page);
+    await openCompactNav(page);
     await compactStudioTab(page).click();
 
     // The take is still under review — no silent New Video on a tab click.
@@ -367,6 +372,7 @@ test.describe('TEST 9 — compact navigation: the Studio tab never resets the se
 
     // The explicit control — labeled "New Video" in the compact nav — is
     // what starts a fresh workflow, and it detaches rather than deletes.
+    await openCompactNav(page);
     await newVideoButton(page).click();
     await expectCleanCreationSession(page);
     expect(
@@ -375,7 +381,9 @@ test.describe('TEST 9 — compact navigation: the Studio tab never resets the se
     ).toHaveLength(1);
 
     // Switching tabs afterwards stays navigation, never a resurrection.
+    await openCompactNav(page);
     await recordingsNav(page).click();
+    await openCompactNav(page);
     await compactStudioTab(page).click();
     await expect(page.getByText('Preview as', { exact: true })).toHaveCount(0, { timeout: 30_000 });
     expect(await readMasterRecordings(page)).toHaveLength(1);

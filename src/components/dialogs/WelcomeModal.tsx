@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
@@ -21,6 +22,88 @@ export function WelcomeModal({
 }: WelcomeModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isVisible, onExploreStudio);
 
+  // The dialog panel — the boundary for the Tab trap below.
+  const panelRef = useRef<HTMLDivElement>(null);
+  // The control that opened this dialog, so closing hands focus back to it.
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+
+  // Escape dismisses, Tab is trapped inside the sheet, and the primary action
+  // takes focus on open. This dialog is modal in every other respect, so
+  // keyboard focus must not be able to fall out onto the page behind it.
+  useEffect(() => {
+    if (!shouldRender) return;
+    const active = document.activeElement;
+    returnFocusRef.current = active instanceof HTMLElement ? active : null;
+
+    // Land on the primary task ("Get Started"), not on "leave this dialog" —
+    // but only when that control is already inside the visible body. On a
+    // short viewport the CTA sits below the fold, and focusing it scrolled the
+    // body ~350px so the dialog opened mid-content with its title off-screen.
+    // In that case focus lands on the dialog's own heading: it is visible at
+    // the top, it names the dialog, and the first Tab still reaches the CTA.
+    const container = panelRef.current;
+    if (container) {
+      const scroller = container.querySelector<HTMLElement>('[data-welcome-scroll]');
+      const focusable = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+      const firstTaskControl =
+        focusable.find((el) => el.getAttribute('aria-label') !== 'Close') ?? focusable[0];
+      const box = scroller?.getBoundingClientRect();
+      const taskRect = firstTaskControl?.getBoundingClientRect();
+      const taskVisible =
+        !!box && !!taskRect && taskRect.top >= box.top && taskRect.bottom <= box.bottom;
+      const heading = container.querySelector<HTMLElement>('[data-welcome-heading]');
+      (taskVisible ? firstTaskControl : heading ?? focusable[0])?.focus({ preventScroll: true });
+      if (scroller) scroller.scrollTop = 0;
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeModal();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const root = panelRef.current;
+      if (!root) return;
+      const focusable = Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first || !root.contains(document.activeElement)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (document.activeElement === last || !root.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      // Hand focus back to the trigger once the sheet is gone.
+      const target = returnFocusRef.current;
+      returnFocusRef.current = null;
+      const nowActive = document.activeElement;
+      const focusIsLost =
+        nowActive === null ||
+        nowActive === document.body ||
+        nowActive === document.documentElement ||
+        !nowActive.isConnected;
+      if (target && target.isConnected && focusIsLost) {
+        target.focus();
+      }
+    };
+  }, [shouldRender, closeModal]);
+
   if (!shouldRender) return null;
 
   return (
@@ -30,15 +113,20 @@ export function WelcomeModal({
         onClick={closeModal}
       />
 
-      <div className={`relative w-full max-w-xl bg-surface border border-border-default rounded-xl shadow-2xl ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden max-h-[90vh] overflow-y-auto`}>
+      {/* The panel is capped to the viewport and its BODY scrolls, so the Close
+          control stays pinned at the panel's top edge on short screens. Without
+          the cap the panel grew past a 375×812 / 390×844 viewport and the Close
+          button landed at a negative Y — unreachable. */}
+      <div ref={panelRef} className={`relative w-full max-w-xl bg-surface border border-border-default rounded-xl shadow-2xl max-h-[calc(100dvh-2rem)] flex flex-col ${isClosing ? 'animate-scale-out' : 'animate-scale-in'} overflow-hidden`}>
         <button
           onClick={closeModal}
-          className="absolute top-3 right-3 p-2.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
+          className="absolute top-3 right-3 p-2.5 rounded-md bg-surface/80 backdrop-blur-sm text-text-muted hover:text-text-secondary hover:bg-elevated transition-colors z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
           aria-label="Close"
         >
           <CloseIcon className="w-4 h-4" />
         </button>
 
+        <div data-welcome-scroll className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <div className="relative px-5 sm:px-8 pt-10 pb-6 text-center">
           <div className="absolute -top-16 -left-16 w-48 h-48 bg-accent/5 rounded-full blur-3xl pointer-events-none" />
 
@@ -50,7 +138,10 @@ export function WelcomeModal({
             />
           </div>
 
-          <h1 className="text-xl font-bold text-text-primary mb-2">
+          {/* Focus lands here when the CTA is below the fold (short viewport).
+              It is a reading target, not a control, so it takes no focus ring
+              (see globals.css) — the controls below keep theirs. */}
+          <h1 data-welcome-heading tabIndex={-1} className="text-xl font-bold text-text-primary mb-2">
             Welcome to{' '}
             <span className="text-accent">SUPERSMARTX</span>{' '}
             Studio
@@ -145,6 +236,7 @@ export function WelcomeModal({
               Permissions requested on first use.
             </span>
           </div>
+        </div>
         </div>
       </div>
     </div>

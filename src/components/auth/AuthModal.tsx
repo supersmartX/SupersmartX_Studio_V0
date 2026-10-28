@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { signIn, useSession } from 'next-auth/react';
 import { validatePassword } from '@/lib/validation';
 import { CloseIcon } from '@/components/icons';
@@ -135,16 +135,124 @@ export function AuthModal({
 
   const { isClosing, shouldRender, handleClose: handleModalClose, swipeHandlers } = useModalAnimation(isOpen, handleClose);
 
+  // The dialog panel itself — the boundary for the Tab trap below.
+  const panelRef = useRef<HTMLDivElement>(null);
+
   // Escape closes like every other modal. The auth step holds no destructive
   // state (credentials are never persisted until success), so dismissal is safe.
+  // Tab is trapped so keyboard focus cannot fall out onto the page behind —
+  // the dialog is modal in every other respect, so it must be modal to Tab too.
   useEffect(() => {
     if (!shouldRender) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleModalClose();
+      if (e.key === 'Escape') {
+        handleModalClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const container = panelRef.current;
+      if (!container) return;
+      const focusable = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first || !container.contains(document.activeElement)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (document.activeElement === last || !container.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [shouldRender, handleModalClose]);
+
+  // Focus the dialog's first task control on open (never the Close button —
+  // that would focus "leave this dialog"), and hand focus back to the trigger
+  // on close so keyboard users don't get dumped onto <body>.
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!shouldRender) return;
+    const container = panelRef.current;
+    if (!container) return;
+    // A field inside the dialog may already hold focus — the register
+    // step's First Name input and the sign-in step's email input set
+    // autoFocus deliberately (see InputGroup, UX-012). Moving focus again
+    // here would override that choice and land on the Google button
+    // instead, so only act when nothing inside has focus yet.
+    const active = document.activeElement;
+    if (container.contains(active)) return;
+    const explicit = container.querySelector<HTMLElement>('[data-modal-initial-focus]');
+    if (explicit && !explicit.hasAttribute('disabled')) {
+      explicit.focus();
+      return;
+    }
+    const focusable = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+    const firstTaskControl =
+      focusable.find((el) => el.getAttribute('aria-label') !== 'Close') ?? focusable[0];
+    firstTaskControl?.focus();
+  }, [shouldRender]);
+
+  // Return focus to the control that opened this dialog. Snapshotting
+  // `document.activeElement` when the dialog opens does NOT work here: the
+  // login/register inputs' `autoFocus` runs during React's commit phase, before
+  // any effect, so the snapshot would capture the input itself — which is
+  // destroyed on close, leaving keyboard focus stranded on <body>.
+  //
+  // Instead record the last interaction that landed while the dialog was still
+  // closed; that is the real trigger, whether the browser focuses buttons on
+  // click (Chrome) or not (Firefox/Safari). The listeners are attached on mount
+  // because the trigger's pointerdown/focusin fires before `shouldRender` ever
+  // flips true, so gating them on the open state would always miss it.
+  const shouldRenderRef = useRef(shouldRender);
+  shouldRenderRef.current = shouldRender;
+  useEffect(() => {
+    const remember = (target: EventTarget | null) => {
+      // Only a pre-open interaction counts as the trigger; anything that lands
+      // after the dialog is up (backdrop, focus trap) must not overwrite it.
+      if (shouldRenderRef.current) return;
+      if (!(target instanceof HTMLElement)) return;
+      if (target === document.body || target === document.documentElement) return;
+      returnFocusRef.current = target;
+    };
+    const onFocusIn = (e: FocusEvent) => remember(e.target);
+    const onPointerDown = (e: PointerEvent) => remember(e.target);
+    document.addEventListener('focusin', onFocusIn, true);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, []);
+
+  // Hand focus back once the dialog is gone, but only if it would otherwise be
+  // lost (still on <body> or a detached node), so we never steal focus from a
+  // dialog that opened on top of this one.
+  useEffect(() => {
+    if (shouldRender) return;
+    const target = returnFocusRef.current;
+    returnFocusRef.current = null;
+    const active = document.activeElement;
+    const focusIsLost =
+      active === null ||
+      active === document.body ||
+      active === document.documentElement ||
+      !active.isConnected;
+    if (target && target.isConnected && focusIsLost) {
+      target.focus();
+    }
+  }, [shouldRender]);
 
   if (!shouldRender) return null;
 
@@ -155,7 +263,7 @@ export function AuthModal({
         onClick={handleModalClose}
       />
 
-      <div className={`relative flex w-full max-w-[960px] min-h-[600px] max-h-[90vh] bg-canvas rounded-2xl shadow-2xl overflow-hidden border border-border-subtle ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}>
+      <div ref={panelRef} className={`relative flex w-full max-w-[960px] max-h-[90vh] bg-canvas rounded-2xl shadow-2xl overflow-hidden border border-border-subtle ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}>
         {/* Close button */}
         <button
           onClick={handleModalClose}
@@ -203,7 +311,11 @@ export function AuthModal({
         </div>
 
         {/* Right Column - Form */}
-        <div className="flex-1 flex flex-col items-center justify-center py-10 lg:py-6 px-6 sm:px-12 lg:px-16 xl:px-20 overflow-y-auto lg:overflow-hidden">
+        {/* No `lg:overflow-hidden`: the password requirements line plus two
+            name fields can exceed the dialog height at exactly the `lg` widths
+            where the left hero appears, and clipping there trapped content
+            with no way to reach it. The column scrolls instead. */}
+        <div className="flex-1 flex flex-col items-center justify-center py-10 lg:py-6 px-6 sm:px-12 lg:px-16 xl:px-20 overflow-y-auto">
           <div className="w-full max-w-xl space-y-7 lg:space-y-5 sm:space-y-8 animate-fade-in">
             {/* Header */}
             <div className="space-y-2">
@@ -276,9 +388,10 @@ export function AuthModal({
                     onChange={setEmail}
                   />
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium text-white">Password</label>
+                    <label htmlFor="auth-register-password" className="text-sm font-medium text-text-primary">Password</label>
                     <div className="relative">
                       <input
+                        id="auth-register-password"
                         type={showPassword ? 'text' : 'password'}
                         placeholder="Enter password"
                         value={password}
@@ -352,8 +465,9 @@ export function AuthModal({
                   </>
                 )}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-text-primary">Email address</label>
+                  <label htmlFor="auth-login-email" className="text-sm font-medium text-text-primary">Email address</label>
                   <input
+                    id="auth-login-email"
                     type="email"
                     placeholder="you@example.com"
                     value={email}
@@ -365,9 +479,10 @@ export function AuthModal({
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-text-primary">Password</label>
+                  <label htmlFor="auth-login-password" className="text-sm font-medium text-text-primary">Password</label>
                   <div className="relative">
                     <input
+                      id="auth-login-password"
                       type={showLoginPassword ? 'text' : 'password'}
                       placeholder="Enter password"
                       value={loginPassword}

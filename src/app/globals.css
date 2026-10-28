@@ -201,11 +201,18 @@ body {
   overflow-x: hidden;
 }
 
-/* Focus Ring — uses token radius */
+/* Focus Ring — follows the element's own radius (no forced border-radius here:
+   that overrode rounded-full/lg controls while keyboard-focused). */
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-  border-radius: var(--radius-sm);
+}
+
+/* The welcome dialog parks initial focus on its heading when the primary CTA
+   sits below the fold (short viewports). A heading is a reading target, not an
+   operable control, so it takes no ring — the dialog's buttons keep theirs. */
+[data-welcome-heading]:focus-visible {
+  outline: none;
 }
 
 /* Scrollbar */
@@ -234,7 +241,9 @@ input[type="range"] {
   background: transparent;
   cursor: pointer;
   width: 100%;
-  height: 20px;
+  /* WCAG 2.5.8 needs a 24px target. The track stays 3px and the thumb 14px;
+     only the pointer-sensitive box grows. Touch devices get 28px below. */
+  height: 24px;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
@@ -349,6 +358,11 @@ input[type="range"]::-moz-range-thumb {
   100% { transform: scale(1); opacity: 1; }
 }
 
+@keyframes popover-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -386,24 +400,37 @@ input[type="range"]::-moz-range-thumb {
   animation: countdown-pulse 0.9s var(--ease-out) forwards;
 }
 
+.animate-popover-in {
+  animation: popover-in var(--duration-fast) var(--ease-out);
+}
+
 /* Utility */
 .mirrored {
   transform: scaleX(-1);
 }
 
 .focus-mask {
+  /* The top of the mask is the control rail: it must be opaque-free above
+     TELEPROMPTER_SAFE_TOP_PX (64px) so script scrolling up never shows under
+     the Focus View pill, the REC/PAUSED pill or the timer. The rail ends at
+     56px, so the mask holds fully transparent to 56px and fades in over the
+     next 8px — the reading line (64px) is already fully opaque when it
+     lands. The bottom fades over 16px: text should reach the bottom of the
+     reading area, but a hard cut-off makes lines pop in and out. */
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent 0%,
-    black 8%,
-    black 85%,
+    transparent 0,
+    transparent 56px,
+    black 64px,
+    black calc(100% - 16px),
     transparent 100%
   );
   mask-image: linear-gradient(
     to bottom,
-    transparent 0%,
-    black 8%,
-    black 85%,
+    transparent 0,
+    transparent 56px,
+    black 64px,
+    black calc(100% - 16px),
     transparent 100%
   );
 }
@@ -413,6 +440,61 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+}
+
+/* Transport readiness label vs. the centre Record button.
+   The bar gives its left and right zones equal flex space so Record stays
+   optically centred. When the 300px desktop inspector is open at 1280px the
+   transport is only ~780px wide; the full "Ready to record" label made the
+   camera chip overflow into the centred Record button and swallow its chevron
+   clicks. Container queries key off the transport's real width, not the
+   viewport, so the short form appears only in that squeeze. */
+.transport-bar {
+  container-type: inline-size;
+  container-name: transport;
+}
+
+/* On phones the full phrase is wider than the gap between 00:00 and the mic
+   chip. Let it wrap under the timer instead of running into the control. */
+.transport-ready-full {
+  max-width: 3.25rem;
+  white-space: normal;
+  line-height: 1.05;
+}
+
+@container transport (min-width: 841px) {
+  .transport-ready-full {
+    max-width: none;
+    white-space: nowrap;
+  }
+}
+
+@container transport (min-width: 700px) and (max-width: 840px) {
+  .transport-ready-full {
+    display: none;
+  }
+  .transport-ready-short {
+    display: inline;
+  }
+}
+
+/* Review transport (ReviewPlayer). The clock is the first thing to go when the
+   preview box is narrow — a landscape phone's 16:9 box is ~250px wide, where
+   keeping it would squeeze the scrub track to ~25px. Keyed to the pill's own
+   width, so a desktop 9:16 frame (narrow box, wide viewport) drops it too. */
+.review-transport {
+  container-type: inline-size;
+  container-name: review;
+}
+
+.review-transport-time {
+  display: none;
+}
+
+@container review (min-width: 300px) {
+  .review-transport-time {
+    display: inline;
+  }
 }
 
 /* Reduced motion */

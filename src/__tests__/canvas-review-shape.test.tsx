@@ -21,7 +21,6 @@ describe('Canvas review box shape per platform', () => {
         focusViewEnabled={false}
         onFocusViewToggle={() => {}}
         aspectRatio="16:9"
-        recordingConfig={{ width: 1920, height: 1080 } as never}
         reviewVideoUrl="blob:review"
         reviewAspectRatio={ratio}
       >
@@ -60,7 +59,6 @@ describe('Canvas review box shape per platform', () => {
         focusViewEnabled={false}
         onFocusViewToggle={() => {}}
         aspectRatio="16:9"
-        recordingConfig={{ width: 1920, height: 1080 } as never}
         reviewVideoUrl="blob:review"
         reviewAspectRatio="9:16"
       >
@@ -86,7 +84,6 @@ describe('Canvas review box shape per platform', () => {
         focusViewEnabled={false}
         onFocusViewToggle={() => {}}
         aspectRatio="16:9"
-        recordingConfig={{ width: 1920, height: 1080 } as never}
         reviewVideoUrl="blob:review"
         reviewAspectRatio="9:16"
         reviewVideoStyle={{ objectFit: 'cover', objectPosition: '50% 50%' }}

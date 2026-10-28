@@ -60,9 +60,11 @@ test.describe('countdown contract (FC-1.0 item 2)', () => {
 
     await transport(page).getByRole('button', { name: 'Start Recording' }).click();
 
-    // The pending countdown offers an explicit Cancel.
+    // The pending countdown offers an explicit Cancel immediately, and the
+    // first beat is already visible (the old UI spent 800ms on a blank frame).
     const cancel = page.getByRole('button', { name: 'Cancel countdown' });
     await expect(cancel).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('countdown-value')).toHaveText('3', { timeout: 600 });
     await cancel.click();
 
     // Clean non-recording state: no phantom Stop, no overlay, camera kept
@@ -70,6 +72,10 @@ test.describe('countdown contract (FC-1.0 item 2)', () => {
     await expect(transport(page).getByRole('button', { name: 'Start Recording' })).toBeVisible({ timeout: 10_000 });
     await expect(cancel).toHaveCount(0);
     await expect(transport(page).getByRole('button', { name: 'Stop Recording' })).toHaveCount(0);
+    // Cancelling a countdown is not a stopped take: the live region must not
+    // tell a screen-reader user that a recording is ready to review.
+    await expect(page.getByText('Countdown cancelled.')).toHaveCount(1);
+    await expect(page.getByText(/recording is ready to review/i)).toHaveCount(0);
 
     // Nothing was recorded: no take, no quota burn.
     expect(await readMasterRecordings(page), 'a cancelled countdown creates no recording').toHaveLength(0);
@@ -115,20 +121,31 @@ test.describe('countdown contract (FC-1.0 item 2)', () => {
   });
 });
 
-test.describe('capture dimension badge (FC-1.0 item 3)', () => {
-  test('shows the configured target before capture, actual dimensions after', async ({ page }) => {
+test.describe('no technical dimensions chrome (clean-canvas redesign)', () => {
+  test('no dimensions read-out on the canvas; a take reports real geometry in the status line', async ({ page }) => {
     await page.goto('/studio');
     await dismissWelcomeModal(page);
-
-    // Before any capture: the configured dimensions, explicitly labelled as
-    // a target — never claimed as a captured resolution.
-    const target = page.getByText(/^Target \d+ × \d+$/);
-    await expect(target, 'pre-capture badge must label configuration as target').toBeVisible({ timeout: 15_000 });
-
-    // Camera live: the badge switches to the ACTUAL track dimensions.
     await studioReady(page);
-    await expect(target, 'once capturing, the target label must disappear').toHaveCount(0, { timeout: 15_000 });
-    await expect(page.getByText(/^\d+ × \d+$/).first(), 'actual W × H is displayed').toBeVisible({ timeout: 15_000 });
+
+    // Before capture the canvas carries no dimensions at all — neither the
+    // ACTUAL figure nor a "Target …" label. The clean creator canvas is not a
+    // technical read-out.
+    await expect(page.getByText(/^Target \d+ × \d+$/)).toHaveCount(0);
+    await expect(page.getByText(/^\d+ × \d+$/)).toHaveCount(0);
+
+    // During a take the REAL track geometry appears in the status line
+    // (role=status, real MediaStreamTrack settings — never a configured
+    // target), exactly where supporting information now belongs.
+    await transport(page).getByRole('button', { name: 'Start Recording' }).click();
+    const stop = transport(page).getByRole('button', { name: 'Stop Recording' });
+    await stop.waitFor({ timeout: 30_000 });
+
+    const statusLine = page.getByRole('status').filter({ hasText: /\d+ × \d+/ });
+    await expect(statusLine, 'actual W × H is displayed while capturing').toBeVisible({ timeout: 15_000 });
+    await expect(statusLine).toContainText(/\d+ × \d+/);
+
+    await stopRecording(page);
+    await expectReview(page);
   });
 });
 
@@ -159,6 +176,10 @@ test.describe('review audio path (FC-1.0 item 4)', () => {
 
 test.describe('script-end auto-stop (FC-1.0 DC-2)', () => {
   test('reaching the end of the script stops the take and says so', async ({ page }) => {
+    // The end-stop is a real-time event (~20s at default prompter speed), so
+    // this test needs more than the global 30s budget to reach it and still
+    // have room for the assertion window.
+    test.slow();
     await page.goto('/studio');
     await dismissWelcomeModal(page);
     await studioReady(page);
@@ -170,10 +191,16 @@ test.describe('script-end auto-stop (FC-1.0 DC-2)', () => {
     await transport(page).getByRole('button', { name: 'Start Recording' }).click();
     await transport(page).getByRole('button', { name: 'Stop Recording' }).waitFor({ timeout: 30_000 });
 
+    // Measured against this app's real scroll: the script clears the visible
+    // area at ~30px/s (default speed) after the 85% bottom pad has scrolled
+    // through, which lands around 18-19s for a one-line script. A 20s window
+    // left no headroom on a loaded CI box, so it failed on scheduling jitter
+    // while the behavior itself was correct. The assertion is unchanged: the
+    // take must still stop BY ITSELF and say so — only the time budget is real.
     await expect(
       page.getByRole('status').getByText('Script ended — recording stopped'),
       'the teleprompter end-stop must announce itself with the FC copy',
-    ).toBeVisible({ timeout: 20_000 });
+    ).toBeVisible({ timeout: 35_000 });
 
     // The auto-stop produced a real take.
     await expectReview(page);
@@ -320,7 +347,10 @@ test.describe('player controls auto-hide vs keyboard focus', () => {
     const dialog = page.getByRole('dialog', { name: 'Export recording' });
     await expect(dialog, 'the export dialog must open').toBeVisible({ timeout: 20_000 });
 
-    const slider = page.getByRole('slider', { name: 'Seek' });
+    // Scoped to the dialog: the review surface behind it also exposes a named
+    // seek slider ("Seek playback position"), so an unscoped role lookup is
+    // ambiguous. This test is about the export player's controls.
+    const slider = dialog.getByRole('slider', { name: 'Seek', exact: true });
     await expect(slider, 'the seek bar must be exposed as a named slider').toBeVisible({ timeout: 20_000 });
 
     // Park the pointer away from the player so no mouse movement can re-show the
@@ -377,5 +407,134 @@ test.describe('player controls auto-hide vs keyboard focus', () => {
       await controlsOpacity(page),
       'the controls must remain hidden after focus leaves (no stale focus state)',
     ).toBe('0');
+  });
+});
+
+/**
+ * Phase 4 review contract: Stop ends in a saved take the user can judge, not a
+ * control puzzle. The two decisions that used to be implicit are made explicit
+ * and asserted against real IndexedDB state:
+ *   - Retake is NON-destructive (the current take stays in the library);
+ *   - Delete is available for a fresh take and really removes it.
+ */
+test.describe('camera-off readiness (Phase 4)', () => {
+  test('camera off blocks Start with an actionable way back on', async ({ page }) => {
+    await page.goto('/studio');
+    await dismissWelcomeModal(page);
+    await studioReady(page);
+
+    const start = transport(page).getByRole('button', { name: 'Start Recording' });
+    await transport(page).getByRole('button', { name: 'Turn off camera' }).click();
+
+    await expect(page.getByRole('status', { name: 'Camera is off' })).toBeVisible();
+    await expect(page.getByText('Turn your camera on to start recording.')).toBeVisible();
+    await expect(start).toBeDisabled();
+
+    await page.getByRole('button', { name: 'Turn camera back on' }).click();
+    await expect(page.getByRole('status', { name: 'Camera is off' })).toHaveCount(0);
+    await expect(start).toBeEnabled();
+  });
+});
+
+test.describe('review decision contract (Phase 4)', () => {
+  test('Retake after a camera-off take turns the camera back on', async ({ page }) => {
+    await page.goto('/studio');
+    await dismissWelcomeModal(page);
+    await studioReady(page);
+
+    await transport(page).getByRole('button', { name: 'Start Recording' }).click();
+    await transport(page).getByRole('button', { name: 'Stop Recording' }).waitFor({ state: 'visible', timeout: 30_000 });
+    await page.waitForTimeout(1_000);
+    await transport(page).getByRole('button', { name: 'Turn off camera' }).click();
+    await expect(page.getByRole('status', { name: 'Camera is off' })).toBeVisible();
+    await stopRecording(page);
+    await expectReview(page);
+
+    // Retake is a new take, not a replay of the camera-off state. The live
+    // camera chip is hidden in review, so retake must restore it itself.
+    await page.getByRole('button', { name: 'Retake', exact: true }).click();
+    await expect(page.getByText('Camera turned on for your retake.')).toBeVisible();
+    await transport(page).getByRole('button', { name: 'Stop Recording' }).waitFor({ state: 'visible', timeout: 30_000 });
+    await expect(page.getByRole('status', { name: 'Camera is off' })).toHaveCount(0);
+
+    await page.waitForTimeout(1_000);
+    await stopRecording(page);
+    await expectReview(page);
+  });
+
+  test('review says the take is ready and Retake keeps it in the library', async ({ page }) => {
+    await page.goto('/studio');
+    await dismissWelcomeModal(page);
+    await recordTake(page, 2);
+    await expectReview(page);
+
+    await expect(page.getByText('Your recording is ready.')).toBeVisible();
+    await expect(page.getByText('Saved in this browser')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Delete recording' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retake', exact: true })).toBeVisible();
+    // Stop removes the focused Stop control; focus must land on the review
+    // surface, not the document body, or keyboard users start over in the header.
+    await expect
+      .poll(() => page.locator('[data-review-tray]').evaluate((el) => el.contains(document.activeElement)))
+      .toBe(true);
+    // The accessible description, not just the 9px visual sub-label, explains
+    // what happens to the finished take.
+    await expect(page.locator('#review-retake-note')).toHaveText(/stays in your library/);
+
+    // The live-device chips belong to preparing/recording. In review the camera
+    // and mic are released, and the player owns playback sound; leaving these
+    // here made the mic chip look like a playback mute.
+    const bar = transport(page);
+    await expect(bar.getByRole('button', { name: 'Mute microphone' })).toHaveCount(0);
+    await expect(bar.getByRole('button', { name: 'Turn off camera' })).toHaveCount(0);
+
+    const before = await readMasterRecordings(page);
+    expect(before, 'a fresh take is persisted immediately').toHaveLength(1);
+
+    await page.getByRole('button', { name: 'Retake', exact: true }).click();
+    await expect(bar.getByRole('button', { name: 'Mute microphone' })).toBeVisible();
+    await transport(page).getByRole('button', { name: 'Stop Recording' }).waitFor({ state: 'visible', timeout: 30_000 });
+    await page.waitForTimeout(1_500);
+    await stopRecording(page);
+    await expectReview(page);
+
+    await expect.poll(async () => (await readMasterRecordings(page)).length).toBe(2);
+    const after = await readMasterRecordings(page);
+    expect(after.map((r) => r.id)).toContain(before[0].id);
+  });
+
+  test('deleting a fresh take clears review and returns to a clean ready state', async ({ page }) => {
+    await page.goto('/studio');
+    await dismissWelcomeModal(page);
+    await recordTake(page, 2);
+    await expectReview(page);
+
+    expect(await readMasterRecordings(page)).toHaveLength(1);
+
+    page.once('dialog', async (dialog) => {
+      // The delete confirmation is a real dialog in the UI now, never a native
+      // one; a native dialog here means the shared confirm was bypassed.
+      await dialog.dismiss();
+    });
+    await page.getByRole('button', { name: 'Delete recording' }).click();
+
+    // Deleting the only copy of the bytes asks first, in the shared alertdialog.
+    const confirm = page.getByRole('alertdialog');
+    await expect(confirm).toBeVisible();
+    await expect(confirm).toContainText(/cannot be undone/i);
+    // Cancel leaves the take, the review and the library row exactly as they were.
+    await confirm.getByRole('button', { name: 'Keep recording' }).click();
+    await expect(confirm).toHaveCount(0);
+    await expect(page.getByText('Your recording is ready.')).toBeVisible();
+    expect(await readMasterRecordings(page)).toHaveLength(1);
+
+    await page.getByRole('button', { name: 'Delete recording' }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Delete recording' }).click();
+
+    // Back to the pre-record state, with no stale review actions or blob video.
+    await expect(transport(page).getByRole('button', { name: 'Start Recording' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Retake', exact: true })).toHaveCount(0);
+    await expect(page.getByText('Your recording is ready.')).toHaveCount(0);
+    await expect.poll(async () => (await readMasterRecordings(page)).length).toBe(0);
   });
 });

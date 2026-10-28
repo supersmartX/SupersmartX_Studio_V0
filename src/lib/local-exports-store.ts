@@ -1,9 +1,19 @@
 'use client';
 
-const DB_NAME = 'sxs-studio';
-const DB_VERSION = 2;
+import { openStudioDatabase } from '@/lib/studio-db';
+
 const STORE_NAME = 'local-exports';
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Exports are saved by the export pipeline, not by the panel that lists them.
+// The panel can stay mounted underneath the export dialog, so without a signal
+// the new row is invisible until the user leaves and re-enters the Library.
+export const LOCAL_EXPORTS_CHANGED_EVENT = 'sxs:local-exports-changed';
+
+function notifyLocalExportsChanged(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(LOCAL_EXPORTS_CHANGED_EVENT));
+}
 
 export interface LocalExport {
   id: string;
@@ -17,34 +27,7 @@ export interface LocalExport {
 }
 
 function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') return reject(new Error('IndexedDB not available'));
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      // Idempotent migration: create missing stores without deleting existing data
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-        store.createIndex('createdAt', 'createdAt', { unique: false });
-        store.createIndex('expiresAt', 'expiresAt', { unique: false });
-      }
-      // Ensure recordings store exists (shared DB with recording-store.ts)
-      if (!db.objectStoreNames.contains('recordings')) {
-        const store = db.createObjectStore('recordings', { keyPath: 'id' });
-        store.createIndex('createdAt', 'createdAt', { unique: false });
-        store.createIndex('expiresAt', 'expiresAt', { unique: false });
-      }
-    };
-    req.onblocked = () => console.warn('[IDB] open blocked — close other tabs');
-    req.onsuccess = () => {
-      const db = req.result;
-      // Safety: if DB was created at version 1 before this fix and missing a store,
-      // the version bump to 2 guarantees onupgradeneeded runs. For edge cases where
-      // version already 2 but store still missing (manual deletion), handle gracefully in callers.
-      resolve(db);
-    };
-    req.onerror = () => reject(req.error);
-  });
+  return openStudioDatabase();
 }
 
 export async function saveLocalExport(exp: Omit<LocalExport, 'expiresAt' | 'createdAt'> & { createdAt?: string }): Promise<void> {
@@ -63,6 +46,7 @@ export async function saveLocalExport(exp: Omit<LocalExport, 'expiresAt' | 'crea
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onerror = () => { db.close(); reject(tx.error); };
     });
+    notifyLocalExportsChanged();
   } catch (e) { console.warn('saveLocalExport failed', e); }
 }
 

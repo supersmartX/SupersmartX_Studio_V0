@@ -9,9 +9,11 @@ interface InitOverlayProps {
   onInitialize: () => void;
   status: InitStatus;
   errorMessage?: string | null;
+  /** The failure is a site permission decision, not missing/busy hardware. */
+  permissionBlocked?: boolean;
 }
 
-export function InitOverlay({ onInitialize, status, errorMessage }: InitOverlayProps) {
+export function InitOverlay({ onInitialize, status, errorMessage, permissionBlocked = false }: InitOverlayProps) {
   const isLoading = status === 'requesting';
   const hasError = status === 'error';
 
@@ -41,7 +43,13 @@ export function InitOverlay({ onInitialize, status, errorMessage }: InitOverlayP
             marginBottom: 'clamp(0.25rem, 1vw, 0.5rem)',
           }}
         >
-          {hasError ? 'Camera Access Required' : isLoading ? 'Starting Camera...' : 'Studio Ready'}
+          {hasError
+            ? permissionBlocked
+              ? 'Camera & microphone access is blocked'
+              : 'Camera & microphone access needed'
+            : isLoading
+            ? 'Starting your camera...'
+            : 'Studio Ready'}
         </h3>
         <p
           className="text-text-secondary leading-relaxed"
@@ -51,9 +59,12 @@ export function InitOverlay({ onInitialize, status, errorMessage }: InitOverlayP
           }}
         >
           {hasError
-            ? errorMessage ?? 'Unable to access camera. Please retry.'
+            ? errorMessage ??
+              (permissionBlocked
+                ? "Your browser is blocking this site's camera and microphone. Allow them in the site settings from the address bar, then choose Retry."
+                : 'We could not access your camera or microphone. Choose Retry to try again.')
             : isLoading
-            ? 'Please allow camera and microphone access when prompted.'
+            ? 'Allow camera and microphone access when your browser asks.'
             : 'Enable your camera and microphone to begin recording. Everything stays on your device.'}
         </p>
         <Button
@@ -63,7 +74,7 @@ export function InitOverlay({ onInitialize, status, errorMessage }: InitOverlayP
           className="w-full shrink-0"
           disabled={isLoading}
         >
-          {isLoading ? 'Loading...' : hasError ? 'Retry' : 'Enable Camera & Microphone'}
+          {isLoading ? 'Starting…' : hasError ? 'Retry' : 'Enable Camera & Microphone'}
         </Button>
         {/* UX-002 (item 6): the script-persistence reassurance moved to the
             Inspector's Script section, where the editor that earns it actually

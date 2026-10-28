@@ -121,7 +121,7 @@ export function DailyRecordingIndicator({
         ) : (
           <>
             <span className={`sm:hidden ${statusClass}`}>Free · {remainingText}</span>
-            <span className={`hidden sm:inline ${statusClass}`}>Free · {remainingText} / {totalText} min available today</span>
+            <span className={`hidden sm:inline ${statusClass}`}>Free · {remainingText} / {totalText} available today</span>
           </>
         )}
       </span>

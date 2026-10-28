@@ -51,6 +51,7 @@ export interface MasterRecording {
   extension: string;
   duration: number;
   hasAudio: boolean;
+  recordingMetadata?: RecordingMetadata;
   sourceWidth: number;
   sourceHeight: number;
   createdAt: string;
@@ -61,6 +62,29 @@ export interface MasterRecording {
    * written before this contract existed.
    */
   script?: string;
+}
+
+export interface RecordingMetadata {
+  profileId: string;
+  actualProfileId: string;
+  requestedWidth: number;
+  requestedHeight: number;
+  requestedFps: number;
+  actualWidth: number | null;
+  actualHeight: number | null;
+  actualFps: number | null;
+  deviceId: string | null;
+  mimeType: string;
+  configuredVideoBitrate: number;
+  actualVideoBitrate: number | null;
+  configuredAudioBitrate: number;
+  actualAudioBitrate: number | null;
+  duration: number;
+  fileSize: number;
+  /** Whole-file average; includes audio and container overhead. */
+  averageFileBitrate: number | null;
+  startupLatencyMs: number | null;
+  finalizationLatencyMs: number | null;
 }
 
 export interface CropConfig {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { PauseIcon, PlayIcon } from '@/components/icons';
+import { PauseIcon, PlayIcon, AudioIcon, SpeakerMutedIcon, FullscreenIcon } from '@/components/icons';
 import { formatTime } from '@/utils/format';
 import type { AspectRatio } from '@/types';
 import { ASPECT_RATIO_PRESETS } from '@/constants';
@@ -69,8 +69,22 @@ export function VideoPlayer({
         setShowSpeedMenu(false);
       }
     };
+    // Escape dismisses the menu and returns focus to its trigger, matching the
+    // behaviour of every other menu in the app. Without this a keyboard user
+    // had no way to close it other than picking a speed.
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setShowSpeedMenu(false);
+        speedMenuRef.current?.querySelector<HTMLElement>('button[aria-haspopup]')?.focus();
+      }
+    };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [showSpeedMenu]);
 
   const showControls = useCallback(() => {
@@ -343,7 +357,14 @@ export function VideoPlayer({
           ref={controlsRef}
           onFocus={handleControlsFocus}
           onBlur={handleControlsBlur}
-          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 transition-opacity ${controlsVisible || focusWithinControls ? 'opacity-100' : 'opacity-0'}`}
+          /* The overlay used to be only opacity-hidden, so an invisible control
+             could still swallow a stray click. `pointer-events-none` blocks that
+             while the bar is hidden. It is deliberately NOT visibility/display
+             hidden: those would remove the controls from the Tab order, and the
+             keyboard path relies on Tab being able to enter the hidden bar
+             (focus then reveals it via focusWithinControls). pointer-events does
+             not affect keyboard focus, so both behaviours are preserved. */
+          className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 transition-opacity ${controlsVisible || focusWithinControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         >
           <div
             ref={progressRef}
@@ -388,14 +409,9 @@ export function VideoPlayer({
               <div className="flex items-center gap-1">
                 <button onClick={toggleMute} aria-label={isMuted ? 'Unmute' : 'Mute'} className="text-text-secondary hover:text-text-primary">
                   {isMuted || volume === 0 ? (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                    </svg>
+                    <SpeakerMutedIcon className="w-4 h-4" />
                   ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                    </svg>
+                    <AudioIcon className="w-4 h-4" />
                   )}
                 </button>
                 <input
@@ -405,6 +421,8 @@ export function VideoPlayer({
                   step="0.1"
                   value={isMuted ? 0 : volume}
                   onChange={handleVolumeChange}
+                  aria-label="Volume"
+                  aria-valuetext={`${Math.round((isMuted ? 0 : volume) * 100)}%`}
                   className="w-16 h-1 accent-accent cursor-pointer"
                 />
               </div>
@@ -420,15 +438,24 @@ export function VideoPlayer({
                 <div className="relative" ref={speedMenuRef}>
                   <button
                     onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                    aria-label={`Playback speed: ${playbackRate}x`}
+                    aria-haspopup="true"
+                    aria-expanded={showSpeedMenu}
                     className="text-micro text-text-secondary hover:text-text-primary font-mono px-1.5 py-0.5 rounded bg-elevated"
                   >
                     {playbackRate}x
                   </button>
                   {showSpeedMenu && (
-                    <div className="absolute bottom-full right-0 mb-1 bg-surface border border-border-default rounded-lg shadow-xl py-1 z-10">
+                    <div
+                      role="menu"
+                      aria-label="Playback speed"
+                      className="absolute bottom-full right-0 mb-1 bg-surface border border-border-default rounded-lg shadow-xl py-1 z-10"
+                    >
                       {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
                         <button
                           key={rate}
+                          role="menuitemradio"
+                          aria-checked={playbackRate === rate}
                           onClick={() => changeSpeed(rate)}
                           className={`block w-full px-3 py-1.5 text-xs text-left hover:bg-elevated transition-colors ${
                             playbackRate === rate ? 'text-accent' : 'text-text-secondary'
@@ -448,9 +475,7 @@ export function VideoPlayer({
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
                   </svg>
                 ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                  </svg>
+                  <FullscreenIcon className="w-4 h-4" />
                 )}
               </button>
             </div>

@@ -9,22 +9,22 @@ describe('DailyRecordingIndicator', () => {
   describe('Free plan — idle state', () => {
     it('shows 10:00 available for fresh Free user', () => {
       render(<DailyRecordingIndicator remainingSeconds={TOTAL} totalSeconds={TOTAL} />);
-      screen.getByText(/Free · 10:00 \/ 10:00 min available today/);
+      screen.getByText(/Free · 10:00 \/ 10:00 available today/);
     });
 
     it('shows 06:00 after 4 min used', () => {
       render(<DailyRecordingIndicator remainingSeconds={360} totalSeconds={TOTAL} />);
-      screen.getByText(/Free · 06:00 \/ 10:00 min available today/);
+      screen.getByText(/Free · 06:00 \/ 10:00 available today/);
     });
 
     it('shows 03:00 after 7 min used', () => {
       render(<DailyRecordingIndicator remainingSeconds={180} totalSeconds={TOTAL} />);
-      screen.getByText(/Free · 03:00 \/ 10:00 min available today/);
+      screen.getByText(/Free · 03:00 \/ 10:00 available today/);
     });
 
     it('shows 00:00 when fully exhausted', () => {
       render(<DailyRecordingIndicator remainingSeconds={0} totalSeconds={TOTAL} />);
-      screen.getByText(/Free · 00:00 \/ 10:00 min available today/);
+      screen.getByText(/Free · 00:00 \/ 10:00 available today/);
     });
   });
 
@@ -160,7 +160,7 @@ describe('DailyRecordingIndicator', () => {
     it('offers a short form for narrow viewports and the long form above sm', () => {
       render(<DailyRecordingIndicator remainingSeconds={360} totalSeconds={TOTAL} />);
       expect(screen.getByText('Free · 06:00')).toHaveClass('sm:hidden');
-      expect(screen.getByText('Free · 06:00 / 10:00 min available today')).toHaveClass('hidden', 'sm:inline');
+      expect(screen.getByText('Free · 06:00 / 10:00 available today')).toHaveClass('hidden', 'sm:inline');
     });
 
     it('short recording form reads the same way', () => {

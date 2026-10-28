@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { NextRequest } from 'next/server';
 import { classifyDownloadResponse } from '@/components/studio/LibraryPanel';
 import { RecordingsPanel } from '@/components/studio/LibraryPanel';
+import { LOCAL_EXPORTS_CHANGED_EVENT } from '@/lib/local-exports-store';
 import { middleware } from '@/middleware';
 
 vi.mock('@/lib/recording-store', () => ({
@@ -12,6 +13,7 @@ vi.mock('@/lib/recording-store', () => ({
 }));
 
 vi.mock('@/lib/local-exports-store', () => ({
+  LOCAL_EXPORTS_CHANGED_EVENT: 'sxs:local-exports-changed',
   getAllLocalExports: vi.fn(async () => []),
   deleteLocalExport: vi.fn(async () => {}),
 }));
@@ -117,6 +119,39 @@ describe('RecordingsPanel cloud download', () => {
       expect(screen.queryByText('Download failed. Please try again.')).toBeNull();
     });
     expect(onAuthRequired).not.toHaveBeenCalled();
+  });
+});
+
+describe('RecordingsPanel saved exports', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows an export saved while the panel is already mounted', async () => {
+    const { getAllLocalExports } = await import('@/lib/local-exports-store');
+    const row = {
+      id: 'local-1',
+      blob: new Blob([new Uint8Array(8)]),
+      platform: 'youtube-landscape',
+      outputWidth: 1280,
+      outputHeight: 720,
+      fileSize: 8,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    };
+    vi.mocked(getAllLocalExports)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([row]);
+
+    render(<RecordingsPanel userPlan="free" />);
+    await screen.findByText('No saved exports yet');
+
+    act(() => {
+      window.dispatchEvent(new Event(LOCAL_EXPORTS_CHANGED_EVENT));
+    });
+
+    await screen.findByText('youtube-landscape (local)');
+    expect(screen.queryByText('No saved exports yet')).toBeNull();
   });
 });
 

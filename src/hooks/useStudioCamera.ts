@@ -1,22 +1,35 @@
 'use client';
 
-import { useCallback, useRef, useEffect } from 'react';
-import { PLATFORM_PRESETS } from '@/constants';
-import type { RecordingState } from '@/types';
+import { useCallback } from 'react';
+import {
+  buildPreferredVideoConstraints,
+  buildPreferredAudioConstraints,
+} from '@/lib/recording/capture-constraints';
 import type { useSettings } from '@/hooks/useSettings';
 import type { useCamera } from '@/hooks/useCamera';
 
 interface UseStudioCameraOptions {
-  recordingState: RecordingState;
   settings: ReturnType<typeof useSettings>;
   camera: ReturnType<typeof useCamera>;
 }
 
-export function useStudioCamera({ recordingState, settings, camera }: UseStudioCameraOptions) {
-  const prevPlatformRef = useRef(settings.platformId);
-
+/**
+ * Studio-layer camera orchestration.
+ *
+ * SOURCE vs COMPOSITION vs OUTPUT (Phase 6): the camera is acquired ONCE at
+ * source quality (1920×1080 @ 30 preferred, graceful fallback inside
+ * `useCamera`) and is deliberately INDEPENDENT of the selected platform.
+ * Composition to 16:9 / 9:16 / 4:5 happens at export (mediabunny crop), so
+ * changing the platform ratio must NOT restart the camera, destroy the
+ * MediaRecorder, or change source quality — that is why there is no
+ * platform-change re-initialization effect here anymore, and why these
+ * constraints are not derived from PLATFORM_PRESETS dimensions (desktop
+ * cameras rarely offer the platform's card geometry; asking for it only
+ * moved devices between modes and restarted the camera for nothing).
+ */
+export function useStudioCamera({ settings, camera }: UseStudioCameraOptions) {
   // Auto-select first available device when device list changes
-  useEffect(() => {
+  const autoSelectDevices = useCallback(() => {
     if (camera.videoDevices.length > 0) {
       const stillExists = camera.videoDevices.some(d => d.deviceId === settings.selectedVideoDevice);
       if (!settings.selectedVideoDevice || !stillExists) {
@@ -33,20 +46,24 @@ export function useStudioCamera({ recordingState, settings, camera }: UseStudioC
     } else {
       settings.setSelectedAudioDevice('');
     }
-  }, [camera.videoDevices, camera.audioDevices, settings.selectedVideoDevice, settings.selectedAudioDevice, settings.setSelectedVideoDevice, settings.setSelectedAudioDevice]);
+  }, [
+    camera.videoDevices,
+    camera.audioDevices,
+    settings.selectedVideoDevice,
+    settings.selectedAudioDevice,
+    settings.setSelectedVideoDevice,
+    settings.setSelectedAudioDevice,
+  ]);
 
-  // Initialize camera with platform-specific constraints.
-  // Returns the live stream (or null) so callers can act on it synchronously
-  // without waiting for state/effect round-trips.
+  // Initialize camera at SOURCE quality. Returns the live stream (or null)
+  // so callers can act on it synchronously without waiting for
+  // state/effect round-trips.
   const handleCameraInitialize = useCallback(async (): Promise<MediaStream | null> => {
-    const platformPreset = PLATFORM_PRESETS.find((p) => p.id === settings.platformId) ?? PLATFORM_PRESETS[0];
     const constraints: MediaStreamConstraints = {
-      video: settings.selectedVideoDevice
-        ? { deviceId: { exact: settings.selectedVideoDevice }, width: { ideal: platformPreset.width }, height: { ideal: platformPreset.height } }
-        : { width: { ideal: platformPreset.width }, height: { ideal: platformPreset.height }, facingMode: 'user' },
+      video: buildPreferredVideoConstraints(settings.selectedVideoDevice || undefined),
       audio: settings.selectedAudioDevice
-        ? { deviceId: { exact: settings.selectedAudioDevice } }
-        : true,
+        ? buildPreferredAudioConstraints(settings.selectedAudioDevice)
+        : buildPreferredAudioConstraints(),
     };
 
     try {
@@ -54,41 +71,29 @@ export function useStudioCamera({ recordingState, settings, camera }: UseStudioC
     } catch {
       return await camera.initialize();
     }
-  }, [camera, settings.selectedAudioDevice, settings.selectedVideoDevice, settings.platformId]);
+  }, [camera, settings.selectedAudioDevice, settings.selectedVideoDevice]);
 
-  // Reinitialize camera when platform changes (only when idle)
-  useEffect(() => {
-    if (prevPlatformRef.current !== settings.platformId) {
-      prevPlatformRef.current = settings.platformId;
-      if (camera.isInitialized && recordingState === 'idle') {
-        handleCameraInitialize();
-      }
-    }
-  }, [settings.platformId]);
-
-  // Handle video device change
+  // Handle video device change — same source-quality constraints, new device.
   const handleVideoDeviceChange = useCallback(async (deviceId: string) => {
     settings.setSelectedVideoDevice(deviceId);
     if (camera.isInitialized) {
       const constraints: MediaStreamConstraints = {
-        video: { deviceId: { exact: deviceId } },
+        video: buildPreferredVideoConstraints(deviceId),
         audio: settings.selectedAudioDevice
-          ? { deviceId: { exact: settings.selectedAudioDevice } }
-          : true,
+          ? buildPreferredAudioConstraints(settings.selectedAudioDevice)
+          : buildPreferredAudioConstraints(),
       };
       await camera.initialize(constraints);
     }
   }, [camera, settings.selectedAudioDevice, settings.setSelectedVideoDevice]);
 
-  // Handle audio device change
+  // Handle audio device change — same source-quality constraints, new mic.
   const handleAudioDeviceChange = useCallback(async (deviceId: string) => {
     settings.setSelectedAudioDevice(deviceId);
     if (camera.isInitialized) {
       const constraints: MediaStreamConstraints = {
-        video: settings.selectedVideoDevice
-          ? { deviceId: { exact: settings.selectedVideoDevice } }
-          : true,
-        audio: { deviceId: { exact: deviceId } },
+        video: buildPreferredVideoConstraints(settings.selectedVideoDevice || undefined),
+        audio: buildPreferredAudioConstraints(deviceId),
       };
       await camera.initialize(constraints);
     }
@@ -99,5 +104,6 @@ export function useStudioCamera({ recordingState, settings, camera }: UseStudioC
     handleCameraInitialize,
     handleVideoDeviceChange,
     handleAudioDeviceChange,
+    autoSelectDevices,
   };
 }

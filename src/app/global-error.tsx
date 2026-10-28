@@ -19,11 +19,19 @@ export default function GlobalError({
             </div>
             <div className="space-y-2">
               <h1 className="text-xl font-semibold">Something went wrong</h1>
+              {/* Never render `error.message` here. This boundary sits above the
+                  app, so the message is whatever the renderer threw — a Prisma
+                  string, a module-resolution trace, a null deref — which is both
+                  meaningless to the person reading it and a leak of internals.
+                  The digest is an opaque hash, safe to show, and is what support
+                  needs to match this failure to a server log. */}
               <p className="text-sm text-gray-400">
-                {error.message || 'An unexpected error occurred.'}
+                An unexpected error occurred. Your work has not been saved —
+                try again, and if it keeps happening, contact support with the
+                code below.
               </p>
               {error.digest && (
-                <p className="text-xs text-gray-500 font-mono">Error: {error.digest}</p>
+                <p className="text-xs text-gray-500 font-mono">Support code: {error.digest}</p>
               )}
             </div>
             <button

@@ -1,4 +1,4 @@
-﻿import { test, expect, type Page, type APIRequestContext, type BrowserContext } from '@playwright/test';
+import { test, expect, type Page, type APIRequestContext, type BrowserContext } from '@playwright/test';
 import { db } from './db';
 
 /**
@@ -16,22 +16,22 @@ export const CLOUD_ENDPOINTS = [
 
 /** The launch matrix that Free is NOT entitled to. YouTube 16:9 is the only unlocked format. */
 export const LOCKED_PLATFORMS = [
-  { label: 'YouTube Shorts', id: 'youtube-shorts', sublabel: 'Vertical Â· 9:16' },
-  { label: 'Reels', id: 'instagram-reels', sublabel: 'Vertical Â· 9:16' },
-  { label: 'Instagram Square', id: 'instagram-post', sublabel: 'Square Â· 1:1' },
-  { label: 'Instagram Portrait', id: 'instagram-portrait', sublabel: 'Portrait Â· 4:5' },
-  { label: 'TikTok', id: 'tiktok', sublabel: 'Vertical Â· 9:16' },
-  { label: 'LinkedIn', id: 'linkedin', sublabel: 'Vertical Â· 9:16' },
+  { label: 'YouTube Shorts', id: 'youtube-shorts', sublabel: 'Vertical · 9:16' },
+  { label: 'Reels', id: 'instagram-reels', sublabel: 'Vertical · 9:16' },
+  { label: 'Instagram Square', id: 'instagram-post', sublabel: 'Square · 1:1' },
+  { label: 'Instagram Portrait', id: 'instagram-portrait', sublabel: 'Portrait · 4:5' },
+  { label: 'TikTok', id: 'tiktok', sublabel: 'Vertical · 9:16' },
+  { label: 'LinkedIn', id: 'linkedin', sublabel: 'Vertical · 9:16' },
 ] as const;
 
 /**
  * True when every named variable holds a value that could actually authenticate.
  *
  * A plain `length > 0` check is not enough. `.env.local` ships with the
- * documented placeholders (`R2_ACCOUNT_ID=your_account_id`, â€¦) already filled
+ * documented placeholders (`R2_ACCOUNT_ID=your_account_id`, …) already filled
  * in, so a presence check reports the cloud as ready, the suite runs the R2
  * upload, and then blocks for the full request timeout on a presigned PUT that
- * can never be issued â€” a four-minute hang presented as a product failure.
+ * can never be issued — a four-minute hang presented as a product failure.
  *
  * A gate that false-fails is worse than no gate, because it teaches everyone to
  * ignore it. Presence alone must never be read as readiness.
@@ -54,7 +54,7 @@ export function hasRealCredentials(keys: string[], lookup: (key: string) => stri
  * Presence and placeholder checks alone accept a mistyped Cloudflare account ID
  * (e.g. a 34-character value containing non-hex characters). Cloudflare's edge
  * rejects that host at the TLS handshake, so every presigned PUT fails for a
- * reason no amount of retrying can fix â€” and the P0 gate would happily run into
+ * reason no amount of retrying can fix — and the P0 gate would happily run into
  * it. The account ID is the one R2 credential with a fixed, documented shape,
  * so it is checked here rather than left to fail at request time.
  */
@@ -64,7 +64,7 @@ export function hasRealR2Credentials(lookup: (key: string) => string): boolean {
   return /^[0-9a-f]{32}$/i.test(lookup('R2_ACCOUNT_ID').trim());
 }
 
-/** TransportBar's PauseIcon â€” the pause button carries no accessible name. */
+/** TransportBar's PauseIcon — the pause button carries no accessible name. */
 const PAUSE_ICON = 'path[d^="M10 9v6m4-6v6"]';
 
 /**
@@ -79,9 +79,18 @@ export async function instrument(page: Page) {
     const w = window as unknown as {
       __ssxStreams: MediaStream[];
       __ssxCanvasText: string[];
+      __ssxRecorderConfigs: Array<{
+        mimeType?: string;
+        videoBitsPerSecond?: number;
+        audioBitsPerSecond?: number;
+        actualMimeType?: string;
+        actualVideoBitsPerSecond?: number;
+        actualAudioBitsPerSecond?: number;
+      }>;
     };
     w.__ssxStreams = [];
     w.__ssxCanvasText = [];
+    w.__ssxRecorderConfigs = [];
 
     const md = navigator.mediaDevices;
     const original = md.getUserMedia.bind(md);
@@ -90,6 +99,28 @@ export async function instrument(page: Page) {
       w.__ssxStreams.push(stream);
       return stream;
     };
+
+    // Capture the REAL constructor arguments without replacing behavior.
+    // MediaRecorder.isTypeSupported and instance brand checks still resolve to
+    // the native constructor through the proxy.
+    if (typeof MediaRecorder !== 'undefined') {
+      const NativeRecorder = MediaRecorder;
+      window.MediaRecorder = new Proxy(NativeRecorder, {
+        construct(target, args) {
+          const options = args[1] as MediaRecorderOptions | undefined;
+          const recorder = Reflect.construct(target, args) as MediaRecorder;
+          w.__ssxRecorderConfigs.push({
+            mimeType: options?.mimeType,
+            videoBitsPerSecond: options?.videoBitsPerSecond,
+            audioBitsPerSecond: options?.audioBitsPerSecond,
+            actualMimeType: recorder.mimeType || undefined,
+            actualVideoBitsPerSecond: Number.isFinite(recorder.videoBitsPerSecond) ? recorder.videoBitsPerSecond : undefined,
+            actualAudioBitsPerSecond: Number.isFinite(recorder.audioBitsPerSecond) ? recorder.audioBitsPerSecond : undefined,
+          });
+          return recorder;
+        },
+      });
+    }
 
     const originalFillText = CanvasRenderingContext2D.prototype.fillText;
     CanvasRenderingContext2D.prototype.fillText = function (
@@ -178,7 +209,7 @@ export async function studioReady(page: Page) {
   throw new Error('studio never became ready: Start Recording stayed disabled');
 }
 
-/** Clicks through the two-step Stop confirm ("Stop" â†’ "OK?"). */
+/** Clicks through the two-step Stop confirm ("Stop" → "OK?"). */
 export async function stopRecording(page: Page) {
   const stop = transport(page).getByRole('button', { name: 'Stop Recording' });
   await stop.click();
@@ -246,7 +277,7 @@ export function trackState(page: Page) {
 export function readLocalExports(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open('sxs-studio', 2);
+      const req = indexedDB.open('sxs-studio');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -289,7 +320,7 @@ export function readLocalExports(page: Page) {
 export function readMasterRecordings(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open('sxs-studio', 2);
+      const req = indexedDB.open('sxs-studio');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -297,23 +328,26 @@ export function readMasterRecordings(page: Page) {
       db.close();
       return [];
     }
-    return new Promise<Array<{ id: string; createdAt: string; size: number; duration: number }>>(
-      (resolve) => {
-        const tx = db.transaction('recordings', 'readonly');
-        const all = tx.objectStore('recordings').getAll();
-        all.onsuccess = () => {
-          db.close();
-          resolve(
-            all.result
-              .filter((r) => new Date(r.expiresAt as unknown as string) >= new Date())
-              .map((r) => ({
-                id: r.id,
-                createdAt: r.createdAt as unknown as string,
-                size: (r.blob as Blob).size,
-                duration: r.duration as unknown as number,
-              })),
-          );
-        };
+    return new Promise<
+      Array<{ id: string; createdAt: string; type: string; size: number; duration: number; recordingMetadata?: unknown }>
+    >((resolve) => {
+      const tx = db.transaction('recordings', 'readonly');
+      const all = tx.objectStore('recordings').getAll();
+      all.onsuccess = () => {
+        db.close();
+        resolve(
+          all.result
+            .filter((r) => new Date(r.expiresAt as unknown as string) >= new Date())
+            .map((r) => ({
+              id: r.id,
+              createdAt: r.createdAt as unknown as string,
+              type: (r.blob as Blob).type,
+              size: (r.blob as Blob).size,
+              duration: r.duration as unknown as number,
+              recordingMetadata: r.recordingMetadata,
+            })),
+        );
+      };
       all.onerror = () => {
         db.close();
         resolve([]);
@@ -323,7 +357,7 @@ export function readMasterRecordings(page: Page) {
 }
 
 /**
- * The explicit "New Video" control â€” the desktop side rail's entry and the
+ * The explicit "New Video" control — the desktop side rail's entry and the
  * compact bottom nav's entry now both carry that exact label (DC-3). The
  * compact "Studio" tab is a pure panel switch and is deliberately NOT
  * matched here: clicking it must never count as starting a new workflow.
@@ -332,7 +366,20 @@ export function newVideoButton(page: Page) {
   return page.locator('nav button:visible').filter({ hasText: /^New Video$/ }).first();
 }
 
-/** The compact bottom nav's "Studio" tab â€” navigation only (DC-3). */
+/** The compact bottom nav's "Studio" tab — navigation only (DC-3). */
+/**
+ * The compact destinations moved from a persistent bottom bar into a hamburger
+ * in the app bar, so anything that uses them opens it first. A no-op when the
+ * target is already on screen, which makes it safe to call before every
+ * interaction — the menu closes itself as soon as an item is chosen.
+ */
+export async function openCompactNav(page: Page) {
+  const trigger = page.getByRole('button', { name: 'Open navigation menu' });
+  if (await trigger.isVisible().catch(() => false)) {
+    await trigger.click();
+  }
+}
+
 export function compactStudioTab(page: Page) {
   return page.getByRole('navigation', { name: 'Compact navigation' }).getByRole('button', { name: 'Studio' });
 }
@@ -354,7 +401,7 @@ let registerClientSeq = 0;
 export async function apiRegister(request: APIRequestContext, email: string) {
   // Synthetic per-registration client IP. The NextAuth catch-all rate-limits
   // POSTs to 10 / 15 min keyed by the LAST x-forwarded-for entry
-  // (src/app/api/auth/[...nextauth]/route.ts) â€” correct production behaviour
+  // (src/app/api/auth/[...nextauth]/route.ts) — correct production behaviour
   // where every registrant arrives from a different IP. On localhost the whole
   // suite would otherwise share 127.0.0.1 and trip its own limiter mid-run
   // (observed in the Phase 5 full run: 9 cascading 429 failures after the
@@ -364,6 +411,12 @@ export async function apiRegister(request: APIRequestContext, email: string) {
   const clientIp = `198.51.100.${(registerClientSeq % 254) + 1}`;
   const csrf = await (await request.get('/api/auth/csrf')).json();
   const res = await request.post('/api/auth/callback/credentials', {
+    // Account creation writes to the database, so its latency is a property of
+    // the environment, not of the UI under test. Measured at 5-11s locally.
+    // The suite's global 10s action timeout targets UI interactions and is too
+    // tight for this one backend call, so it is relaxed here only; every
+    // assertion on the interface keeps its original, strict timing.
+    timeout: 60_000,
     form: {
       csrfToken: csrf.csrfToken,
       email,
@@ -436,7 +489,7 @@ export async function dismissAllModals(page: Page) {
  *
  * Firefox has no mapping for them: requesting either aborts context creation
  * with "Unknown permission: camera", which kills the entire spec file before a
- * single test body runs â€” that alone accounted for every Firefox failure in CI.
+ * single test body runs — that alone accounted for every Firefox failure in CI.
  * Firefox is given fake media devices, and auto-answered prompts, through the
  * media.navigator.* prefs in playwright.config.ts instead, so there is nothing
  * to grant there.

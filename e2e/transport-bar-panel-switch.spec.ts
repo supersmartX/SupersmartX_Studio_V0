@@ -190,6 +190,8 @@ test('TransportBar visible in Studio after stopping from Library', async ({ page
 
   // TransportBar should be visible in Studio panel with completed recording
   await expect(transport(page)).toBeVisible({ timeout: 10_000 });
-  // After stop, the button should be Start (not Stop)
-  await expect(transport(page).getByRole('button', { name: /Start/ })).toBeVisible({ timeout: 10_000 });
+  // After stop, Stop is gone and the finished take owns the next action:
+  // review offers Retake (non-destructive) rather than a second central Record.
+  await expect(transport(page).getByRole('button', { name: 'Stop Recording' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Retake', exact: true })).toBeVisible({ timeout: 10_000 });
 });

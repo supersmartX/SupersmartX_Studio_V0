@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { dismissWelcomeModal, grantMediaPermissions, openAuthFromLanding } from './helpers';
+import { dismissWelcomeModal, grantMediaPermissions, openAuthFromLanding, openCompactNav } from './helpers';
 import { readMp4Artifact } from '../src/lib/export/mp4-metadata';
 import type { Page } from '@playwright/test';
 
@@ -9,6 +9,29 @@ import type { Page } from '@playwright/test';
 // copy-guard assertions randomly fail. innerText excludes those.
 async function visibleCopy(page: Page): Promise<string> {
   return page.evaluate(() => document.body.innerText || '');
+}
+
+/**
+ * The Script Editor lives in the Inspector. At >=1280px that is the inline
+ * aside and is already visible; below it the Inspector is a closed drawer and
+ * has to be opened first. Tests that only care about the editor should not
+ * encode the desktop-only assumption.
+ */
+async function openScriptEditor(page: Page) {
+  const editor = page.getByLabel('Script Editor');
+  if (await editor.isVisible().catch(() => false)) return editor;
+
+  const headerToggle = page.getByRole('button', { name: 'Toggle inspector panel' });
+  if (await headerToggle.isVisible().catch(() => false)) {
+    await headerToggle.click();
+  } else {
+    await openCompactNav(page);
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+  }
+
+  await expect(page.getByRole('dialog', { name: 'Inspector panel' })).toBeVisible();
+  await expect(editor).toBeVisible();
+  return editor;
 }
 
 // Fake media devices for the whole smoke file: only the camera-journey
@@ -97,7 +120,8 @@ test.describe('Smoke Test - Studio', () => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
-    await expect(page.getByLabel('Script Editor')).toBeVisible();
+    const editor = await openScriptEditor(page);
+    await expect(editor).toBeVisible();
   });
 
   test('record button visible and disabled (no camera)', async ({ page }) => {
@@ -365,6 +389,14 @@ test.describe('Smoke Test - API Contract', () => {
 });
 
 async function gotoLibrary(page: Page) {
+  // At xl the destination is a button in the side rail; below xl it is behind
+  // the hamburger, so open the menu first when the rail is not on screen.
+  const railRecordings = page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('button', { name: 'Recordings' });
+  if (!(await railRecordings.isVisible().catch(() => false))) {
+    await openCompactNav(page);
+  }
   await page.getByRole('button', { name: 'Recordings' }).first().click();
 }
 
@@ -385,40 +417,57 @@ test.describe('Smoke Test - Studio UI States', () => {
     await expect(page.getByText('Studio Ready')).toBeVisible();
   });
 
-  test('device selectors are present', async ({ page }) => {
+  test('device pickers open from the transport chips', async ({ page }) => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
-    await expect(page.locator('select[aria-label="Camera"]')).toBeVisible();
-    await expect(page.locator('select[aria-label="Microphone"]')).toBeVisible();
+    // Clean-canvas redesign: the permanent selects above the canvas are gone.
+    // Device picking is progressive disclosure now — one chevron per chip in
+    // the recording transport. The chips belong to the live capture UI, so
+    // they activate once the camera is enabled.
+    await page.getByRole('button', { name: 'Enable Camera & Microphone' }).click();
+    const controls = page.getByLabel('Recording controls');
+    await expect(controls.getByRole('button', { name: 'Mute microphone' })).toBeVisible({ timeout: 20_000 });
+    await controls.getByRole('button', { name: 'Microphone device options' }).click();
+    await expect(page.getByRole('menu', { name: 'Microphone' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu', { name: 'Microphone' })).toHaveCount(0);
+    await controls.getByRole('button', { name: 'Camera device options' }).click();
+    await expect(page.getByRole('menu', { name: 'Camera' })).toBeVisible();
   });
 
-  test('device selectors are not duplicated inside the inspector', async ({ page }) => {
+  test('device picking exists exactly once — not in the inspector', async ({ page }) => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
-    // Device picking lives in the DeviceSelectorBar above the canvas only. A
-    // second pair of selects in the Inspector would be two controls writing the
-    // same state, so the count must stay at exactly one each.
-    await expect(page.locator('select[aria-label="Camera"]')).toHaveCount(1);
-    await expect(page.locator('select[aria-label="Microphone"]')).toHaveCount(1);
+    // The device lists live behind the transport chips only. A second pair of
+    // selects (or select-styled mirrors) inside the Inspector would be two
+    // controls writing the same state, so none may exist anywhere.
+    await expect(page.locator('select[aria-label="Camera"]')).toHaveCount(0);
+    await expect(page.locator('select[aria-label="Microphone"]')).toHaveCount(0);
+    const inspector = page.locator('aside').first();
+    if (await inspector.count() > 0) {
+      const text = await inspector.innerText();
+      expect(text, 'the inspector must not duplicate the device lists').not.toMatch(/device options/i);
+    }
   });
 
   test('inspector is reachable as a drawer below the 1280px breakpoint', async ({ page }) => {
-    // Between 640px and 1280px there is no IconRail, so the BottomNav Settings
-    // entry is the only way in. It must actually open something.
+    // Below 1280px there is no IconRail, so the compact menu's Settings entry
+    // is the only way in. It must actually open something.
     await page.setViewportSize({ width: 1100, height: 800 });
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
 
+    await openCompactNav(page);
     const settingsButton = page.getByRole('button', { name: 'Settings' }).first();
     await expect(settingsButton).toBeVisible();
     await settingsButton.click();
     await expect(page.getByRole('dialog', { name: 'Inspector panel' })).toBeVisible();
   });
 
-  test('below the breakpoint the side rail is hidden and the bottom nav is shown', async ({ page }) => {
+  test('below the breakpoint the side rail is hidden and the compact menu is shown', async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 800 });
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
@@ -426,6 +475,14 @@ test.describe('Smoke Test - Studio UI States', () => {
 
     await expect(page.getByRole('navigation', { name: 'Compact navigation' })).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Main navigation' })).toHaveCount(0);
+
+    // The destinations are no longer pinned to the bottom of the viewport;
+    // they are disclosed by the hamburger, and each one is still reachable.
+    await expect(page.getByRole('button', { name: 'Open navigation menu' })).toBeVisible();
+    await openCompactNav(page);
+    await expect(
+      page.getByRole('navigation', { name: 'Compact navigation' }).getByRole('button', { name: 'New Video' }),
+    ).toBeVisible();
   });
 
   test('at the breakpoint the side rail replaces the bottom nav', async ({ page }) => {
@@ -442,7 +499,11 @@ test.describe('Smoke Test - Studio UI States', () => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
+    // Before capture the chip is honestly off and inert; muting is about the
+    // live track, so it becomes available with the camera.
+    await page.getByRole('button', { name: 'Enable Camera & Microphone' }).click();
     const mic = page.getByLabel('Recording controls').getByRole('button', { name: 'Mute microphone' });
+    await expect(mic).toBeVisible({ timeout: 20_000 });
     await mic.click();
     await expect(page.getByLabel('Recording controls').getByRole('button', { name: 'Unmute microphone' })).toBeVisible();
   });
@@ -468,14 +529,23 @@ test.describe('Smoke Test - Studio UI States', () => {
       const drawer = page.getByRole('dialog', { name: 'Inspector panel' });
       await toggle.click();
       await expect(drawer).toHaveClass(/translate-x-0/);
-      // The open drawer covers the header toggle, so close via its backdrop.
-      // Click the uncovered left strip (the drawer spans 85vw from the right) —
-      // the only point a user can actually reach once the drawer is open. A
-      // center click only ever landed by racing the 180ms slide-in and fails
-      // deterministically once the drawer is stable (flaked in the Phase 5
-      // full run: passed in one run, intercepted in the next).
+      // Opening moves focus into the dialog, so keyboard users are not left on
+      // the trigger behind the backdrop. Escape is only reachable once this has
+      // happened.
+      await expect.poll(() => drawer.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+
+      // Keyboard close restores focus to the control that opened the drawer.
+      await page.keyboard.press('Escape');
+      await expect(drawer).not.toBeVisible();
+      await expect(toggle).toBeFocused();
+
+      // Pointer close via the backdrop works too. Click the uncovered left
+      // strip (the drawer spans 85vw from the right); a center click would be
+      // swallowed by the drawer itself.
+      await toggle.click();
+      await expect(drawer).toHaveClass(/translate-x-0/);
       await page.locator('.drawer-backdrop').click({ position: { x: 8, y: 400 } });
-      await expect(drawer).toHaveClass(/translate-x-full/);
+      await expect(drawer).not.toBeVisible();
     }
   });
 
@@ -502,7 +572,13 @@ test.describe('Smoke Test - Studio UI States', () => {
     await page.goto('/studio');
     await page.waitForLoadState('networkidle');
     await dismissWelcomeModal(page);
-    await page.getByLabel('Script Editor').fill('smoketestword alpha beta');
+    const editor = await openScriptEditor(page);
+    await editor.fill('smoketestword alpha beta');
+    // On compact layouts the open drawer covers the canvas; close it the same
+    // way a user would before judging what the teleprompter shows.
+    if (await page.getByRole('dialog', { name: 'Inspector panel' }).isVisible().catch(() => false)) {
+      await page.keyboard.press('Escape');
+    }
     await expect(page.getByText(/smoketestword/).first()).toBeVisible();
   });
 

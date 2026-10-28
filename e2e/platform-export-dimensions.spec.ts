@@ -137,7 +137,7 @@ test('selected platform determines the encoded MP4 dimensions', async ({ page })
     for (const c of CASES) {
       // 1. Pick the platform in the review switcher.
       await switcher(page).locator(`button[title="${c.title}"]`).click();
-      await expect(page.getByText(`${c.label} Â·`, { exact: false }).first()).toBeVisible({
+      await expect(page.getByText(`${c.label} ·`, { exact: false }).first()).toBeVisible({
         timeout: 10000,
       });
 
@@ -148,7 +148,7 @@ test('selected platform determines the encoded MP4 dimensions', async ({ page })
       await dialog.waitFor({ state: 'visible', timeout: 15000 });
 
       // 3. The sheet must show the preset dimensions â€” no silent 16:9 fallback.
-      await expect(dialog.getByText(`${c.width} Ã— ${c.height}`).first()).toBeVisible({
+      await expect(dialog.getByText(`${c.width} × ${c.height}`).first()).toBeVisible({
         timeout: 10000,
       });
 
@@ -158,7 +158,7 @@ test('selected platform determines the encoded MP4 dimensions', async ({ page })
         { timeout: 120000 },
       );
       const donePromise = dialog.getByText('Video exported').waitFor({ timeout: 600000 });
-      await dialog.getByRole('button', { name: `Export ${c.label} Â· ${c.width}Ã—${c.height}` }).click();
+      await dialog.getByRole('button', { name: `Export ${c.label} · ${c.width}×${c.height}` }).click();
       const jobResp = await jobPromise;
       expect(jobResp.status(), `${c.title}: export job POST must succeed`).toBe(201);
       const { jobId } = (await jobResp.json()) as { jobId: string };
@@ -166,7 +166,7 @@ test('selected platform determines the encoded MP4 dimensions', async ({ page })
       await donePromise;
 
       // 5. The done caption must name the preset dimensionsâ€¦
-      await expect(dialog.getByText(`${c.width} Ã— ${c.height}`).first()).toBeVisible({
+      await expect(dialog.getByText(`${c.width} × ${c.height}`).first()).toBeVisible({
         timeout: 10000,
       });
 

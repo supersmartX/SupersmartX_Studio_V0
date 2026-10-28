@@ -14,7 +14,7 @@ interface IconRailProps {
   onPanelChange: (panel: TabType | 'record' | 'share') => void;
   /**
    * DC-3 / UX-001: the EXPLICIT start-over action, deliberately separate from
-   * the "Studio" navigation tab. Same shape as BottomNav's `onNewVideo` — one
+   * the "Studio" navigation tab. Same shape as CompactNavMenu's `onNewVideo` — one
    * label, one consequence, identical at every breakpoint.
    */
   onNewVideo: () => void;

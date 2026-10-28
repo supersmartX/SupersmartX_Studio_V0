@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { isR2Configured, getR2ConfigurationError, getSignedUploadUrl } from '@/lib/r2';
+import { isR2Configured, getR2ConfigurationError, getSignedUploadUrl, getSignedDownloadUrl } from '@/lib/r2';
 import { ExportUploadError, describeUploadError } from '@/lib/export/export-upload';
 import { toExportErrorMessage } from '@/hooks/useExportPipeline';
 
@@ -96,6 +96,24 @@ describe('presigned URL addressing', () => {
     expect(url.host).toBe(`${VALID.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`);
     expect(url.pathname.startsWith(`/${VALID.R2_BUCKET_NAME}/`)).toBe(true);
     expect(url.searchParams.get('X-Amz-Signature')).toBeTruthy();
+  });
+
+  it('does not sign checksum parameters R2 does not implement', async () => {
+    Object.assign(process.env, VALID);
+
+    // @aws-sdk/client-s3 >= 3.729 defaults to WHEN_SUPPORTED, which computes a
+    // CRC32 over the (empty) signing-time body and pins it into the URL. R2's
+    // S3 API lists x-amz-checksum-algorithm, x-amz-sdk-checksum-algorithm and
+    // x-amz-checksum-mode as unimplemented. Probing the live bucket on
+    // 2026-10-27 showed it currently ignores them (presigned PUT and GET both
+    // returned 200), so this asserts hygiene — access URLs carry no parameters
+    // the API does not implement — rather than reproducing an observed failure.
+    const put = new URL(await getSignedUploadUrl('staging/u/j-staging.mp4'));
+    expect(put.searchParams.get('x-amz-checksum-crc32')).toBeNull();
+    expect(put.searchParams.get('x-amz-sdk-checksum-algorithm')).toBeNull();
+
+    const get = new URL(await getSignedDownloadUrl('exports/u/j.mp4'));
+    expect(get.searchParams.get('x-amz-checksum-mode')).toBeNull();
   });
 });
 

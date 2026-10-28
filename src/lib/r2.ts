@@ -102,6 +102,13 @@ function getR2Client(): S3Client | null {
     // https://<bucket>.<account>.r2.cloudflarestorage.com/... — a host that does
     // not exist, so every presigned URL 403s/handshake-fails at the browser.
     forcePathStyle: true,
+    // Since v3.729 the SDK computes a CRC32 at signing time and pins it into
+    // presigned URLs (x-amz-checksum-crc32 of the empty body plus
+    // x-amz-sdk-checksum-algorithm). R2's S3 API does not implement any of the
+    // x-amz-checksum-* parameters and rejects the request outright, so uploads
+    // must only carry a checksum when the operation explicitly requires one.
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
     credentials: {
       accessKeyId: readConfigValue('R2_ACCESS_KEY_ID') as string,
       secretAccessKey: readConfigValue('R2_SECRET_ACCESS_KEY') as string,

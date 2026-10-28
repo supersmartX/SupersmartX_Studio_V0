@@ -16,6 +16,8 @@ playwright-report/
 # scratch / probe artifacts
 *.tmp.*
 probe-*
+/_audit/
+/.phase7b-validation/
 
 # next.js
 /.next/
@@ -60,3 +62,6 @@ next-env.d.ts
 test-results/
 *storybook.log
 storybook-static
+
+.vercel
+.env*

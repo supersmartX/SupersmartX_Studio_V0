@@ -62,6 +62,7 @@ vi.mock('@/lib/recording-store', () => ({
 }));
 
 vi.mock('@/lib/local-exports-store', () => ({
+  LOCAL_EXPORTS_CHANGED_EVENT: 'sxs:local-exports-changed',
   getAllLocalExports: async () => [],
   deleteLocalExport: async () => {},
   saveLocalExport: async () => {},
@@ -555,20 +556,25 @@ describe('the studio page owns both transitions', () => {
 
   it('"New Video" never deletes a recording and resets the session', () => {
     const newVideo = handler('handleNewVideo');
-    expect(newVideo).toContain('releaseMasterRecording');
-    expect(newVideo).toContain('recorder.resetRecording');
-    expect(newVideo).toContain('clearJobs');
-    expect(newVideo).toContain('setExportConfig(null)');
-    expect(newVideo).toContain('setPreviewPlatformId(DEFAULT_PLATFORM_ID)');
-    expect(newVideo, 'New Video must not destroy a library recording').not.toContain('clearMasterRecording');
-    expect(newVideo, 'New Video must not delete the stored take').not.toContain('deleteRecording');
-    expect(newVideo, 'DC-1: New Video starts with an empty script').toContain('scriptStorage.clearScript');
+    // The reset lives in one callback so the confirmation dialog can run the
+    // same transition after the user agrees instead of a second copy drifting.
+    expect(newVideo, 'the reset must run through the shared transition').toContain('startNewVideoSession');
+    expect(newVideo, 'the transition must ask before dropping an unsaved draft').toContain('setPendingConfirm');
+    const reset = handler('startNewVideoSession');
+    expect(reset).toContain('releaseMasterRecording');
+    expect(reset).toContain('recorder.resetRecording');
+    expect(reset).toContain('clearJobs');
+    expect(reset).toContain('setExportConfig(null)');
+    expect(reset).toContain('setPreviewPlatformId(DEFAULT_PLATFORM_ID)');
+    expect(reset, 'New Video must not destroy a library recording').not.toContain('clearMasterRecording');
+    expect(reset, 'New Video must not delete the stored take').not.toContain('deleteRecording');
+    expect(reset, 'DC-1: New Video starts with an empty script').toContain('scriptStorage.clearScript');
   });
 
   it('the desktop rail: "Studio" navigates and "New Video" owns the reset (UX-001)', () => {
     // UX-001: the rail's studio entry used to BE the destructive one. It is now
     // a pure panel switch, and the rail carries its own explicitly LABELED
-    // "New Video" entry that owns the reset — the shape BottomNav already had.
+    // "New Video" entry that owns the reset — the shape the compact menu already had.
     // Both rails therefore share one handler and cannot drift apart again.
     const compactNav = handler('handleCompactNav');
     expect(compactNav, 'the rail\'s Studio entry only switches panels').toContain('setActivePanel(panel)');
@@ -587,8 +593,8 @@ describe('the studio page owns both transitions', () => {
   });
 
   it('the compact "Studio" tab is a pure panel switch (DC-3)', () => {
-    // BottomNav's Studio tab is navigation: tapping it used to run the full
-    // session reset, silently creating a New Video (clearing the recording,
+    // The compact menu's Studio entry is navigation: tapping it used to run the
+    // full session reset, silently creating a New Video (clearing the recording,
     // releasing the master) as a side effect of switching panels.
     const compactNav = handler('handleCompactNav');
     expect(compactNav, 'the compact tab only switches panels').toContain('setActivePanel(panel)');
@@ -599,12 +605,15 @@ describe('the studio page owns both transitions', () => {
 
     // The reset stays reachable on compact layouts — through a control
     // explicitly LABELED "New Video", wired to the same transition.
-    const bottomNav = extractElement(source, 'BottomNav');
-    expect(bottomNav, 'BottomNav must be rendered').toBeTruthy();
-    expect(bottomNav, 'BottomNav must carry the explicit New Video action').toContain(
+    // The compact layout moved from a persistent bottom bar to a hamburger in
+    // the app bar, but the contract is unchanged: the same explicitly LABELED
+    // "New Video" control, wired to the same transition, still owns the reset.
+    const compactMenu = extractElement(source, 'CompactNavMenu');
+    expect(compactMenu, 'the compact menu must be rendered').toBeTruthy();
+    expect(compactMenu, 'the compact menu must carry the explicit New Video action').toContain(
       'onNewVideo={handleNewVideo}',
     );
-    expect(bottomNav, 'BottomNav must not receive the reset via the panel switch').toContain(
+    expect(compactMenu, 'the compact menu must not receive the reset via the panel switch').toContain(
       'onPanelChange={handleCompactNav}',
     );
   });
@@ -649,9 +658,19 @@ describe('the studio page owns both transitions', () => {
     expect(practiceAgain, 'the discard decision must branch on the origin').toContain('isLibraryOriginal');
     expect(practiceAgain, 'Workflow B must route through the New Video transition').toContain('handleNewVideo');
     // Workflow A: the only branch allowed to delete says so before destroying
-    // the single copy of the bytes.
-    expect(practiceAgain, 'the delete branch must be confirmed, not silent').toContain('window.confirm');
-    expect(practiceAgain).toContain('clearMasterRecording');
+    // the single copy of the bytes. The question is raised by the Export sheet
+    // that calls this handler — it owns the confirm because the handler itself
+    // is only invoked once the user has agreed.
+    expect(practiceAgain, 'the delete branch must run the explicit discard').toContain('discardSessionTake');
+    expect(source, 'the export sheet must confirm only when the take will be deleted').toContain(
+      'practiceAgainDiscardsTake={!isLibraryOriginal}',
+    );
+    expect(source, 'confirmations must use the shared dialog, not a native confirm').not.toMatch(
+      /window\.confirm\(/,
+    );
+    expect(handler('discardSessionTake'), 'the discard must delete the stored take').toContain(
+      'clearMasterRecording',
+    );
   });
 
   it('still routes the recorder completion through createMasterRecording', () => {
