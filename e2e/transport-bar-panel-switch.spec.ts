@@ -66,7 +66,7 @@ test('TransportBar remains accessible when switching panels during recording', a
 
   // Switch to Library panel while recording is active
   await recordingsNav(page).click();
-  await expect(page.getByRole('heading', { name: 'Recordings' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible({ timeout: 30_000 });
 
   // CR-001: TransportBar MUST still be visible in Library panel during recording
   await expect(transport(page)).toBeVisible({ timeout: 10_000 });
@@ -102,7 +102,7 @@ test('TransportBar hidden in Library panel when idle', async ({ page }) => {
 
   // Switch to Library panel when idle
   await recordingsNav(page).click();
-  await expect(page.getByRole('heading', { name: 'Recordings' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible({ timeout: 30_000 });
 
   // TransportBar should NOT be visible when idle in Library panel
   await expect(transport(page)).not.toBeVisible({ timeout: 5_000 });
@@ -133,7 +133,7 @@ test('a take stopped from the Library panel appears in the list without leaving 
   await page.waitForTimeout(2500);
 
   await recordingsNav(page).click();
-  await expect(page.getByRole('heading', { name: 'Recordings' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible({ timeout: 30_000 });
 
   await transport(page).getByRole('button', { name: 'Stop Recording' }).click();
   const stopBtn = transport(page).getByRole('button', { name: 'Stop Recording' });
@@ -155,7 +155,7 @@ test('a take stopped from the Library panel appears in the list without leaving 
     .poll(() => count(), { message: 'the Library list must show the new take without leaving the tab', timeout: 10_000 })
     .toBe(afterStudioStop + 1);
 
-  const stillHere = await page.getByRole('heading', { name: 'Recordings' }).isVisible();
+  const stillHere = await page.getByRole('heading', { name: 'Recordings', exact: true }).isVisible();
   expect(stillHere, 'the assertion must hold while still on the Library tab').toBe(true);
 });
 
@@ -174,7 +174,7 @@ test('TransportBar visible in Studio after stopping from Library', async ({ page
 
   // Switch to Library panel
   await recordingsNav(page).click();
-  await expect(page.getByRole('heading', { name: 'Recordings' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible({ timeout: 30_000 });
 
   // Stop from Library panel (two-step confirm, per helpers.stopRecording())
   const stopInLibrary = transport(page).getByRole('button', { name: 'Stop Recording' });

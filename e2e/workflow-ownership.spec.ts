@@ -86,7 +86,7 @@ async function gotoLibrary(page: Page) {
   // this is a no-op because the side rail already shows them.
   await openCompactNav(page);
   await recordingsNav(page).click();
-  await expect(page.getByRole('heading', { name: 'Recordings' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(libraryCards(page).first()).toBeVisible({ timeout: 30_000 });
 }
 

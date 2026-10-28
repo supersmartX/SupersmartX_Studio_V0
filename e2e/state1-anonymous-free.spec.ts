@@ -257,7 +257,7 @@ test.describe('STATE 1 — Anonymous Free', () => {
 
     // The take is durable locally, with no account involved.
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Recordings' }).click();
-    await expect(page.getByRole('heading', { name: 'Recordings' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible();
     await expect(page.getByText('1 recording', { exact: false }).first()).toBeVisible({ timeout: 20_000 });
 
     // The master blob is intact: it previews with decoded dimensions.

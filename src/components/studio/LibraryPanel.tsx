@@ -14,7 +14,7 @@ import { PlatformPreviewSwitcher } from '@/components/studio/PlatformPreviewSwit
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
-import { PlayIcon, SettingsIcon } from '@/components/icons';
+import { CameraIcon, DownloadIcon, PlayIcon, SettingsIcon } from '@/components/icons';
 
 interface RecordingsPanelProps {
   onExportRecording?: (recording: StoredRecording) => void;
@@ -238,6 +238,60 @@ function LocalExportRow({
         <Button size="sm" variant="primary" onClick={() => onDownload(exp)}>Download</Button>
         <Button size="sm" variant="destructive" className="ml-auto" onClick={() => onAskDelete(exp.id)}>Delete</Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * One column of the recordings dashboard. Both halves render their header and
+ * body frame through this, so the two cards cannot drift apart in icon tile,
+ * heading rhythm or internal padding the way two copies of the markup would.
+ */
+function LibrarySection({
+  id,
+  icon,
+  title,
+  description,
+  children,
+}: {
+  id: string;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      aria-labelledby={id}
+      className="flex min-w-0 flex-col rounded-2xl border border-border-subtle bg-surface shadow-sm"
+    >
+      <div className="flex items-start gap-3 border-b border-border-subtle px-4 py-3">
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent"
+          aria-hidden="true"
+        >
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <h3 id={id} className="text-body font-semibold text-text-primary">
+            {title}
+          </h3>
+          <p className="mt-0.5 text-caption leading-snug text-text-secondary">{description}</p>
+        </div>
+      </div>
+      <div className="flex flex-1 flex-col gap-3 p-3 sm:p-4">{children}</div>
+    </section>
+  );
+}
+
+/** Shared empty state for both sections — same weight, same vertical centring. */
+function SectionEmptyState({ title, description }: { title: string; description?: string }) {
+  return (
+    <div className="flex min-h-[168px] flex-1 flex-col items-center justify-center px-4 py-6 text-center">
+      <p className="text-body-sm font-medium text-text-primary">{title}</p>
+      {description && (
+        <p className="mt-1.5 max-w-xs text-caption leading-relaxed text-text-secondary">{description}</p>
+      )}
     </div>
   );
 }
@@ -474,14 +528,13 @@ export function RecordingsPanel({
   );
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="px-4 pt-4 pb-3">
+    <div className="flex h-full flex-col">
+      {/* Header — the page title names the whole dashboard. The two cards below
+          carry their own headings and descriptions, so neither half has to be
+          inferred from its position in a vertical stack. */}
+      <div className="px-4 pt-4 pb-3 sm:px-6 lg:px-8">
         <div className="flex items-end justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight text-text-primary">Recordings</h2>
-            <p className="mt-1 text-xs text-text-secondary">Your original recordings · Available for 24 hours</p>
-          </div>
+          <h2 className="text-xl font-semibold tracking-tight text-text-primary">Recordings</h2>
           {/* Only show a count once the list has loaded — "0 recordings"
               during load was a lie the skeleton below immediately contradicted. */}
           {isLoaded && (
@@ -492,199 +545,186 @@ export function RecordingsPanel({
 
       <div className="h-px bg-border-subtle" />
 
-      {/* Recording List */}
-      <div className="overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
-        {!isLoaded ? (
-          <div className="flex flex-col gap-2 py-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="p-3 rounded-lg bg-elevated/50 animate-pulse">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-24 bg-border-subtle rounded" />
-                      <div className="h-3 w-10 bg-border-subtle rounded" />
-                    </div>
-                    <div className="h-2.5 w-36 bg-border-subtle rounded mt-1.5" />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : recordings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center mb-3">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-accent" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
-              </svg>
-            </div>
-            <p className="text-sm font-medium text-text-primary">No recordings yet</p>
-            <p className="mt-1 max-w-xs text-xs text-text-secondary">Record a video and it will appear here for 24 hours.</p>
-          </div>
-        ) : (
-          <div className={`grid gap-5 ${recordings.length > 1 ? 'sm:grid-cols-2 xl:grid-cols-3' : 'max-w-2xl'}`}>
-            {recordings.map((recording) => (
-              <div
-                key={recording.id}
-                className="group relative overflow-visible rounded-xl border border-border-subtle bg-surface shadow-sm transition-colors hover:border-border-strong"
-              >
-                {/* Deletion asks in the shared ConfirmDialog at the panel
-                    root, so the card itself never has to swap out. */}
-                <>
-                    <RecordingThumbnail recording={recording} />
-                    <div className="p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          {editingId === recording.id ? (
-                            <input
-                              ref={editInputRef}
-                              type="text"
-                              value={editName}
-                              onChange={(e) => setEditName(e.target.value)}
-                              onBlur={() => handleSaveRename(recording.id)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleSaveRename(recording.id);
-                                if (e.key === 'Escape') handleCancelRename();
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="w-full max-w-[220px] rounded-md border border-accent bg-canvas px-2 py-1 text-sm font-medium text-text-primary outline-none"
-                              maxLength={50}
-                            />
-                          ) : (
-                            <h3 className="truncate text-sm font-semibold text-text-primary">
-                              {getDisplayName(recording)}
-                            </h3>
-                          )}
+      {/* One dashboard, two equal columns. The grid's default stretch makes
+          both cards as tall as the taller one, so the empty state never reads
+          as lopsided. Tablets keep two columns; phones collapse to one. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
+        <div className="grid auto-rows-fr grid-cols-1 gap-4 md:grid-cols-2 md:gap-5">
+          <LibrarySection
+            id="library-originals-heading"
+            icon={<CameraIcon className="h-4 w-4" />}
+            title="Original recordings"
+            description="Available for 24 hours"
+          >
+            {!isLoaded ? (
+              <div className="flex flex-col gap-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="p-3 rounded-lg bg-elevated/50 animate-pulse">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div className="h-3 w-24 bg-border-subtle rounded" />
+                          <div className="h-3 w-10 bg-border-subtle rounded" />
                         </div>
-                        <div className="relative shrink-0" ref={openMenuId === recording.id ? menuRef : undefined}>
-                          <button
-                            onClick={() => setOpenMenuId((current) => current === recording.id ? null : recording.id)}
-                            className="flex h-8 w-8 items-center justify-center rounded-md text-lg leading-none text-text-muted hover:bg-elevated hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-                            aria-label={`More actions for ${getItemLabel(recording)}`}
-                            aria-expanded={openMenuId === recording.id}
-                          >
-                            <span aria-hidden="true">•••</span>
-                          </button>
-                          {openMenuId === recording.id && (
-                            <div className="absolute right-0 top-9 z-20 min-w-40 rounded-lg border border-border-default bg-surface p-1 shadow-xl" role="menu">
-                              <button onClick={() => { onExportRecording?.(recording); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-text-secondary hover:bg-elevated hover:text-text-primary" role="menuitem">Export recording</button>
-                              <button onClick={(event) => { handleStartRename(recording, event); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-text-secondary hover:bg-elevated hover:text-text-primary" role="menuitem">Rename</button>
-                              <button onClick={() => { setDetailsId((current) => current === recording.id ? null : recording.id); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-text-secondary hover:bg-elevated hover:text-text-primary" role="menuitem">Details</button>
-                              <button onClick={() => { setConfirmDeleteId(recording.id); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-recording hover:bg-red-500/10" role="menuitem">Delete</button>
-                            </div>
-                          )}
-                        </div>
+                        <div className="h-2.5 w-36 bg-border-subtle rounded mt-1.5" />
                       </div>
-                      <p className="mt-1 text-xs text-text-secondary">
-                        Recorded {formatDate(recording.createdAt)}
-                      </p>
-                      <p className="mt-0.5 text-xs text-text-secondary">
-                        {formatTime(recording.duration)} · {recording.width} × {recording.height} · {formatFileSize(recording.blob.size)}
-                      </p>
-                      <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <Button size="sm" variant="primary" onClick={() => setPreviewRecording(recording)} aria-label={`Preview ${getItemLabel(recording)}`}>
-                          <PlayIcon className="h-3.5 w-3.5" /> Preview
-                        </Button>
-                        <Button size="sm" variant="secondary" onClick={() => onExportRecording?.(recording)} aria-label={`Export ${getItemLabel(recording)}`}>
-                          Export
-                        </Button>
-                      </div>
-                      {detailsId === recording.id && (
-                        <div className="mt-3 rounded-md border border-border-subtle bg-elevated/50 p-3 text-overline text-text-secondary">
-                          <div className="flex items-center gap-1.5 font-medium text-text-primary"><SettingsIcon className="h-3 w-3" /> Recording details</div>
-                          <p className="mt-1">Format: {formatRecordingFormat(recording.mimeType, recording.extension)}</p>
-                          <p className="mt-0.5">Sound: {recording.hasAudio ? 'With sound' : 'Silent'}</p>
-                          <p className="mt-0.5">Saved: On this device · 24 hours</p>
-                        </div>
-                      )}
-                    </div>
-                </>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Saved Exports */}
-      <div className="px-4 pb-2 pt-6 sm:px-6 lg:px-8">
-        <h3 className="text-base font-semibold text-text-primary">Saved exports</h3>
-        <p className="mt-1 text-xs text-text-secondary">
-          {isAuthenticated && canUseCloudLibrary ? 'Videos you\'ve exported · Saved in your Creator library' : 'Videos you\'ve exported · Saved for 7 days on this device'}
-        </p>
-      </div>
-      <div className="max-h-[45vh] space-y-2 overflow-y-auto px-4 py-2 sm:px-6 lg:px-8">
-        {isAuthenticated && canUseCloudLibrary && (
-          <>
-            {cloudLoading ? (
-              <div className="flex flex-col gap-2" role="status" aria-label="Loading cloud exports">
-                {[1, 2].map((i) => (
-                  <div key={i} className="p-2.5 rounded-lg bg-elevated/50 border border-border-subtle animate-pulse">
-                    <div className="h-3 w-32 bg-border-subtle rounded" />
-                    <div className="h-2.5 w-40 bg-border-subtle rounded mt-2" />
-                    <div className="flex gap-1.5 mt-3">
-                      <div className="h-7 w-16 bg-border-subtle rounded" />
-                      <div className="h-7 w-20 bg-border-subtle rounded" />
-                      <div className="h-7 w-16 bg-border-subtle rounded ml-auto" />
                     </div>
                   </div>
                 ))}
               </div>
-            ) : cloudError ? (
-              <p className="text-[12px] text-recording" role="alert">{cloudError}</p>
-            ) : cloudExports.length === 0 ? (
-              <p className="text-[12px] text-text-secondary">No cloud exports yet.</p>
+            ) : recordings.length === 0 ? (
+              <SectionEmptyState
+                title="No recordings yet"
+                description="Record a video and it will appear here for 24 hours."
+              />
             ) : (
-              cloudExports.map(exp => {
-                const quality = formatQualityLabel(exp.outputHeight);
-                return (
-                <div key={exp.id} className="p-2.5 rounded-lg bg-elevated border border-border-subtle flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-caption font-medium text-text-primary truncate">{platformDisplayName(exp.platform)}{quality ? ` · ${quality}` : ''}</span>
-                    <span className="text-overline text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
+              recordings.map((recording) => (
+                <div
+                  key={recording.id}
+                  className="group relative overflow-visible rounded-xl border border-border-subtle bg-elevated shadow-sm transition-colors hover:border-border-strong"
+                >
+                  {/* Deletion asks in the shared ConfirmDialog at the panel
+                      root, so the card itself never has to swap out. */}
+                  <RecordingThumbnail recording={recording} />
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        {editingId === recording.id ? (
+                          <input
+                            ref={editInputRef}
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onBlur={() => handleSaveRename(recording.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveRename(recording.id);
+                              if (e.key === 'Escape') handleCancelRename();
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full max-w-[220px] rounded-md border border-accent bg-canvas px-2 py-1 text-sm font-medium text-text-primary outline-none"
+                            maxLength={50}
+                          />
+                        ) : (
+                          <h3 className="truncate text-sm font-semibold text-text-primary">
+                            {getDisplayName(recording)}
+                          </h3>
+                        )}
+                      </div>
+                      <div className="relative shrink-0" ref={openMenuId === recording.id ? menuRef : undefined}>
+                        <button
+                          onClick={() => setOpenMenuId((current) => current === recording.id ? null : recording.id)}
+                          className="flex h-8 w-8 items-center justify-center rounded-md text-lg leading-none text-text-muted hover:bg-elevated hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                          aria-label={`More actions for ${getItemLabel(recording)}`}
+                          aria-expanded={openMenuId === recording.id}
+                        >
+                          <span aria-hidden="true">•••</span>
+                        </button>
+                        {openMenuId === recording.id && (
+                          <div className="absolute right-0 top-9 z-20 min-w-40 rounded-lg border border-border-default bg-surface p-1 shadow-xl" role="menu">
+                            <button onClick={() => { onExportRecording?.(recording); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-text-secondary hover:bg-elevated hover:text-text-primary" role="menuitem">Export recording</button>
+                            <button onClick={(event) => { handleStartRename(recording, event); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-text-secondary hover:bg-elevated hover:text-text-primary" role="menuitem">Rename</button>
+                            <button onClick={() => { setDetailsId((current) => current === recording.id ? null : recording.id); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-text-secondary hover:bg-elevated hover:text-text-primary" role="menuitem">Details</button>
+                            <button onClick={() => { setConfirmDeleteId(recording.id); setOpenMenuId(null); }} className="block w-full rounded-md px-3 py-2 text-left text-xs text-recording hover:bg-red-500/10" role="menuitem">Delete</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      Recorded {formatDate(recording.createdAt)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-text-secondary">
+                      {formatTime(recording.duration)} · {recording.width} × {recording.height} · {formatFileSize(recording.blob.size)}
+                    </p>
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <Button size="sm" variant="primary" onClick={() => setPreviewRecording(recording)} aria-label={`Preview ${getItemLabel(recording)}`}>
+                        <PlayIcon className="h-3.5 w-3.5" /> Preview
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => onExportRecording?.(recording)} aria-label={`Export ${getItemLabel(recording)}`}>
+                        Export
+                      </Button>
+                    </div>
+                    {detailsId === recording.id && (
+                      <div className="mt-3 rounded-md border border-border-subtle bg-elevated/50 p-3 text-overline text-text-secondary">
+                        <div className="flex items-center gap-1.5 font-medium text-text-primary"><SettingsIcon className="h-3 w-3" /> Recording details</div>
+                        <p className="mt-1">Format: {formatRecordingFormat(recording.mimeType, recording.extension)}</p>
+                        <p className="mt-0.5">Sound: {recording.hasAudio ? 'With sound' : 'Silent'}</p>
+                        <p className="mt-0.5">Saved: On this device · 24 hours</p>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 text-overline text-text-secondary">
-                    <span>{formatFileSize(exp.fileSize)}</span>
-                    <span>·</span>
-                    <span>{formatRelativeTime(exp.createdAt)}</span>
-                    <span>·</span>
-                    <span>{exportStatusLabel(exp.status)}</span>
                   </div>
-                  <div className="flex gap-1.5 mt-1 items-center">
-                    <Button size="sm" variant="secondary" onClick={() => handlePreviewCloud(exp.id)} disabled={previewLoading}>Preview</Button>
-                    <Button size="sm" variant="primary" onClick={() => handleDownloadCloud(exp.id)}>Download</Button>
-                    <Button size="sm" variant="destructive" className="ml-auto" onClick={() => setConfirmDeleteExportKey(`cloud:${exp.id}`)}>Delete</Button>
-                  </div>
-                </div>
-                );
-              })
-            )}
-          </>
-        )}
-        {isAuthenticated && canUseCloudLibrary ? (
-          localExports.length > 0 ? (
-            localExports.map(renderLocalRow)
-          ) : null
-        ) : (
-          localExports.length === 0 ? (
-            <div className="rounded-lg border border-border-subtle bg-elevated/40 p-4">
-              <p className="text-sm font-medium text-text-primary">No saved exports yet</p>
-              <p className="mt-1 text-xs leading-relaxed text-text-secondary">Videos you&apos;ve exported will appear here.</p>
-              <p className="mt-1 text-xs leading-relaxed text-text-secondary">Your exported videos are saved locally on this device for 7 days.</p>
-            </div>
-          ) : (
-            localExports.map(renderLocalRow)
-          )
-        )}
-      </div>
+                ))
+              )}
+          </LibrarySection>
 
-      {/* Footer count */}
-      {recordings.length > 0 && (
-        <div className="px-4 py-2 border-t border-border-subtle">
-          <span className="text-caption text-text-secondary">{recordings.length} recording{recordings.length !== 1 ? 's' : ''}</span>
+          <LibrarySection
+            id="library-exports-heading"
+            icon={<DownloadIcon className="h-4 w-4" />}
+            title="Saved exports"
+            description={
+              isAuthenticated && canUseCloudLibrary
+                ? 'Videos you\'ve exported · Saved in your Creator library'
+                : 'Videos you\'ve exported · Saved for 7 days on this device'
+            }
+          >
+            {isAuthenticated && canUseCloudLibrary ? (
+              <>
+                {cloudLoading ? (
+                  <div className="flex flex-col gap-2" role="status" aria-label="Loading cloud exports">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="p-2.5 rounded-lg bg-elevated/50 border border-border-subtle animate-pulse">
+                        <div className="h-3 w-32 bg-border-subtle rounded" />
+                        <div className="h-2.5 w-40 bg-border-subtle rounded mt-2" />
+                        <div className="flex gap-1.5 mt-3">
+                          <div className="h-7 w-16 bg-border-subtle rounded" />
+                          <div className="h-7 w-20 bg-border-subtle rounded" />
+                          <div className="h-7 w-16 bg-border-subtle rounded ml-auto" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : cloudError ? (
+                  <p className="text-[12px] text-recording" role="alert">{cloudError}</p>
+                ) : cloudExports.length === 0 ? (
+                  <SectionEmptyState title="No cloud exports yet." />
+                ) : (
+                  cloudExports.map(exp => {
+                    const quality = formatQualityLabel(exp.outputHeight);
+                    return (
+                      <div key={exp.id} className="p-2.5 rounded-lg bg-elevated border border-border-subtle flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-caption font-medium text-text-primary truncate">{platformDisplayName(exp.platform)}{quality ? ` · ${quality}` : ''}</span>
+                          <span className="text-overline text-text-secondary">{exp.outputWidth}×{exp.outputHeight}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-overline text-text-secondary">
+                          <span>{formatFileSize(exp.fileSize)}</span>
+                          <span>·</span>
+                          <span>{formatRelativeTime(exp.createdAt)}</span>
+                          <span>·</span>
+                          <span>{exportStatusLabel(exp.status)}</span>
+                        </div>
+                        <div className="flex gap-1.5 mt-1 items-center">
+                          <Button size="sm" variant="secondary" onClick={() => handlePreviewCloud(exp.id)} disabled={previewLoading}>Preview</Button>
+                          <Button size="sm" variant="primary" onClick={() => handleDownloadCloud(exp.id)}>Download</Button>
+                          <Button size="sm" variant="destructive" className="ml-auto" onClick={() => setConfirmDeleteExportKey(`cloud:${exp.id}`)}>Delete</Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                {localExports.map(renderLocalRow)}
+              </>
+            ) : localExports.length === 0 ? (
+              <SectionEmptyState
+                title="No saved exports yet"
+                description="Videos you&apos;ve exported will appear here."
+              />
+            ) : (
+              localExports.map(renderLocalRow)
+            )}
+          </LibrarySection>
         </div>
-      )}
+      </div>
 
       {/* Centered preview modals (recordings + cloud exports) */}
       {previewRecording && (
