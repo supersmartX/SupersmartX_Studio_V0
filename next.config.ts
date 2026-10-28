@@ -77,6 +77,26 @@ const nextConfig: NextConfig = {
         destination: 'https://studio.supersmartx.com/:path*',
         permanent: true,
       },
+      // The Vercel deployment URL serves the same app, but the PKCE verifier
+      // cookie is host-only while Auth.js pins redirect_uri to NEXTAUTH_URL
+      // (next-auth reqWithEnvURL). Starting sign-in here sends the callback to
+      // studio.supersmartx.com with no cookie for it, which surfaces as
+      // InvalidCheck: pkceCodeVerifier. Not permanent: the 308 is cached in the
+      // browser, and the alias must stay usable for ops debugging. Page
+      // entries only — /api/* is untouched so the Vercel Cron cleanup request
+      // to this host is not redirected.
+      {
+        source: '/',
+        has: [{ type: 'host', value: 'supersmart-x-studio-v0.vercel.app' }],
+        destination: 'https://studio.supersmartx.com/',
+        permanent: false,
+      },
+      {
+        source: '/studio/:path*',
+        has: [{ type: 'host', value: 'supersmart-x-studio-v0.vercel.app' }],
+        destination: 'https://studio.supersmartx.com/studio/:path*',
+        permanent: false,
+      },
     ];
   },
   async headers() {
