@@ -4,7 +4,8 @@ import { SEO_CONFIG } from '@/lib/seo/config';
 
 export const metadata: Metadata = {
   title: 'Terms of Service | SupersmartX Studio',
-  description: 'Terms of Service for SupersmartX Studio — browser-based teleprompter and recording.',
+  description:
+    'Terms of Service for SupersmartX Studio - browser-based teleprompter and recording.',
   alternates: { canonical: `${SEO_CONFIG.siteUrl}/legal/terms` },
   openGraph: {
     title: 'Terms of Service | SupersmartX Studio',
@@ -16,59 +17,76 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <div className="min-h-screen bg-canvas text-text-primary">
-      <div className="max-w-3xl mx-auto px-6 py-16 space-y-8">
+    <div className="bg-canvas text-text-primary min-h-screen">
+      <div className="mx-auto max-w-3xl space-y-8 px-6 py-16">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold">Terms of Service</h1>
-          <p className="text-sm text-text-secondary">Last updated: August 2026</p>
+          <p className="text-text-secondary text-sm">
+            Last updated: August 2026
+          </p>
         </div>
 
-        <div className="space-y-6 text-sm leading-relaxed text-text-secondary">
+        <div className="text-text-secondary space-y-6 text-sm leading-relaxed">
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-text-primary">1. Acceptance of Terms</h2>
+            <h2 className="text-text-primary text-lg font-semibold">
+              1. Acceptance of Terms
+            </h2>
             <p>
-              By accessing or using SupersmartX Studio (&quot;the Service&quot;), you agree to be bound by these Terms of Service.
+              By accessing or using SupersmartX Studio (&quot;the
+              Service&quot;), you agree to be bound by these Terms of Service.
               If you do not agree to these terms, do not use the Service.
             </p>
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-text-primary">2. Description of Service</h2>
+            <h2 className="text-text-primary text-lg font-semibold">
+              2. Description of Service
+            </h2>
             <p>
-              SupersmartX Studio is a browser-based teleprompter and video recording tool. The Service allows users
-              to create, read, and record scripts using their device camera and microphone.
+              SupersmartX Studio is a browser-based teleprompter and video
+              recording tool. The Service allows users to create, read, and
+              record scripts using their device camera and microphone.
             </p>
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-text-primary">3. User Accounts</h2>
+            <h2 className="text-text-primary text-lg font-semibold">
+              3. User Accounts
+            </h2>
             <p>
-              You may use the Service without an account. An account is required to download recorded videos.
-              You are responsible for maintaining the confidentiality of your account credentials.
+              You may use the Service without an account. An account is required
+              to download recorded videos. You are responsible for maintaining
+              the confidentiality of your account credentials.
             </p>
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-text-primary">4. User Content</h2>
+            <h2 className="text-text-primary text-lg font-semibold">
+              4. User Content
+            </h2>
             <p>
-              You retain ownership of all scripts and recordings you create using the Service.
-              We do not claim ownership over your content. Recording and video encoding happen in your
-              browser.
+              You retain ownership of all scripts and recordings you create
+              using the Service. We do not claim ownership over your content.
+              Recording and video encoding happen in your browser.
             </p>
             <p>
-              Storage of your content depends on your plan. On the Free plan your original recording and
-              your exported file stay on your device — in your browser&apos;s local storage — and are never
-              uploaded to us. On the Creator plan, exporting a video uploads the finished MP4 from your
-              browser to Cloudflare R2 and stores it against your account so it can appear in your Creator
-              library and be downloaded again. You can delete an individual export at any time, and
+              Storage of your content depends on your plan. On the Free plan
+              your original recording and your exported file stay on your device
+              - in your browser&apos;s local storage - and are never uploaded to
+              us. On the Creator plan, exporting a video uploads the finished
+              MP4 from your browser to Cloudflare R2 and stores it against your
+              account so it can appear in your Creator library and be downloaded
+              again. You can delete an individual export at any time, and
               deleting your account deletes every stored export.
             </p>
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-text-primary">5. Acceptable Use</h2>
+            <h2 className="text-text-primary text-lg font-semibold">
+              5. Acceptable Use
+            </h2>
             <p>You agree not to:</p>
-            <ul className="list-disc list-inside space-y-1 ml-4">
+            <ul className="ml-4 list-inside list-disc space-y-1">
               <li>Use the Service for any unlawful purpose</li>
               <li>Attempt to gain unauthorized access to the Service</li>
               <li>Interfere with or disrupt the Service</li>
@@ -77,42 +95,60 @@ export default function TermsPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-text-primary">6. Payments</h2>
+            <h2 className="text-text-primary text-lg font-semibold">
+              6. Payments
+            </h2>
             <p>
-              Paid features are processed through Cashfree. We do not store your payment information.
-              Prices may vary by region based on purchasing power parity.
+              Paid features are processed through Cashfree. We do not store your
+              payment information. Prices may vary by region based on purchasing
+              power parity.
             </p>
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-text-primary">7. Limitation of Liability</h2>
+            <h2 className="text-text-primary text-lg font-semibold">
+              7. Limitation of Liability
+            </h2>
             <p>
-              The Service is provided &quot;as is&quot; without warranties of any kind. We are not liable for any
-              damages arising from your use of the Service.
+              The Service is provided &quot;as is&quot; without warranties of
+              any kind. We are not liable for any damages arising from your use
+              of the Service.
             </p>
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-text-primary">8. Changes to Terms</h2>
+            <h2 className="text-text-primary text-lg font-semibold">
+              8. Changes to Terms
+            </h2>
             <p>
-              We reserve the right to modify these terms at any time. Continued use of the Service after
-              changes constitutes acceptance of the new terms.
+              We reserve the right to modify these terms at any time. Continued
+              use of the Service after changes constitutes acceptance of the new
+              terms.
             </p>
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold text-text-primary">9. Contact</h2>
+            <h2 className="text-text-primary text-lg font-semibold">
+              9. Contact
+            </h2>
             <p>
               For questions about these Terms, contact us at{' '}
-              <a href="mailto:support@supersmartx.com" className="text-accent hover:text-accent-hover transition-colors">
+              <a
+                href="mailto:support@supersmartx.com"
+                className="text-accent hover:text-accent-hover transition-colors"
+              >
                 support@supersmartx.com
-              </a>.
+              </a>
+              .
             </p>
           </section>
         </div>
 
-        <div className="pt-8 border-t border-border-subtle">
-          <a href="/" className="text-sm text-accent hover:text-accent-hover transition-colors">
+        <div className="border-border-subtle border-t pt-8">
+          <a
+            href="/"
+            className="text-accent hover:text-accent-hover text-sm transition-colors"
+          >
             ← Back to Home
           </a>
         </div>

@@ -5,7 +5,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { AuthModal } from '@/components/auth/AuthModal';
-import { getPricingForCountry, formatPrice, formatPriceZero, formatSavingsPercent } from '@/lib/pricing';
+import {
+  getPricingForCountry,
+  formatPrice,
+  formatPriceZero,
+  formatSavingsPercent,
+} from '@/lib/pricing';
 import { PRICING_PLANS } from '@/constants';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { SEO_CONFIG } from '@/lib/seo/config';
@@ -75,7 +80,7 @@ const CREATOR_FEATURES = [
 const FAQ_ITEMS = [
   {
     q: 'Will it work with my camera and microphone?',
-    a: 'Yes. SupersmartX Studio uses the webcam and microphone your computer already has — built-in or USB. There is no extra hardware to buy and nothing to install.',
+    a: 'Yes. SupersmartX Studio uses the webcam and microphone your computer already has - built-in or USB. There is no extra hardware to buy and nothing to install.',
   },
   {
     q: 'Can my browser really capture 1080p video?',
@@ -83,7 +88,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How fast can I go from script to recording?',
-    a: 'Paste your script, press record, and the prompter follows your natural speaking pace. There is nothing to set up first — ready in 30 seconds, no downloads or installs required.',
+    a: 'Paste your script, press record, and the prompter follows your natural speaking pace. There is nothing to set up first - ready in 30 seconds, no downloads or installs required.',
   },
   {
     q: 'Do I need editing software or editing skills?',
@@ -139,7 +144,17 @@ function HeroVideo() {
 function FlowStepIcon({ index }: { index: number }) {
   if (index === 0) {
     return (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
         <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
         <path d="m15 5 4 4" />
       </svg>
@@ -147,14 +162,34 @@ function FlowStepIcon({ index }: { index: number }) {
   }
   if (index === 1) {
     return (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
         <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
         <circle cx="12" cy="13" r="3" />
       </svg>
     );
   }
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <path d="M4 12h8" />
       <path d="M4 18V6" />
       <path d="M12 18V6" />
@@ -169,15 +204,19 @@ export default function LandingPage() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   // UX-005: 'login' opens the sign-in step (Log in buttons), 'register'
   // (default) opens the account chooser (checkout / creator flows).
-  const [authIntent, setAuthIntent] = useState<'register' | 'login'>('register');
+  const [authIntent, setAuthIntent] = useState<'register' | 'login'>(
+    'register',
+  );
   // True once a "Get Creator" CTA has stored sxs-pending-plan this session.
   // Distinguishes an intentional upgrade (checkout param allowed on the
   // post-auth redirect) from ordinary sign-in, which must land on plain
-  // /studio — an unconditional ?checkout= reopens payment after every login.
+  // /studio - an unconditional ?checkout= reopens payment after every login.
   const [hasPendingPlan, setHasPendingPlan] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>(
+    'monthly',
+  );
   const user = session?.user;
   const userMenuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -185,7 +224,10 @@ export default function LandingPage() {
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+      if (
+        userMenuRef.current &&
+        !userMenuRef.current.contains(e.target as Node)
+      ) {
         setUserMenuOpen(false);
       }
     }
@@ -209,15 +251,20 @@ export default function LandingPage() {
   }, [billingPeriod, session?.user, router]);
 
   // OAuth redirects bypass onSuccess, so the callback URL itself must carry
-  // the checkout intent — but only when a purchase was actually initiated.
+  // the checkout intent - but only when a purchase was actually initiated.
   // Ordinary Google sign-in returning with ?checkout= reopened the payment
   // form after every login (Issue 2).
-  const creatorCallbackUrl = hasPendingPlan ? `/studio?checkout=creator_${billingPeriod}` : '/studio';
+  const creatorCallbackUrl = hasPendingPlan
+    ? `/studio?checkout=creator_${billingPeriod}`
+    : '/studio';
 
   const handleLandingAuthSuccess = useCallback(() => {
     try {
       const stored = window.localStorage.getItem('sxs-pending-plan');
-      const plan = stored === 'creator_monthly' || stored === 'creator_yearly' ? stored : null;
+      const plan =
+        stored === 'creator_monthly' || stored === 'creator_yearly'
+          ? stored
+          : null;
       router.push(plan ? `/studio?checkout=${plan}` : '/studio');
     } catch {
       router.push('/studio');
@@ -225,8 +272,10 @@ export default function LandingPage() {
   }, [router]);
 
   const currentPricing = getPricingForCountry('US');
-  const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
-  const formatZero = (amount: number) => formatPriceZero(amount, currentPricing.symbol, currentPricing.locale);
+  const format = (amount: number) =>
+    formatPrice(amount, currentPricing.symbol, currentPricing.locale);
+  const formatZero = (amount: number) =>
+    formatPriceZero(amount, currentPricing.symbol, currentPricing.locale);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
@@ -237,8 +286,9 @@ export default function LandingPage() {
     setMenuOpen(false);
     const button = menuButtonRef.current;
     // The burger is not rendered at ≥901px, where the menu force-closes on
-    // resize — a focus() there would silently drop focus to <body>.
-    if (button && button.offsetParent !== null) button.focus({ preventScroll: true });
+    // resize - a focus() there would silently drop focus to <body>.
+    if (button && button.offsetParent !== null)
+      button.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {
@@ -281,7 +331,9 @@ export default function LandingPage() {
       }
       if (e.key !== 'Tab' || !menu) return;
       const focusables = Array.from(
-        menu.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')
+        menu.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
       ).filter((el) => el.offsetParent !== null);
       if (focusables.length === 0) return;
       const first = focusables[0];
@@ -315,7 +367,9 @@ export default function LandingPage() {
         } else {
           const handler = () => el.classList.add('lsx-is-in');
           el.addEventListener('animationend', handler, { once: true });
-          cleanupFns.push(() => el.removeEventListener('animationend', handler));
+          cleanupFns.push(() =>
+            el.removeEventListener('animationend', handler),
+          );
         }
       });
 
@@ -326,13 +380,16 @@ export default function LandingPage() {
         } else {
           const handler = () => heroPhoto.classList.add('lsx-is-in');
           heroPhoto.addEventListener('animationend', handler, { once: true });
-          cleanupFns.push(() => heroPhoto.removeEventListener('animationend', handler));
+          cleanupFns.push(() =>
+            heroPhoto.removeEventListener('animationend', handler),
+          );
         }
       }
 
       const timerId = setTimeout(() => {
         appears.forEach((el) => {
-          if (!el.classList.contains('lsx-is-in')) el.classList.add('lsx-is-in');
+          if (!el.classList.contains('lsx-is-in'))
+            el.classList.add('lsx-is-in');
         });
         if (heroPhoto && !heroPhoto.classList.contains('lsx-is-in')) {
           heroPhoto.classList.add('lsx-is-in');
@@ -341,7 +398,7 @@ export default function LandingPage() {
       cleanupFns.push(() => clearTimeout(timerId));
     });
     cleanupFns.push(() => cancelAnimationFrame(raf));
-    return () => cleanupFns.forEach(fn => fn());
+    return () => cleanupFns.forEach((fn) => fn());
   }, []);
 
   return (
@@ -1090,7 +1147,7 @@ export default function LandingPage() {
   gap: 16px;
   flex-wrap: wrap;
   font-size: 12px;
-  /* §8 landing contrast: was 0.3 alpha = 2.59:1 — a real AA failure on legal
+  /* §8 landing contrast: was 0.3 alpha = 2.59:1 - a real AA failure on legal
      and copyright text. 0.5 lifts the composited colour to ~rgb(132,132,134)
      (5.3:1). The hover state is raised with it so the affordance stays
      clearly perceptible rather than collapsing into a near-invisible step. */
@@ -1135,9 +1192,24 @@ export default function LandingPage() {
           '@context': 'https://schema.org',
           '@type': 'BreadcrumbList',
           itemListElement: [
-            { '@type': 'ListItem', position: 1, name: 'Home', item: SEO_CONFIG.siteUrl },
-            { '@type': 'ListItem', position: 2, name: 'Pricing', item: `${SEO_CONFIG.siteUrl}/#pricing` },
-            { '@type': 'ListItem', position: 3, name: 'How It Works', item: `${SEO_CONFIG.siteUrl}/#how-it-works` },
+            {
+              '@type': 'ListItem',
+              position: 1,
+              name: 'Home',
+              item: SEO_CONFIG.siteUrl,
+            },
+            {
+              '@type': 'ListItem',
+              position: 2,
+              name: 'Pricing',
+              item: `${SEO_CONFIG.siteUrl}/#pricing`,
+            },
+            {
+              '@type': 'ListItem',
+              position: 3,
+              name: 'How It Works',
+              item: `${SEO_CONFIG.siteUrl}/#how-it-works`,
+            },
           ],
         }}
       />
@@ -1169,12 +1241,23 @@ export default function LandingPage() {
 
       <div className="lsx-page">
         <header className="lsx-header">
-          <Link href="/" className="lsx-logo lsx-appear" style={{ '--lsx-d': '0.08s' } as React.CSSProperties} aria-label="SupersmartX Studio">
-            SUPERSMARTX{/* §8 landing contrast: `text-accent` (#7C3AED) is the studio's fill
+          <Link
+            href="/"
+            className="lsx-logo lsx-appear"
+            style={{ '--lsx-d': '0.08s' } as React.CSSProperties}
+            aria-label="SupersmartX Studio"
+          >
+            SUPERSMARTX
+            {/* §8 landing contrast: `text-accent` (#7C3AED) is the studio's fill
    accent and measures 3.49:1 as text on this page. Lifted locally to keep the
    purple character while clearing AA; only this wordmark instance changes, so
    the accent chevrons (non-text graphics) are untouched. */}
-    <span className="text-accent font-normal" style={{ color: 'rgb(146, 106, 246)' }}>Studio</span>
+            <span
+              className="text-accent font-normal"
+              style={{ color: 'rgb(146, 106, 246)' }}
+            >
+              Studio
+            </span>
           </Link>
 
           <nav className="lsx-site-nav" id="lsx-site-nav" aria-label="Primary">
@@ -1183,7 +1266,9 @@ export default function LandingPage() {
                 key={link.label}
                 href={link.href}
                 className={`lsx-nav-pill lsx-appear ${i % 2 === 0 ? 'lsx-appear--scale' : 'lsx-appear--soft'}`}
-                style={{ '--lsx-d': `${0.16 + i * 0.12}s` } as React.CSSProperties}
+                style={
+                  { '--lsx-d': `${0.16 + i * 0.12}s` } as React.CSSProperties
+                }
               >
                 {link.label}
               </a>
@@ -1191,11 +1276,14 @@ export default function LandingPage() {
           </nav>
 
           <div className="lsx-header-cta-wrap">
-            <div className="lsx-appear lsx-appear--scale" style={{ '--lsx-d': '0.34s' } as React.CSSProperties}>
+            <div
+              className="lsx-appear lsx-appear--scale"
+              style={{ '--lsx-d': '0.34s' } as React.CSSProperties}
+            >
               {status === 'loading' ? (
                 <div className="flex items-center gap-2" aria-hidden="true">
-                  <div className="w-20 h-9 bg-elevated rounded-md animate-pulse" />
-                  <div className="w-28 h-9 bg-elevated rounded-md animate-pulse" />
+                  <div className="bg-elevated h-9 w-20 animate-pulse rounded-md" />
+                  <div className="bg-elevated h-9 w-28 animate-pulse rounded-md" />
                 </div>
               ) : user ? (
                 <div className="relative" ref={userMenuRef}>
@@ -1204,20 +1292,32 @@ export default function LandingPage() {
                     aria-expanded={userMenuOpen}
                     aria-haspopup="true"
                     aria-label="User menu"
-                    className="w-8 h-8 rounded-full bg-accent/20 text-accent flex items-center justify-center text-[12px] font-bold hover:bg-accent/30 transition-colors overflow-hidden min-w-[44px] min-h-[44px]"
+                    className="bg-accent/20 text-accent hover:bg-accent/30 flex h-8 min-h-[44px] w-8 min-w-[44px] items-center justify-center overflow-hidden rounded-full text-[12px] font-bold transition-colors"
                   >
                     {user.image ? (
-                      <img src={user.image} alt="" className="w-full h-full object-cover" />
+                      <img
+                        src={user.image}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
                     ) : (
                       (user.name?.[0] || user.email?.[0] || '?').toUpperCase()
                     )}
                   </button>
 
                   {userMenuOpen && (
-                    <div className="absolute right-0 top-full mt-1 w-56 bg-surface border border-border-default rounded-lg shadow-lg py-1 z-50" role="menu" aria-label="User menu">
-                      <div className="px-3 py-2 border-b border-border-subtle">
-                        <p className="text-[12px] font-medium text-text-primary truncate">{user.name || 'User'}</p>
-                        <p className="text-[11px] text-text-muted truncate">{user.email}</p>
+                    <div
+                      className="bg-surface border-border-default absolute top-full right-0 z-50 mt-1 w-56 rounded-lg border py-1 shadow-lg"
+                      role="menu"
+                      aria-label="User menu"
+                    >
+                      <div className="border-border-subtle border-b px-3 py-2">
+                        <p className="text-text-primary truncate text-[12px] font-medium">
+                          {user.name || 'User'}
+                        </p>
+                        <p className="text-text-muted truncate text-[11px]">
+                          {user.email}
+                        </p>
                       </div>
                       <button
                         role="menuitem"
@@ -1225,7 +1325,7 @@ export default function LandingPage() {
                           setUserMenuOpen(false);
                           router.push('/studio');
                         }}
-                        className="w-full text-left px-3 py-2 text-[12px] text-text-secondary hover:bg-elevated transition-colors flex items-center gap-2"
+                        className="text-text-secondary hover:bg-elevated flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors"
                       >
                         Go to Studio
                       </button>
@@ -1235,7 +1335,7 @@ export default function LandingPage() {
                           setUserMenuOpen(false);
                           await signOut({ callbackUrl: '/' });
                         }}
-                        className="w-full text-left px-3 py-2 text-[12px] text-text-secondary hover:bg-elevated transition-colors flex items-center gap-2"
+                        className="text-text-secondary hover:bg-elevated flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors"
                       >
                         Sign out
                       </button>
@@ -1270,7 +1370,7 @@ export default function LandingPage() {
           <button
             ref={menuButtonRef}
             type="button"
-            className={`lsx-burger${menuOpen ? ' is-open' : ''}`}
+            className={`lsx-burger${menuOpen ? 'is-open' : ''}`}
             aria-controls="lsx-mobile-nav"
             aria-expanded={menuOpen}
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
@@ -1285,27 +1385,56 @@ export default function LandingPage() {
         <main className="lsx-hero" id="top">
           <HeroVideo />
           <div className="lsx-hero-copy">
-            <div className="lsx-badge lsx-appear lsx-appear--pop" style={{ '--lsx-d': '0.22s' } as React.CSSProperties}>
-              <svg className="lsx-badge-star" width="18" height="20" viewBox="0 0 24 24" fill="white" aria-hidden="true">
+            <div
+              className="lsx-badge lsx-appear lsx-appear--pop"
+              style={{ '--lsx-d': '0.22s' } as React.CSSProperties}
+            >
+              <svg
+                className="lsx-badge-star"
+                width="18"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="white"
+                aria-hidden="true"
+              >
                 <path d="M12 2.6C12.55 2.6 12.88 3.15 13.08 4.7c.62 4.7 1.52 5.6 6.22 6.22 1.55.2 2.1.53 2.1 1.08s-.55.88-2.1 1.08c-4.7.62-5.6 1.52-6.22 6.22-.2 1.55-.53 2.1-1.08 2.1s-.88-.55-1.08-2.1c-.62-4.7-1.52-5.6-6.22-6.22C3.15 12.88 2.6 12.55 2.6 12s.55-.88 2.1-1.08c4.7-.62 5.6-1.52 6.22-6.22C11.12 3.15 11.45 2.6 12 2.6Z" />
               </svg>
               <span>SuperSmartX Studio</span>
             </div>
 
             <h1>
-              <span className="lsx-headline-line lsx-appear lsx-appear--mask" style={{ '--lsx-d': '0.42s' } as React.CSSProperties}>
+              <span
+                className="lsx-headline-line lsx-appear lsx-appear--mask"
+                style={{ '--lsx-d': '0.42s' } as React.CSSProperties}
+              >
                 Stop Wasting{' '}
               </span>
-              <span className="lsx-headline-line lsx-appear lsx-appear--mask" style={{ '--lsx-d': '0.52s' } as React.CSSProperties}>
+              <span
+                className="lsx-headline-line lsx-appear lsx-appear--mask"
+                style={{ '--lsx-d': '0.52s' } as React.CSSProperties}
+              >
                 <em>3 Hours</em> Re-Recording{' '}
               </span>
-              <span className="lsx-headline-line lsx-appear lsx-appear--mask" style={{ '--lsx-d': '0.62s' } as React.CSSProperties}>
+              <span
+                className="lsx-headline-line lsx-appear lsx-appear--mask"
+                style={{ '--lsx-d': '0.62s' } as React.CSSProperties}
+              >
                 Video Takes.
               </span>
             </h1>
 
-            <p className="lsx-lede lsx-appear lsx-appear--soft" style={{ '--lsx-d': '0.82s', animationDuration: '1.25s' } as React.CSSProperties}>
-              The browser-based studio that turns rough scripts into platform-ready Reels, Shorts, and YouTube videos in one take—with voice-paced prompting and zero manual timeline editing.
+            <p
+              className="lsx-lede lsx-appear lsx-appear--soft"
+              style={
+                {
+                  '--lsx-d': '0.82s',
+                  animationDuration: '1.25s',
+                } as React.CSSProperties
+              }
+            >
+              The browser-based studio that turns rough scripts into
+              platform-ready Reels, Shorts, and YouTube videos in one take-with
+              voice-paced prompting and zero manual timeline editing.
             </p>
 
             <div className="lsx-hero-actions">
@@ -1315,12 +1444,14 @@ export default function LandingPage() {
                 className="lsx-btn lsx-btn-solid lsx-hero-btn lsx-hero-cta lsx-appear lsx-appear--btn"
                 style={{ '--lsx-d': '0.96s' } as React.CSSProperties}
               >
-                Launch Studio in Browser — No Card Required
+                Launch Studio in Browser - No Card Required
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' });
+                  document
+                    .getElementById('how-it-works')
+                    ?.scrollIntoView({ behavior: 'smooth' });
                 }}
                 className="lsx-btn lsx-btn-ghost lsx-hero-btn lsx-hero-ghost lsx-appear lsx-appear--btn"
                 style={{ '--lsx-d': '1.06s' } as React.CSSProperties}
@@ -1329,24 +1460,42 @@ export default function LandingPage() {
               </button>
             </div>
 
-            <p className="lsx-cta-support lsx-appear lsx-appear--soft" style={{ '--lsx-d': '1.16s' } as React.CSSProperties}>
+            <p
+              className="lsx-cta-support lsx-appear lsx-appear--soft"
+              style={{ '--lsx-d': '1.16s' } as React.CSSProperties}
+            >
               Ready in 30 seconds · No downloads or installs required
             </p>
           </div>
         </main>
 
-        <section className="lsx-section" id="operational-waste" aria-labelledby="waste-title">
+        <section
+          className="lsx-section"
+          id="operational-waste"
+          aria-labelledby="waste-title"
+        >
           <div className="lsx-section-inner">
             <div className="lsx-section-header">
               <span className="lsx-section-label">Operational waste</span>
-              <h2 id="waste-title" className="lsx-section-title">Creators do not want another recording tool.</h2>
+              <h2 id="waste-title" className="lsx-section-title">
+                Creators do not want another recording tool.
+              </h2>
             </div>
             <p className="lsx-lead-in">They want to eliminate:</p>
             <ul className="lsx-waste-grid">
               {WASTE_ITEMS.map((item) => (
                 <li key={item} className="lsx-waste-item">
                   <span className="lsx-waste-mark" aria-hidden="true">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
                       <line x1="18" y1="6" x2="6" y2="18" />
                       <line x1="6" y1="6" x2="18" y2="18" />
                     </svg>
@@ -1369,20 +1518,29 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="lsx-section" id="how-it-works" aria-labelledby="flow-title">
+        <section
+          className="lsx-section"
+          id="how-it-works"
+          aria-labelledby="flow-title"
+        >
           <div className="lsx-section-inner">
             <div className="lsx-section-header">
               <span className="lsx-section-label">How it works</span>
-              <h2 id="flow-title" className="lsx-section-title">Script → Record → Publish</h2>
+              <h2 id="flow-title" className="lsx-section-title">
+                Script → Record → Publish
+              </h2>
               <p className="lsx-section-subtitle">
-                Voice-paced prompting + precision capture + instant multi-format export.
+                Voice-paced prompting + precision capture + instant multi-format
+                export.
               </p>
             </div>
             <ol className="lsx-flow-steps">
               {FLOW_STEPS.map((step, i) => (
                 <li key={step.title} className="lsx-flow-step">
                   <div className="lsx-flow-head">
-                    <span className="lsx-flow-step-num">{String(i + 1).padStart(2, '0')}</span>
+                    <span className="lsx-flow-step-num">
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
                     <span className="lsx-flow-stage">{step.stage}</span>
                   </div>
                   <div className="lsx-flow-icon">
@@ -1396,23 +1554,35 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="lsx-section lsx-pricing" id="pricing" aria-labelledby="pricing-title">
+        <section
+          className="lsx-section lsx-pricing"
+          id="pricing"
+          aria-labelledby="pricing-title"
+        >
           <div className="lsx-section-inner">
             <div className="lsx-section-header">
               <span className="lsx-section-label">Pricing</span>
-              <h2 id="pricing-title" className="lsx-section-title">Start free. Upgrade when ready.</h2>
-              <p className="lsx-section-subtitle">One-time payment — no automatic renewal.</p>
+              <h2 id="pricing-title" className="lsx-section-title">
+                Start free. Upgrade when ready.
+              </h2>
+              <p className="lsx-section-subtitle">
+                One-time payment - no automatic renewal.
+              </p>
             </div>
 
             {/* Billing period toggle */}
-            <div className="lsx-pricing-toggle" role="group" aria-label="Billing period">
+            <div
+              className="lsx-pricing-toggle"
+              role="group"
+              aria-label="Billing period"
+            >
               <button
                 type="button"
                 onClick={() => setBillingPeriod('monthly')}
                 aria-pressed={billingPeriod === 'monthly'}
                 className={`lsx-pricing-toggle-btn ${billingPeriod === 'monthly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
               >
-                      1 month
+                1 month
               </button>
               <button
                 type="button"
@@ -1420,7 +1590,13 @@ export default function LandingPage() {
                 aria-pressed={billingPeriod === 'yearly'}
                 className={`lsx-pricing-toggle-btn ${billingPeriod === 'yearly' ? 'lsx-pricing-toggle-btn--active' : ''}`}
               >
-                      1 year <span className="lsx-pricing-toggle-save">{formatSavingsPercent(currentPricing.creatorMonthly, currentPricing.creatorYearly)}</span>
+                1 year{' '}
+                <span className="lsx-pricing-toggle-save">
+                  {formatSavingsPercent(
+                    currentPricing.creatorMonthly,
+                    currentPricing.creatorYearly,
+                  )}
+                </span>
               </button>
             </div>
 
@@ -1428,17 +1604,34 @@ export default function LandingPage() {
               <div className="lsx-pricing-card">
                 <div className="lsx-pricing-card-header">
                   <h3 className="lsx-pricing-plan">Free Plan</h3>
-                  <div className="lsx-pricing-price">{formatZero(0)}<span className="lsx-pricing-period">/forever</span></div>
+                  <div className="lsx-pricing-price">
+                    {formatZero(0)}
+                    <span className="lsx-pricing-period">/forever</span>
+                  </div>
                 </div>
                 <ul className="lsx-pricing-features">
                   {FREE_FEATURES.map((text) => (
                     <li key={text} className="lsx-pricing-feature">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--color-accent)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
                       {text}
                     </li>
                   ))}
                 </ul>
-                <p className="lsx-plan-note">Ideal for testing browser compatibility</p>
+                <p className="lsx-plan-note">
+                  Ideal for testing browser compatibility
+                </p>
                 <button
                   type="button"
                   onClick={() => router.push('/studio')}
@@ -1451,18 +1644,48 @@ export default function LandingPage() {
                 <div className="lsx-pricing-badge">High-ROI Tier</div>
                 <div className="lsx-pricing-card-header">
                   <h3 className="lsx-pricing-plan">Creator Pro</h3>
-                  <div className="lsx-pricing-price">{format(billingPeriod === 'monthly' ? currentPricing.creatorMonthly : currentPricing.creatorYearly)}<span className="lsx-pricing-period"> for {billingPeriod === 'monthly' ? '1 month' : '1 year'}</span></div>
+                  <div className="lsx-pricing-price">
+                    {format(
+                      billingPeriod === 'monthly'
+                        ? currentPricing.creatorMonthly
+                        : currentPricing.creatorYearly,
+                    )}
+                    <span className="lsx-pricing-period">
+                      {' '}
+                      for {billingPeriod === 'monthly' ? '1 month' : '1 year'}
+                    </span>
+                  </div>
                   {billingPeriod === 'yearly' && (
-                    <p className="lsx-pricing-note">One-time payment for 1 year of access (equivalent to {format(currentPricing.creatorYearly / 12)}/month).</p>
+                    <p className="lsx-pricing-note">
+                      One-time payment for 1 year of access (equivalent to{' '}
+                      {format(currentPricing.creatorYearly / 12)}/month).
+                    </p>
                   )}
                   {billingPeriod === 'monthly' && (
-                    <p className="lsx-pricing-note">One-time payment for 1 month of access.</p>
+                    <p className="lsx-pricing-note">
+                      One-time payment for 1 month of access.
+                    </p>
                   )}
                 </div>
                 <ul className="lsx-pricing-features">
                   {CREATOR_FEATURES.map((text, i) => (
-                    <li key={text} className={`lsx-pricing-feature ${i === 0 ? 'lsx-pricing-feature--highlight' : ''}`}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    <li
+                      key={text}
+                      className={`lsx-pricing-feature ${i === 0 ? 'lsx-pricing-feature--highlight' : ''}`}
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--color-accent)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
                       {text}
                     </li>
                   ))}
@@ -1483,17 +1706,31 @@ export default function LandingPage() {
           <div className="lsx-section-inner">
             <div className="lsx-section-header">
               <span className="lsx-section-label">FAQ</span>
-              <h2 id="faq-title" className="lsx-section-title">Everything that holds creators back</h2>
-              <p className="lsx-section-subtitle">Hardware, browser performance, speed and editing — answered before you start.</p>
+              <h2 id="faq-title" className="lsx-section-title">
+                Everything that holds creators back
+              </h2>
+              <p className="lsx-section-subtitle">
+                Hardware, browser performance, speed and editing - answered
+                before you start.
+              </p>
             </div>
-            <div className="max-w-3xl mx-auto space-y-4 text-left">
+            <div className="mx-auto max-w-3xl space-y-4 text-left">
               {FAQ_ITEMS.map((item) => (
-                <details key={item.q} className="group bg-white/[0.02] border border-white/5 rounded-xl p-5 open:bg-white/[0.03]">
-                  <summary className="cursor-pointer list-none flex items-center justify-between gap-4">
-                    <h3 className="text-[15px] font-medium text-white">{item.q}</h3>
-                    <span className="text-accent group-open:rotate-180 transition-transform">⌃</span>
+                <details
+                  key={item.q}
+                  className="group rounded-xl border border-white/5 bg-white/[0.02] p-5 open:bg-white/[0.03]"
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
+                    <h3 className="text-[15px] font-medium text-white">
+                      {item.q}
+                    </h3>
+                    <span className="text-accent transition-transform group-open:rotate-180">
+                      ⌃
+                    </span>
                   </summary>
-                  <p className="mt-3 text-[14px] leading-relaxed text-white/60">{item.a}</p>
+                  <p className="mt-3 text-[14px] leading-relaxed text-white/60">
+                    {item.a}
+                  </p>
                 </details>
               ))}
             </div>
@@ -1510,17 +1747,26 @@ export default function LandingPage() {
               onClick={() => router.push('/studio')}
               className="lsx-btn lsx-btn-solid lsx-final-btn"
             >
-              Launch Studio in Browser — No Card Required
+              Launch Studio in Browser - No Card Required
             </button>
-            <p className="lsx-cta-support">Ready in 30 seconds · No downloads or installs required</p>
+            <p className="lsx-cta-support">
+              Ready in 30 seconds · No downloads or installs required
+            </p>
           </div>
         </section>
 
         <footer className="lsx-footer">
           <div className="lsx-footer-bottom">
-            <span>&copy; {new Date().getFullYear()} SupersmartX. All rights reserved.</span>
-            <Link href="/legal/terms" className="lsx-footer-link">Terms</Link>
-            <Link href="/legal/privacy" className="lsx-footer-link">Privacy</Link>
+            <span>
+              &copy; {new Date().getFullYear()} SupersmartX. All rights
+              reserved.
+            </span>
+            <Link href="/legal/terms" className="lsx-footer-link">
+              Terms
+            </Link>
+            <Link href="/legal/privacy" className="lsx-footer-link">
+              Privacy
+            </Link>
           </div>
         </footer>
       </div>
@@ -1553,18 +1799,30 @@ export default function LandingPage() {
             aria-hidden="true"
           />
           <div className="lsx-mobile-nav-content">
-              <button
-                type="button"
-                className="lsx-mobile-nav-close"
-                onClick={dismissMenu}
-                aria-label="Close navigation menu"
+            <button
+              type="button"
+              className="lsx-mobile-nav-close"
+              onClick={dismissMenu}
+              aria-label="Close navigation menu"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
-            <nav className="lsx-mobile-nav-links" aria-label="Mobile navigation">
+            <nav
+              className="lsx-mobile-nav-links"
+              aria-label="Mobile navigation"
+            >
               {NAV_LINKS.map((link) => (
                 <a
                   key={link.label}
@@ -1590,7 +1848,10 @@ export default function LandingPage() {
               </button>
               <button
                 type="button"
-                onClick={() => { router.push('/studio'); closeMenu(); }}
+                onClick={() => {
+                  router.push('/studio');
+                  closeMenu();
+                }}
                 className="lsx-btn lsx-btn-solid lsx-mobile-nav-btn"
               >
                 Launch Studio
