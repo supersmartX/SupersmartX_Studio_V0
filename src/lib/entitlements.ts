@@ -141,6 +141,39 @@ export function isPlanActive(
 }
 
 /**
+ * One purchased term, as a PostgreSQL interval literal.
+ *
+ * `creator_yearly` is a calendar year (12 months), which is what the pricing
+ * copy sells. Postgres clamps the day of month when adding an interval, so a
+ * term bought on 31 January ends on the last day of February rather than
+ * spilling into March.
+ */
+export function planTermInterval(plan: string): '1 month' | '1 year' {
+  return plan.includes('yearly') ? '1 year' : '1 month';
+}
+
+/**
+ * Adds one purchased term to `from`, clamping the day of month.
+ *
+ * `Date.setMonth`/`setFullYear` overflow (31 Jan + 1 month lands on 3 March,
+ * 29 Feb + 1 year lands on 1 March), which would grant a term that ends on the
+ * wrong day. This mirrors Postgres interval arithmetic so the expiry the
+ * receipt/refund logic predicts is the one the database actually stores.
+ */
+export function addPlanTerm(from: Date, period: 'monthly' | 'yearly'): Date {
+  const months = period === 'yearly' ? 12 : 1;
+  const result = new Date(from.getTime());
+  const day = result.getUTCDate();
+  result.setUTCDate(1);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  const lastDayOfMonth = new Date(
+    Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  result.setUTCDate(Math.min(day, lastDayOfMonth));
+  return result;
+}
+
+/**
  * Orientation-aware ceiling for an export canvas.
  *
  * `maxResolution` is a *capability envelope* (long edge x short edge), not a

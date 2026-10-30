@@ -1,11 +1,30 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import { ShareIcon, DownloadIcon, SettingsIcon } from '@/components/icons';
 import { isCreatorPlan } from '@/lib/entitlements';
 import { useDismissOnOutsideClick } from '@/hooks/useDismissOnOutsideClick';
+
+/** Stored billing facts from `/api/user/stats` (the DB is the authority). */
+interface BillingStatus {
+  planExpiresAt: string | null;
+  planActive: boolean;
+}
+
+function formatBillingDate(iso: string): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  // UTC on purpose: the stored expiry is an instant, and rendering it in the
+  // viewer's zone could show a date one day earlier than the receipt e-mail.
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
 
 interface HeaderProps {
   hasRecording: boolean;
@@ -49,6 +68,41 @@ export function Header({
 
   const user = session?.user;
   const isCreator = isCreatorPlan(userPlan);
+  const signedIn = Boolean(user);
+
+  // Billing status is read from the server when the menu opens: the session's
+  // plan is enough to know whether access is active, but not when it ends, and
+  // an expired plan is indistinguishable from never having bought one without
+  // the stored date.
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
+  useEffect(() => {
+    if (!showUserMenu || !signedIn) return;
+    let cancelled = false;
+    fetch('/api/user/stats', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { planExpiresAt?: string | null; planActive?: boolean } | null) => {
+        if (cancelled || !data) return;
+        setBilling({
+          planExpiresAt: data.planExpiresAt ?? null,
+          planActive: Boolean(data.planActive),
+        });
+      })
+      .catch(() => {
+        // Status is an enhancement: the menu still opens without it.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showUserMenu, signedIn]);
+
+  const accessUntil =
+    billing?.planActive && billing.planExpiresAt
+      ? formatBillingDate(billing.planExpiresAt)
+      : null;
+  const expiredOn =
+    billing && !billing.planActive && billing.planExpiresAt
+      ? formatBillingDate(billing.planExpiresAt)
+      : null;
 
   return (
     <header className="h-12 border-b border-border-subtle bg-surface flex items-center px-3 sm:px-5 justify-between shrink-0 z-30">
@@ -142,6 +196,12 @@ export function Header({
                       {isCreator ? 'Unlimited recording duration' : 'Up to 10 min/day per browser profile'}
                     </span>
                   </div>
+                  {accessUntil && (
+                    <p className="text-[11px] text-text-muted">Access until {accessUntil}</p>
+                  )}
+                  {expiredOn && (
+                    <p className="text-[11px] text-text-muted">Creator term ended {expiredOn}</p>
+                  )}
                   <button
                     role="menuitem"
                     onClick={() => {
@@ -150,7 +210,11 @@ export function Header({
                     }}
                     className="w-full text-left px-2.5 py-1.5 rounded-md text-[12px] font-medium bg-accent/15 text-accent hover:bg-accent/25 transition-colors flex items-center gap-2"
                   >
-                    {isCreator ? 'Manage Plan' : 'Upgrade to Creator'}
+                    {isCreator
+                      ? 'Manage or extend plan'
+                      : expiredOn
+                        ? 'Renew Creator'
+                        : 'Upgrade to Creator'}
                   </button>
                 </div>
 

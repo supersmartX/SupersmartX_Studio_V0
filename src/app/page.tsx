@@ -6,11 +6,11 @@ import { useRouter } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { AuthModal } from '@/components/auth/AuthModal';
 import {
-  getPricingForCountry,
   formatPrice,
   formatPriceZero,
   formatSavingsPercent,
 } from '@/lib/pricing';
+import { useRegionalPricing } from '@/hooks/useRegionalPricing';
 import { PRICING_PLANS } from '@/constants';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { SEO_CONFIG } from '@/lib/seo/config';
@@ -271,7 +271,10 @@ export default function LandingPage() {
     }
   }, [router]);
 
-  const currentPricing = getPricingForCountry('US');
+  // Prices start on the US table (the region-neutral default) and swap to the
+  // visitor's region once detection resolves — the same table the checkout
+  // sheet shows, so the price advertised here is the price charged there.
+  const { pricing: currentPricing } = useRegionalPricing();
   const format = (amount: number) =>
     formatPrice(amount, currentPricing.symbol, currentPricing.locale);
   const formatZero = (amount: number) =>

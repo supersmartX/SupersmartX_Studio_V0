@@ -1,5 +1,6 @@
 import { beforeEach } from 'vitest';
 import { getPrisma } from '@/lib/db/prisma';
+import { HAS_TEST_DB } from './test-database';
 
 /**
  * Postgres replacement for the retired libSQL test driver.
@@ -17,10 +18,13 @@ import { getPrisma } from '@/lib/db/prisma';
  *
  * The suite is gated on `DATABASE_URL` (see the `describeDb` guard each file
  * uses), so `npm test` without credentials runs the ordinary unit suite and the
- * database-backed cases are reported as skipped rather than failing.
+ * database-backed cases are reported as skipped rather than failing. A URL that
+ * looks like the deployed database does not count as a test database — see
+ * `./test-database` — so exporting the production value from `.env.local`
+ * cannot turn this `TRUNCATE` loose on real accounts.
  */
 
-export const HAS_TEST_DB = Boolean(process.env.DATABASE_URL);
+export { HAS_TEST_DB };
 
 const APP_TABLES = [
   'users',
@@ -30,6 +34,7 @@ const APP_TABLES = [
   'export_jobs',
   'processed_webhooks',
   'pending_orders',
+  'checkout_locks',
   'monthly_export_counts',
   'daily_recording_seconds',
   'order_notifications',

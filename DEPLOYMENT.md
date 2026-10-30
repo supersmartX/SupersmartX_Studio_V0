@@ -17,8 +17,8 @@ Build → Validate → Test → Deploy to Staging → Validate → Approval → 
 | `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | `https://your-domain.vercel.app` | App base URL |
 | `NEXTAUTH_SECRET` | *(dev default)* | **Generate 32+ char random** | Session encryption |
 | `NEXTAUTH_URL` | `http://localhost:3000` | `https://your-domain.vercel.app` | Auth callback URL |
-| `TURSO_DATABASE_URL` | *(auto local SQLite)* | `libsql://*.turso.io` | Database URL |
-| `TURSO_AUTH_TOKEN` | *(none)* | `your-turso-token` | Database auth |
+| `DATABASE_URL` | local Postgres URL | Supabase **pooler** URL (`…:6543/…?sslmode=require`) | Runtime database connection (Supavisor transaction pooling) |
+| `DIRECT_URL` | local Postgres URL | Supabase **direct** URL (`…:5432/…?sslmode=require`) | Session/direct connection used only by `prisma migrate` and dumps |
 | `CLEANUP_SECRET` | *(none)* | `generate-random-string` | Cleanup endpoint auth |
 | `ADMIN_EMAIL` | *(none)* | `admin@example.com` | Admin notifications |
 | `GOOGLE_CLIENT_ID` | *(optional)* | `your-google-id` | Google OAuth |
@@ -119,7 +119,9 @@ configuration is **NOT VERIFIED** regardless of what the source says.
 - [ ] `NEXTAUTH_SECRET` is a strong random string (≥32 chars, generated via `openssl rand -base64 32`)
 - [ ] All production secrets rotated from any previously committed values
 - [ ] `.env` file has NO real credentials — only `.env.local` (which is gitignored)
-- [ ] Turso database exists and `TURSO_AUTH_TOKEN` is valid
+- [ ] Supabase project exists, and `DATABASE_URL` (pooler, `:6543`) plus
+      `DIRECT_URL` (direct, `:5432`) are set for production
+- [ ] `npx prisma migrate status` reports no pending migrations for that database
 - [ ] `CLEANUP_SECRET` is set **and** `CRON_SECRET` is set to the same value
       (Vercel Cron Jobs send `Authorization: Bearer $CRON_SECRET`; the route
       compares it against `CLEANUP_SECRET`)
@@ -136,20 +138,36 @@ configuration is **NOT VERIFIED** regardless of what the source says.
 
 ## 2. Infrastructure
 
-### Turso Database (Production)
+### Supabase PostgreSQL (Production)
 
-```bash
-# Create Turso database
-turso db create supersmartx-studio-prod
-turso db tokens create supersmartx-studio-prod
+1. Create the project in the Supabase dashboard. Region sets latency —
+   production runs in `ap-northeast-2`.
+2. Open **Connect** (or *Project Settings → Database → Connection string*) and
+   copy two URIs, each with `sslmode=require`:
+   - **Transaction pooler** (Supavisor) — host ends `pooler.supabase.com`,
+     port `6543`. This is `DATABASE_URL`.
+   - **Direct connection** (session mode) — port `5432`. This is `DIRECT_URL`.
+3. Set both in Vercel:
 
-# Set in Vercel
-vercel env add TURSO_DATABASE_URL production
-# Value: libsql://supersmartx-studio-prod.turso.io
+   ```bash
+   vercel env add DATABASE_URL production    # pooler URI, :6543
+   vercel env add DIRECT_URL production      # direct URI, :5432
+   ```
 
-vercel env add TURSO_AUTH_TOKEN production
-# Value: <your-token>
-```
+4. Apply the schema from a machine that can reach the database:
+
+   ```bash
+   npx prisma migrate status    # read-only: shows what is pending
+   npx prisma migrate deploy    # applies prisma/migrations in order
+   ```
+
+5. Never run `prisma db push` or `prisma migrate dev` against this project: the
+   `pending_orders_one_live_per_user` partial index has no Prisma
+   representation, so both report drift and `db push` would drop it. Full
+   rules: `docs/DATABASE.md`.
+6. Backups are provider-managed (*Database → Backups*, plus the optional PITR
+   add-on). Restore into a new project and verify before any cutover —
+   `docs/DATABASE.md` § *Backup and restore*.
 
 ### Cloudflare R2 (Optional — for cloud storage)
 
@@ -196,58 +214,50 @@ npm run build
 
 ## 4. Database Migrations
 
-Migrations run automatically on first request via `ensureMigrated()` with a promise-based lock.
+Prisma Migrate is the single schema authority: `prisma/migrations` plus the
+`_prisma_migrations` table in PostgreSQL. The application runtime applies **no**
+DDL — `ensureMigrated()` only runs `SELECT 1` and seeds the legacy
+`schema_meta.schema_version` marker (`ON CONFLICT … DO NOTHING`), which
+`/api/health` reports.
 
-`src/lib/db/schema.ts` holds migrations as **version-grouped** statement lists
-(`{ version, statements[] }`), not one flat array. `schema_meta.schema_version`
-is a *version*, never an index into an array — appending a group therefore
-cannot replay an older group's statements.
+**Migrations:**
 
-**Schema versions:**
-- v1: `users`, `reset_tokens`, `schema_meta`
-- v2: `user_stats`
-- v3: `exports`, `export_jobs`
-- v4: `exports.job_id` column
-- v5: `processed_webhooks`
-- v6: `users.failed_login_attempts`, `users.locked_until`
-- v7: `pending_orders`
-- v8: `users.session_version`
-- v9: `monthly_export_counts`
-- v10: `exports` / `user_stats` rebuild to add `ON DELETE SET NULL` / `CASCADE`
-- v11: `daily_recording_seconds`
-- v12: `order_notifications`
-- v13: `deleted_identities` (account-deletion session tombstone)
+- `0_init` — baseline: all 12 original tables, indexes and foreign keys
+  (committed in `e4e69bf`, which retired the libSQL ledger).
+- `20261030150000_pending_order_lifecycle` — pending-order lifecycle columns,
+  `checkout_locks`, ten CHECK constraints and the partial unique index.
 
-**Migration safety:**
-- Only groups with `version > stored version` are applied
-- Each version group is applied as **one transaction** (`db.batch(..., 'write')`),
-  and the version stamp travels inside that same batch. A group therefore either
-  applies completely and records its version, or does neither — an interrupted
-  run restarts from the last fully applied version with the schema untouched
-- Any error aborts and surfaces the version it failed at. There is no
-  "duplicate column, carry on" leniency: every `CREATE` in the ledger is
-  `IF NOT EXISTS` and every `DROP` is `IF EXISTS`, so a duplicate error can only
-  mean the stored version disagrees with the real schema — an inconsistent
-  database that must stop the deploy loudly
-- A failed schema-version *read* throws instead of falling back to 0 — treating
-  an unreadable database as empty would replay every migration over live data
-- A stored version newer than the build is refused
-- Copy/swap migrations (v10, which drops and rebuilds `exports` and `user_stats`)
-  are safe because the group is atomic: it cannot fail between the `DROP` and
-  the `RENAME`
+**Deploy order:** schema first, then the build.
 
-**Adding a migration:** append a new group with the next version.
-`SCHEMA_VERSION` is derived from the last group — never renumber or edit an
-existing group.
+```bash
+npx prisma migrate status    # read-only, from DIRECT_URL
+npx prisma migrate deploy    # applies everything pending, in order
+```
+
+**Never** use `prisma migrate dev` or `prisma db push` against a database
+carrying this schema. `pending_orders_one_live_per_user` is a partial unique
+index, which Prisma's schema language cannot express; both commands see
+permanent drift, and `db push` drops the index that prevents duplicate payable
+orders. New migrations are hand-written, additive `migration.sql` files in a
+timestamped directory, with `prisma/schema.prisma` kept in step.
+
+**If `migrate deploy` fails with "relation already exists"**, the database was
+created outside Prisma Migrate, so `_prisma_migrations` is empty and `0_init`
+tries to re-create live tables. Verify the schema matches `0_init`, then record
+the baseline once with `npx prisma migrate resolve --applied 0_init`. Never edit
+a committed migration to force it through.
 
 **Pre-deploy verification:**
-```bash
-# Test migration against fresh database
-TURSO_DATABASE_URL="file:data/test-migration.db" npx vitest run src/__tests__/exports-db.test.ts
 
-# Regression suite for the version-keyed runner (v12 -> v13 upgrade, data survival)
-npx vitest run src/__tests__/db-migrations.test.ts
+```bash
+# Against a disposable PostgreSQL database, not the deployed one
+DATABASE_URL="<throwaway>" DIRECT_URL="<throwaway>" npx prisma migrate deploy
+npx vitest run src/__tests__/db-constraints.test.ts src/__tests__/db-durability.test.ts
 ```
+
+**Rollback:** no down-migrations exist; additive-only means the previous build
+reads the newer schema safely. Restore a backup only for a bad data change, not
+for a bad app deploy — see `docs/ROLLBACK.md`.
 
 ---
 
@@ -256,7 +266,7 @@ npx vitest run src/__tests__/db-migrations.test.ts
 | Secret | Where to Set | How to Rotate |
 |--------|-------------|---------------|
 | `NEXTAUTH_SECRET` | Vercel env | Generate new, redeploy |
-| `TURSO_AUTH_TOKEN` | Vercel env | `turso db tokens create` |
+| `DATABASE_URL` / `DIRECT_URL` (DB password) | Vercel env | Supabase dashboard → reset database password, then update both URIs and redeploy |
 | `CLEANUP_SECRET` | Vercel env | Generate new, redeploy |
 | Google OAuth | Vercel env | Google Cloud Console |
 | Resend API Key | Vercel env | Resend dashboard |
@@ -389,7 +399,7 @@ vercel logs | grep -i error
 |------|---------|----------|
 | Vercel Analytics | Performance, Web Vitals | HIGH |
 | Vercel Function Logs | Server-side errors | HIGH |
-| Turso Dashboard | Database metrics | MEDIUM |
+| Supabase Dashboard | Database metrics, backups, PITR | MEDIUM |
 | Sentry (optional) | Error tracking | MEDIUM |
 | UptimeRobot (optional) | Uptime monitoring | LOW |
 
@@ -399,7 +409,7 @@ vercel logs | grep -i error
 - Database query times
 - Failed login attempts (lockout events)
 - Export job success/failure rates
-- Storage usage (R2 + SQLite)
+- Storage usage (R2 objects + database size)
 
 ---
 
@@ -410,10 +420,18 @@ vercel logs | grep -i error
 **Symptoms:** Health check returns 503, "database" check shows error
 
 **Recovery:**
-1. Check Turso status: `turso db show supersmartx-studio-prod`
-2. If Turso outage: wait for Turso to recover (auto-reconnects)
-3. If token expired: generate new token, update Vercel env, redeploy
-4. If corruption: restore from Turso backup
+1. Check Supabase status (project dashboard + status page) and confirm
+   `DATABASE_URL` still points at the pooler host; an authenticated
+   `/api/health` shows `checks.db_host`, which proves the binding without
+   printing the credential.
+2. Provider outage: wait for Supabase to recover; Prisma reconnects per request,
+   so no restart is needed.
+3. Password rotated or `DATABASE_URL`/`DIRECT_URL` wrong: update both in Vercel
+   and redeploy. Production fails closed (`DATABASE_NOT_CONFIGURED`) rather than
+   falling back to another database.
+4. Corruption or a bad write: restore a backup into a scratch project and verify
+   before cutover — `docs/DATABASE.md` § *Backup and restore*. Never repair by
+   deleting `pending_orders`/`processed_webhooks` rows.
 
 ### Scenario: Auth Failure
 

@@ -29,7 +29,7 @@ Journey
 - App renders the marketing landing page at `/` with hero section, features, how-it-works, privacy info, and feedback/support links.
 - User can explore features without signing in.
 - User clicks "Start Recording — Free" to navigate to `/studio`.
-- If user is signed in, header shows avatar with user menu (name/email, plan badge, Upgrade to Creator / Manage Plan, Sign out).
+- If user is signed in, header shows avatar with user menu (name/email, plan badge with the stored access end date — "Access until …" while a term is running, "Creator term ended …" once it has lapsed — Upgrade to Creator / Manage or extend plan / Renew Creator, Sign out).
 - If user is not signed in, header shows Sign In button which opens `AuthModal`.
 
 ↓

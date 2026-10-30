@@ -56,13 +56,50 @@ Rules for maintainers:
   future expiry fails CLOSED (treated as expired).
 - Prices live in `src/lib/pricing.ts`; `/api/cashfree/order` resolves price
   by server geo header (client country is a dev-only fallback) and the
-  webhook re-verifies amount/currency against `pending_orders`.
+  webhook re-verifies amount/currency against `pending_orders`. The order
+  response carries that authoritative amount/currency back to the sheet, which
+  will not start checkout until a price difference from its own (third-party
+  geo, week-long cache) lookup has been shown to and accepted by the buyer.
+- One order is payable at a time. A retry that collides with an open order is
+  answered `409` with that order's own price, plan, payment session and the
+  minutes left before a new payment is possible — never a bare refusal. The
+  sheet reopens the existing session only for an order it can describe, only
+  for the plan selected, and only after an explicit acceptance (a price the
+  buyer declined is asked about again); a session the payment page rejects is
+  forgotten rather than retried.
 - The platform is chosen once, in the Studio's "Preview as" switcher, and the
   export dialog only confirms that choice.
 - Tamper regression tests: `src/__tests__/server-authoritative.test.ts`,
   `src/__tests__/entitlements.test.ts`,
   `src/__tests__/export-platform-matrix.test.ts`,
   `src/__tests__/platform-selector.test.tsx`.
+
+## Term, renewal and reversal
+
+Creator is **prepaid, one term at a time**: `creator_monthly` is one calendar
+month and `creator_yearly` is one calendar year. There is no mandate, no stored
+card and no automatic renewal — access ends at `users.plan_expires_at` unless
+another term is bought.
+
+- **Purchase == renewal.** Buying while a term is running is allowed and stacks:
+  the expiry is written by the database in one statement
+  (`src/lib/db/index.ts · extendUserPlanTerm`), from `now()` for a free/expired
+  plan and from the stored end date otherwise, using a Postgres interval so
+  month-end clamps (`31 Jan + 1 month → 28/29 Feb`). Concurrent purchases cannot
+  lose an extension. The sheet labels this "Extend by <term>".
+- **The receipt quotes the stored expiry**, not a recomputed one
+  (`formatAccessUntil`, UTC).
+- **Access enforcement** is at the data-read boundary: `isPlanActive` is checked
+  by the export/upload/download routes and `GET /api/recordings`; an expired paid
+  plan behaves as Free (and `GET /api/user/stats` reports it as `free` while
+  still returning `planExpiresAt` / `planActive` so the UI can say what happened).
+- **Reversals** (`src/lib/cashfree-refund.ts`): a **full** refund of the user's
+  most recently fulfilled order revokes access only when the stored expiry is
+  exactly that order's sole grant; every chargeback, partial refund, older-order
+  refund, stacked renewal, or refund that arrives before the order granted
+  anything is logged for manual review instead of being auto-applied. Refund
+  webhook payload shapes follow Cashfree's documentation but have not been
+  observed live on this account.
 
 ## Phase 4 reconciliation (doc ↔ `src/lib/entitlements.ts`)
 

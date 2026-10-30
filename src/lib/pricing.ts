@@ -264,3 +264,36 @@ export function getServerPrice(plan: string, currencyOrCountry: string): number 
 export function getServerPricingForCountry(country: string): RegionalPricing | null {
   return REGION_PRICING[country] || null;
 }
+
+/**
+ * The amount Cashfree will actually charge, versus the one the sheet rendered.
+ * Both come from the same table, so a difference means they resolved different
+ * regions — the server's geo header against the browser's IP lookup. Currency
+ * and amount are compared independently: two regions can share a currency at
+ * different prices (DE/PT), and an equal figure in another currency is still a
+ * different charge.
+ */
+export function serverPriceMatchesDisplayed(
+  displayed: { amount: number; currency: string },
+  server: { amount: number; currency: string },
+): boolean {
+  return displayed.amount === server.amount && displayed.currency === server.currency;
+}
+
+/**
+ * Formats a server-authoritative amount. The region tables carry display
+ * symbols (`kr` is shared by NOK and DKK), so a charge is rendered from its ISO
+ * code rather than from whichever symbol the regional table happens to use.
+ */
+export function formatPriceForCurrency(amount: number, currency: string, locale = 'en-US'): string {
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+      maximumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return `${amount} ${currency}`;
+  }
+}

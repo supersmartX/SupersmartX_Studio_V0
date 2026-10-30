@@ -8,17 +8,21 @@ DEPLOYMENT.md.
 
 ## Database
 
-Migrations are additive and idempotent — rolling the app back does NOT roll
-the schema back, and no code in this repo requires downgrading:
+Migrations are additive — rolling the app back does NOT roll the schema back,
+and no code in this repo requires downgrading:
 
-- v10 table rebuilds preserve all reachable rows; re-running is safe
-  (stale `*_new` tables are dropped first).
-- v11–v14 are additive (new tables `daily_recording_seconds`,
-  `order_notifications`, `deleted_identities`; new `export_jobs` columns) —
-  an older build simply ignores them; never needs downgrading.
-- If a deploy must be reverted because of a NEW migration, restore Turso
-  from the pre-deploy point-in-time backup instead of hand-editing schema.
-- Never run `DROP TABLE` by hand; never edit `schema_meta` by hand.
+- Every migration in `prisma/migrations` since the `0_init` baseline is
+  additive (new tables, new nullable/defaulted columns, new indexes or
+  constraints) — an older build simply ignores them.
+- The current build has no down-migrations, and `_prisma_migrations` is the only
+  record of what is applied. Never edit it by hand.
+- If a deploy must be reverted because a migration itself is wrong, either
+  restore the pre-deploy backup into a scratch Supabase project and cut over, or
+  ship a new additive migration that corrects it. Procedure:
+  `DATABASE.md` § *Backup and restore*.
+- Never run `DROP TABLE` by hand; never run `prisma db push` to "reset" a
+  schema — it drops the `pending_orders_one_live_per_user` partial index that
+  enforces one live checkout per user.
 
 ## Payments/storage
 
@@ -29,5 +33,6 @@ the schema back, and no code in this repo requires downgrading:
 
 ## Rollback drill (recommended quarterly)
 
-Redeploy previous production build to staging, point at a Turso branch,
-replay the smoke list, record result.
+Redeploy the previous production build against a scratch Supabase project
+restored from the latest backup (`DATABASE.md` § *Backup and restore*), replay
+the smoke list, record result.

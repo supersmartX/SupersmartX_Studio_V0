@@ -2,8 +2,8 @@
 
 > Phase 4 deliverable. Per application state: where it is authoritative, who
 > reads it, who writes it, and which trust boundary guards it. Derived from the
-> implementation (`src/lib/db/schema.ts`, `src/lib/r2.ts`, `src/lib/*-store.ts`,
-> API routes) as read during Phase 4.
+> implementation (`src/lib/db/`, `prisma/schema.prisma`, `src/lib/r2.ts`,
+> `src/lib/*-store.ts`, API routes) as read during Phase 4.
 
 ## Authority model (who wins)
 
@@ -11,12 +11,13 @@
 | ----- | --------- | ----------------------- |
 | **Browser** (JS memory, localStorage, IndexedDB) | UX state: teleprompter position, modal state, local draft recordings, client-side duration/progress *claims*, cached entitlement display | plan, resolution ceiling, platform access, crop permission, quota counts, storage usage, price, order amount, export completion, artifact validity |
 | **Server** (Next.js route handlers) | Entitlements (`getEntitlements` + `isPlanActive`), validated export config, quota charges, artifact verification, payment fulfilment, signed URLs | — (it is the only writer for all of the below except browser-only state) |
-| **Database** (Turso/libSQL) | Durable system of record: users, plans, orders, export rows, job state, quotas, tombstones | file bytes (R2 holds them), session validity (JWT does) |
+| **Database** (Supabase PostgreSQL / Prisma) | Durable system of record: users, plans, orders, export rows, job state, quotas, tombstones | file bytes (R2 holds them), session validity (JWT does) |
 | **R2** (Cloudflare) | Export MP4 bytes + metadata (`headObject` size/content-type/eTag are what `complete` verifies) | ownership, plan, quota — those live in the DB |
 | **External** (Cashfree) | Order payment state (`PAID`/terminal failure) — the only source that activates a plan | anything else |
 
-Schema history: `MIGRATION_LEDGER` versions **1–14** (`SCHEMA_VERSION = 14`),
-12 tables. Additive migrations only; v10 rebuilt `exports`/`user_stats`.
+Schema history: Prisma Migrate is the authority — `prisma/migrations`
+(`0_init` baseline, then additive migrations), recorded in `_prisma_migrations`,
+13 tables. Additive only: an older build still reads a newer schema.
 
 ---
 

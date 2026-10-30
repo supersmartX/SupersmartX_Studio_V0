@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { listUserRecordings, isR2Configured } from '@/lib/r2';
+import { findUserById } from '@/lib/db';
+import { isCreatorPlan, isPlanActive } from '@/lib/entitlements';
 
 export async function GET(_request: NextRequest) {
   try {
@@ -8,6 +10,18 @@ export async function GET(_request: NextRequest) {
 
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // The cloud recording library is a Creator entitlement (Free is
+    // local/device-only), and an expired term is no longer a Creator term. The
+    // listing is owner-scoped either way, but without this gate a lapsed
+    // account could keep enumerating and playing back its cloud masters.
+    const user = await findUserById(session.user.id);
+    if (!user || !isCreatorPlan(user.plan)) {
+      return NextResponse.json({ error: 'Creator plan required' }, { status: 403 });
+    }
+    if (!isPlanActive(user.planExpiresAt, user.plan)) {
+      return NextResponse.json({ error: 'Plan has expired' }, { status: 403 });
     }
 
     if (!isR2Configured()) {

@@ -27,16 +27,62 @@ export type ActivationOutcome = 'confirmed' | 'unresolved' | 'failed';
 const MAX_POLLS = 15;
 const POLL_INTERVAL_MS = 2000;
 
-function planIsActive(plan: unknown): boolean {
-  return typeof plan === 'string' && plan !== 'free';
+/**
+ * The server's answer about one order.
+ *
+ * `activated` is only issued once that order's fulfilment record exists (or the
+ * answering call wrote it), and it carries the plan and expiry the server
+ * stored. It is the only thing that may confirm a purchase: the session's
+ * `plan` cannot distinguish a renewal from an entitlement the buyer already
+ * held (it reads `creator_*` before the purchase too), and the return URL is
+ * writable by anyone.
+ */
+interface OrderVerdict {
+  status: 'activated' | 'pending' | 'failed';
+  orderId?: string;
+  plan?: string;
+  expiresAt?: string | null;
+}
+
+function planLabel(plan: string): string {
+  return plan.includes('yearly') ? 'Creator (1 year)' : 'Creator (1 month)';
+}
+
+function formatAccessUntil(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+}
+
+/**
+ * Reads the server's answer for the order this modal asked about. A verdict
+ * that does not name that order is not an activation — it is treated as "keep
+ * waiting", never as success.
+ */
+function readVerdict(raw: unknown, requestedOrderId: string): OrderVerdict | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const body = raw as Record<string, unknown>;
+  if (body.status === 'activated') {
+    if (body.orderId !== requestedOrderId) return null;
+    return {
+      status: 'activated',
+      orderId: requestedOrderId,
+      plan: typeof body.plan === 'string' ? body.plan : undefined,
+      expiresAt: typeof body.expiresAt === 'string' ? body.expiresAt : null,
+    };
+  }
+  if (body.status === 'failed') return { status: 'failed', orderId: requestedOrderId };
+  return { status: 'pending' };
 }
 
 export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: ActivationModalProps) {
   const { update } = useSession();
   const [status, setStatus] = useState<'pending' | 'confirmed' | 'failed'>('pending');
   const [pollCount, setPollCount] = useState(0);
+  const [activated, setActivated] = useState<{ plan?: string; expiresAt: string | null } | null>(null);
 
-  const planName = plan.includes('yearly') ? 'Creator (1 year)' : 'Creator (1 month)';
+  const planName = planLabel(plan);
 
   const confirmedRef = useRef(false);
   const failedRef = useRef(false);
@@ -57,95 +103,91 @@ export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: Act
     outcomeRef.current = 'unresolved';
     setStatus('pending');
     setPollCount(0);
+    setActivated(null);
   }, [isOpen, orderId]);
 
+  /** Ask the server about this order. No order id, no verdict. */
+  const verifyOnce = useCallback(async (): Promise<OrderVerdict | null> => {
+    if (!orderId) return null;
+    try {
+      const res = await fetch(`/api/cashfree/verify?order_id=${encodeURIComponent(orderId)}`, {
+        method: 'POST',
+      });
+      if (!res.ok) return null;
+      return readVerdict(await res.json().catch(() => null), orderId);
+    } catch {
+      return null;
+    }
+  }, [orderId]);
+
   /**
-   * Flip to "confirmed" only after the *session* has been refreshed, not just
-   * once the server says the order settled.
+   * Flip to "confirmed" only on an `activated` verdict for this order.
    *
-   * The studio behind this modal is rendered from `session.user.plan` — platform
-   * locks, export limits, the upgrade prompt. Announcing "You're a Creator"
-   * over a session that still says `free` is the one bug that makes a genuinely
-   * successful purchase look broken: the user is told they paid, then watches
-   * Free restrictions persist until a manual reload. So refresh first, then
-   * claim success.
-   *
-   * The server's `activated` verdict is what we actually trust — it read
-   * Cashfree directly. The refresh is best-effort, so a dropped session fetch
-   * must not strand the buyer on the spinner with a plan that is already live.
+   * The session refresh still comes first — the studio behind this modal is
+   * rendered from `session.user.plan`, and a late session would keep Free
+   * restrictions visible — but it is not the signal. A dropped refresh must not
+   * strand a buyer whose plan is already live, and a successful refresh must
+   * not confirm anything the server did not say.
    */
-  const settleAndConfirm = useCallback(async () => {
+  const settleAndConfirm = useCallback(async (verdict: OrderVerdict) => {
     try {
       await update();
     } catch {}
     if (!confirmedRef.current) {
       confirmedRef.current = true;
       outcomeRef.current = 'confirmed';
+      setActivated({ plan: verdict.plan, expiresAt: verdict.expiresAt ?? null });
       setStatus('confirmed');
     }
   }, [update]);
 
-  useEffect(() => {
-    if (!isOpen || status === 'confirmed') return;
+  const markFailed = useCallback(() => {
     // A dead order is an answer, not a delay. Keep polling it and the buyer
-    // watches a spinner for 30 seconds and is then told their plan is on its
-    // way — for a payment that was declined before it ever left their bank.
-    if (status === 'failed') return;
+    // watches a spinner for 30 seconds, then is told their plan is on its way
+    // for a payment that was declined before it ever left their bank.
+    if (failedRef.current) return;
+    failedRef.current = true;
+    outcomeRef.current = 'failed';
+    setStatus('failed');
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || status !== 'pending') return;
     if (pollCount >= MAX_POLLS) return;
 
     const timer = setTimeout(async () => {
-      // Ask the server to re-verify the order while we wait for the webhook:
-      // the return trip routinely beats the webhook, and the server can read
-      // Cashfree's authoritative order state even when the webhook has not
-      // landed. The server answers with one of three verdicts — `failed` is
-      // terminal, `pending` is "the webhook race is still on", `activated`
-      // means the plan write is done.
-      if (orderId) {
-        try {
-          const res = await fetch(`/api/cashfree/verify?order_id=${encodeURIComponent(orderId)}`, {
-            method: 'POST',
-          });
-          if (res.ok) {
-            const body = (await res.json().catch(() => null)) as { status?: string } | null;
-            if (body?.status === 'activated') {
-              // The order is settled and the plan is written. Nothing is being
-              // "confirmed" on the buyer's behalf any more — just make sure the
-              // session sees it before we say so.
-              await settleAndConfirm();
-              return;
-            }
-            if (body?.status === 'failed' && !failedRef.current) {
-              failedRef.current = true;
-              outcomeRef.current = 'failed';
-              setStatus('failed');
-              return;
-            }
-          }
-        } catch {}
+      // The server answers for this order: `activated` once its fulfilment
+      // record exists (that path does not need Cashfree to be reachable),
+      // `failed` for a dead order, `pending` while the webhook race is on.
+      const verdict = await verifyOnce();
+      if (verdict?.status === 'activated') {
+        await settleAndConfirm(verdict);
+        return;
       }
-
-      try {
-        // The webhook may have arrived on its own and written the plan without
-        // our help. Reading the session is how we notice; it also carries the
-        // plan into the session, which is what the studio renders from.
-        // `plan` lives on session.user, not on the session root.
-        const result = await update();
-        const userPlan = result?.user?.plan;
-        if (planIsActive(userPlan)) {
-          if (!confirmedRef.current) {
-            confirmedRef.current = true;
-            outcomeRef.current = 'confirmed';
-            setStatus('confirmed');
-          }
-          return;
-        }
-      } catch {}
-
+      if (verdict?.status === 'failed') {
+        markFailed();
+        return;
+      }
       setPollCount((c) => c + 1);
     }, POLL_INTERVAL_MS);
 
     return () => clearTimeout(timer);
-  }, [isOpen, status, pollCount, orderId, update, settleAndConfirm]);
+  }, [isOpen, status, pollCount, verifyOnce, settleAndConfirm, markFailed]);
+
+  /** Re-check the order against the server instead of assuming anything. */
+  const checkAgain = useCallback(async () => {
+    const verdict = await verifyOnce();
+    if (verdict?.status === 'activated') {
+      await settleAndConfirm(verdict);
+      return;
+    }
+    if (verdict?.status === 'failed') {
+      markFailed();
+      return;
+    }
+    // Still pending: re-arm the poll budget. Nothing is claimed on the way.
+    setPollCount(0);
+  }, [verifyOnce, settleAndConfirm, markFailed]);
 
   const handleClose = useCallback(() => {
     onClose(outcomeRef.current);
@@ -161,6 +203,11 @@ export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: Act
   }, [onClose, status, pollCount]);
 
   if (!isOpen) return null;
+
+  // Confirmed copy describes the order the server answered for, not the plan
+  // the URL asked about.
+  const confirmedPlanName = planLabel(activated?.plan ?? plan);
+  const confirmedUntil = formatAccessUntil(activated?.expiresAt);
 
   // While the webhook is still in flight the dialog must not describe itself as
   // an activation, to a screen reader any more than to the eye. The label is
@@ -190,7 +237,7 @@ export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: Act
             <div className="text-center">
               <h3 className="text-[18px] font-bold text-text-primary">You&apos;re a Creator</h3>
               <p className="text-[13px] text-text-secondary mt-1">
-                {planName} is now active.
+                {confirmedPlanName} is now active{confirmedUntil ? ` until ${confirmedUntil}` : ''}.
               </p>
             </div>
             {orderId && (
@@ -244,20 +291,21 @@ export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: Act
                   Taking longer than expected. Your plan will activate as soon as your payment is
                   confirmed — you can keep using the free tier in the meantime.
                 </p>
-                {/* The payment is already settled in the common case; only the
-                    session is behind. Offer a re-check rather than sending the
-                    buyer back to a checkout they have already paid for. */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2"
-                  onClick={async () => {
-                    setPollCount(0);
-                    await settleAndConfirm();
-                  }}
-                >
-                  Check again
-                </Button>
+                {/* A re-check has to be a real verification: the plan is a
+                    server-side fact, so asking again means asking the server,
+                    not assuming the purchase landed because the session
+                    looks like it might have. Only an order that can be asked
+                    about can be re-checked. */}
+                {orderId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2"
+                    onClick={checkAgain}
+                  >
+                    Check again
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={handleContinue}>
                   Continue anyway
                 </Button>

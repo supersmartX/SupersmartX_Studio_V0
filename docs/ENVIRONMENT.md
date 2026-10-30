@@ -6,7 +6,7 @@ Source of truth for names: `.env.example`. Required in production:
 | -------- | ------- | ----- |
 | `NEXTAUTH_SECRET` (or `AUTH_SECRET`) | JWT/session signing | ≥32 chars, random. Auth refuses to start in prod without it (`src/auth.ts`) |
 | `NEXTAUTH_URL` / `NEXT_PUBLIC_APP_URL` | Absolute URLs (OAuth, Cashfree return URL) | Must be `https://studio.supersmartx.com` in prod |
-| `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | Production database | **Required in production** — the driver fails closed with `DATABASE_NOT_CONFIGURED` when they are missing (no `:memory:` fallback in production; see DATABASE.md). Local dev falls back to `data/supersmartx.db` |
+| `DATABASE_URL`, `DIRECT_URL` | PostgreSQL (Supabase) | **Both required** — `DATABASE_URL` is the Supavisor transaction pooler (`:6543`) used at runtime; `DIRECT_URL` is the session/direct connection (`:5432`) Prisma Migrate needs. Production fails closed with `DATABASE_NOT_CONFIGURED` when `DATABASE_URL` is missing or is not a `postgres://` DSN. There is no file/in-memory fallback in any environment. See DATABASE.md |
 | `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY` | Payments | Build warns if missing; order API 503s. `CASHFREE_SECRET_KEY` is also the webhook-signing key — Cashfree publishes no separate webhook secret |
 | `CASHFREE_ENV` / `NEXT_PUBLIC_CASHFREE_ENV` | `sandbox` vs `production` | Must match Cashfree dashboard mode AND each other — see below |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` | Cloudflare R2 | All four required; else 503. Bucket must be PRIVATE |
@@ -14,6 +14,7 @@ Source of truth for names: `.env.example`. Required in production:
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth | Optional; enables Google provider |
 | `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | Email receipts | Optional; payment mail is best-effort (`Promise.allSettled`) |
 | `CLEANUP_SECRET` | Nightly export-job cleanup auth | Constant-time compared; endpoint 401s without it |
+| `BILLING_OPS_SECRET` | `/api/internal/billing/orders` operator auth | Separate from `CLEANUP_SECRET` by design. SHA-256 digests compared in constant time; unset → `503`, wrong → `401`. Never printed or logged |
 | `ADMIN_EMAIL` | Admin payment notifications | Optional |
 | `DISCORD_WEBHOOK_URL` | Feedback submissions (`POST /api/feedback` only — not an alert channel) | Optional; unset → feedback returns 503 |
 
@@ -58,3 +59,23 @@ No code change is involved.
 | ---- | -------------- | ------------------------- | ----------- |
 | Test against Sandbox | `sandbox` | `sandbox` | Sandbox keys |
 | Take live payments | `production` | `production` | Production keys |
+
+## Billing operations secret
+
+`BILLING_OPS_SECRET` guards `GET|POST /api/internal/billing/orders`, the only
+route that can release a PAID-but-unapplied order or force a pending order
+through the reconciliation state machine. It is intentionally **not**
+`CLEANUP_SECRET`: the two rotate independently, and compromising the export
+cleanup job must not grant the ability to move entitlement-bearing orders.
+
+- Set it per environment in the hosting dashboard; this repository never holds
+  a value and never prints one.
+- Unset → every call answers `503 Billing operations endpoint is not configured`
+  (fail closed — there is no unauthenticated mode).
+- Wrong or missing credential → `401`. Comparison is over SHA-256 digests with
+  `crypto.timingSafeEqual`, so length and prefix leak nothing.
+- Send it as `Authorization: Bearer <secret>` or `x-billing-ops-secret: <secret>`.
+- Responses are `Cache-Control: no-store`.
+
+Rotating it is a plain env change plus redeploy; no code or data migration is
+involved. An in-flight operator session just starts getting `401`.

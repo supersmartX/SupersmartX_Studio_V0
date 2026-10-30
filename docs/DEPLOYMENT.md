@@ -13,14 +13,15 @@ works if cron and env are provided equivalently.
 
 1. Set ALL production env vars (ENVIRONMENT.md), especially `NEXTAUTH_SECRET`,
    `NEXT_PUBLIC_APP_URL` (= canonical `https://studio.supersmartx.com`),
-   Turso pair, Cashfree pair + mode, R2 quartet.
+   `DATABASE_URL` + `DIRECT_URL`, Cashfree pair + mode, R2 quartet.
 2. CI must be green: lint → typecheck → test → e2e → build
    (`.github/workflows/ci.yml`; e2e/build wait for the first three).
 3. `npm run build` must pass with no missing-env warnings except knowingly
    optional ones.
-4. Database migrates automatically on first request (`ensureMigrated`);
-   schema is at v14 (migrations v1–v14, additive-only) — safe to roll
-   forward, no manual step.
+4. Apply schema changes first: `npx prisma migrate status` (read-only), then
+   `npx prisma migrate deploy` — the runtime does not migrate on request.
+   Migrations are additive-only, so rolling forward is safe and a rollback
+   needs no schema change. Never `prisma db push`. See DATABASE.md.
 5. Vercel cron `GET /api/export-jobs/cleanup` (`0 2 * * *`) requires
    `CRON_SECRET` = `CLEANUP_SECRET` (see ENVIRONMENT.md).
 6. Domain: apex + www redirect to `studio.` (see `next.config.ts`

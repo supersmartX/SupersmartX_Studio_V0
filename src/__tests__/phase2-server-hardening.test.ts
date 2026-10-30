@@ -11,6 +11,7 @@ vi.mock('@/auth', () => ({ auth: vi.fn(), findUserByEmail: vi.fn() }));
 vi.mock('@/lib/email', () => ({
   sendPaymentConfirmationEmail: vi.fn().mockResolvedValue(undefined),
   sendAdminNotification: vi.fn().mockResolvedValue(undefined),
+  sendBillingOpsAlert: vi.fn().mockResolvedValue(true),
 }));
 vi.mock('@/lib/r2', () => ({
   isR2Configured: () => true,
@@ -45,6 +46,7 @@ import {
   createExportJob,
   createExport,
   createPendingOrder,
+  findPendingOrderLifecycle,
   tryClaimWebhookOrder,
   updateExportJobStatus,
   setExportJobStagingKey,
@@ -200,6 +202,9 @@ describeDb('Phase 2.8: server-verified geo is authoritative in production', () =
     const payload = JSON.parse(String(fetchMock.mock.calls[0][1]?.body ?? '{}'));
     expect(payload.order_currency).toBe('USD');
     expect(payload.order_amount).toBe(7.99);
+    // The response must state the charge and the region behind it, so the
+    // sheet can re-quote instead of trusting its own lookup.
+    expect(await res.json()).toMatchObject({ amount: 7.99, currency: 'USD', country: null });
   });
 
   it('production trusts the geo header over a contradictory client region', async () => {
@@ -216,6 +221,7 @@ describeDb('Phase 2.8: server-verified geo is authoritative in production', () =
     const payload = JSON.parse(String(fetchMock.mock.calls[0][1]?.body ?? '{}'));
     expect(payload.order_currency).toBe('INR');
     expect(payload.order_amount).toBe(349);
+    expect(await res.json()).toMatchObject({ amount: 349, currency: 'INR', country: 'IN' });
   });
 
   it('non-production keeps the documented dev-only client-country fallback', async () => {
@@ -283,13 +289,13 @@ describeDb('Phase 2.6: overlapping pending orders', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('lets a retry through once the earlier order is terminally failed', async () => {
+  it('lets a retry through once the earlier order is a gateway-confirmed dead end', async () => {
     const user = await seedUser('free');
     const orderId = await seedPending(user.id);
     vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
     const fetchMock = vi.fn(async (_url: unknown, init?: { method?: string }) => {
       if ((init?.method ?? 'GET') === 'GET') {
-        return json({ order_id: orderId, order_status: 'FAILED' });
+        return json({ order_id: orderId, order_status: 'EXPIRED' });
       }
       return json({ order_id: 'sxs-retry', order_status: 'ACTIVE', payment_session_id: 'ps-retry' });
     });
@@ -298,25 +304,81 @@ describeDb('Phase 2.6: overlapping pending orders', () => {
     const res = await orderPOST(orderReq());
 
     expect(res.status).toBe(200);
+    // Probe (GET) then create (POST) — the earlier row is closed by the probe.
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((await findPendingOrderLifecycle(orderId))?.status).toBe('closed');
   });
 
-  it('does not block on an earlier order that fulfilment already claimed', async () => {
+  it('fails closed when the earlier order’s state is not one it understands', async () => {
+    const user = await seedUser('free');
+    const orderId = await seedPending(user.id);
+    vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+    const fetchMock = vi.fn(async () => json({ order_id: orderId, order_status: 'FAILED' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await orderPOST(orderReq());
+    const body = await res.json();
+
+    // FAILED is a `payment_status`, so in `order_status` it is unknown — and an
+    // unknown answer must never release a possibly-payable order.
+    expect(res.status).toBe(503);
+    expect(body.code).toBe('pending_order_unconfirmed');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((await findPendingOrderLifecycle(orderId))?.status).toBe('open');
+  });
+
+  it('holds a bare claim even when an unrelated live term makes it look paid', async () => {
+    const user = await seedUser('creator_monthly');
+    const orderId = await seedPending(user.id);
+    expect(await tryClaimWebhookOrder(orderId)).toBe(true);
+    vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
+    const fetchMock = vi.fn(async (_url: unknown, init?: { method?: string }) => {
+      if ((init?.method ?? 'GET') === 'GET') {
+        return json({ order_id: orderId, order_status: 'PAID', order_amount: 349, order_currency: 'INR' });
+      }
+      return json({ order_id: 'sxs-after-claim', order_status: 'ACTIVE', payment_session_id: 'ps' });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await orderPOST(orderReq());
+    const body = await res.json();
+
+    // The buyer already holds a paid term, so `plan_expires_at` is later than
+    // the claim. That is exactly what the old heuristic misread as fulfilment:
+    // a renewal crash whose own grant never landed. Only the order's own
+    // `fulfilled_at` marker proves it, and this row has none — so it is held
+    // for review instead of being reported as a completed purchase.
+    expect(res.status).toBe(409);
+    expect(body.code).toBe('paid_order_pending_review');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const row = await findPendingOrderLifecycle(orderId);
+    expect(row?.status).toBe('held_review');
+    expect(row?.holdReason).toBe('claim_unentitled');
+    expect(row?.fulfilledAt).toBeNull();
+  });
+
+  it('holds a paid order whose claim the entitlement does not corroborate', async () => {
     const user = await seedUser('free');
     const orderId = await seedPending(user.id);
     expect(await tryClaimWebhookOrder(orderId)).toBe(true);
     vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
-    const fetchMock = vi.fn(async (_url: unknown) =>
-      json({ order_id: 'sxs-after-claim', order_status: 'ACTIVE', payment_session_id: 'ps' }),
+    const fetchMock = vi.fn(async () =>
+      json({ order_id: orderId, order_status: 'PAID', order_amount: 349, order_currency: 'INR' }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
     const res = await orderPOST(orderReq());
+    const body = await res.json();
 
-    expect(res.status).toBe(200);
-    // No probe: the claimed order cannot settle again, so it cannot block.
+    // A claim with no fulfilment marker can be a crash between the claim and
+    // the plan write: it is a review case, never an automatic grant and never a
+    // reason to let the buyer pay again.
+    expect(res.status).toBe(409);
+    expect(body.code).toBe('paid_order_pending_review');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0][0])).toContain('sandbox.cashfree.com');
+    const row = await findPendingOrderLifecycle(orderId);
+    expect(row?.status).toBe('held_review');
+    expect(row?.holdReason).toBe('claim_unentitled');
   });
 });
 

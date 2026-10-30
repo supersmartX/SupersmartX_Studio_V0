@@ -1,4 +1,10 @@
-import { updateUserPlanByIdIfInactive, tryClaimOrderNotification, releaseOrderNotification } from '@/lib/db';
+import {
+  findUserById,
+  settleFulfilledOrder,
+  tryClaimOrderNotification,
+  releaseOrderNotification,
+} from '@/lib/db';
+import { planTermInterval } from '@/lib/entitlements';
 import { logger } from '@/lib/observe/logger';
 
 export const CASHFREE_API_VERSION_FALLBACK = '2023-08-01';
@@ -69,6 +75,8 @@ export interface CashfreeOrder {
   order_status?: string;
   order_amount?: number;
   order_currency?: string;
+  /** Present on the GET /orders/{id} read; used to hand an open order back. */
+  payment_session_id?: string;
   customer_details?: { customer_name?: string; customer_email?: string };
 }
 
@@ -118,11 +126,35 @@ export function isCashfreeOrderTerminalFailure(order: CashfreeOrder): boolean {
   return (TERMINAL_UNPAID_STATUSES as readonly string[]).includes(order.order_status ?? '');
 }
 
-export type FulfillmentFailureReason = 'amount_mismatch' | 'currency_mismatch' | 'unknown_plan' | 'active_plan_exists';
+export type FulfillmentFailureReason = 'amount_mismatch' | 'currency_mismatch' | 'unknown_plan';
 
 export type FulfillmentResult =
-  | { ok: true }
-  | { ok: false; reason: FulfillmentFailureReason; expected: number | string; received: number | string };
+  /** This call committed the claim, the grant and the per-order marker. */
+  | { ok: true; state: 'fulfilled' | 'already_fulfilled'; expiresAt: string | null }
+  /** Validation refused the order before anything was claimed. */
+  | {
+      ok: false;
+      state: 'rejected';
+      reason: FulfillmentFailureReason;
+      expected: number | string;
+      received: number | string;
+    }
+  /**
+   * A claim exists but the order has no fulfilment marker. This is a legacy
+   * crash (or an old-version writer mid-flight), never proof of payment: the
+   * caller must answer pending and leave the receipt unsent.
+   */
+  | { ok: false; state: 'in_progress' };
+
+/** A paid entitlement that is live right now — not merely a past grant. */
+export function hasActivePaidGrant(
+  user: { plan?: string; planExpiresAt?: string | null } | null | undefined,
+  now = Date.now(),
+): boolean {
+  if (!user || !user.plan || user.plan === 'free' || !user.planExpiresAt) return false;
+  const expiresAt = Date.parse(user.planExpiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > now;
+}
 
 /**
  * The only plans a paid order may ever grant.
@@ -137,8 +169,14 @@ type FulfillablePlan = (typeof FULFILLABLE_PLANS)[number];
 
 /**
  * Validates a PAID order against the server-stored expectation and, only then,
- * activates the plan. Shared by the webhook and the return-URL verification so
- * the two paths can never disagree on what "paid" means.
+ * activates the plan. Shared by the webhook, the return-URL verification and
+ * the reconciler so the three can never disagree on what "paid" means.
+ *
+ * Validation runs BEFORE the claim, so a tampered amount never burns the one
+ * claim this order has. The settlement itself is a single transaction: claim,
+ * grant and the `fulfilled_at` marker commit together or not at all. That is
+ * why a throw here (database error, missing user) leaves the order claimable
+ * rather than claimed-and-unpaid.
  */
 export async function fulfillPaidOrder(
   pendingOrder: PendingOrder,
@@ -146,34 +184,64 @@ export async function fulfillPaidOrder(
 ): Promise<FulfillmentResult> {
   const paidAmount = Number(order.order_amount);
   if (!Number.isFinite(paidAmount) || Math.abs(paidAmount - pendingOrder.amount) > 0.01) {
-    return { ok: false, reason: 'amount_mismatch', expected: pendingOrder.amount, received: paidAmount };
+    return {
+      ok: false,
+      state: 'rejected',
+      reason: 'amount_mismatch',
+      expected: pendingOrder.amount,
+      received: paidAmount,
+    };
   }
   if (order.order_currency && pendingOrder.currency && order.order_currency !== pendingOrder.currency) {
-    return { ok: false, reason: 'currency_mismatch', expected: pendingOrder.currency, received: order.order_currency };
+    return {
+      ok: false,
+      state: 'rejected',
+      reason: 'currency_mismatch',
+      expected: pendingOrder.currency,
+      received: order.order_currency,
+    };
   }
 
   if (!FULFILLABLE_PLANS.includes(pendingOrder.plan as FulfillablePlan)) {
-    return { ok: false, reason: 'unknown_plan', expected: FULFILLABLE_PLANS.join('|'), received: pendingOrder.plan };
+    return {
+      ok: false,
+      state: 'rejected',
+      reason: 'unknown_plan',
+      expected: FULFILLABLE_PLANS.join('|'),
+      received: pendingOrder.plan,
+    };
   }
   const plan: FulfillablePlan = pendingOrder.plan as FulfillablePlan;
 
-  const billingPeriod = plan.includes('yearly') ? ('yearly' as const) : ('monthly' as const);
+  // A purchase extends whatever is left of an active plan and starts afresh on
+  // an expired or free one. That is the renewal path as well as the first
+  // purchase: `creator_yearly` bought while a plan is live adds a calendar year
+  // to the current end date instead of replacing it. The grant is one statement
+  // on the database clock inside the settlement transaction, so two different
+  // orders settling at once stack rather than overwrite, and a duplicate of the
+  // *same* order loses the claim instead of reaching the write.
+  const settled = await settleFulfilledOrder({
+    orderId: pendingOrder.orderId,
+    userId: pendingOrder.userId,
+    plan,
+    interval: planTermInterval(plan),
+  });
 
-  const expiresAt = new Date();
-  if (billingPeriod === 'yearly') {
-    expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-  } else {
-    expiresAt.setMonth(expiresAt.getMonth() + 1);
+  switch (settled.state) {
+    case 'fulfilled':
+    case 'already_fulfilled':
+      return { ok: true, state: settled.state, expiresAt: settled.expiresAt };
+    case 'claim_without_grant':
+      return { ok: false, state: 'in_progress' };
+    case 'user_missing':
+      // The transaction rolled back: no claim, no grant, no marker. A retry can
+      // settle the order once the account exists again.
+      throw new Error('fulfillment_target_user_missing');
+    case 'order_missing':
+    case 'order_owner_mismatch':
+    case 'marker_write_missing':
+      throw new Error(`fulfillment_${settled.state}`);
   }
-
-  const updated = await updateUserPlanByIdIfInactive(pendingOrder.userId, plan, expiresAt.toISOString());
-  if (!updated) {
-    const userExists = await (await import('@/lib/db')).findUserById(pendingOrder.userId);
-    if (!userExists) throw new Error('fulfillment_target_user_missing');
-    return { ok: false, reason: 'active_plan_exists', expected: 'no active paid plan', received: userExists.plan };
-  }
-
-  return { ok: true };
 }
 
 export function billingPeriodForPlan(plan: string): 'monthly' | 'yearly' {
@@ -211,6 +279,14 @@ export async function sendOrderReceiptOnce(
   try {
     const claimed = await tryClaimOrderNotification(pendingOrder.orderId, 'payment_receipt');
     if (!claimed) return false;
+    // The receipt must state the expiry that is actually stored. Recomputing it
+    // here from `new Date()` produced a second, independent date: for a renewal
+    // it silently disagreed with the (extended) stored expiry, and a slow send
+    // could even land on a different day than the write. A read failure is not
+    // fatal — the email simply omits the date rather than guessing one.
+    const accessUntil = await findUserById(pendingOrder.userId)
+      .then((owner) => owner?.planExpiresAt ?? null)
+      .catch(() => null);
     const [{ sendPaymentConfirmationEmail, sendAdminNotification }] = await Promise.all([
       import('@/lib/email'),
     ]);
@@ -223,6 +299,7 @@ export async function sendOrderReceiptOnce(
         customerName: order.customer_details?.customer_name || '',
         customerEmail: order.customer_details?.customer_email || '',
         billingPeriod: billingPeriodForPlan(pendingOrder.plan),
+        accessUntil,
       }),
       sendAdminNotification({
         orderId: pendingOrder.orderId,
@@ -260,7 +337,5 @@ export function fulfillmentErrorMessage(reason: FulfillmentFailureReason): strin
       return 'Currency mismatch';
     case 'unknown_plan':
       return 'Unsupported plan';
-    case 'active_plan_exists':
-      return 'An active paid plan already exists';
   }
 }

@@ -156,20 +156,53 @@ model ProcessedWebhook {
   @@map("processed_webhooks")
 }
 
-/// A created-but-not-yet-settled payable order. `amount` is money and must
-/// never be floating point.
+/// A checkout order and its lifecycle. `amount` is money and must never be
+/// floating point.
+///
+/// `status` is the authority: only `creating`/`open`/`termination_requested`
+/// are live checkouts, and a partial unique index (SQL only — Prisma cannot
+/// express it) allows at most one of those per user. `held_review` is a
+/// fulfilment obligation kept outside that index, so a late payment can be
+/// recorded while another checkout is still live. The timestamps and reasons
+/// are cross-checked by CHECK constraints in the migration; Prisma does not
+/// model those, so `prisma migrate dev`/`db push` must never be run against a
+/// database that carries this schema.
 model PendingOrder {
-  orderId   String   @id @map("order_id") @db.Text
-  userId    String   @map("user_id") @db.Text
-  plan      String   @db.Text
-  amount    Decimal  @db.Decimal(12, 2)
-  currency  String   @default("INR") @db.Text
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  orderId           String    @id @map("order_id") @db.Text
+  userId            String    @map("user_id") @db.Text
+  plan              String    @db.Text
+  amount            Decimal   @db.Decimal(12, 2)
+  currency          String    @default("INR") @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  status            String    @default("open") @db.Text
+  closedAt          DateTime? @map("closed_at") @db.Timestamptz(3)
+  closeReason       String?   @map("close_reason") @db.Text
+  heldAt            DateTime? @map("held_at") @db.Timestamptz(3)
+  holdReason        String?   @map("hold_reason") @db.Text
+  fulfilledAt       DateTime? @map("fulfilled_at") @db.Timestamptz(3)
+  lastCheckedAt     DateTime? @map("last_checked_at") @db.Timestamptz(3)
+  probeCount        Int       @default(0) @map("probe_count")
+  firstProbedAt     DateTime? @map("first_probed_at") @db.Timestamptz(3)
+  terminationSentAt DateTime? @map("termination_requested_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([status, createdAt])
   @@map("pending_orders")
+}
+
+/// Per-user checkout mutex, held across reconciliation and order reservation so
+/// two concurrent checkouts cannot both decide that no earlier order needs
+/// reconciling. Rows are ephemeral: `locked_at` is a TTL, so a crashed holder
+/// releases itself. No FK — the row is deleted by the next holder, not by the
+/// account-deletion path.
+model CheckoutLock {
+  userId   String   @id @map("user_id") @db.Text
+  token    String   @db.Text
+  lockedAt DateTime @default(now()) @map("locked_at") @db.Timestamptz(3)
+
+  @@map("checkout_locks")
 }
 
 /// Per-user, per-UTC-month export counter (atomic check-and-increment).

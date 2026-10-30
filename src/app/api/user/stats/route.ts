@@ -23,6 +23,12 @@ export async function GET() {
 
     return NextResponse.json({
       plan: activePlan,
+      // Billing status. `plan` is the effective plan (paid → free once the
+      // term ended); these carry the stored end date and whether a paid term is
+      // still running, so the UI can say "access until <date>" or "expired on
+      // <date>" instead of dropping the purchase from view.
+      planExpiresAt: user?.planExpiresAt ?? null,
+      planActive: userPlan !== 'free' && isPlanActive(user?.planExpiresAt, userPlan),
       downloads: {
         used: stats.downloadCount,
         limit: entitlements.maxDownloads,

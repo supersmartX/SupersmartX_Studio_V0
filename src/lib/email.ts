@@ -22,6 +22,12 @@ interface PaymentEmailData {
   customerName: string;
   customerEmail: string;
   billingPeriod: 'monthly' | 'yearly';
+  /**
+   * The expiry actually stored on the account when the receipt is built
+   * (ISO-8601). Rendered verbatim; never recomputed from the send time, which
+   * would disagree with the entitlement on a renewal or a retried send.
+   */
+  accessUntil?: string | null;
 }
 
 function sanitizeHtml(str: string): string {
@@ -72,18 +78,32 @@ function getPlanDisplayName(plan: string): string {
   }
 }
 
+/**
+ * Renders a stored expiry as the receipt's "Access until" date.
+ *
+ * UTC on purpose: the expiry is a UTC instant, so formatting it in the
+ * server's local zone could print the previous day for an account that expires
+ * just after midnight UTC. Returns null for a missing/invalid value so the
+ * receipt omits the row instead of inventing a date.
+ */
+export function formatAccessUntil(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 function buildUserConfirmationHtml(data: PaymentEmailData): string {
   const price = formatCurrency(data.amount, data.currency);
   const planName = getPlanDisplayName(data.plan);
   const safeName = sanitizeHtml(data.customerName || 'there');
   const safeOrderId = sanitizeHtml(data.orderId);
-  const renewalDate = new Date();
-  if (data.billingPeriod === 'monthly') {
-    renewalDate.setMonth(renewalDate.getMonth() + 1);
-  } else {
-    renewalDate.setFullYear(renewalDate.getFullYear() + 1);
-  }
-  const renewalStr = renewalDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const accessUntilStr = formatAccessUntil(data.accessUntil);
 
   return `
 <!DOCTYPE html>
@@ -129,10 +149,10 @@ function buildUserConfirmationHtml(data: PaymentEmailData): string {
                   <td style="padding:4px 0;font-size:13px;color:#71717a;">Order ID</td>
                   <td style="padding:4px 0;font-size:12px;color:#a1a1aa;text-align:right;font-family:monospace;">${safeOrderId}</td>
                 </tr>
-                <tr>
+                ${accessUntilStr ? `<tr>
                   <td style="padding:4px 0;font-size:13px;color:#71717a;">Access until</td>
-                  <td style="padding:4px 0;font-size:13px;color:#ffffff;text-align:right;">${sanitizeHtml(renewalStr)}</td>
-                </tr>
+                  <td style="padding:4px 0;font-size:13px;color:#ffffff;text-align:right;">${sanitizeHtml(accessUntilStr)}</td>
+                </tr>` : ''}
               </table>
             </td></tr>
           </table>
@@ -218,7 +238,8 @@ function buildAdminNotificationHtml(data: PaymentEmailData): string {
 function buildUserConfirmationText(data: PaymentEmailData): string {
   const price = formatCurrency(data.amount, data.currency);
   const planName = getPlanDisplayName(data.plan);
-  return `Payment Successful\n\nHi ${data.customerName || 'there'},\n\nYour ${planName} access is now active for the purchased term.\n\nAmount: ${price}\nOrder ID: ${data.orderId}\n\nAccess ends at the end of the purchased term. There is no automatic renewal.\n\nOpen SupersmartX Studio: ${APP_URL}/studio\n\nQuestions? Reply to this email or contact ${ADMIN_EMAIL}`;
+  const accessUntilStr = formatAccessUntil(data.accessUntil);
+  return `Payment Successful\n\nHi ${data.customerName || 'there'},\n\nYour ${planName} access is now active for the purchased term.\n\nAmount: ${price}\nOrder ID: ${data.orderId}\n${accessUntilStr ? `Access until: ${accessUntilStr}\n` : ''}\nAccess ends at the end of the purchased term. There is no automatic renewal.\n\nOpen SupersmartX Studio: ${APP_URL}/studio\n\nQuestions? Reply to this email or contact ${ADMIN_EMAIL}`;
 }
 
 function buildAdminNotificationText(data: PaymentEmailData): string {
@@ -248,6 +269,46 @@ export async function sendPaymentConfirmationEmail(data: PaymentEmailData): Prom
     return true;
   } catch (error) {
     console.error('Failed to send confirmation email:', error instanceof Error ? error.message : 'Unknown error');
+    return false;
+  }
+}
+
+/**
+ * Operator alert for a billing condition that needs a human: a paid order that
+ * could not be applied, or a termination Cashfree has not confirmed.
+ *
+ * Deliberately separate from `sendAdminNotification`, which is payment-shaped
+ * (it formats an amount and a plan and is only sent on a new payment). Returns
+ * false rather than throwing: the caller dedupes through `order_notifications`
+ * and releases the claim on failure so a later pass can retry.
+ */
+export async function sendBillingOpsAlert(data: {
+  subject: string;
+  lines: string[];
+}): Promise<boolean> {
+  try {
+    const client = getResend();
+    if (!client) {
+      console.warn('Resend API key not configured, skipping billing ops alert');
+      return false;
+    }
+    const text = `${data.lines.join('\n')}\n\nSupersmartX Studio billing operations`;
+    const html = `<div style="font-family:system-ui,sans-serif;line-height:1.5">
+      <h2 style="margin:0 0 12px">${sanitizeHtml(data.subject)}</h2>
+      ${data.lines.map((line) => `<p style="margin:0 0 8px">${sanitizeHtml(line)}</p>`).join('')}
+      <p style="margin-top:16px;color:#666">SupersmartX Studio billing operations</p>
+    </div>`;
+
+    await client.emails.send({
+      from: FROM_EMAIL,
+      to: ADMIN_EMAIL,
+      subject: `[Billing] ${data.subject}`,
+      html,
+      text,
+    });
+    return true;
+  } catch (error) {
+    console.error('Failed to send billing ops alert:', error instanceof Error ? error.message : 'Unknown error');
     return false;
   }
 }

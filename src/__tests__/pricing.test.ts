@@ -7,6 +7,8 @@ import {
   formatSavingsPercent,
   getServerPrice,
   getServerPricingForCountry,
+  serverPriceMatchesDisplayed,
+  formatPriceForCurrency,
   detectCountry,
   getCachedCountry,
   cacheCountry,
@@ -138,6 +140,50 @@ describe('getServerPrice', () => {
 
   it('returns null for unknown currency (no silent INR fallback)', () => {
     expect(getServerPrice('creator_monthly', 'UNKNOWN')).toBeNull();
+  });
+});
+
+describe('serverPriceMatchesDisplayed', () => {
+  it('matches when amount and currency are identical', () => {
+    expect(
+      serverPriceMatchesDisplayed({ amount: 7.99, currency: 'USD' }, { amount: 7.99, currency: 'USD' }),
+    ).toBe(true);
+  });
+
+  it('differs when the same currency has a different amount (DE vs PT are both EUR)', () => {
+    expect(
+      serverPriceMatchesDisplayed({ amount: 7.49, currency: 'EUR' }, { amount: 5.99, currency: 'EUR' }),
+    ).toBe(false);
+  });
+
+  it('differs when the same figure is in another currency', () => {
+    expect(
+      serverPriceMatchesDisplayed({ amount: 7.99, currency: 'USD' }, { amount: 7.99, currency: 'EUR' }),
+    ).toBe(false);
+  });
+
+  it('differs when the region resolution landed on another country entirely', () => {
+    expect(
+      serverPriceMatchesDisplayed({ amount: 349, currency: 'INR' }, { amount: 7.99, currency: 'USD' }),
+    ).toBe(false);
+  });
+});
+
+describe('formatPriceForCurrency', () => {
+  it('formats the server amount from its ISO code', () => {
+    expect(formatPriceForCurrency(7.99, 'USD')).toBe('$7.99');
+    expect(formatPriceForCurrency(349, 'INR')).toBe('₹349');
+    expect(formatPriceForCurrency(54.99, 'EUR')).toBe('€54.99');
+  });
+
+  it('distinguishes currencies that share a display symbol', () => {
+    // The region table renders both NOK and DKK as "kr"; the charge must not.
+    expect(formatPriceForCurrency(54.99, 'NOK')).not.toBe(formatPriceForCurrency(54.99, 'DKK'));
+  });
+
+  it('falls back to amount plus code when Intl rejects the currency', () => {
+    // Not a three-letter ISO code, so Intl throws and the raw pair is shown.
+    expect(formatPriceForCurrency(10, 'US')).toBe('10 US');
   });
 });
 

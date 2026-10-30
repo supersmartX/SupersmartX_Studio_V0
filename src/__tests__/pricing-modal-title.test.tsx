@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 /**
@@ -50,6 +50,8 @@ const showToast = vi.fn();
 const STEPS = [
   { step: 'select', name: 'Choose Your Plan' },
   { step: 'form', name: 'Complete Payment' },
+  { step: 'confirm-price', name: 'Confirm Price' },
+  { step: 'resume-checkout', name: 'Resume Checkout' },
   { step: 'processing', name: 'Processing...' },
   { step: 'error', name: 'Payment Error' },
 ] as const;
@@ -99,6 +101,10 @@ beforeEach(() => {
   cashfreeMode.mockReturnValue(null);
 });
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('PricingModal — accessible name tracks the visible step title', () => {
   it('step 1 (select): dialog is named "Choose Your Plan"', async () => {
     render(<PricingModal isOpen onClose={noop} showToast={showToast} isAuthenticated />);
@@ -117,10 +123,38 @@ describe('PricingModal — accessible name tracks the visible step title', () =>
     ).toBeNull();
   });
 
-  it('step 3 (processing): named "Processing..." while the SDK is in flight', async () => {
+  it('step 3 (confirm-price): named "Confirm Price" while a different charge awaits acceptance', async () => {
+    cashfreeMode.mockReturnValue('sandbox');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      orderId: 'sxs-title-1',
+      paymentSessionId: 'ps-title-1',
+      env: 'sandbox',
+      // The sheet resolved US ($7.99); the server priced India.
+      amount: 349,
+      currency: 'INR',
+      country: 'IN',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+
+    await renderAtForm();
+    fillPaymentForm();
+
+    fireEvent.click(screen.getByRole('button', { name: /Pay/i }));
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Confirm Price' })).toBeTruthy());
+    expectDialogNamed('Confirm Price');
+  });
+
+  it('step 4 (processing): named "Processing..." while the SDK is in flight', async () => {
     // Hold the step open: the SDK promise never settles.
     cashfreeMode.mockReturnValue('sandbox');
     sdkLoaded.mockImplementation(() => new Promise(() => {}));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      orderId: 'sxs-title-2',
+      paymentSessionId: 'ps-title-2',
+      env: 'sandbox',
+      amount: 7.99,
+      currency: 'USD',
+      country: 'US',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
     await renderAtForm();
     fillPaymentForm();
 
@@ -129,7 +163,7 @@ describe('PricingModal — accessible name tracks the visible step title', () =>
     expectDialogNamed('Processing...');
   });
 
-  it('step 4 (error): named "Payment Error" when checkout cannot start', async () => {
+  it('step 5 (error): named "Payment Error" when checkout cannot start', async () => {
     // Locally NEXT_PUBLIC_CASHFREE_ENV is unset, so resolveCashfreeMode()
     // returns null and the modal refuses to instantiate the SDK.
     cashfreeMode.mockReturnValue(null);
@@ -146,6 +180,8 @@ describe('PricingModal — accessible name tracks the visible step title', () =>
     expect(STEPS.map((s) => s.name)).toEqual([
       'Choose Your Plan',
       'Complete Payment',
+      'Confirm Price',
+      'Resume Checkout',
       'Processing...',
       'Payment Error',
     ]);

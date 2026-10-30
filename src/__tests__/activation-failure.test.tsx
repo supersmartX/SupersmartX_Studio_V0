@@ -18,7 +18,13 @@ vi.mock('next-auth/react', () => ({
 
 import { ActivationModal } from '@/components/dialogs/ActivationModal';
 
-type VerifyBody = { status?: string; orderStatus?: string };
+type VerifyBody = {
+  status?: string;
+  orderId?: string;
+  plan?: string;
+  expiresAt?: string | null;
+  orderStatus?: string;
+};
 
 let verifyResponses: VerifyBody[] = [];
 let verifyCalls = 0;
@@ -134,7 +140,7 @@ describe('a declined payment does not become a 30-second wait', () => {
 
   it('confirms as soon as the server reports the order activated', async () => {
     vi.useFakeTimers();
-    verifyResponses = [{ status: 'activated' }];
+    verifyResponses = [{ status: 'activated', orderId: ORDER, plan: 'creator_monthly' }];
     renderModal();
 
     await firstPoll();
@@ -236,7 +242,7 @@ describe('a settled payment with a webhook still in flight', () => {
 
   it('refreshes the session before announcing activation, so the Creator UI is already live', async () => {
     vi.useFakeTimers();
-    verifyResponses = [{ status: 'activated' }];
+    verifyResponses = [{ status: 'activated', orderId: ORDER, plan: 'creator_monthly' }];
     sessionUpdate.mockImplementation(async () => ({ user: { plan: 'creator_monthly' } } as never));
 
     renderModal();
@@ -251,10 +257,10 @@ describe('a settled payment with a webhook still in flight', () => {
 
   it('does not announce failure when only the session read fails', async () => {
     vi.useFakeTimers();
-    verifyResponses = [{ status: 'activated' }];
-    // The server read Cashfree directly and says the order is paid. A dropped
-    // session fetch must not strand the buyer on the spinner — nor be reported
-    // as a payment failure, which it is not.
+    verifyResponses = [{ status: 'activated', orderId: ORDER, plan: 'creator_monthly' }];
+    // The server confirmed this order. A dropped session fetch must not strand
+    // the buyer on the spinner — nor be reported as a payment failure, which it
+    // is not.
     sessionUpdate.mockImplementation(async () => {
       throw new Error('network');
     });
@@ -269,10 +275,25 @@ describe('a settled payment with a webhook still in flight', () => {
     expect(onClose).toHaveBeenCalledWith('confirmed');
   });
 
-  it('activates on the webhook path when the server never sees the order yet', async () => {
+  it('confirms on the webhook path when the server reports this order fulfilled', async () => {
     vi.useFakeTimers();
-    // The order route is not reachable / the webhook is the only writer: the
-    // session is the sole signal that the plan went live.
+    // The webhook was the only writer. The server answers from the order's own
+    // fulfilment record, so the verdict names the order and never needs the
+    // session to look any particular way.
+    verifyResponses = [{ status: 'activated', orderId: ORDER, plan: 'creator_monthly' }];
+    sessionUpdate.mockImplementation(async () => ({ user: { plan: 'free' } } as never));
+
+    renderModal();
+    await firstPoll();
+
+    expect(screen.getByText(/You're a Creator/i)).toBeInTheDocument();
+  });
+
+  it('does not confirm from the session when the server cannot be reached', async () => {
+    vi.useFakeTimers();
+    // The renewal trap: a live Creator already reads `creator_*` in the session,
+    // so confirming from it would report every dropped verification as a
+    // successful purchase. No server verdict, no confirmation.
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => {
@@ -280,12 +301,16 @@ describe('a settled payment with a webhook still in flight', () => {
         throw new Error('network');
       })
     );
-    sessionUpdate.mockImplementation(async () => ({ user: { plan: 'creator_monthly' } } as never));
+    sessionUpdate.mockImplementation(async () => ({ user: { plan: 'creator_yearly' } } as never));
 
     renderModal();
     await firstPoll();
+    await advancePolls(5);
 
-    expect(screen.getByText(/You're a Creator/i)).toBeInTheDocument();
+    expect(screen.queryByText(/You're a Creator/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Confirming your payment...')).toBeInTheDocument();
+    // It kept asking rather than deciding for itself.
+    expect(verifyCalls).toBe(6);
   });
 
   it('keeps waiting — and keeps saying so — while the webhook is still absent', async () => {
@@ -317,7 +342,7 @@ describe('a settled payment with a webhook still in flight', () => {
 describe('the outcome the studio is told about is the one that happened', () => {
   it('reports confirmed after a successful activation', async () => {
     vi.useFakeTimers();
-    verifyResponses = [{ status: 'activated' }];
+    verifyResponses = [{ status: 'activated', orderId: ORDER, plan: 'creator_monthly' }];
     const { onClose } = renderModal();
     await firstPoll();
 
@@ -361,9 +386,93 @@ describe('the outcome the studio is told about is the one that happened', () => 
     unmountPending();
 
     verifyCalls = 0;
-    verifyResponses = [{ status: 'activated' }];
+    verifyResponses = [{ status: 'activated', orderId: ORDER, plan: 'creator_monthly' }];
     renderModal();
     await firstPoll();
     expect(screen.getByRole('dialog', { name: 'Creator plan activated' })).toBeInTheDocument();
+  });
+});
+
+/* THE RENEWAL FALSE CONFIRMATION — the bug this contract closes.
+ *
+ * Before, any session reading `creator_*` was treated as a successful purchase.
+ * A renewal starts from exactly that session state, so a dropped or delayed
+ * verification confirmed a purchase that had not happened. Confirmation now
+ * depends on one thing only: an `activated` verdict that names this order. */
+describe('only an order-specific verdict can confirm the purchase', () => {
+  it('takes the plan and expiry from the verdict, not from the URL', async () => {
+    vi.useFakeTimers();
+    // The return URL said monthly; the order the server answered for is yearly.
+    verifyResponses = [
+      { status: 'activated', orderId: ORDER, plan: 'creator_yearly', expiresAt: '2026-12-01T12:00:00.000Z' },
+    ];
+    renderModal({ plan: 'creator_monthly' });
+    await firstPoll();
+
+    const copy = document.body.textContent ?? '';
+    expect(copy).toMatch(/Creator \(1 year\) is now active until .*2026/);
+    expect(copy).not.toMatch(/Creator \(1 month\)/);
+  });
+
+  it('ignores an activated verdict that answers for a different order', async () => {
+    vi.useFakeTimers();
+    verifyResponses = [{ status: 'activated', orderId: 'order_someone_else', plan: 'creator_monthly' }];
+    renderModal();
+    await firstPoll();
+
+    expect(screen.queryByText(/You're a Creator/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Confirming your payment...')).toBeInTheDocument();
+  });
+
+  it('checks again against the server rather than assuming the payment landed', async () => {
+    vi.useFakeTimers();
+    verifyResponses = [{ status: 'pending', orderStatus: 'ACTIVE' }];
+    renderModal();
+    await advancePolls(15);
+    expect(screen.getByText(/Check again/i)).toBeInTheDocument();
+    expect(screen.queryByText(/You're a Creator/i)).not.toBeInTheDocument();
+
+    // The webhook lands between the budget running out and the re-check.
+    verifyResponses = [{ status: 'activated', orderId: ORDER, plan: 'creator_monthly' }];
+    verifyCalls = 0;
+    await act(async () => {
+      screen.getByRole('button', { name: 'Check again' }).click();
+    });
+
+    expect(verifyCalls).toBe(1);
+    expect(screen.getByText(/You're a Creator/i)).toBeInTheDocument();
+  });
+
+  it('does not claim success when the re-check is still pending, and re-arms the wait', async () => {
+    vi.useFakeTimers();
+    verifyResponses = [{ status: 'pending' }];
+    renderModal();
+    await advancePolls(15);
+
+    verifyCalls = 0;
+    await act(async () => {
+      screen.getByRole('button', { name: 'Check again' }).click();
+    });
+
+    expect(verifyCalls).toBe(1);
+    expect(screen.queryByText(/You're a Creator/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Confirming your payment...')).toBeInTheDocument();
+    // Poll budget re-armed rather than staying stuck on the "taking longer" panel.
+    expect(screen.queryByText(/Check again/i)).not.toBeInTheDocument();
+  });
+
+  it('cannot confirm without an order to ask the server about', async () => {
+    vi.useFakeTimers();
+    // A hand-crafted `?payment=success` with no order id has nothing to verify.
+    // The session looking Creator (a renewal in progress) must not stand in.
+    sessionUpdate.mockImplementation(async () => ({ user: { plan: 'creator_monthly' } } as never));
+    renderModal({ orderId: null });
+    await advancePolls(15);
+
+    expect(verifyCalls).toBe(0);
+    expect(screen.queryByText(/You're a Creator/i)).not.toBeInTheDocument();
+    // Nothing to re-check either.
+    expect(screen.queryByText(/Check again/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Continue anyway/i)).toBeInTheDocument();
   });
 });

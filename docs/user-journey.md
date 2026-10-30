@@ -456,7 +456,7 @@ Choose platform → get the right output. No Smart Crop, no AI Reframe, no focal
 ## 24. CREATOR CLOUD LIBRARY
 
 ```text
-Export → Private R2 → Metadata → Turso → Cloud Library
+Export → Private R2 → Metadata → PostgreSQL (Supabase) → Cloud Library
 ```
 
 - Preview, download, delete.

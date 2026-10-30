@@ -14,16 +14,17 @@ vi.mock('@/lib/email', () => ({
 }));
 
 // Fault-injection seam for the data layer: the real implementation runs unless a
-// test arms the flag (see the "releases the claim" case).
+// test arms the flag (see the "rolls back" case). The seam is the settlement
+// transaction, because that is now the only path that writes an entitlement.
 const dbMocks = vi.hoisted(() => ({ planWriteError: null as Error | null }));
 vi.mock('@/lib/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/db')>();
   return {
     ...actual,
-    updateUserPlanByIdIfInactive: vi.fn(
-      (...args: Parameters<typeof actual.updateUserPlanByIdIfInactive>) => {
+    settleFulfilledOrder: vi.fn(
+      (...args: Parameters<typeof actual.settleFulfilledOrder>) => {
         if (dbMocks.planWriteError) return Promise.reject(dbMocks.planWriteError);
-        return actual.updateUserPlanByIdIfInactive(...args);
+        return actual.settleFulfilledOrder(...args);
       },
     ),
   };
@@ -386,6 +387,60 @@ describeDb('payment fulfilment is driven by authoritative state, not the return 
   });
 });
 
+describeDb('activation is decided by the order\u2019s own fulfilment record', () => {
+  beforeEach(cleanTestData);
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('reports an already-fulfilled order as activated without asking Cashfree', async () => {
+    const user = await seedBuyer('fulfilled-first@example.com');
+    const orderId = await seedPendingOrder(user.id);
+    mockCashfreeOrder(paidOrderBody(orderId));
+    vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'fulfilled-first@example.com' } } as never);
+
+    // The webhook settles the order, then the gateway goes away.
+    await webhookPOST(signedWebhookRequest(orderId, 'SUCCESS'));
+    const stored = await findUserById(user.id);
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('network');
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const res = await verifyPOST(verifyRequest(orderId));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status?: string; orderId?: string; plan?: string; expiresAt?: string };
+    expect(body).toEqual({
+      status: 'activated',
+      orderId,
+      plan: 'creator_monthly',
+      expiresAt: stored?.planExpiresAt,
+    });
+    // A settled order must not depend on the gateway being reachable.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('names the order\u2019s plan, not the plan in the return URL', async () => {
+    const user = await seedBuyer('url-plan@example.com');
+    const orderId = await seedPendingOrder(user.id, { plan: 'creator_monthly' });
+    mockCashfreeOrder(paidOrderBody(orderId));
+    vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'url-plan@example.com' } } as never);
+
+    const forged = new NextRequest(
+      `http://localhost/api/cashfree/verify?order_id=${encodeURIComponent(orderId)}&payment=success&plan=creator_yearly`,
+      { method: 'POST' },
+    );
+    const res = await verifyPOST(forged);
+
+    const body = (await res.json()) as { status?: string; plan?: string };
+    expect(body.status).toBe('activated');
+    expect(body.plan).toBe('creator_monthly');
+    expect((await findUserById(user.id))?.plan).toBe('creator_monthly');
+  });
+});
+
 describeDb('payment fulfilment idempotency', () => {
   beforeEach(cleanTestData);
   afterEach(() => {
@@ -417,13 +472,18 @@ describeDb('payment fulfilment idempotency', () => {
     const user = await seedBuyer('race@example.com');
     const orderId = await seedPendingOrder(user.id);
     mockCashfreeOrder(paidOrderBody(orderId));
+    vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'race@example.com' } } as never);
 
-    // First call claims and fulfils; the second loses the claim race.
+    // Someone holds a bare claim (the pre-fix shape). The second caller loses
+    // the claim race, and — crucially — cannot turn that claim into success.
     expect(await tryClaimWebhookOrder(orderId)).toBe(true);
     expect(await tryClaimWebhookOrder(orderId)).toBe(false);
 
+    const res = await verifyPOST(verifyRequest(orderId));
+    await expect(res.json()).resolves.toMatchObject({ status: 'pending' });
+
     const updated = await findUserById(user.id);
-    expect(updated?.plan).toBe('free'); // claim taken, fulfilment not yet run
+    expect(updated?.plan).toBe('free'); // claim taken, no grant, no marker
   });
 });
 
@@ -702,29 +762,29 @@ describeDb('webhook request handling', () => {
     expect(await claimExists(orderId)).toBe(true);
   });
 
-  it('releases the claim when fulfilment throws so a retry can still succeed', async () => {
+  it('leaves no claim behind when the settlement transaction fails', async () => {
     const user = await seedBuyer('throw@example.com');
     const orderId = await seedPendingOrder(user.id);
     mockCashfreeOrder(paidOrderBody(orderId));
     vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'throw@example.com' } } as never);
 
-    // Inject a genuine fulfilment failure at the data-layer boundary the route
-    // depends on. The retired setup deleted the user and re-created the order,
-    // which only worked because libSQL left foreign keys unenforced; PostgreSQL
-    // enforces `pending_orders.user_id` (and cascades the delete), so "order
-    // present, account gone" is no longer a representable state. The failure the
-    // route must survive is unchanged: the plan write throws, so the claim has to
-    // be released rather than left held — otherwise a retry reports "activated"
-    // for an account that was never granted anything.
+    // Inject a genuine failure at the settlement boundary. The order must remain
+    // claimable — a committed claim with no grant is exactly the defect this
+    // pipeline exists to make unrepresentable.
     dbMocks.planWriteError = new Error('fulfillment_target_user_missing');
 
     const res = await verifyPOST(verifyRequest(orderId));
 
     expect(res.status).toBe(500);
-    // Claim released, so a later retry is not permanently blocked.
     expect(await claimExists(orderId)).toBe(false);
+    expect((await findUserById(user.id))?.plan).toBe('free');
     expect((await findPendingOrder(orderId))?.userId).toBe(user.id);
+
+    // The retry is not permanently blocked.
     dbMocks.planWriteError = null;
+    const retry = await verifyPOST(verifyRequest(orderId));
+    expect(retry.status).toBe(200);
+    expect((await findUserById(user.id))?.plan).toBe('creator_monthly');
   });
 });
 
@@ -1015,19 +1075,22 @@ describeDb('Cashfree environment validation', () => {
       expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toContain('https://sandbox.cashfree.com/pg');
     });
 
-    it('rejects a direct order creation when the user already has an active Creator plan', async () => {
+    it('allows another order while a Creator plan is active, so access can be extended before it lapses', async () => {
       const user = await createUser('active-plan-order@example.com', 'Active', 'hash');
       const future = new Date(Date.now() + 30 * 86400000).toISOString();
       await updateUserPlanById(user.id, 'creator_monthly', future);
       vi.mocked(auth).mockResolvedValue({ user: { id: user.id, email: 'active-plan-order@example.com' } } as never);
-      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => ({ order_id: 'active-plan-renewal', payment_session_id: 'ps-active' }),
+      } as never);
 
       const res = await orderPOST(orderBody('creator_monthly'));
 
-      expect(res.status).toBe(409);
-      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(res.status).toBe(200);
+      expect(fetchSpy).toHaveBeenCalled();
       const count = await getDb().execute({ sql: 'SELECT COUNT(*) AS cnt FROM pending_orders' });
-      expect(Number(count.rows[0]?.cnt)).toBe(0);
+      expect(Number(count.rows[0]?.cnt)).toBe(1);
     });
 
     it('allows a new Creator order again after the current paid entitlement expires', async () => {
@@ -1072,32 +1135,42 @@ describeDb('Cashfree environment validation', () => {
     });
   });
 
-  it('does not shorten an annual paid expiry when a later monthly order settles', async () => {
+  it('extends an annual paid expiry by a month when a monthly order settles, never shortening it', async () => {
     const user = await seedBuyer('annual-preserved@example.com');
-    const annualExpiry = new Date(Date.now() + 365 * 86400000).toISOString();
-    await updateUserPlanById(user.id, 'creator_yearly', annualExpiry);
-    const pending = { orderId: 'annual-preserve-order', userId: user.id, plan: 'creator_monthly', amount: CREATOR_MONTHLY, currency: 'INR' };
+    const annualExpiry = new Date(Date.now() + 365 * 86400000);
+    await updateUserPlanById(user.id, 'creator_yearly', annualExpiry.toISOString());
+    // Settlement marks this exact order as fulfilled, so the reservation that
+    // the checkout route always writes must exist.
+    const orderId = await seedPendingOrder(user.id, { orderId: 'annual-preserve-order' });
+    const pending = { orderId, userId: user.id, plan: 'creator_monthly', amount: CREATOR_MONTHLY, currency: 'INR' };
 
     const result = await fulfillPaidOrder(pending, { order_id: pending.orderId, order_status: 'PAID', order_amount: CREATOR_MONTHLY, order_currency: 'INR' });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toBe('active_plan_exists');
-    expect((await findUserById(user.id))?.plan).toBe('creator_yearly');
-    expect((await findUserById(user.id))?.planExpiresAt).toBe(annualExpiry);
+    expect(result.ok).toBe(true);
+    const stored = (await findUserById(user.id))!;
+    // Postgres adds the interval to the stored expiry (month-end clamping), so
+    // the new end is one month later than the old one, not one month from now.
+    const extended = new Date(stored.planExpiresAt!);
+    expect(extended.getTime()).toBeGreaterThan(annualExpiry.getTime() + 27 * 86400000);
+    expect(extended.getTime()).toBeLessThan(annualExpiry.getTime() + 32 * 86400000);
+    if (result.ok) expect(result.expiresAt).toBe(stored.planExpiresAt);
   });
 
-  it('does not shorten a monthly paid expiry when another monthly order settles', async () => {
+  it('extends a monthly paid expiry when another monthly order settles', async () => {
     const user = await seedBuyer('monthly-preserved@example.com');
-    const monthlyExpiry = new Date(Date.now() + 30 * 86400000).toISOString();
-    await updateUserPlanById(user.id, 'creator_monthly', monthlyExpiry);
-    const pending = { orderId: 'monthly-preserve-order', userId: user.id, plan: 'creator_monthly', amount: CREATOR_MONTHLY, currency: 'INR' };
+    const monthlyExpiry = new Date(Date.now() + 30 * 86400000);
+    await updateUserPlanById(user.id, 'creator_monthly', monthlyExpiry.toISOString());
+    const orderId = await seedPendingOrder(user.id, { orderId: 'monthly-preserve-order' });
+    const pending = { orderId, userId: user.id, plan: 'creator_monthly', amount: CREATOR_MONTHLY, currency: 'INR' };
 
     const result = await fulfillPaidOrder(pending, { order_id: pending.orderId, order_status: 'PAID', order_amount: CREATOR_MONTHLY, order_currency: 'INR' });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toBe('active_plan_exists');
-    expect((await findUserById(user.id))?.plan).toBe('creator_monthly');
-    expect((await findUserById(user.id))?.planExpiresAt).toBe(monthlyExpiry);
+    expect(result.ok).toBe(true);
+    const stored = (await findUserById(user.id))!;
+    expect(stored.plan).toBe('creator_monthly');
+    const extended = new Date(stored.planExpiresAt!).getTime();
+    expect(extended).toBeGreaterThan(monthlyExpiry.getTime() + 27 * 86400000);
+    expect(extended).toBeLessThan(monthlyExpiry.getTime() + 32 * 86400000);
   });
 });
 
@@ -1160,32 +1233,38 @@ describeDb('fulfillPaidOrder guardrails', () => {
   });
 
   it('tolerates sub-paisa float noise but rejects a real mismatch', async () => {
-    const pending = { orderId: 'o1', userId: 'u1', plan: 'creator_monthly', amount: 349, currency: 'INR' };
     const user = await seedBuyer('float@example.com');
-    const withUser = { ...pending, userId: user.id };
+    const orderId = await seedPendingOrder(user.id);
+    const pending = { orderId, userId: user.id, plan: 'creator_monthly', amount: 349, currency: 'INR' };
 
-    const ok = await fulfillPaidOrder(withUser, { order_id: 'o1', order_status: 'PAID', order_amount: 349.005, order_currency: 'INR' });
+    const ok = await fulfillPaidOrder(pending, { order_id: orderId, order_status: 'PAID', order_amount: 349.005, order_currency: 'INR' });
     expect(ok.ok).toBe(true);
 
-    const bad = await fulfillPaidOrder(withUser, { order_id: 'o1', order_status: 'PAID', order_amount: 348, order_currency: 'INR' });
+    // A rejection runs before the claim, so it can use a fresh order and leave
+    // no trace on either row.
+    const mismatchOrder = await seedPendingOrder(user.id);
+    const bad = await fulfillPaidOrder(
+      { ...pending, orderId: mismatchOrder },
+      { order_id: mismatchOrder, order_status: 'PAID', order_amount: 348, order_currency: 'INR' },
+    );
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.reason).toBe('amount_mismatch');
+    if (!bad.ok && bad.state === 'rejected') expect(bad.reason).toBe('amount_mismatch');
   });
 
   it('maps every failure reason to a message that does not echo stored values', () => {
     expect(fulfillmentErrorMessage('amount_mismatch')).toBe('Amount mismatch');
     expect(fulfillmentErrorMessage('currency_mismatch')).toBe('Currency mismatch');
     expect(fulfillmentErrorMessage('unknown_plan')).toBe('Unsupported plan');
-    expect(fulfillmentErrorMessage('active_plan_exists')).toBe('An active paid plan already exists');
   });
 
   it('sets a one-month expiry for monthly and one-year for yearly', async () => {
     const user = await seedBuyer('expiry@example.com');
+    const monthlyOrder = await seedPendingOrder(user.id);
     const before = Date.now();
 
     await fulfillPaidOrder(
-      { orderId: 'o2', userId: user.id, plan: 'creator_monthly', amount: 349, currency: 'INR' },
-      { order_id: 'o2', order_status: 'PAID', order_amount: 349, order_currency: 'INR' }
+      { orderId: monthlyOrder, userId: user.id, plan: 'creator_monthly', amount: 349, currency: 'INR' },
+      { order_id: monthlyOrder, order_status: 'PAID', order_amount: 349, order_currency: 'INR' }
     );
     const monthly = await findUserById(user.id);
     const monthlyMs = new Date(monthly!.planExpiresAt!).getTime() - before;
@@ -1193,10 +1272,11 @@ describeDb('fulfillPaidOrder guardrails', () => {
     expect(monthlyMs).toBeLessThan(32 * 86400000);
 
     const yearlyUser = await seedBuyer('yearly-expiry@example.com');
+    const yearlyOrder = await seedPendingOrder(yearlyUser.id, { plan: 'creator_yearly', amount: 2899 });
     const before2 = Date.now();
     await fulfillPaidOrder(
-      { orderId: 'o3', userId: yearlyUser.id, plan: 'creator_yearly', amount: 2899, currency: 'INR' },
-      { order_id: 'o3', order_status: 'PAID', order_amount: 2899, order_currency: 'INR' }
+      { orderId: yearlyOrder, userId: yearlyUser.id, plan: 'creator_yearly', amount: 2899, currency: 'INR' },
+      { order_id: yearlyOrder, order_status: 'PAID', order_amount: 2899, order_currency: 'INR' }
     );
     const yearly = await findUserById(yearlyUser.id);
     const yearlyMs = new Date(yearly!.planExpiresAt!).getTime() - before2;

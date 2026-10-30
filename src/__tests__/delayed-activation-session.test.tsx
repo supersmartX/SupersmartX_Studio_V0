@@ -56,7 +56,7 @@ const POLL_INTERVAL_MS = 2000;
 const MAX_POLLS = 15;
 const REFETCH_INTERVAL_SECONDS = 30;
 
-type VerifyBody = { status?: string; orderStatus?: string };
+type VerifyBody = { status?: string; orderStatus?: string; orderId?: string; plan?: string; expiresAt?: string | null };
 let verifyResponses: VerifyBody[] = [];
 let verifyCalls = 0;
 
@@ -145,7 +145,7 @@ describe('delayed payment activation in an already-open tab', () => {
     // Server confirms the order, but the session still reads Free. The modal's
     // documented behaviour is to trust the server verdict rather than strand the
     // buyer - and that trust must still come from the server, never the client.
-    verifyResponses = [{ status: 'activated' }];
+    verifyResponses = [{ status: 'activated', orderId: ORDER, plan: 'creator_monthly' }];
     h.serverPlan = 'free';
 
     renderModal();

@@ -40,9 +40,11 @@ subscriptions. Next.js 16 App Router, React 19, Tailwind 4.
   verification in `/api/exports/complete` (final authority over bytes).
 - **R2**: presigned single-key uploads (900 s, video/mp4), signed GET downloads
   (3600 s), owner-prefixed keys; 503 fail-closed when unconfigured.
-- **DB**: Turso/libSQL via `src/lib/db` — versioned migrations, current
-  `SCHEMA_VERSION = 14` (**v1–v14**, 12 tables), additive-only;
-  production **fails closed** (`DatabaseNotConfiguredError`) without Turso.
+- **DB**: Supabase PostgreSQL via Prisma (`src/lib/db`, `prisma/schema.prisma`) —
+  Prisma Migrate is the single schema authority (13 tables), additive-only;
+  production **fails closed** (`DatabaseNotConfiguredError`) without a
+  `postgres://` `DATABASE_URL`. Runtime uses the transaction pooler (`:6543`);
+  DDL uses `DIRECT_URL` (`:5432`).
 - **Rate limiting**: per-process in-memory (`src/lib/rate-limit.ts`), keyed per
   user or per IP; not distributed (accepted limitation, FC-1.1 §11).
 
@@ -50,7 +52,7 @@ subscriptions. Next.js 16 App Router, React 19, Tailwind 4.
 
 | Service | Role | Doc |
 | ------- | ---- | --- |
-| Turso (libSQL) | Durable database | `DATABASE.md` |
+| Supabase PostgreSQL | Durable database | `DATABASE.md` |
 | Cloudflare R2 | Export MP4 storage (+ bucket CORS) | `STORAGE.md` |
 | Cashfree | Payments (order/verify/webhook) | `ENVIRONMENT.md` |
 | Resend | Receipt/reset email (best-effort) | `ENVIRONMENT.md` |
@@ -74,7 +76,7 @@ Browser (studio)                    Vercel (Next.js)                 External
 Teleprompter ─┐
 Camera+Mic ───┼─► MediaRecorder ─► IndexedDB ─► MediaBunny encode ─► MP4 Blob ─┐
               │                                                                ├─► R2 (signed PUT or multipart)
-AuthModal ────┼─► NextAuth (credentials/OAuth) ─► libSQL/Turso ────────────────┘
+AuthModal ────┼─► NextAuth (credentials/OAuth) ─► PostgreSQL/Supabase ───────┘
 PricingModal ─┼─► /api/cashfree/order ─► Cashfree ─► webhook ─► plan activation
 LibraryPanel ─┴─► /api/exports, /download, /preview (signed GET URLs)
 ```
@@ -85,10 +87,10 @@ LibraryPanel ─┴─► /api/exports, /download, /preview (signed GET URLs)
   `/api/*` (25 route files), `sitemap.ts`, `robots.ts`.
 - `src/auth.ts` / `src/auth.config.ts` — NextAuth config (node vs edge-safe split).
 - `src/middleware.ts` — API JWT gate + `x-request-id` propagation.
-- `src/lib/db/` — `driver.ts` (libSQL client singleton; **fails closed** in
-  production), `schema.ts` (versioned migrations v1–v14, `SCHEMA_VERSION = 14`,
-  12 tables), `index.ts` (queries + atomic counters),
-  `migrate.ts` (JSON→DB one-shot migration).
+- `src/lib/db/` — `prisma.ts` (Prisma client singleton; **fails closed** in
+  production), `index.ts` (queries, atomic counters, checkout lock),
+  `migrate.ts` (legacy JSON→DB one-shot import). Schema lives in
+  `prisma/schema.prisma` + `prisma/migrations`.
 - `src/lib/` — `entitlements.ts` (plan contract), `r2.ts` (storage),
   `rate-limit.ts` (in-memory limiter), `pricing.ts` (server prices),
   `cashfree.ts`, `email.ts` (Resend), `validation.ts`, `user-store.ts`,
@@ -110,7 +112,7 @@ entitlements via `getEntitlements` + `isPlanActive`. See ENTITLEMENTS.md.
 
 | Store | Purpose | Durability |
 | ----- | ------- | ---------- |
-| Turso (libSQL) / local SQLite | users, plans, exports, jobs, quotas, orders, webhooks | Primary system of record |
+| Supabase PostgreSQL | users, plans, exports, jobs, quotas, orders, webhooks | Primary system of record |
 | Cloudflare R2 | exported MP4s | Content; DB holds authoritative refs |
 | IndexedDB (browser) | in-progress recordings, local exports | Ephemeral; recoverable via re-export |
 | JSON files (legacy) | pre-DB user/token store | Migration source only (`migrate.ts`) |

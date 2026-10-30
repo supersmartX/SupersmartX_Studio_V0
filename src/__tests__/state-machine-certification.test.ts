@@ -209,9 +209,11 @@ describeDb('STATE 3/12 — the master recording is never destroyed by navigation
     // would resurrect itself on the next restore and trap the user in review.
     const practiceAgain = extractHandler(source, 'handlePracticeAgain');
     expect(practiceAgain, 'handlePracticeAgain must still exist').toBeTruthy();
+    // The discard lives in discardSessionTake (the sole clearMasterRecording
+    // call site, pinned by the next test); handlePracticeAgain delegates to it.
     expect(
-      practiceAgain!.includes('clearMasterRecording'),
-      'an explicit discard must still delete the stored take'
+      practiceAgain!.includes('discardSessionTake'),
+      'an explicit discard must still delete the stored take (via discardSessionTake)'
     ).toBe(true);
   });
 

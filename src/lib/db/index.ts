@@ -329,19 +329,99 @@ export async function updateUserPlanById(
   return result.count > 0;
 }
 
-export async function updateUserPlanByIdIfInactive(
+/**
+ * Extends (or starts) a paid plan by exactly one purchased term, and returns
+ * the expiry that was stored.
+ *
+ * A single statement, because a purchase is now also a renewal: two paid orders
+ * settling at the same time must stack their terms, and a read-then-write would
+ * lose one of them. Postgres evaluates every SET expression against the OLD
+ * row, so the CASE can test the stored plan/expiry directly.
+ *
+ * The term is added to the stored expiry while the paid plan is still active,
+ * and to the database clock otherwise — that is what makes a renewal continue
+ * from the current end date and an expired (or free) account start fresh. Using
+ * the database clock avoids trusting the application server's clock for the
+ * entitlement boundary.
+ *
+ * `interval` is always a server-constructed literal, never user input.
+ *
+ * Returns null when no user row matched, so the caller can distinguish "user
+ * missing" from a successful write.
+ */
+/**
+ * The single statement that extends a plan by one purchased term. Shared by the
+ * standalone helper and the atomic settlement so the two can never drift on
+ * renewal semantics (stack onto the stored expiry; start from the database
+ * clock when free/expired).
+ */
+function planTermExtensionSql(
   userId: string,
   plan: PlanType,
-  expiresAt: string,
-  now = new Date(),
+  interval: '1 month' | '1 year',
+): Prisma.Sql {
+  return Prisma.sql`
+    UPDATE users
+    SET plan = ${plan},
+        plan_expires_at = CASE
+          WHEN plan = 'free' OR plan_expires_at IS NULL OR plan_expires_at <= now()
+            THEN now() + ${interval}::interval
+          ELSE plan_expires_at + ${interval}::interval
+        END
+    WHERE id = ${userId}
+    RETURNING plan_expires_at`;
+}
+
+export async function extendUserPlanTerm(
+  userId: string,
+  plan: PlanType,
+  interval: '1 month' | '1 year',
+): Promise<string | null> {
+  await ensureMigrated();
+  const rows = await getPrisma().$queryRaw<{ plan_expires_at: Date }[]>(
+    planTermExtensionSql(userId, plan, interval),
+  );
+  const stored = rows[0]?.plan_expires_at;
+  return stored ? stored.toISOString() : null;
+}
+
+/**
+ * The most recently fulfilled paid order for a user.
+ *
+ * Used to decide whether a refunded order is still the grant that owns the
+ * current entitlement: if anything settled after it, the refunded order's term
+ * is buried under a later purchase and revoking would strip access the user
+ * paid for.
+ */
+export async function findLatestFulfilledOrder(
+  userId: string,
+): Promise<{ orderId: string; processedAt: string } | null> {
+  await ensureMigrated();
+  const rows = await getPrisma().$queryRaw<{ order_id: string; processed_at: Date }[]>`
+    SELECT w.order_id, w.processed_at
+    FROM processed_webhooks w
+    JOIN pending_orders p ON p.order_id = w.order_id
+    WHERE p.user_id = ${userId}
+    ORDER BY w.processed_at DESC
+    LIMIT 1`;
+  const row = rows[0];
+  return row ? { orderId: row.order_id, processedAt: row.processed_at.toISOString() } : null;
+}
+
+/**
+ * Revokes a paid plan only while the stored expiry is still the one being
+ * revoked (compare-and-set). A concurrent purchase that has already extended
+ * the plan fails the match, so a refund of an older order can never downgrade
+ * access the user has since paid for.
+ */
+export async function revokeUserPlanIfCurrent(
+  userId: string,
+  expectedExpiresAt: string,
 ): Promise<boolean> {
   await ensureMigrated();
   const result = await getPrisma().user.updateMany({
-    where: {
-      id: userId,
-      OR: [{ plan: 'free' }, { planExpiresAt: null }, { planExpiresAt: { lte: now } }],
-    },
-    data: { plan, planExpiresAt: new Date(expiresAt) },
+    where: { id: userId, planExpiresAt: new Date(expectedExpiresAt) },
+    data: { plan: 'free', planExpiresAt: null },
   });
   return result.count > 0;
 }
@@ -1048,6 +1128,14 @@ export async function getOldExportJobs(maxAgeMs: number): Promise<{ r2Key: strin
 // Webhook / notification claims
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether a claim row exists for an order.
+ *
+ * This is NOT evidence that the order was granted anything. A claim with no
+ * `pending_orders.fulfilled_at` marker is the crash case W8 had to close. Use
+ * `findPendingOrderClaim` when the question is "was this fulfilled?", and
+ * `settleFulfilledOrder` to fulfil.
+ */
 export async function isWebhookProcessed(orderId: string): Promise<boolean> {
   await ensureMigrated();
   const count = await getPrisma().processedWebhook.count({ where: { orderId } });
@@ -1063,10 +1151,13 @@ export async function markWebhookProcessed(orderId: string): Promise<void> {
 }
 
 /**
- * Atomically claims an order for fulfilment. Returns true only for the caller
- * that won the claim, so two concurrent duplicate webhooks (or a webhook
- * racing the return-URL verification) can never both extend the plan expiry.
- * Release the claim with releaseWebhookClaim if fulfilment does not complete.
+ * Inserts a bare fulfilment claim. Returns true only for the caller that won.
+ *
+ * Production fulfilment no longer uses this two-step (claim, then write): the
+ * claim alone can commit without a grant. `settleFulfilledOrder` is the
+ * fulfilment primitive. This remains for legacy repair, fixtures and the
+ * claim-arbitration tests — an order claimed through it has no marker and will
+ * be treated as `claim_without_grant` until a settlement exists.
  */
 export async function tryClaimWebhookOrder(orderId: string): Promise<boolean> {
   await ensureMigrated();
@@ -1220,34 +1311,586 @@ export async function createPendingOrder(order: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Pending-order lifecycle (W2)
+//
+// The state machine itself lives in the reconciler; this section only provides
+// the atomic primitives it needs. Writes are guarded by the status they expect,
+// so a stale reader can never overwrite a newer decision (for example turning a
+// freshly-`fulfilled` order back into `open`).
+// ---------------------------------------------------------------------------
+
 /**
- * Most recent pending order for a user that has NOT been claimed by
- * fulfilment (processed_webhooks) and was created within `windowMs`.
- *
- * Phase 2.6 uses this to refuse a second payable order while an earlier one
- * could still settle — paying both would leave the second payment rejected
- * with `active_plan_exists` and no entitlement. Whether the returned order
- * still blocks is decided by the caller's authoritative Cashfree probe
- * (terminal-failed orders release the block immediately).
+ * The user already has a live checkout. Raised by `reservePendingOrder` when
+ * the partial unique index `pending_orders_one_live_per_user` rejects the
+ * insert — the database, not an application check, is the mutex.
  */
-export async function findRecentUnsettledPendingOrder(
-  userId: string,
-  windowMs: number,
-): Promise<{ orderId: string; createdAt: string } | null> {
+export class PendingOrderConflictError extends Error {
+  readonly code = 'pending_order_live_exists';
+  constructor() {
+    super('pending_order_live_exists');
+    this.name = 'PendingOrderConflictError';
+  }
+}
+
+/** PostgreSQL SQLSTATE from a Prisma error, whichever wrapper it arrives in. */
+function pgErrorCode(error: unknown): string | undefined {
+  const wrapped = error as { code?: unknown; meta?: { code?: unknown } } | null;
+  if (typeof wrapped?.meta?.code === 'string') return wrapped.meta.code;
+  if (typeof wrapped?.code === 'string') return wrapped.code;
+  return undefined;
+}
+
+const UNIQUE_VIOLATION = '23505';
+
+export interface PendingOrderLifecycleRow {
+  orderId: string;
+  userId: string;
+  plan: string;
+  amount: number;
+  currency: string;
+  createdAt: string;
+  status: string;
+  closedAt: string | null;
+  closeReason: string | null;
+  heldAt: string | null;
+  holdReason: string | null;
+  fulfilledAt: string | null;
+  lastCheckedAt: string | null;
+  probeCount: number;
+  firstProbedAt: string | null;
+  terminationSentAt: string | null;
+}
+
+type PendingOrderRecord = Prisma.PendingOrderGetPayload<Record<string, never>>;
+
+function mapLifecycleRow(row: PendingOrderRecord): PendingOrderLifecycleRow {
+  return {
+    orderId: row.orderId,
+    userId: row.userId,
+    plan: row.plan,
+    amount: Number(row.amount),
+    currency: row.currency,
+    createdAt: row.createdAt.toISOString(),
+    status: row.status,
+    closedAt: toIso(row.closedAt),
+    closeReason: row.closeReason,
+    heldAt: toIso(row.heldAt),
+    holdReason: row.holdReason,
+    fulfilledAt: toIso(row.fulfilledAt),
+    lastCheckedAt: toIso(row.lastCheckedAt),
+    probeCount: row.probeCount,
+    firstProbedAt: toIso(row.firstProbedAt),
+    terminationSentAt: toIso(row.terminationSentAt),
+  };
+}
+
+/**
+ * Reserves the order id in the database *before* anything is sent to Cashfree.
+ *
+ * The insert is the concurrency gate: a second live row for the same user is
+ * rejected by the partial unique index, which is reported as
+ * `PendingOrderConflictError` rather than as a storage failure. Leaving the row
+ * in `creating` before the gateway call is what makes a crash recoverable —
+ * the order id is known, so its existence can be probed instead of guessed.
+ */
+export async function reservePendingOrder(order: {
+  orderId: string;
+  userId: string;
+  plan: string;
+  amount: number;
+  currency: string;
+}): Promise<void> {
   await ensureMigrated();
-  const since = new Date(Date.now() - windowMs);
+  try {
+    await getPrisma().$executeRaw`
+      INSERT INTO pending_orders (order_id, user_id, plan, amount, currency, status)
+      VALUES (${order.orderId}, ${order.userId}, ${order.plan}, ${order.amount}::numeric, ${order.currency}, 'creating')`;
+  } catch (e) {
+    if (pgErrorCode(e) === UNIQUE_VIOLATION) throw new PendingOrderConflictError();
+    throw new Error(
+      `pending_order_not_persisted: order ${order.orderId} was rejected by a constraint (${
+        e instanceof Error ? e.message : String(e)
+      })`,
+    );
+  }
+}
+
+/** `creating` → `open`, once the gateway confirmed the order exists. */
+export async function markPendingOrderOpen(orderId: string): Promise<boolean> {
+  await ensureMigrated();
+  const changed = await getPrisma().$executeRaw`
+    UPDATE pending_orders
+    SET status = 'open', last_checked_at = now()
+    WHERE order_id = ${orderId} AND status = 'creating'`;
+  return changed > 0;
+}
+
+/**
+ * Records that Cashfree accepted a kill request but has not confirmed it.
+ * `termination_requested_at` is stamped once and kept, so the stuck-termination
+ * alert can measure how long the state has really lasted.
+ */
+export async function markPendingOrderTerminationRequested(orderId: string): Promise<boolean> {
+  await ensureMigrated();
+  const changed = await getPrisma().$executeRaw`
+    UPDATE pending_orders
+    SET status = 'termination_requested',
+        termination_requested_at = COALESCE(termination_requested_at, now()),
+        last_checked_at = now()
+    WHERE order_id = ${orderId} AND status IN ('open', 'creating', 'termination_requested')`;
+  return changed > 0;
+}
+
+/**
+ * Repairs the lifecycle status of an already-fulfilled order. TOTAL: never
+ * throws.
+ *
+ * Fulfilment itself writes the status inside `settleFulfilledOrder`'s
+ * transaction; this is only for rows whose marker exists but whose status was
+ * left behind by an older path (the reconciler's self-heal and the operator
+ * release). It does not grant anything.
+ */
+export async function markPendingOrderFulfilled(orderId: string): Promise<boolean> {
+  try {
+    await ensureMigrated();
+    const changed = await getPrisma().$executeRaw`
+      UPDATE pending_orders
+      SET status = 'fulfilled',
+          fulfilled_at = COALESCE(fulfilled_at, now()),
+          closed_at = COALESCE(closed_at, now()),
+          close_reason = COALESCE(close_reason, 'paid_fulfilled'),
+          last_checked_at = now()
+      WHERE order_id = ${orderId} AND status <> 'fulfilled'`;
+    return changed > 0;
+  } catch (e) {
+    console.warn(
+      `[pending-order] fulfilled status write failed for ${orderId}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return false;
+  }
+}
+
+/**
+ * Parks an order for operator review. The hold survives a second hold (the
+ * reason is refreshed): a `held_review` row is never released by a timeout, only
+ * by a confirmed settlement or an explicit operator release.
+ */
+export async function markPendingOrderHeld(
+  orderId: string,
+  reason: string,
+): Promise<boolean> {
+  await ensureMigrated();
+  const changed = await getPrisma().$executeRaw`
+    UPDATE pending_orders
+    SET status = 'held_review',
+        held_at = COALESCE(held_at, now()),
+        hold_reason = ${reason},
+        closed_at = COALESCE(closed_at, now()),
+        close_reason = COALESCE(close_reason, 'held_unapplied'),
+        last_checked_at = now()
+    WHERE order_id = ${orderId} AND status <> 'fulfilled'`;
+  return changed > 0;
+}
+
+/**
+ * Raised inside the settlement transaction to force a rollback. A claim that
+ * committed without its grant and per-order marker is the W8 defect, so every
+ * validation failure after the claim insert aborts the whole transaction
+ * instead of returning a value that would let it commit.
+ */
+class SettlementAbort extends Error {
+  constructor(
+    readonly code: 'order_missing' | 'order_owner_mismatch' | 'user_missing' | 'marker_write_missing',
+  ) {
+    super(code);
+    this.name = 'SettlementAbort';
+  }
+}
+
+export type SettleFulfilledOrderResult =
+  | { state: 'fulfilled'; expiresAt: string; fulfilledAt: string }
+  | { state: 'already_fulfilled'; expiresAt: string | null; fulfilledAt: string }
+  | { state: 'claim_without_grant' }
+  | {
+      state:
+        | 'order_missing'
+        | 'order_owner_mismatch'
+        | 'user_missing'
+        | 'marker_write_missing';
+    };
+
+/**
+ * Settles one paid order: claim, grant and per-order marker in ONE transaction.
+ *
+ * Why one transaction is the whole point: the previous pipeline committed the
+ * claim first and then wrote the plan. A throw between them (a serverless
+ * freeze, a connection reset, a failing grant) left a committed claim with no
+ * entitlement — and `verify` treated any claim as proof of payment, so the
+ * buyer was told "activated" for a plan nobody was granted. Here the claim row
+ * (`processed_webhooks`) is inserted as the pivot; the plan write and the
+ * `pending_orders` fulfilment marker happen in the same transaction. COMMIT is
+ * atomic across all three, so a visible claim implies a visible grant and
+ * marker, and an aborted attempt leaves nothing behind.
+ *
+ * Concurrency: the claim primary key is the mutex. A second delivery's INSERT
+ * blocks on the uncommitted row and, once the winner commits, `ON CONFLICT DO
+ * NOTHING` returns no row — the loser then reads the winner's committed marker
+ * and reports `already_fulfilled`. If the winner aborts, the loser's insert
+ * succeeds and it performs the grant itself. Exactly one term is ever granted.
+ *
+ * `already_fulfilled` is read from `fulfilled_at`, which is exact per-order
+ * evidence and is written only by this transaction. It replaces the old
+ * `plan_expires_at > processed_at` heuristic, which misread a renewal whose
+ * earlier term already extended the account: the expiry is later than the new
+ * claim even when that claim's own grant never landed.
+ *
+ * `claim_without_grant` (a claim with no marker) is the legacy/racing case. It
+ * is never fulfilled here: the caller must treat it as pending review. New
+ * settlements cannot produce it, because the claim and the marker commit
+ * together.
+ */
+export async function settleFulfilledOrder(params: {
+  orderId: string;
+  userId: string;
+  plan: PlanType;
+  interval: '1 month' | '1 year';
+}): Promise<SettleFulfilledOrderResult> {
+  await ensureMigrated();
+  try {
+    return await getPrisma().$transaction(
+      async (tx): Promise<SettleFulfilledOrderResult> => {
+        const claimRows = await tx.$queryRaw<{ order_id: string }[]>`
+          INSERT INTO processed_webhooks (order_id)
+          VALUES (${params.orderId})
+          ON CONFLICT (order_id) DO NOTHING
+          RETURNING order_id`;
+
+        if (claimRows.length === 0) {
+          // Another path owns the claim. Its transaction either committed the
+          // marker and grant together, or it aborted (in which case our insert
+          // would have succeeded). So a visible claim with no marker is a
+          // pre-fix dangling row, not an in-flight winner.
+          const existing = await tx.$queryRaw<
+            { user_id: string; fulfilled_at: Date | null; plan_expires_at: Date | null }[]
+          >`
+            SELECT p.user_id, p.fulfilled_at, u.plan_expires_at
+            FROM pending_orders p
+            LEFT JOIN users u ON u.id = p.user_id
+            WHERE p.order_id = ${params.orderId}`;
+          const row = existing[0];
+          if (!row) return { state: 'order_missing' };
+          if (row.user_id !== params.userId) return { state: 'order_owner_mismatch' };
+          if (!row.fulfilled_at) return { state: 'claim_without_grant' };
+          return {
+            state: 'already_fulfilled',
+            expiresAt: toIso(row.plan_expires_at),
+            fulfilledAt: row.fulfilled_at.toISOString(),
+          };
+        }
+
+        // Claim won. Lock the order row so the marker decision is made against
+        // the same row the grant is about to affect.
+        const locked = await tx.$queryRaw<{ user_id: string; fulfilled_at: Date | null }[]>`
+          SELECT user_id, fulfilled_at
+          FROM pending_orders
+          WHERE order_id = ${params.orderId}
+          FOR UPDATE`;
+        const orderRow = locked[0];
+        if (!orderRow) throw new SettlementAbort('order_missing');
+        if (orderRow.user_id !== params.userId) throw new SettlementAbort('order_owner_mismatch');
+
+        if (orderRow.fulfilled_at) {
+          // The order was granted earlier without a claim row (an old path
+          // released it after the write). Committing the claim repairs the
+          // record; granting again would be a second term for one payment.
+          const owner = await tx.$queryRaw<{ plan_expires_at: Date | null }[]>`
+            SELECT plan_expires_at FROM users WHERE id = ${params.userId}`;
+          return {
+            state: 'already_fulfilled',
+            expiresAt: toIso(owner[0]?.plan_expires_at ?? null),
+            fulfilledAt: orderRow.fulfilled_at.toISOString(),
+          };
+        }
+
+        const granted = await tx.$queryRaw<{ plan_expires_at: Date }[]>(
+          planTermExtensionSql(params.userId, params.plan, params.interval),
+        );
+        if (!granted[0]) throw new SettlementAbort('user_missing');
+
+        const marked = await tx.$queryRaw<{ fulfilled_at: Date }[]>`
+          UPDATE pending_orders
+          SET status = 'fulfilled',
+              fulfilled_at = now(),
+              closed_at = COALESCE(closed_at, now()),
+              close_reason = COALESCE(close_reason, 'paid_fulfilled'),
+              last_checked_at = now()
+          WHERE order_id = ${params.orderId}
+          RETURNING fulfilled_at`;
+        if (!marked[0]) throw new SettlementAbort('marker_write_missing');
+
+        return {
+          state: 'fulfilled',
+          expiresAt: granted[0].plan_expires_at.toISOString(),
+          fulfilledAt: marked[0].fulfilled_at.toISOString(),
+        };
+      },
+      {
+        // READ COMMITTED is what makes a blocked ON CONFLICT/UPDATE re-read the
+        // winner's committed row; the unique claim key and the row lock are the
+        // serialization, not the isolation level.
+        isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+        maxWait: 5_000,
+        timeout: 10_000,
+      },
+    );
+  } catch (error) {
+    if (error instanceof SettlementAbort) return { state: error.code };
+    throw error;
+  }
+}
+
+/** Closes an order with the reason the gateway (or an operator) established. */
+export async function closePendingOrder(
+  orderId: string,
+  reason: string,
+  from?: readonly string[],
+): Promise<boolean> {
+  await ensureMigrated();
+  const statusFilter = from && from.length > 0
+    ? Prisma.sql`AND status IN (${Prisma.join(from.map((status) => Prisma.sql`${status}`))})`
+    : Prisma.empty;
+  const changed = await getPrisma().$executeRaw`
+    UPDATE pending_orders
+    SET status = 'closed',
+        closed_at = COALESCE(closed_at, now()),
+        close_reason = ${reason},
+        last_checked_at = now()
+    WHERE order_id = ${orderId} AND status NOT IN ('fulfilled', 'closed')
+    ${statusFilter}`;
+  return changed > 0;
+}
+
+/**
+ * Records one gateway probe of a reserved order.
+ *
+ * `not_found` advances the orphan counter and stamps the first probe;
+ * `found` clears both (the order exists, so it can never be an orphan);
+ * `uncertain` only notes the attempt, because uncertainty must not move a
+ * reservation one step closer to release.
+ */
+export async function recordPendingOrderProbe(
+  orderId: string,
+  outcome: 'found' | 'not_found' | 'uncertain',
+): Promise<{ probeCount: number; firstProbedAt: Date | null } | null> {
+  await ensureMigrated();
+  const rows = await getPrisma().$queryRaw<{ probe_count: number; first_probed_at: Date | null }[]>`
+    UPDATE pending_orders
+    SET probe_count = CASE
+          WHEN ${outcome} = 'not_found' THEN probe_count + 1
+          WHEN ${outcome} = 'found' THEN 0
+          ELSE probe_count
+        END,
+        first_probed_at = CASE
+          WHEN ${outcome} = 'not_found' THEN COALESCE(first_probed_at, now())
+          WHEN ${outcome} = 'found' THEN NULL
+          ELSE first_probed_at
+        END,
+        last_checked_at = now()
+    WHERE order_id = ${orderId} AND status IN ('creating', 'unverified')
+    RETURNING probe_count, first_probed_at`;
+  const row = rows[0];
+  return row ? { probeCount: row.probe_count, firstProbedAt: row.first_probed_at } : null;
+}
+
+/** Notes that this order was examined but its state did not change. */
+export async function touchPendingOrder(orderId: string): Promise<void> {
+  await ensureMigrated();
+  await getPrisma().$executeRaw`
+    UPDATE pending_orders SET last_checked_at = now() WHERE order_id = ${orderId}`;
+}
+
+/** The user's live checkout, if any (the partial unique index allows one). */
+export async function findLivePendingOrder(userId: string): Promise<PendingOrderLifecycleRow | null> {
+  await ensureMigrated();
+  const row = await getPrisma().pendingOrder.findFirst({
+    where: { userId, status: { in: ['creating', 'open', 'termination_requested'] } },
+    orderBy: { createdAt: 'desc' },
+  });
+  return row ? mapLifecycleRow(row) : null;
+}
+
+/**
+ * Every order the reconciler should look at for this user: live checkouts, paid
+ * obligations, and historical rows that have never been classified.
+ *
+ * Least-recently-checked first, so a capped pass over a user with many
+ * historical rows moves forward instead of re-examining the same ones forever.
+ */
+export async function findPendingOrdersForReconcile(
+  userId: string,
+  limit: number,
+): Promise<PendingOrderLifecycleRow[]> {
+  await ensureMigrated();
+  const rows = await getPrisma().pendingOrder.findMany({
+    where: {
+      userId,
+      status: { in: ['creating', 'open', 'termination_requested', 'held_review', 'unverified'] },
+    },
+    orderBy: [{ lastCheckedAt: { sort: 'asc', nulls: 'first' } }, { createdAt: 'desc' }],
+    take: limit,
+  });
+  return rows.map(mapLifecycleRow);
+}
+
+export async function findPendingOrderLifecycle(
+  orderId: string,
+): Promise<PendingOrderLifecycleRow | null> {
+  await ensureMigrated();
+  const row = await getPrisma().pendingOrder.findUnique({ where: { orderId } });
+  return row ? mapLifecycleRow(row) : null;
+}
+
+/**
+ * Whether an order is claimed, and whether that claim is corroborated by the
+ * order's own fulfilment marker.
+ *
+ * `entitled` means `pending_orders.fulfilled_at` is set — exact per-order
+ * evidence, written only by the atomic settlement transaction that also granted
+ * the term. It deliberately does NOT infer anything from
+ * `plan_expires_at > processed_at`: for a renewal the account's expiry is
+ * already later than the new claim because of the term before it, so that
+ * comparison marks a crashed renewal as fulfilled. A claim without a marker is
+ * a review case, never a granted term.
+ */
+export async function findPendingOrderClaim(
+  orderId: string,
+): Promise<{ claimed: boolean; entitled: boolean } | null> {
+  await ensureMigrated();
   const rows = await getPrisma().$queryRaw<
-    { order_id: string; created_at: Date }[]
-  >`SELECT p.order_id, p.created_at
+    { processed_at: Date | null; fulfilled_at: Date | null }[]
+  >`
+    SELECT w.processed_at, p.fulfilled_at
     FROM pending_orders p
     LEFT JOIN processed_webhooks w ON w.order_id = p.order_id
-    WHERE p.user_id = ${userId} AND w.order_id IS NULL
-      AND p.created_at > ${since}
-    ORDER BY p.created_at DESC
-    LIMIT 1`;
+    WHERE p.order_id = ${orderId}`;
   const row = rows[0];
   if (!row) return null;
-  return { orderId: row.order_id, createdAt: toIso(row.created_at) };
+  return {
+    claimed: row.processed_at !== null,
+    entitled: row.fulfilled_at !== null,
+  };
+}
+
+export interface PendingOrderOpsRow extends PendingOrderLifecycleRow {
+  processedAt: string | null;
+  planExpiresAt: string | null;
+  /** The user's stored plan, for the "claimed but unentitled" review case. */
+  userPlan: string;
+}
+
+export async function listPendingOrdersForOps(params: {
+  statuses: readonly string[];
+  limit: number;
+}): Promise<PendingOrderOpsRow[]> {
+  await ensureMigrated();
+  const statusFilter = Prisma.join(params.statuses.map((status) => Prisma.sql`${status}`));
+  const rows = await getPrisma().$queryRaw<{
+    order_id: string;
+    user_id: string;
+    plan: string;
+    amount: string;
+    currency: string;
+    created_at: Date;
+    status: string;
+    closed_at: Date | null;
+    close_reason: string | null;
+    held_at: Date | null;
+    hold_reason: string | null;
+    fulfilled_at: Date | null;
+    last_checked_at: Date | null;
+    probe_count: number;
+    first_probed_at: Date | null;
+    termination_requested_at: Date | null;
+    processed_at: Date | null;
+    plan_expires_at: Date | null;
+    user_plan: string;
+  }[]>`
+    SELECT p.order_id, p.user_id, p.plan, p.amount::text AS amount, p.currency, p.created_at,
+           p.status, p.closed_at, p.close_reason, p.held_at, p.hold_reason, p.fulfilled_at,
+           p.last_checked_at, p.probe_count, p.first_probed_at, p.termination_requested_at,
+           w.processed_at, u.plan_expires_at, u.plan AS user_plan
+    FROM pending_orders p
+    JOIN users u ON u.id = p.user_id
+    LEFT JOIN processed_webhooks w ON w.order_id = p.order_id
+    WHERE p.status IN (${statusFilter})
+    ORDER BY p.created_at DESC
+    LIMIT ${params.limit}`;
+  return rows.map((row) => ({
+    orderId: row.order_id,
+    userId: row.user_id,
+    plan: row.plan,
+    amount: Number(row.amount),
+    currency: row.currency,
+    createdAt: row.created_at.toISOString(),
+    status: row.status,
+    closedAt: toIso(row.closed_at),
+    closeReason: row.close_reason,
+    heldAt: toIso(row.held_at),
+    holdReason: row.hold_reason,
+    fulfilledAt: toIso(row.fulfilled_at),
+    lastCheckedAt: toIso(row.last_checked_at),
+    probeCount: row.probe_count,
+    firstProbedAt: toIso(row.first_probed_at),
+    terminationSentAt: toIso(row.termination_requested_at),
+    processedAt: toIso(row.processed_at),
+    planExpiresAt: toIso(row.plan_expires_at),
+    userPlan: row.user_plan,
+  }));
+}
+
+export async function countPendingOrdersByStatus(): Promise<Record<string, number>> {
+  await ensureMigrated();
+  const groups = await getPrisma().pendingOrder.groupBy({
+    by: ['status'],
+    _count: { _all: true },
+  });
+  const counts: Record<string, number> = {};
+  for (const group of groups) counts[group.status] = group._count._all;
+  return counts;
+}
+
+/**
+ * Takes the per-user checkout mutex.
+ *
+ * Reconciliation reads several rows and may call the gateway for each before
+ * anything is reserved, so the unique index alone cannot stop two concurrent
+ * checkouts from both classifying the same historical order and then racing to
+ * create. This row serializes that whole window. The TTL is the crash
+ * protection: a holder that dies releases its lock by timing out, not by a
+ * cleanup job.
+ */
+export async function acquireCheckoutLock(
+  userId: string,
+  token: string,
+  ttlMs: number,
+): Promise<boolean> {
+  await ensureMigrated();
+  const rows = await getPrisma().$queryRaw<{ token: string }[]>`
+    INSERT INTO checkout_locks (user_id, token, locked_at)
+    VALUES (${userId}, ${token}, now())
+    ON CONFLICT (user_id) DO UPDATE
+      SET token = EXCLUDED.token, locked_at = now()
+      WHERE checkout_locks.locked_at < now() - (${ttlMs}::int * interval '1 millisecond')
+    RETURNING token`;
+  return rows.length > 0;
+}
+
+/** Releases the mutex only if this caller still owns it. */
+export async function releaseCheckoutLock(userId: string, token: string): Promise<void> {
+  await ensureMigrated();
+  await getPrisma().$executeRaw`
+    DELETE FROM checkout_locks WHERE user_id = ${userId} AND token = ${token}`;
 }
 
 export async function findPendingOrder(orderId: string): Promise<{

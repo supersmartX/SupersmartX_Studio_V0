@@ -1,5 +1,20 @@
 import { beforeEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
+import { LOOKS_PRODUCTION } from './helpers/test-database';
+
+// Guard the whole run, not just the harness. The database-backed suites
+// `TRUNCATE` every application table, and each of them gates itself on
+// DATABASE_URL being set at all — so a shell that exported the value from
+// `.env.local` would point all 23 of them at the deployed database. This check
+// runs before any test body and is the only one that cannot be forgotten by a
+// new suite.
+if (LOOKS_PRODUCTION) {
+  throw new Error(
+    'Refusing to run tests: DATABASE_URL looks like the deployed database. ' +
+      'Unset DATABASE_URL (the database-backed suites then report as skipped) ' +
+      'or point it at a throwaway database. To override deliberately, set ALLOW_TEST_DB=1.',
+  );
+}
 
 // jsdom implements Blob/File with slice/size/type but omits the async readers
 // (arrayBuffer/text/stream) that browsers and Node's undici both provide.
