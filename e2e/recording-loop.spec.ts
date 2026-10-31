@@ -506,7 +506,9 @@ test.describe('review decision contract (Phase 4)', () => {
   test('deleting a fresh take clears review and returns to a clean ready state', async ({ page }) => {
     await page.goto('/studio');
     await dismissWelcomeModal(page);
-    await recordTake(page, 2);
+    // Long enough that a take still playing behind the confirmation would
+    // still be playing when the assertion below looks at it.
+    await recordTake(page, 4);
     await expectReview(page);
 
     expect(await readMasterRecordings(page)).toHaveLength(1);
@@ -522,10 +524,19 @@ test.describe('review decision contract (Phase 4)', () => {
     const confirm = page.getByRole('alertdialog');
     await expect(confirm).toBeVisible();
     await expect(confirm).toContainText(/cannot be undone/i);
+    // The take must not keep playing — audibly — behind the question about
+    // whether to delete it.
+    await expect
+      .poll(() => page.locator('video').first().evaluate((v: HTMLVideoElement) => v.paused), { timeout: 2_000 })
+      .toBe(true);
     // Cancel leaves the take, the review and the library row exactly as they were.
     await confirm.getByRole('button', { name: 'Keep recording' }).click();
     await expect(confirm).toHaveCount(0);
     await expect(page.getByText('Your recording is ready.')).toBeVisible();
+    // Cancelling only interrupted the viewing: the take itself is untouched.
+    await expect
+      .poll(() => page.locator('video').first().evaluate((v: HTMLVideoElement) => v.paused), { timeout: 2_000 })
+      .toBe(false);
     expect(await readMasterRecordings(page)).toHaveLength(1);
 
     await page.getByRole('button', { name: 'Delete recording' }).click();

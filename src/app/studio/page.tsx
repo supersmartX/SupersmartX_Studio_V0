@@ -1260,6 +1260,10 @@ export default function HomePage() {
     welcomeModal.isVisible ||
     lockedPlatform !== null;
 
+  // The delete/new-video confirmation is a blocking question too: the take
+  // must not keep playing (with sound) behind the decision about its fate.
+  const reviewPlaybackSuppressed = isBlockingModalOpen || pendingConfirm !== null;
+
   // z-drawer (150) renders above z-modal (100), so the compact-layout
   // inspector drawer left open would sit ON TOP of any blocking modal —
   // covering the very surface the user just asked for. Every blocking modal
@@ -1432,7 +1436,7 @@ export default function HomePage() {
                 reviewVideoStyle={reviewCropStyle}
                 reviewDuration={isReview && masterRecordingData ? masterRecordingData.duration : undefined}
                 reviewHasAudio={isReview && masterRecordingData ? masterRecordingData.hasAudio : false}
-                reviewActive={isReview && isStudio && !ui.isDrawerVisible && !isBlockingModalOpen}
+                reviewActive={isReview && isStudio && !ui.isDrawerVisible && !reviewPlaybackSuppressed}
                 statusBadge={<RecordingBadge recordingState={recorder.recordingState} />}
               >
                 <CameraPreview
