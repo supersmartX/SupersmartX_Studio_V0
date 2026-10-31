@@ -1345,7 +1345,7 @@ export default function HomePage() {
           focusable and clickable behind the backdrop. The sheet itself renders
           outside this shell, so it is unaffected. */}
       <div
-        className="h-screen flex flex-col bg-canvas overflow-hidden"
+        className="studio-shell flex flex-col bg-canvas overflow-hidden"
         inert={ui.isDrawerVisible || undefined}
       >
         <Header

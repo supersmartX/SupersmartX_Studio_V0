@@ -227,7 +227,7 @@ function DeviceChip({
         aria-expanded={isOpen}
         aria-label={`${deviceName} device options`}
         title="Device options"
-        className="flex items-center justify-center w-7 h-11 rounded-full text-text-muted transition-colors hover:text-text-primary hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+        className="flex items-center justify-center w-7 max-sm:w-6 h-11 rounded-full text-text-muted transition-colors hover:text-text-primary hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
       >
         <ChevronDownIcon className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
@@ -237,10 +237,10 @@ function DeviceChip({
           above the transport on phones so a 280px list can never run off a
           375px screen. */}
       {isOpen && menu && (
-        <div className="absolute bottom-full left-0 z-30 mb-2 max-sm:fixed max-sm:inset-x-3 max-sm:bottom-16 max-sm:mb-0 animate-popover-in">
+        <div className="device-popover absolute bottom-full left-0 z-30 mb-2 max-lg:mb-4 max-sm:fixed max-sm:inset-x-3 max-sm:bottom-20 max-sm:mb-0 animate-popover-in">
           <span
             aria-hidden="true"
-            className="absolute -bottom-1 left-5 hidden h-2.5 w-2.5 rotate-45 rounded-[2px] border-b border-r border-border-default bg-elevated sm:block"
+            className="device-popover-caret absolute -bottom-1 left-5 hidden h-2.5 w-2.5 rotate-45 rounded-[2px] border-b border-r border-border-default bg-elevated sm:block"
           />
           {menu}
         </div>
@@ -468,7 +468,7 @@ export function TransportBar({
   return (
     <footer
       ref={transportRef}
-      className="transport-bar h-12 sm:h-14 border-t border-border-subtle bg-surface/95 backdrop-blur-sm flex items-center justify-between px-3 sm:px-6 shrink-0 z-20 relative"
+      className="relative h-16 lg:h-14 border-t border-border-subtle bg-surface/95 backdrop-blur-sm flex items-center justify-between px-3 sm:px-6 shrink-0 z-20 max-lg:grid max-lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] max-lg:items-center max-lg:gap-2"
       aria-label="Recording controls"
     >
       {/* UX-002: a disabled Start used to be a dimmed circle whose only
@@ -500,25 +500,20 @@ export function TransportBar({
       {/* Left: the honest clock (idle everywhere, elapsed next to Stop at lg+)
           then the secondary device chips. The primary action is centred in its
           own zone, so it reads as the one dominant control at every width. */}
-      <div className="flex-1 min-w-0 flex items-center gap-1.5 md:gap-2 lg:gap-3">
+      {/* Below lg this zone collapses into the bar's own grid (`contents`), so
+          the clock, the primary action and the device chips become three
+          columns with the primary exactly centred. At lg+ the original
+          three-zone flex bar is untouched. */}
+      <div className="flex-1 min-w-0 flex items-center gap-1.5 md:gap-2 lg:gap-3 max-lg:contents">
         <RecordingAnnouncer recordingState={recordingState} elapsedSeconds={elapsedSeconds} />
 
-        {/* Idle clock: phones (<md) and desktop (≥lg). At 768–1023 the labelled
-            chips need the width and an idle clock adds nothing. */}
+        {/* Idle clock: the quiet 00:00 stays on the left at every width. The
+            "Ready to record" caption was removed — it duplicated the state the
+            Record button already shows and crowded the phones. */}
         {isIdle && !hasRecording && (
-          <div className="flex md:hidden lg:flex flex-col min-w-0 shrink-0">
+          <div className="flex flex-col min-w-0 shrink-0 max-lg:col-start-1 max-lg:row-start-1 max-lg:justify-self-start">
             <span className="text-[15px] font-mono font-semibold text-text-secondary tabular-nums">00:00</span>
-            {/* The long label collided with the camera chip in the narrow
-                three-zone bar that appears when the 300px desktop inspector is
-                open at 1280px. The container query swaps in the short word
-                there; assistive tech always gets the full phrase. */}
-            <span className="sr-only">Ready to record</span>
-            <span aria-hidden="true" className="transport-ready-full text-[10px] leading-none text-text-muted whitespace-nowrap">
-              Ready to record
-            </span>
-            <span aria-hidden="true" className="transport-ready-short hidden text-[10px] leading-none text-text-muted whitespace-nowrap">
-              Ready
-            </span>
+            <span className="sr-only">Recording time</span>
           </div>
         )}
 
@@ -549,7 +544,7 @@ export function TransportBar({
             tray is the only decision surface; the transport keeps its height so
             the canvas never jumps. */}
         {!hasRecording && (
-          <>
+          <div className="flex items-center gap-1.5 md:gap-2 lg:gap-3 max-lg:col-start-3 max-lg:row-start-1 max-lg:justify-self-end">
             {/* Mic chip — toggle is the primary tap; the chevron opens the device
                 list (replaces the permanent selects above the canvas). During an
                 active take or countdown, switching a device would tear the stream
@@ -605,14 +600,15 @@ export function TransportBar({
               disabled={devicePickUnavailable || !captureActive}
               menu={cameraMenu}
             />
-          </>
+          </div>
         )}
       </div>
 
       {/* Center: the primary action — exact centre of the bar. Secondary
-          pause/stop sits to its right from sm up (absolutely, so the primary
-          never drifts off centre); below sm it stays in flow for thumb reach. */}
-      <div className="relative flex items-center justify-center gap-2 sm:gap-3 shrink-0">
+          pause/stop is absolutely positioned so the primary never drifts off
+          centre: to its right from sm up, to its left on phones (the device
+          chips own the right edge there). */}
+      <div className="relative flex items-center justify-center gap-2 sm:gap-3 shrink-0 max-lg:col-start-2 max-lg:row-start-1 max-lg:justify-self-center max-lg:z-10">
         {/* In review, Export is the primary action and Retake lives on the
             review surface. Leaving a second Record here duplicated the action
             and implied the finished take could be overwritten in place. */}
@@ -635,20 +631,35 @@ export function TransportBar({
           <button
             onClick={handleStopClick}
             className={`flex items-center justify-center gap-2 h-11 sm:h-12 rounded-full text-white transition-[background-color,box-shadow,transform] duration-200 shadow-lg active:scale-[0.98] shrink-0 animate-scale-in ${
-              // On phones the armed state expands into a visible "Stop?" so the
-              // first tap never looks like it did nothing. Pause is hidden
-              // while armed for the same reason: the next tap is a Stop.
-              confirmStop ? 'px-4 sm:px-6 bg-recording ring-2 ring-white/30 shadow-recording/40' : 'w-11 px-0 sm:w-auto sm:px-6 bg-recording ring-1 ring-white/10 hover:bg-red-600 shadow-recording/30'
+              // The armed state never widens the pill on phones: the device
+              // chips own the bar's right edge there, so an inline "Stop?" would
+              // run into them at 375px. The visible cue moves to the secondary
+              // slot on the left instead (see below), keeping the red target
+              // exactly centred and 44px wide.
+              confirmStop ? 'w-11 px-0 sm:w-auto sm:px-6 bg-recording ring-2 ring-white/30 shadow-recording/40' : 'w-11 px-0 sm:w-auto sm:px-6 bg-recording ring-1 ring-white/10 hover:bg-red-600 shadow-recording/30'
             }`}
             aria-label="Stop Recording"
           >
             <StopIcon className="w-4 sm:w-5 h-4 sm:h-5" />
             {confirmStop ? (
-              <span className="text-[13px] font-bold tracking-[0.02em]">Stop?</span>
+              <span className="hidden sm:inline text-[13px] font-bold tracking-[0.02em]">Stop?</span>
             ) : (
               <span className="hidden sm:inline text-[14px] font-semibold tracking-[0.02em]">Stop</span>
             )}
           </button>
+        )}
+
+        {/* Armed confirmation on phones: Pause has just vacated this slot, so
+            the eye is already here. Plain text rather than a pill so it never
+            reads as a third tap target, and it stays inside the bar instead of
+            floating over the canvas on short viewports. */}
+        {isRecording && confirmStop && (
+          <span
+            aria-hidden="true"
+            className="sm:hidden absolute top-1/2 right-full mr-2 -translate-y-1/2 whitespace-nowrap text-[13px] font-bold tracking-[0.02em] text-white pointer-events-none"
+          >
+            Stop?
+          </span>
         )}
 
         {isPaused && (
@@ -670,16 +681,20 @@ export function TransportBar({
         {isCountdown && (
           <button
             onClick={onCancelCountdown}
-            className="flex items-center justify-center gap-1.5 h-11 sm:h-12 px-4 rounded-full bg-white/[0.06] ring-1 ring-white/[0.08] text-text-secondary hover:text-text-primary hover:bg-white/[0.09] transition-colors shrink-0"
+            className="flex items-center justify-center gap-1.5 h-11 sm:h-12 px-4 max-sm:px-2.5 max-sm:min-w-[44px] rounded-full bg-white/[0.06] ring-1 ring-white/[0.08] text-text-secondary hover:text-text-primary hover:bg-white/[0.09] transition-colors shrink-0"
             aria-label="Stop countdown"
           >
             <StopIcon className="w-4 h-4" />
-            <span className="text-[12px] font-medium">Cancel</span>
+            {/* Icon-only on phones: the labelled pill would collide with the
+                device chips now sitting at the right edge of the bar. */}
+            <span className="max-sm:hidden text-[12px] font-medium">Cancel</span>
           </button>
         )}
 
-        {/* Pause (secondary) — right of the primary from sm up. Absolutely
-            positioned there so the red Stop stays exactly centred. */}
+        {/* Pause (secondary) — right of the primary only on desktop; to its
+            LEFT below lg: the device chips sit at the bar's right edge there,
+            so a right-hand pause would run into them. Absolutely positioned
+            either way so the red Stop stays exactly centred. */}
         {isRecording && !confirmStop && (
           <button
             onClick={onPause}
@@ -687,9 +702,8 @@ export function TransportBar({
             // While Stop is armed ("Stop?") the NEXT click anywhere in this
             // cluster means "stop" — letting Pause take that click would
             // stop the take from a button that says Pause. It is removed
-            // rather than merely disabled, which also frees the width the
-            // expanded mobile Stop needs.
-            className="flex items-center justify-center gap-1.5 px-2.5 rounded-full transition-colors min-w-[44px] min-h-[44px] shrink-0 text-text-muted hover:text-text-primary hover:bg-white/[0.06] sm:absolute sm:left-full sm:top-1/2 sm:-translate-y-1/2 sm:ml-1.5"
+            // rather than merely disabled so a second tap can only mean Stop.
+            className="absolute top-1/2 right-full mr-1.5 -translate-y-1/2 flex items-center justify-center gap-1.5 px-2.5 rounded-full transition-colors min-w-[44px] min-h-[44px] shrink-0 text-text-muted hover:text-text-primary hover:bg-white/[0.06] lg:left-full lg:right-auto lg:ml-1.5 lg:mr-0"
           >
             <PauseIcon className="w-4 h-4" />
           </button>
@@ -701,7 +715,7 @@ export function TransportBar({
             // Stable accessible name: the visible label arms Stop → Confirm,
             // but screen readers always hear "Stop Recording".
             aria-label="Stop Recording"
-            className={`flex items-center justify-center gap-1.5 px-2.5 rounded-full transition-colors min-w-[44px] min-h-[44px] shrink-0 sm:absolute sm:left-full sm:top-1/2 sm:-translate-y-1/2 sm:ml-1.5 ${
+            className={`absolute top-1/2 right-full mr-1.5 -translate-y-1/2 flex items-center justify-center gap-1.5 px-2.5 rounded-full transition-colors min-w-[44px] min-h-[44px] shrink-0 lg:left-full lg:right-auto lg:ml-1.5 lg:mr-0 ${
               confirmStop
                 ? 'text-recording bg-recording/10 ring-1 ring-recording/30'
                 : 'text-text-muted hover:text-recording hover:bg-recording/10'
@@ -716,7 +730,7 @@ export function TransportBar({
       {/* Right zone: an empty mirror of the left zone. `flex-1` on both sides
           is what keeps the primary action optically centred in the bar.
           Settings has a single entry point in the header. */}
-      <div className="ml-2 sm:ml-0 shrink-0 sm:flex-1 min-w-0" aria-hidden="true" />
+      <div className="ml-2 sm:ml-0 shrink-0 sm:flex-1 min-w-0 max-lg:hidden" aria-hidden="true" />
     </footer>
   );
 }

@@ -442,39 +442,32 @@ input[type="range"]::-moz-range-thumb {
   -webkit-backdrop-filter: blur(4px);
 }
 
-/* Transport readiness label vs. the centre Record button.
-   The bar gives its left and right zones equal flex space so Record stays
-   optically centred. When the 300px desktop inspector is open at 1280px the
-   transport is only ~780px wide; the full "Ready to record" label made the
-   camera chip overflow into the centred Record button and swallow its chevron
-   clicks. Container queries key off the transport's real width, not the
-   viewport, so the short form appears only in that squeeze. */
-.transport-bar {
-  container-type: inline-size;
-  container-name: transport;
+/* Studio shell — app bar + canvas + transport must all fit the VISIBLE
+   viewport so a phone never scrolls to reach the Record button. `dvh` follows
+   the collapsing browser toolbar; 100vh (the large/viewport-height value) is
+   what made the page taller than the screen while the address bar was shown.
+   The safe-area subtraction matches the insets <body> already pads, so the
+   shell cannot overflow by the notch. On desktop dvh === vh and the insets are
+   0, so the value is identical to the previous `h-screen`. */
+.studio-shell {
+  height: 100vh;
+  height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
 }
 
-/* On phones the full phrase is wider than the gap between 00:00 and the mic
-   chip. Let it wrap under the timer instead of running into the control. */
-.transport-ready-full {
-  max-width: 3.25rem;
-  white-space: normal;
-  line-height: 1.05;
-}
-
-@container transport (min-width: 841px) {
-  .transport-ready-full {
-    max-width: none;
-    white-space: nowrap;
+/* Below lg the mic/camera chips sit at the RIGHT edge of the transport (the
+   primary action is centred between the clock and them), so their popover
+   must open leftwards or it would run off a tablet's right edge. Below sm the
+   popover is a fixed bottom sheet and these overrides do not apply; at lg the
+   chips return to the left cluster and keep the original right-opening menu. */
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .device-popover {
+    left: auto;
+    right: 0;
   }
-}
 
-@container transport (min-width: 700px) and (max-width: 840px) {
-  .transport-ready-full {
-    display: none;
-  }
-  .transport-ready-short {
-    display: inline;
+  .device-popover-caret {
+    left: auto;
+    right: 1.25rem;
   }
 }
 

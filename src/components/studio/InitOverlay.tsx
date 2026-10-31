@@ -65,7 +65,7 @@ export function InitOverlay({ onInitialize, status, errorMessage, permissionBloc
                 : 'We could not access your camera or microphone. Choose Retry to try again.')
             : isLoading
             ? 'Allow camera and microphone access when your browser asks.'
-            : 'Enable your camera and microphone to begin recording. Everything stays on your device.'}
+            : 'Enable your camera and microphone to begin recording.'}
         </p>
         <Button
           variant="primary"

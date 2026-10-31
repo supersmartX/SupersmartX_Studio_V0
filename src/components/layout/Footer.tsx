@@ -53,8 +53,7 @@ export function Footer({ showShortcuts = true, onShowShortcuts, className = '' }
         )}
       </div>
       <div className="flex items-center gap-3">
-        <span className="hidden sm:inline">Everything stays on your device</span>
-        <span className="sm:hidden">Private by design</span>
+        <span>Private by design</span>
       </div>
     </footer>
   );
