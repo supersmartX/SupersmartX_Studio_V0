@@ -17,6 +17,7 @@ import {
   probeCashfreeOrder,
   terminateCashfreeOrder,
 } from '@/lib/cashfree-order-lifecycle';
+import { CashfreeRequestError, fetchCashfreeOrder } from '@/lib/cashfree-fulfillment';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -33,6 +34,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('classifyGatewayOrder', () => {
@@ -81,6 +83,68 @@ describe('probeCashfreeOrder', () => {
     expect(probe.kind).toBe('uncertain');
   });
 
+  it('describes a rejected probe without exposing credentials or the body', async () => {
+    vi.stubEnv('CASHFREE_API_VERSION', '2023-08-01');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error_code: 'authentication_error',
+              description: 'Invalid credentials test-secret-key',
+              source: 'api',
+              reason: 'auth',
+            }),
+            { status: 401, headers: { 'Content-Type': 'application/json', 'x-request-id': 'req-123' } },
+          ),
+      ),
+    );
+
+    const probe = await probeCashfreeOrder('sxs-1');
+
+    expect(probe.kind).toBe('uncertain');
+    if (probe.kind !== 'uncertain') return;
+
+    expect(probe.reason).toBe('http_401');
+    expect(probe.diagnostics).toMatchObject({
+      host: 'sandbox.cashfree.com',
+      cashfreeEnv: 'sandbox',
+      apiVersion: '2023-08-01',
+      apiVersionSource: 'env',
+      status: 401,
+      bodyKind: 'json',
+      gatewayErrorCode: 'authentication_error',
+      gatewayMessage: 'Invalid credentials [REDACTED]',
+      gatewayRequestId: 'req-123',
+    });
+    const logged = JSON.stringify(probe.diagnostics);
+    expect(logged).not.toContain('test-secret-key');
+    expect(logged).not.toContain('test-app-id');
+  });
+
+  it('keeps the plain status reason when the error body is not JSON', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response('<html>blocked</html>', {
+            status: 401,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      ),
+    );
+
+    const probe = await probeCashfreeOrder('sxs-1');
+
+    expect(probe.kind).toBe('uncertain');
+    if (probe.kind !== 'uncertain') return;
+
+    expect(probe.reason).toBe('http_401');
+    expect(probe.diagnostics).toMatchObject({ status: 401, bodyKind: 'non_json' });
+    expect(probe.diagnostics?.gatewayMessage).toBeUndefined();
+  });
+
   it('treats a transport failure as uncertainty', async () => {
     vi.stubGlobal(
       'fetch',
@@ -102,6 +166,49 @@ describe('probeCashfreeOrder', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>', { status: 200 })));
 
     expect((await probeCashfreeOrder('sxs-1')).kind).toBe('uncertain');
+  });
+});
+
+describe('fetchCashfreeOrder', () => {
+  it('attaches the same sanitized diagnostics to a refused read', async () => {
+    vi.stubEnv('CASHFREE_API_VERSION', '2023-08-01');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error_code: 'authentication_error',
+              description: 'Invalid credentials test-secret-key',
+            }),
+            { status: 401, headers: { 'Content-Type': 'application/json', 'x-request-id': 'req-456' } },
+          ),
+      ),
+    );
+
+    const error = await fetchCashfreeOrder('sxs-1').catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(CashfreeRequestError);
+    const err = error as CashfreeRequestError;
+    expect(err.message).toBe('Failed to fetch order status: 401');
+    expect(err.status).toBe(401);
+    expect(err.diagnostics).toMatchObject({
+      host: 'sandbox.cashfree.com',
+      cashfreeEnv: 'sandbox',
+      apiVersion: '2023-08-01',
+      apiVersionSource: 'env',
+      status: 401,
+      bodyKind: 'json',
+      gatewayErrorCode: 'authentication_error',
+      gatewayRequestId: 'req-456',
+    });
+    expect(JSON.stringify(err.diagnostics)).not.toContain('test-secret-key');
+  });
+
+  it('still resolves with the order when the read succeeds', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(ORDER)));
+
+    await expect(fetchCashfreeOrder('sxs-1')).resolves.toEqual(ORDER);
   });
 });
 

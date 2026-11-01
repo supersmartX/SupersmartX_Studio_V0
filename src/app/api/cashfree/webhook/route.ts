@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { findPendingOrder, findUserById } from '@/lib/db';
 import {
+  CashfreeRequestError,
   fetchCashfreeOrder,
   fulfillPaidOrder,
   fulfillmentErrorMessage,
@@ -208,7 +209,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'ok' });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('payment.webhook_failed', { route: '/api/cashfree/webhook', requestId, errorCode: msg.slice(0, 120) });
+    logger.error('payment.webhook_failed', {
+      route: '/api/cashfree/webhook',
+      requestId,
+      errorCode: msg.slice(0, 120),
+      ...(error instanceof CashfreeRequestError ? (error.diagnostics ?? {}) : {}),
+    });
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 }

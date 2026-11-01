@@ -70,6 +70,119 @@ export function isCashfreeConfigured(): boolean {
   return Boolean(process.env.CASHFREE_APP_ID && process.env.CASHFREE_SECRET_KEY);
 }
 
+/** The version actually sent, and whether it came from configuration or the fallback. */
+export function apiVersion(): { value: string; source: 'env' | 'fallback' } {
+  const fromEnv = process.env.CASHFREE_API_VERSION;
+  return fromEnv
+    ? { value: fromEnv, source: 'env' }
+    : { value: CASHFREE_API_VERSION_FALLBACK, source: 'fallback' };
+}
+
+/**
+ * What a rejected gateway call may say about itself, without exposing a credential.
+ *
+ * Read only from an HTTP answer and attached to a still-unclassified result or
+ * error: no caller's decision is derived from it, the log becomes actionable.
+ */
+export interface GatewayProbeDiagnostics {
+  host: string;
+  cashfreeEnv: CashfreeEnv;
+  apiVersion: string;
+  apiVersionSource: 'env' | 'fallback';
+  status: number;
+  bodyKind: 'json' | 'non_json' | 'empty';
+  gatewayErrorCode?: string;
+  gatewayMessage?: string;
+  gatewayRequestId?: string;
+}
+
+const GATEWAY_TEXT_LIMIT = 120;
+const GATEWAY_BODY_LIMIT = 500;
+
+/** Bounded, credential-free text. Never returns a raw body. */
+function scrubGatewayText(value: string): string {
+  let out = value;
+  // Defensive: if a rejection ever echoes a credential, it must not reach the log.
+  for (const secret of [process.env.CASHFREE_APP_ID, process.env.CASHFREE_SECRET_KEY]) {
+    if (secret && secret.length >= 6) out = out.split(secret).join('[REDACTED]');
+  }
+  return out.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, GATEWAY_TEXT_LIMIT);
+}
+
+function errorText(body: unknown, keys: readonly string[]): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  for (const key of keys) {
+    const value = (body as Record<string, unknown>)[key];
+    if (typeof value === 'string' && value.trim()) return scrubGatewayText(value);
+  }
+  return undefined;
+}
+
+/**
+ * Describes a rejection from whitelisted fields only. Accepts both documented
+ * shapes (`error_code`/`description`/`reason`, and `code`/`message`), keeps the
+ * public request id if one is returned, and drops everything else.
+ */
+export async function describeGatewayFailure(
+  response: Response,
+  baseUrl: string,
+): Promise<GatewayProbeDiagnostics> {
+  const version = apiVersion();
+  const diagnostics: GatewayProbeDiagnostics = {
+    host: new URL(baseUrl).hostname,
+    cashfreeEnv: getCashfreeEnv(),
+    apiVersion: version.value,
+    apiVersionSource: version.source,
+    status: response.status,
+    bodyKind: 'empty',
+  };
+
+  const requestId =
+    response.headers.get('x-request-id') ??
+    response.headers.get('x-cf-request-id') ??
+    response.headers.get('request-id');
+
+  const raw = (await response.text().catch(() => '')).slice(0, GATEWAY_BODY_LIMIT);
+  if (!raw) {
+    return { ...diagnostics, gatewayRequestId: requestId ? scrubGatewayText(requestId) : undefined };
+  }
+
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return {
+      ...diagnostics,
+      bodyKind: 'non_json',
+      gatewayRequestId: requestId ? scrubGatewayText(requestId) : undefined,
+    };
+  }
+
+  return {
+    ...diagnostics,
+    bodyKind: 'json',
+    gatewayErrorCode: errorText(body, ['error_code', 'code']),
+    gatewayMessage: errorText(body, ['description', 'reason', 'message']),
+    gatewayRequestId: requestId ? scrubGatewayText(requestId) : undefined,
+  };
+}
+
+/**
+ * A gateway read that was refused. Carries the sanitized description of the
+ * rejection so the caller's failure log names a cause instead of a bare status.
+ */
+export class CashfreeRequestError extends Error {
+  readonly status: number;
+  readonly diagnostics?: GatewayProbeDiagnostics;
+
+  constructor(message: string, status: number, diagnostics?: GatewayProbeDiagnostics) {
+    super(message);
+    this.name = 'CashfreeRequestError';
+    this.status = status;
+    this.diagnostics = diagnostics;
+  }
+}
+
 export interface CashfreeOrder {
   order_id: string;
   order_status?: string;
@@ -90,18 +203,24 @@ export interface PendingOrder {
 
 /** Authoritative order state straight from Cashfree — never from client input. */
 export async function fetchCashfreeOrder(orderId: string): Promise<CashfreeOrder> {
-  const response = await fetch(`${cashfreeBaseUrl()}/orders/${encodeURIComponent(orderId)}`, {
+  const baseUrl = cashfreeBaseUrl();
+  const response = await fetch(`${baseUrl}/orders/${encodeURIComponent(orderId)}`, {
     method: 'GET',
     headers: {
       'x-client-id': process.env.CASHFREE_APP_ID || '',
       'x-client-secret': process.env.CASHFREE_SECRET_KEY || '',
-      'x-api-version': process.env.CASHFREE_API_VERSION || CASHFREE_API_VERSION_FALLBACK,
+      'x-api-version': apiVersion().value,
     },
     cache: 'no-store',
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch order status: ${response.status}`);
+    const diagnostics = await describeGatewayFailure(response, baseUrl).catch(() => undefined);
+    throw new CashfreeRequestError(
+      `Failed to fetch order status: ${response.status}`,
+      response.status,
+      diagnostics,
+    );
   }
   return response.json() as Promise<CashfreeOrder>;
 }

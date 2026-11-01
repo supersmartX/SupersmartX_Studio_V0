@@ -275,6 +275,7 @@ async function reconcileCreating(
       requestId: ctx.requestId,
       orderId: row.orderId,
       reason: probe.reason,
+      ...(probe.diagnostics ?? {}),
     });
     return { state: 'uncertain', row, note: probe.reason };
   }
@@ -327,6 +328,7 @@ async function reconcileOpen(
       requestId: ctx.requestId,
       orderId: row.orderId,
       reason: probe.reason,
+      ...(probe.diagnostics ?? {}),
     });
     return { state: 'uncertain', row, note: probe.reason };
   }

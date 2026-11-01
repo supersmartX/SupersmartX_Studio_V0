@@ -1,7 +1,9 @@
 import {
-  CASHFREE_API_VERSION_FALLBACK,
+  apiVersion,
   cashfreeBaseUrl,
+  describeGatewayFailure,
   type CashfreeOrder,
+  type GatewayProbeDiagnostics,
 } from './cashfree-fulfillment';
 import { GATEWAY_TIMEOUT_MS, TERMINATION_POLL_ATTEMPTS, TERMINATION_POLL_DELAY_MS, classifyGatewayOrder } from './pending-order-status';
 
@@ -20,25 +22,31 @@ function gatewayHeaders(): Record<string, string> {
     'Content-Type': 'application/json',
     'x-client-id': process.env.CASHFREE_APP_ID || '',
     'x-client-secret': process.env.CASHFREE_SECRET_KEY || '',
-    'x-api-version': process.env.CASHFREE_API_VERSION || CASHFREE_API_VERSION_FALLBACK,
+    'x-api-version': apiVersion().value,
   };
 }
 
 export type GatewayProbe =
   | { kind: 'found'; order: CashfreeOrder }
   | { kind: 'not_found' }
-  | { kind: 'uncertain'; reason: string };
+  | { kind: 'uncertain'; reason: string; diagnostics?: GatewayProbeDiagnostics };
 
 export async function probeCashfreeOrder(orderId: string): Promise<GatewayProbe> {
   try {
-    const response = await fetch(`${cashfreeBaseUrl()}/orders/${encodeURIComponent(orderId)}`, {
+    const baseUrl = cashfreeBaseUrl();
+    const response = await fetch(`${baseUrl}/orders/${encodeURIComponent(orderId)}`, {
       method: 'GET',
       headers: gatewayHeaders(),
       cache: 'no-store',
       signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS),
     });
     if (response.status === 404) return { kind: 'not_found' };
-    if (!response.ok) return { kind: 'uncertain', reason: `http_${response.status}` };
+    if (!response.ok) {
+      // Best effort: failing to describe a rejection must never replace its
+      // reason or turn it into anything other than uncertainty.
+      const diagnostics = await describeGatewayFailure(response, baseUrl).catch(() => undefined);
+      return { kind: 'uncertain', reason: `http_${response.status}`, diagnostics };
+    }
     const body = (await response.json()) as CashfreeOrder;
     if (!body || typeof body.order_id !== 'string') return { kind: 'uncertain', reason: 'unreadable_body' };
     return { kind: 'found', order: body };

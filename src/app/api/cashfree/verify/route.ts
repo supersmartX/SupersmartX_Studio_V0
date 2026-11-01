@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { findPendingOrder, findPendingOrderClaim, findUserById } from '@/lib/db';
 import {
+  CashfreeRequestError,
   fetchCashfreeOrder,
   fulfillPaidOrder,
   fulfillmentErrorMessage,
@@ -250,7 +251,12 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('payment.verify_failed', { route: '/api/cashfree/verify', requestId, errorCode: msg.slice(0, 120) });
+    logger.error('payment.verify_failed', {
+      route: '/api/cashfree/verify',
+      requestId,
+      errorCode: msg.slice(0, 120),
+      ...(error instanceof CashfreeRequestError ? (error.diagnostics ?? {}) : {}),
+    });
     return NextResponse.json({ error: 'Verification failed' }, { status: 500 });
   }
 }
