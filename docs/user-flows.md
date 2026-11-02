@@ -132,7 +132,7 @@ Journey
 - User clicks Download to save the take (requires authentication via `AuthModal` if not signed in).
 - User clicks Share to copy or publish the studio link via `useShare` (Web Share API with clipboard fallback).
 - User can click "Practice Again" to reset and re-record.
-- `DiscordFeedback` component available for community feedback.
+- Once a download starts, `PostDownloadEngagement` offers the Discord community and, for Free users, the Creator upgrade flow.
 
 ↓
 
@@ -186,7 +186,7 @@ User either recovers and returns to the studio, or pauses and returns later with
 | Swipe | Swipe-to-dismiss on modals (Phase 5 / F-06 correction — it IS implemented). | `useModalAnimation` exposes `swipeHandlers` (touch start/end) applied to `AuthModal`, `WelcomeModal`, `PricingModal`, `ExportModal`, and the shared `Modal`; other mobile interaction relies on buttons and taps. |
 | Long Press | Not implemented in the current codebase. | No long-press handlers exist; future support should include immediate press-state feedback and confirmation. |
 | Loading | Camera initialization uses `useCamera` status `requesting` and `InitOverlay` displays retry/error messaging. `VideoPlayer` shows a spinner and "Loading..." while metadata loads. | Overlay panels, inline spinners, and descriptive loading text keep users informed during waits. |
-| Success | Share and feedback actions trigger `showToast`. `DiscordFeedback` and `useShare` emit success messages. Payment success redirects to `/studio?payment=success`. | `Toast` displays brief confirmation with polite message timing. Buttons and icons also show active/ready state. |
+| Success | Share actions trigger `showToast`; `useShare` emits success messages. Payment success redirects to `/studio?payment=success`. | `Toast` displays brief confirmation with polite message timing. Buttons and icons also show active/ready state. |
 | Error | `useCamera` maps permission/device failures into explicit states; `InitOverlay` shows `errorMessage`; `ExportModal` surfaces playback validation errors; `recorder.onerror` saves partial recordings. | Error banners, red text/backgrounds, and retry labels provide clear recovery guidance. |
 | Disabled | Buttons use disabled styling and behavior (`disabled:opacity-40 disabled:pointer-events-none`, `disabled:cursor-not-allowed`). `Header` export button is disabled when no recording exists. | Controls look inactive and cannot be clicked, making unavailable actions obvious. |
 | Feedback Timing | All interactions provide immediate styling or toast feedback on click or keyboard action. Toasts auto-dismiss after 2700ms. | Immediate and clear feedback is delivered consistently, satisfying the design rule. |
@@ -203,7 +203,7 @@ User either recovers and returns to the studio, or pauses and returns later with
 | Device Selection | Studio screen with `DeviceSelectorBar` | `DeviceSelectorBar`, `IconRail`, `InspectorPanel`, `Toast` | Open device selectors from the studio interface; choose camera/mic from dropdown; refresh devices if hardware changes. |
 | Teleprompter Setup | Studio screen with `InspectorPanel` + `TeleprompterOverlay` | `InspectorPanel`, `TeleprompterOverlay`, `InspirationLoader`, `IconRail` Teleprompter button, `Toast` | Open teleprompter via `IconRail`; use the inspector drawer for script editing and teleprompter settings. |
 | Studio Recording | Core Studio screen | `CameraPreview`, `TransportBar`, `RecordingBadge`, `Timer`, `FocalGuideway`, `CountdownOverlay`, `Canvas`, `Toast` | Start/stop recording from `TransportBar`; use mic toggle and camera controls in `IconRail`. |
-| Export or Share | `ExportModal` dialog | `ExportModal`, `VideoPlayer`, `DiscordFeedback`, `Toast`, `Modal` | Open from `Header` export/share actions or automatically after recording; download or share within the modal. |
+| Export or Share | `ExportModal` dialog | `ExportModal`, `VideoPlayer`, `PostDownloadEngagement`, `Toast`, `Modal` | Open from `Header` export/share actions or automatically after recording; download or share within the modal. The engagement popup appears once a download has started. |
 | Support & Payment | `PricingModal` dialog | `PricingModal`, `Toast`, `Modal` | Open from contextual upgrade prompts (locked platform, daily limit, watermark, teleprompter limit). |
 | Recovery, Retry, and Abandonment | Studio screen with `InitOverlay` / media error state | `InitOverlay`, `useCamera`, `Toast` | Detect camera/mic initialization failures in `useCamera`; prompt retry via `InitOverlay` and preserve script state. |
 

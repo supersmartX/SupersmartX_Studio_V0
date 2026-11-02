@@ -301,14 +301,12 @@ test.describe('STATE 1 — Anonymous Free', () => {
     const exportButton = dialog.getByRole('button', { name: /^Export YouTube · 1280×720$/ });
     await expect(exportButton).toBeVisible();
 
-    // UX-004 (audit P1): the Discord/feedback block must never sit in the task
-    // dialog under the primary Export CTA. `2e29d28` gated it to
-    // `{step === 'done' && …}`, but nothing asserted that placement, so a
-    // refactor could move it back and the suite would stay green.
-    // The link is a stable semantic anchor (DiscordFeedback.tsx:60-68).
+    // The permanent Discord block was removed from the export sheet: the
+    // community ask now belongs to the post-download popup, never to the task
+    // dialog.
     await expect(
-      dialog.getByRole('link', { name: 'Join Discord Server' }),
-      'the Discord/feedback block must be absent from the export TASK step',
+      dialog.getByRole('link', { name: /Join Discord/ }),
+      'the Discord block must be absent from the export TASK step',
     ).toHaveCount(0);
 
     // Export
@@ -316,13 +314,13 @@ test.describe('STATE 1 — Anonymous Free', () => {
     await expect(dialog.getByRole('heading', { name: 'Exporting...' })).toBeVisible({ timeout: 20_000 });
     await expect(dialog.getByRole('heading', { name: 'Video exported' })).toBeVisible({ timeout: 180_000 });
 
-    // UX-004 (audit P1): …and it IS present once the export succeeds — the
-    // audit's own chosen placement. Asserting both halves pins the gate to
-    // `step === 'done'` rather than merely proving the block exists somewhere.
+    // …and it stays out of the sheet after a successful export too: the popup
+    // appears only once a download has actually started.
     await expect(
-      dialog.getByRole('link', { name: 'Join Discord Server' }),
-      'the Discord/feedback block must be present on the export SUCCESS step',
-    ).toBeVisible();
+      dialog.getByRole('link', { name: /Join Discord/ }),
+      'the Discord block must not be inline in the export SUCCESS step',
+    ).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Keep creating with SupersmartX' })).toHaveCount(0);
 
     // The composition is stated exactly as downloaded.
     await expect(dialog.getByText('YouTube · 1280 × 720 · HD')).toBeVisible();
@@ -346,6 +344,18 @@ test.describe('STATE 1 — Anonymous Free', () => {
     expect(filePath, 'downloaded file must exist on disk').toBeTruthy();
     const { size } = await stat(filePath!);
     expect(size, 'downloaded file must not be empty').toBeGreaterThan(1000);
+
+    // ENGAGEMENT POPUP — raised only because the download has started. A guest
+    // is a Free user here, so it offers both the community and the upgrade.
+    const engagement = page.getByRole('dialog', { name: 'Keep creating with SupersmartX' });
+    await expect(engagement).toBeVisible({ timeout: 10_000 });
+    await expect(engagement.getByRole('link', { name: /Join Discord/ })).toBeVisible();
+    await expect(engagement.getByRole('button', { name: 'Explore Creator Pro' })).toBeVisible();
+
+    // Dismissing it must leave the already-downloaded file untouched.
+    await engagement.getByRole('button', { name: 'Close' }).click();
+    await expect(engagement).toHaveCount(0);
+    expect((await stat(filePath!)).size).toBe(size);
 
     // Still no sign-in prompt after the download.
     await expect(page.getByRole('dialog', { name: /Create New Profile|Log in or create account|Enter your email/ })).toHaveCount(0);

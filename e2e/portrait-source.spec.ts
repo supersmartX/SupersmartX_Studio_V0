@@ -430,6 +430,19 @@ test('portrait source keeps composition across review and export', async ({ page
       const dl = await dlPromise;
       const dlPath = await dl.path();
       const bytes = fs.readFileSync(dlPath!) as Buffer;
+
+      // The post-download engagement popup appears once the file has started
+      // downloading — and only on the first download inside the weekly cap, so
+      // later iterations of this loop must not wait for it.
+      const engagement = page.getByRole('dialog', { name: 'Keep creating with SupersmartX' });
+      const engagementShown = await engagement
+        .waitFor({ state: 'visible', timeout: 2_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (engagementShown) {
+        await engagement.getByRole('button', { name: 'Close' }).click();
+        await engagement.waitFor({ state: 'detached', timeout: 5_000 });
+      }
       expect(bytes.length, `portrait→${c.title}: MP4 must not be empty`).toBeGreaterThan(1000);
       const facts = await analyseMp4(page, bytes);
       expect({ w: facts.w, h: facts.h }, `portrait→${c.title}: coded dims must be preset`).toEqual({

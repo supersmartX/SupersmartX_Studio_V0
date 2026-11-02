@@ -1,5 +1,15 @@
 import type { TeleprompterSettings, AspectRatio, PlatformId, PlatformPreset } from '@/types';
 
+/**
+ * Official community invite, shared by the sidebar entry and the post-download
+ * popup so the two can never point at different servers. `NEXT_PUBLIC_` is
+ * inlined at build time; the published invite is the default so a deployment
+ * that never sets the override still renders a working link instead of an
+ * empty one.
+ */
+export const DISCORD_COMMUNITY_URL =
+  process.env.NEXT_PUBLIC_DISCORD_INVITE_URL?.trim() || 'https://discord.gg/supersmartx';
+
 export const ASPECT_RATIO_PRESETS: Record<AspectRatio, { label: string; icon: string; width: number; height: number; cssClass: string }> = {
   '16:9': { label: 'Landscape', icon: '🖥️', width: 1920, height: 1080, cssClass: 'aspect-video' },
   '9:16': { label: 'Portrait', icon: '📱', width: 1080, height: 1920, cssClass: 'aspect-[9/16]' },

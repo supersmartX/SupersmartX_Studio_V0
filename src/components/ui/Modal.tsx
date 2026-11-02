@@ -16,6 +16,12 @@ interface ModalProps {
    * user; plain dialogs keep the default `dialog` role.
    */
   role?: 'dialog' | 'alertdialog';
+  /**
+   * Stacking layer. A dialog whose content is portalled to `<body>` cannot
+   * rely on DOM order to sit above another open dialog, so it must name a
+   * layer above `z-modal` (e.g. `z-onboard`, still below toasts).
+   */
+  zIndexClassName?: string;
 }
 
 /**
@@ -29,7 +35,7 @@ interface ModalProps {
  */
 const openModals: symbol[] = [];
 
-export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg', ariaLabel, role = 'dialog' }: ModalProps) {
+export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg', ariaLabel, role = 'dialog', zIndexClassName = 'z-modal' }: ModalProps) {
   const { isClosing, shouldRender, handleClose, swipeHandlers } = useModalAnimation(isOpen, onClose);
   const contentRef = useRef<HTMLDivElement>(null);
   // The control that opened this dialog, so closing returns focus to it.
@@ -130,7 +136,7 @@ export function Modal({ isOpen, onClose, children, title, maxWidth = 'max-w-lg',
 
   return (
     <div
-      className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`}
+      className={`fixed inset-0 ${zIndexClassName} isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`}
       role={role}
       aria-modal="true"
       aria-label={ariaLabel || title}

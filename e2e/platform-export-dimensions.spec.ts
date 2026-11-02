@@ -135,11 +135,13 @@ test('selected platform determines the encoded MP4 dimensions', async ({ page })
     );
 
     for (const c of CASES) {
-      // 1. Pick the platform in the review switcher.
-      await switcher(page).locator(`button[title="${c.title}"]`).click();
-      await expect(page.getByText(`${c.label} ·`, { exact: false }).first()).toBeVisible({
-        timeout: 10000,
-      });
+      // 1. Pick the platform in the review switcher. The selection is read back
+      // from the chip itself: the redesign dropped the old "label · ratio"
+      // caption under the preview, so asserting on that text would fail before
+      // the export this test actually covers.
+      const chip = switcher(page).locator(`button[title="${c.title}"]`);
+      await chip.click();
+      await expect(chip).toHaveAttribute('aria-pressed', 'true', { timeout: 10000 });
 
       // 2. Open the export sheet from the review Export button (drives
       // selectPlatform for the previewed platform).
@@ -176,6 +178,19 @@ test('selected platform determines the encoded MP4 dimensions', async ({ page })
       const dl = await dlPromise;
       const dlPath = await dl.path();
       expect(dlPath, `${c.title}: download must produce a file`).toBeTruthy();
+
+      // The post-download engagement popup appears once the file has started
+      // downloading — and only on the first download inside the weekly cap, so
+      // later iterations of this loop must not wait for it.
+      const engagement = page.getByRole('dialog', { name: 'Keep creating with SupersmartX' });
+      const engagementShown = await engagement
+        .waitFor({ state: 'visible', timeout: 2_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (engagementShown) {
+        await engagement.getByRole('button', { name: 'Close' }).click();
+        await engagement.waitFor({ state: 'detached', timeout: 5_000 });
+      }
       const bytes = require('fs').readFileSync(dlPath!) as Buffer;
       expect(bytes.length, `${c.title}: downloaded MP4 must not be empty`).toBeGreaterThan(1000);
       const dims = await decodeMp4Dims(page, bytes);

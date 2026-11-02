@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Progress } from '@/components/ui/Progress';
 import { DownloadIcon, CloseIcon, ShareIcon, ArrowLeftIcon } from '@/components/icons';
-import { DiscordFeedback } from './DiscordFeedback';
+import { PostDownloadEngagement } from './PostDownloadEngagement';
+import { shouldShowPostDownloadEngagement, markPostDownloadEngagementShown } from '@/lib/engagement';
 import { VideoPlayer } from '@/components/studio/VideoPlayer';
 import { generateFilename } from '@/services/download.service';
 import { setPendingDownload, stashPendingDownloadExportId } from '@/lib/auth-guard';
@@ -105,6 +106,9 @@ export function ExportModal({
   // shared dialog the rest of the Studio uses (no native window.confirm).
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   const [confirmPracticeOpen, setConfirmPracticeOpen] = useState(false);
+  // Post-download engagement is raised only after a download has started, and
+  // only when the weekly frequency cap allows it.
+  const [isEngagementOpen, setIsEngagementOpen] = useState(false);
 
   // Modal lifecycle: whenever the drawer closes, return to the first step and drop the
   // previous job's results. Otherwise the next take would reopen on a stale "Export complete"
@@ -118,6 +122,7 @@ export function ExportModal({
       setPendingAutoExport(false);
       setConfirmCancelOpen(false);
       setConfirmPracticeOpen(false);
+      setIsEngagementOpen(false);
     }
   }, [isVisible]);
 
@@ -219,6 +224,12 @@ export function ExportModal({
     void handleExport();
   }, [pendingAutoExport, exportConfig, handleExport]);
 
+  const openEngagement = useCallback(() => {
+    if (!shouldShowPostDownloadEngagement()) return;
+    markPostDownloadEngagementShown();
+    setIsEngagementOpen(true);
+  }, []);
+
   const handleDownload = useCallback(async () => {
     // Already downloading: a second click would start a duplicate fetch and a
     // second save dialog with no visible way to tell them apart.
@@ -246,6 +257,8 @@ export function ExportModal({
         // synchronous revoke can abort the download and orphan in-flight blob GETs.
         setTimeout(() => URL.revokeObjectURL(url), 10_000);
         showToast(`Downloaded: ${filename}`);
+        // The file is already on its way, so nothing below can delay it.
+        openEngagement();
         return;
       }
 
@@ -266,13 +279,16 @@ export function ExportModal({
         return;
       }
 
-      await doDownload();
+      const started = await doDownload();
+      if (started) openEngagement();
     } finally {
       setIsDownloading(false);
     }
 
-    async function doDownload() {
-      if (!exportResult?.exportId) return;
+    /** True only once the browser has actually been handed the file, so a
+        failed or blocked download can never be followed by the popup. */
+    async function doDownload(): Promise<boolean> {
+      if (!exportResult?.exportId) return false;
 
       try {
         const response = await fetch(`/api/download?exportId=${encodeURIComponent(exportResult.exportId)}`);
@@ -281,10 +297,10 @@ export function ExportModal({
           if (response.status === 401) {
             showToast('Your session expired. Sign in again to download.');
             onAuthRequired();
-            return;
+            return false;
           }
           showToast(errorData.error || 'Download failed. Please try again.');
-          return;
+          return false;
         }
         const { url } = await response.json();
         const a = document.createElement('a');
@@ -294,11 +310,13 @@ export function ExportModal({
         a.click();
         document.body.removeChild(a);
         showToast(`Downloaded: ${filename}`);
+        return true;
       } catch {
         showToast('Download failed. Please try again.');
+        return false;
       }
     }
-  }, [exportResult, isAuthenticated, userPlan, canDownloadFile, isDownloading, onAuthRequired, onDownloadLimitReached, showToast]);
+  }, [exportResult, isAuthenticated, userPlan, canDownloadFile, isDownloading, onAuthRequired, onDownloadLimitReached, showToast, openEngagement]);
 
   const handleBack = useCallback(() => {
     if (step === 'done') {
@@ -419,8 +437,9 @@ export function ExportModal({
     const onKeyDown = (e: KeyboardEvent) => {
       // A confirmation raised from inside this sheet owns both keys while it is
       // open; otherwise one Escape would dismiss the sheet behind it and one
-      // Tab would pull focus out of the alertdialog.
-      if (confirmCancelOpen || confirmPracticeOpen) return;
+      // Tab would pull focus out of the alertdialog. The post-download popup is
+      // a dialog in its own right and owns both keys the same way.
+      if (confirmCancelOpen || confirmPracticeOpen || isEngagementOpen) return;
       if (e.key === 'Escape') {
         closeModal();
         return;
@@ -448,7 +467,7 @@ export function ExportModal({
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [shouldRender, closeModal, confirmCancelOpen, confirmPracticeOpen]);
+  }, [shouldRender, closeModal, confirmCancelOpen, confirmPracticeOpen, isEngagementOpen]);
 
   if (!shouldRender) return null;
 
@@ -754,14 +773,24 @@ export function ExportModal({
             </>
           )}
 
-          {/* UX-004: community/feedback lives on the export-success step only —
-              never under the primary Export CTA in the task dialog. */}
-          {step === 'done' && (
-            <div>
-              <DiscordFeedback onSuccess={showToast} />
-            </div>
-          )}
         </div>
+      </div>
+
+      {/* The popup owns its own swipe-to-dismiss; a swipe inside it must not
+          bubble up and also close the export sheet beneath. */}
+      <div
+        onTouchStart={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
+      >
+        <PostDownloadEngagement
+          isOpen={isEngagementOpen}
+          onClose={() => setIsEngagementOpen(false)}
+          isCreator={isCreatorUser}
+          onExploreCreator={onDownloadLimitReached}
+          onOpenLibrary={onOpenLibrary}
+          onShare={onShare}
+        />
       </div>
 
       <ConfirmDialog

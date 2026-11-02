@@ -348,6 +348,24 @@ export function HeartIcon({ className = 'w-4 h-4' }: IconProps) {
   );
 }
 
+/** Creator-plan mark used by the post-download upgrade card. */
+export function CrownIcon({ className = 'w-4 h-4' }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 8.5l4.5 3L12 5l4.5 6.5 4.5-3-1.8 10a1 1 0 01-1 .8H5.8a1 1 0 01-1-.8L3 8.5z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M6 21h12" />
+    </svg>
+  );
+}
+
+export function ArrowRightIcon({ className = 'w-4 h-4' }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+    </svg>
+  );
+}
+
 export function ArrowLeftIcon({ className = 'w-4 h-4' }: IconProps) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">

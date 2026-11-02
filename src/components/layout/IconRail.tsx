@@ -5,9 +5,11 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import {
   CameraIcon,
   BookOpenIcon,
+  DiscordIcon,
   KeyboardIcon,
   PlusIcon,
 } from '@/components/icons';
+import { DISCORD_COMMUNITY_URL } from '@/constants';
 
 interface IconRailProps {
   activePanel: TabType | 'record' | 'share';
@@ -97,6 +99,28 @@ export function IconRail({
       </div>
 
       <div className="flex-1" />
+
+      {/* Persistent community entry. It shares DISCORD_COMMUNITY_URL with the
+          post-download popup, and is omitted entirely when no invite is
+          configured rather than rendered as a dead link.
+
+          No tooltip: the label is always visible, and the rail clips
+          overflowing children (`overflow-hidden`), so a right-side tooltip
+          was cut down to a sliver at the sidebar edge on hover. */}
+      {DISCORD_COMMUNITY_URL && (
+        <div className="px-3 pb-4">
+          <a
+            href={DISCORD_COMMUNITY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Discord Community (opens in a new tab)"
+            className="inline-flex items-center gap-2.5 px-2 py-2 min-h-[40px] rounded-lg text-[13px] font-medium text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+          >
+            <DiscordIcon className="w-4 h-4 text-discord" />
+            Discord Community
+          </a>
+        </div>
+      )}
     </nav>
   );
 }

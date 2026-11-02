@@ -8,8 +8,10 @@ import {
   BookOpenIcon,
   PlusIcon,
   SettingsIcon,
+  DiscordIcon,
 } from '@/components/icons';
 import { useDismissOnOutsideClick } from '@/hooks/useDismissOnOutsideClick';
+import { DISCORD_COMMUNITY_URL } from '@/constants';
 
 interface CompactNavMenuProps {
   activePanel: TabType | 'record' | 'share';
@@ -131,6 +133,26 @@ export function CompactNavMenu({
               {item.label}
             </button>
           ))}
+
+          {/* The desktop rail is xl-only, so this is the only community entry
+              below xl. Same DISCORD_COMMUNITY_URL as the rail and the
+              post-download popup; omitted when no invite is configured. */}
+          {DISCORD_COMMUNITY_URL && (
+            <>
+              <div className="my-1 h-px bg-border-subtle mx-3" />
+              <a
+                href={DISCORD_COMMUNITY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={close}
+                className="w-full px-3 py-2.5 text-[13px] font-medium flex items-center gap-2.5 text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors"
+              >
+                <DiscordIcon className="w-4 h-4 text-discord" />
+                Discord Community
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            </>
+          )}
         </div>
       )}
     </nav>
