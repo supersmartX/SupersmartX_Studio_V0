@@ -140,7 +140,7 @@ export default function HomePage() {
   }, [recoverySink]);
 
   // The active creation phase drives progressive disclosure across the UI.
-  // 'preparing' → script + teleprompter focused; 'recording' → camera only;
+  // Preparing shows script setup; recording keeps live reading controls.
   // 'review' → the take exists, output/platform becomes relevant.
   //
   // Both the phase and the review flag are resolved in one place
@@ -962,13 +962,19 @@ export default function HomePage() {
   // Scroll advances by ELAPSED time, not a fixed per-tick increment: when a
   // backgrounded tab clamps intervals to ≥1s, the prompter keeps its
   // configured px/second average instead of nearly freezing.
+  const liveScrollSettings = useRef(settings.teleprompter);
+  useEffect(() => {
+    liveScrollSettings.current = settings.teleprompter;
+  }, [settings.teleprompter]);
+
   const buildScrollAndCheckEnd = useCallback(() => ({
     scrollCallback: (elapsedMs: number) => {
       if (voiceEngagedRef.current) return;
       if (!prompterContainerRef.current) return;
       const container = prompterContainerRef.current;
       // Historic behavior: (speed/20) * multiplier px per 50ms tick.
-      const pxPerMs = (settings.teleprompter.scrollSpeed / 20) * settings.teleprompter.scrollSpeedMultiplier / 50;
+      const { scrollSpeed, scrollSpeedMultiplier } = liveScrollSettings.current;
+      const pxPerMs = (scrollSpeed / 20) * scrollSpeedMultiplier / 50;
       container.scrollTop += Math.max(0, pxPerMs * elapsedMs);
     },
     checkEndCallback: (): boolean => {
@@ -978,7 +984,7 @@ export default function HomePage() {
       const scrollableHeight = container.scrollHeight;
       return scrolledHeight >= scrollableHeight - 5;
     },
-  }), [voiceEngagedRef, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier]);
+  }), [voiceEngagedRef]);
 
   const handleRecordStart = useCallback(async () => {
     // Free: enforce 10 min TOTAL recording per day (downloads stay unlimited)
@@ -1193,21 +1199,9 @@ export default function HomePage() {
 
   const isStudio = activePanel === 'studio';
 
-  // The inspector edits the LIVE setup (camera, mirror, teleprompter). While
-  // a take is in flight the canvas is the recording surface — swapping it for
-  // settings mid-recording is never what the user meant, so the toggle says
-  // so instead. Outside the Studio panel there is nothing to toggle (the
-  // inspector is not rendered), so the control lands the user on Studio
-  // first rather than silently doing nothing.
+  // Capture keeps live teleprompter settings accessible; the inspector itself
+  // locks controls that must wait until the take has finished.
   const handleToggleInspector = useCallback(() => {
-    if (
-      recorder.recordingState === 'countdown' ||
-      recorder.recordingState === 'recording' ||
-      recorder.recordingState === 'paused'
-    ) {
-      showToast('Finish your recording to change studio settings.');
-      return;
-    }
     // Review has no prepare-only sections on purpose: showing an empty
     // "Inspector" here would be a dead drawer. Retake is the way back to a
     // recording setup, and Export is the way out with this take.
@@ -1221,7 +1215,7 @@ export default function HomePage() {
       return;
     }
     setIsInspectorOpen((prev) => !prev);
-  }, [recorder.recordingState, isReview, isStudio, showToast]);
+  }, [isReview, isStudio, showToast]);
 
   const handleShowShortcuts = useCallback(() => {
     showToast('Space: Start / Stop recording · P: Pause / Resume · M: Mute microphone · ↑ ↓: Move text · Esc: Close');

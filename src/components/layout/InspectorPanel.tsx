@@ -91,7 +91,7 @@ export function InspectorPanel({
         // Close button) so opening never lands the cursor on "leave".
         'button:not([data-focus-skip]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
       )
-    ), []);
+    ).filter((element) => !element.matches(':disabled')), []);
 
   const restoreFocus = (el: HTMLElement | null) => {
     if (el && document.contains(el)) el.focus();
@@ -199,19 +199,9 @@ export function InspectorPanel({
     : inspectorContext === 'review' ? 'Publish'
     : 'Prepare';
 
-  // While a take is live, the camera canvas is the only surface the user needs —
-  // the disposal panel recedes entirely so it never competes with the recording.
-  // Review collapses for the same reason: every panel section is prepare-only, so
-  // the drawer would render as an empty titled "Publish" region — a false
-  // affordance. Review keeps its own canvas hierarchy (RECORDING READY → Export).
-  //
-  // On desktop the aside still reserves its CURRENT width while receded. If it
-  // were unmounted, its 300px would be handed to the canvas at the exact moment
-  // the countdown begins, and the camera would visibly jump larger (and shrink
-  // again on Stop). Keeping the empty column means the frame the user framed
-  // is the frame that records. Compact layouts are an overlay drawer and have
-  // no geometry to preserve.
-  if (inspectorContext === 'recording' || inspectorContext === 'review') {
+  // Review keeps its existing export surface. During capture the inspector
+  // remains mounted, preserving canvas geometry and access to live controls.
+  if (inspectorContext === 'review') {
     if (isDrawer) return null;
     return (
       <aside
@@ -417,7 +407,7 @@ function InspectorContent({
     // Match the current creation phase immediately (no open-then-collapse flash).
     switch (inspectorContext) {
       case 'recording':
-        return { script: true, teleprompter: true, camera: true };
+        return { script: true, teleprompter: false, camera: true };
       case 'review':
         return { script: true, teleprompter: true, camera: true };
       default:
@@ -441,21 +431,28 @@ function InspectorContent({
       // Preparing: script + teleprompter are the primary inputs. Camera config stays
       // available but collapsed (camera/mic switching lives in the transport's device chips).
       preparing: { script: false, teleprompter: false, camera: true },
-      // Recording: camera is the only surface — everything collapses.
-      recording: { script: true, teleprompter: true, camera: true },
+      // Recording keeps live reading controls available.
+      recording: { script: true, teleprompter: false, camera: true },
       // Review: the take exists; platform/output config lives on the Canvas switcher.
       review: { script: true, teleprompter: true, camera: true },
     };
     setCollapsedSections((prev) => ({ ...prev, ...phasePresets[inspectorContext] }));
   }, [inspectorContext]);
 
-  const showScript = inspectorContext === 'preparing';
-  const showTeleprompter = inspectorContext === 'preparing';
-  const showCamera = inspectorContext === 'preparing';
+  const isCapturing = inspectorContext === 'recording';
+  const showScript = inspectorContext === 'preparing' || isCapturing;
+  const showTeleprompter = showScript;
+  const showCamera = showScript;
 
   return (
     <div className="p-4 flex flex-col gap-5">
-      {/* SCRIPT Section — only during preparing */}
+      {isCapturing && (
+        <p className="text-caption text-text-secondary">
+          Adjust your teleprompter and preview while recording. Script editing,
+          device switching and countdown changes unlock after the take.
+        </p>
+      )}
+      {/* Script is read-only during capture. */}
       {showScript && (<>
       <Card>
         <div className="flex flex-col gap-2">
@@ -492,6 +489,7 @@ function InspectorContent({
 
           <textarea
             value={script}
+            readOnly={isCapturing}
             onChange={(e) => onScriptChange(e.target.value)}
             className="w-full min-h-[120px] bg-elevated border border-border-subtle rounded-lg p-3 text-body-sm text-text-primary placeholder-text-muted resize-none outline-none focus:border-accent transition-colors leading-relaxed"
             placeholder="Paste or write your script here..."
@@ -511,7 +509,8 @@ function InspectorContent({
                 }
                 onClearScript();
               }}
-              className="relative inline-flex items-center min-h-[24px] text-caption text-text-secondary hover:text-text-primary transition-colors after:absolute after:-inset-x-2 after:-inset-y-[11px] after:content-['']"
+              className="relative inline-flex items-center min-h-[24px] text-caption text-text-secondary hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed after:absolute after:-inset-x-2 after:-inset-y-[11px] after:content-['']"
+              disabled={isCapturing}
               suppressHydrationWarning
             >
               Clear
@@ -528,7 +527,7 @@ function InspectorContent({
             where you left off. Clearing site data removes it.
           </p>
 
-          <InspirationLoader onLoad={onLoadInspiration} hasExistingScript={!!script.trim()} />
+          {!isCapturing && <InspirationLoader onLoad={onLoadInspiration} hasExistingScript={!!script.trim()} />}
           </>)}
         </div>
       </Card>
@@ -536,7 +535,7 @@ function InspectorContent({
 
       {showTeleprompter && showScript && <div className="h-px bg-border-subtle" />}
 
-      {/* TELEPROMPTER Section — only during preparing */}
+      {/* Live teleprompter controls */}
       {showTeleprompter && (
       <Card>
         <div className="flex flex-col gap-2">
@@ -712,7 +711,9 @@ function InspectorContent({
               would mean two controls writing the same state, so this section
               only owns preview behaviour. */}
           <p className="text-overline text-text-muted">
-            Switch camera or microphone from the transport bar under the canvas.
+            {isCapturing
+              ? 'Camera and microphone switching is locked until recording stops.'
+              : 'Switch camera or microphone from the transport bar under the canvas.'}
           </p>
 
           <Toggle
@@ -733,6 +734,7 @@ function InspectorContent({
             checked={countdownEnabled}
             onChange={onCountdownToggle}
             label="Countdown"
+            disabled={isCapturing}
             description="Show 3-2-1 countdown before recording."
           />
           </>)}
