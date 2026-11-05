@@ -36,3 +36,11 @@ and no code in this repo requires downgrading:
 Redeploy the previous production build against a scratch Supabase project
 restored from the latest backup (`DATABASE.md` § *Backup and restore*), replay
 the smoke list, record result.
+
+## Cashfree rollback boundary
+
+Do not roll back to a build that permits Sandbox on Vercel Production. Retain the
+Production-only guard and rebuild with both selectors `production`, version
+`2022-09-01`, and the same operator-managed Production credential pair. Do not
+promote a Sandbox build or change gateways to recover from a 401. Unknown orders
+stay blocked; never delete/reset/release pending rows as a rollback step.

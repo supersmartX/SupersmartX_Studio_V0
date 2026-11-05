@@ -68,6 +68,7 @@ function openOrder(overrides: Record<string, unknown> = {}): StubResponse {
     body: {
       error: 'An earlier checkout is still open. You can resume it now, or start a new payment in about 30 minutes.',
       code: 'pending_order_open',
+      env: 'sandbox',
       orderId: 'sxs-open-1',
       paymentSessionId: 'ps-open-1',
       amount: 9.99,
@@ -253,6 +254,7 @@ describe('an accepted checkout that failed is offered back as itself', () => {
         currency: 'USD',
         plan: 'creator_monthly',
         accepted: true,
+        env: 'sandbox',
       }),
     );
     responses = [
@@ -356,6 +358,7 @@ describe("the browser's memory never overrides the order the server reports", ()
         currency: 'USD',
         plan: 'creator_monthly',
         accepted: true,
+        env: 'sandbox',
         ...overrides,
       }),
     );
@@ -462,5 +465,18 @@ describe('a submission is never handled twice', () => {
 
     await waitFor(() => expect(sdk.checkout).toHaveBeenCalledTimes(1));
     expect(orderPosts).toBe(1);
+  });
+});
+
+
+describe('checkout environment binding', () => {
+  it.each(['production', undefined])('rejects a resumed checkout with environment %s', async (env) => {
+    responses = [openOrder({ env })];
+    renderSheet();
+    await openPaymentForm();
+    submit();
+    await waitFor(() => expect(bodyCopy()).toContain('Payment is temporarily unavailable'));
+    expect(sdk.checkout).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /Resume/i })).not.toBeInTheDocument();
   });
 });

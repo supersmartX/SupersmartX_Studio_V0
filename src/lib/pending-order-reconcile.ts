@@ -1,3 +1,4 @@
+import { getCashfreeConfig } from './cashfree-config';
 import {
   fulfillPaidOrder,
   sendOrderReceiptOnce,
@@ -582,6 +583,7 @@ export async function reconcileOrder(
   orderId: string,
   ctx: ReconcileContext,
 ): Promise<RowOutcome | null> {
+  getCashfreeConfig();
   const row = await findPendingOrderLifecycle(orderId);
   if (!row) return null;
   if (row.status === 'creating') return reconcileCreating(row, ctx);
@@ -707,6 +709,7 @@ export async function reconcileUserCheckout(
   userId: string,
   ctx: ReconcileContext,
 ): Promise<CheckoutReconcileResult> {
+  getCashfreeConfig();
   const rows = await findPendingOrdersForReconcile(userId, RECONCILE_ROW_CAP + 1);
   const batch = rows.slice(0, RECONCILE_ROW_CAP);
   const outcomes: RowOutcome[] = [];
@@ -840,6 +843,7 @@ export async function releaseHeldOrder(params: {
   resolution: 'fulfilled_manually' | 'refunded' | 'not_paid';
   ctx: ReconcileContext;
 }): Promise<ReleaseResult> {
+  getCashfreeConfig();
   const row = await findPendingOrderLifecycle(params.orderId);
   if (!row) return { ok: false, orderId: params.orderId, error: 'order_not_found' };
   if (row.status !== 'held_review') {

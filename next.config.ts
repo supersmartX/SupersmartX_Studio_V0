@@ -1,4 +1,10 @@
+import { requiresCashfreeProduction, validateCashfreeConfig } from './src/lib/cashfree-config';
 import type { NextConfig } from 'next';
+
+const cashfreeProductionOnly = requiresCashfreeProduction();
+if (cashfreeProductionOnly) validateCashfreeConfig(process.env, true);
+const sandboxConnect = cashfreeProductionOnly ? '' : ' https://sandbox.cashfree.com';
+const sandboxFrames = cashfreeProductionOnly ? '' : ' https://sandbox.cashfree.com https://payments-test.cashfree.com';
 
 const isDev = process.env.NODE_ENV === 'development';
 const r2PublicUrl = process.env.R2_PUBLIC_URL || '';
@@ -53,15 +59,20 @@ const securityHeaders = [
       // which is why it surfaced in Incognito. Exact host only: no wildcard.
       `img-src 'self' data: blob: https://sdk.cashfree.com https://lh3.googleusercontent.com${r2ExtraHosts}`,
       "font-src 'self' data: https://fonts.googleapis.com https://fonts.gstatic.com",
-      `connect-src 'self' https://api.cashfree.com https://sandbox.cashfree.com https://ipapi.co https://ip-api.com${r2ExtraHosts}`,
+      `connect-src 'self' https://api.cashfree.com${sandboxConnect} https://ipapi.co https://ip-api.com${r2ExtraHosts}`,
       `media-src 'self' blob: mediastream: https://d8j0ntlcm91z4.cloudfront.net${r2ExtraHosts}`,
       "worker-src 'self' blob:",
-      "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
+      `frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://payments.cashfree.com${sandboxFrames}`,
     ].join('; '),
   },
 ];
 
 const nextConfig: NextConfig = {
+  env: {
+    // Only non-secret build invariants are embedded. Never put credentials here.
+    NEXT_PUBLIC_CASHFREE_PRODUCTION_ONLY: String(cashfreeProductionOnly),
+    CASHFREE_BUILD_ENV: process.env.CASHFREE_ENV || '',
+  },
   poweredByHeader: false,
   async redirects() {
     return [

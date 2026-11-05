@@ -10,6 +10,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 process.env.CASHFREE_APP_ID = 'test-app-id';
 process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
 process.env.CASHFREE_ENV = 'sandbox';
+process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
+process.env.CASHFREE_API_VERSION = '2022-09-01';
 
 import {
   classifyGatewayOrder,
@@ -84,7 +86,7 @@ describe('probeCashfreeOrder', () => {
   });
 
   it('describes a rejected probe without exposing credentials or the body', async () => {
-    vi.stubEnv('CASHFREE_API_VERSION', '2023-08-01');
+    vi.stubEnv('CASHFREE_API_VERSION', '2022-09-01');
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -110,7 +112,7 @@ describe('probeCashfreeOrder', () => {
     expect(probe.diagnostics).toMatchObject({
       host: 'sandbox.cashfree.com',
       cashfreeEnv: 'sandbox',
-      apiVersion: '2023-08-01',
+      apiVersion: '2022-09-01',
       apiVersionSource: 'env',
       status: 401,
       bodyKind: 'json',
@@ -171,7 +173,7 @@ describe('probeCashfreeOrder', () => {
 
 describe('fetchCashfreeOrder', () => {
   it('attaches the same sanitized diagnostics to a refused read', async () => {
-    vi.stubEnv('CASHFREE_API_VERSION', '2023-08-01');
+    vi.stubEnv('CASHFREE_API_VERSION', '2022-09-01');
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -195,7 +197,7 @@ describe('fetchCashfreeOrder', () => {
     expect(err.diagnostics).toMatchObject({
       host: 'sandbox.cashfree.com',
       cashfreeEnv: 'sandbox',
-      apiVersion: '2023-08-01',
+      apiVersion: '2022-09-01',
       apiVersionSource: 'env',
       status: 401,
       bodyKind: 'json',

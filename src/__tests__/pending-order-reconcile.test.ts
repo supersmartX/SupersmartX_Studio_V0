@@ -15,6 +15,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 process.env.CASHFREE_APP_ID = 'test-app-id';
 process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
 process.env.CASHFREE_ENV = 'sandbox';
+process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
+process.env.CASHFREE_API_VERSION = '2022-09-01';
 
 const mocks = vi.hoisted(() => ({
   findPendingOrdersForReconcile: vi.fn(),
@@ -134,6 +136,7 @@ beforeEach(() => {
   process.env.CASHFREE_APP_ID = 'test-app-id';
   process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
   process.env.CASHFREE_ENV = 'sandbox';
+  process.env.CASHFREE_API_VERSION = '2022-09-01';
 
   mocks.findPendingOrderClaim.mockResolvedValue({ claimed: false, entitled: false });
   mocks.tryClaimOrderNotification.mockResolvedValue(true);

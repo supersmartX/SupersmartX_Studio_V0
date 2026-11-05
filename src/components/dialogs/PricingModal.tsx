@@ -29,6 +29,7 @@ type TierKey = keyof typeof PRICING_PLANS;
 
 /** A created Cashfree order, held while the customer accepts its price. */
 interface PendingCheckout {
+  env: 'sandbox' | 'production';
   orderId: string;
   paymentSessionId: string;
   amount: number;
@@ -64,6 +65,8 @@ function readOpenCheckout(): OpenCheckoutRecord | null {
     const parsed = JSON.parse(raw) as Partial<OpenCheckoutRecord> | null;
     if (
       !parsed ||
+      parsed.env !== resolveCashfreeMode() ||
+      (parsed.env !== 'production' && parsed.env !== 'sandbox') ||
       typeof parsed.orderId !== 'string' ||
       typeof parsed.paymentSessionId !== 'string' ||
       typeof parsed.amount !== 'number' ||
@@ -73,6 +76,7 @@ function readOpenCheckout(): OpenCheckoutRecord | null {
       return null;
     }
     return {
+      env: parsed.env,
       orderId: parsed.orderId,
       paymentSessionId: parsed.paymentSessionId,
       amount: parsed.amount,
@@ -98,6 +102,7 @@ function writeOpenCheckout(record: OpenCheckoutRecord | null) {
 
 /** The open order the server refused to duplicate, as reported by the 409. */
 interface OpenCheckoutBlock {
+  env: 'sandbox' | 'production';
   orderId: string;
   paymentSessionId: string | null;
   amount: number | null;
@@ -273,6 +278,11 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   /** Hands an already-created order to Cashfree. The only path to checkout. */
   const completeCheckout = useCallback(async (checkout: PendingCheckout) => {
     if (checkoutLock.current) return;
+    if (checkout.env !== resolveCashfreeMode()) {
+      setStep('error');
+      setErrorMessage('Payment is temporarily unavailable. Please try again shortly.');
+      return;
+    }
     checkoutLock.current = true;
     setStep('processing');
     setErrorMessage('');
@@ -396,12 +406,14 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         // buyer's dead end: the open order can be described, resumed by them
         // explicitly, and the block lifts on its own after a known interval.
         if (response.status === 409 && data.code === 'pending_order_open') {
+          if (data.env !== browserMode) throw new Error('Payment is temporarily unavailable. Please try again shortly.');
           const orderId = typeof data.orderId === 'string' ? data.orderId : null;
           const openPlan = typeof data.plan === 'string' ? data.plan : null;
           const openAmount = typeof data.amount === 'number' && Number.isFinite(data.amount) ? data.amount : null;
           const openCurrency = typeof data.currency === 'string' && data.currency ? data.currency : null;
           const remembered = readOpenCheckout();
           setOpenCheckout({
+            env: browserMode,
             orderId: orderId ?? '',
             paymentSessionId: typeof data.paymentSessionId === 'string' ? data.paymentSessionId : null,
             amount: openAmount,
@@ -434,7 +446,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       // this order in the other Cashfree environment, checkout would never
       // settle against it — stop here rather than sending the user to a payment
       // page whose order can never activate.
-      if (data.env && data.env !== browserMode) {
+      if (data.env !== browserMode) {
         setStep('error');
         setErrorMessage('Payment is temporarily unavailable. Please try again shortly.');
         return;
@@ -458,6 +470,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       }
 
       const checkout: PendingCheckout = {
+        env: browserMode,
         orderId: data.orderId,
         paymentSessionId: data.paymentSessionId,
         amount: serverAmount,
@@ -600,6 +613,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       return;
     }
     void completeCheckout({
+      env: openCheckout.env,
       orderId: openCheckout.orderId,
       paymentSessionId: openCheckout.paymentSessionId,
       amount: openCheckout.amount,

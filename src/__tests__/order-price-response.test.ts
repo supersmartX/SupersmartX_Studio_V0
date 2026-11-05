@@ -14,6 +14,7 @@ import { NextRequest } from 'next/server';
 process.env.CASHFREE_APP_ID = 'test-app-id';
 process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
 process.env.CASHFREE_ENV = 'sandbox';
+process.env.CASHFREE_API_VERSION = '2022-09-01';
 process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
 
 const mocks = vi.hoisted(() => ({
@@ -97,6 +98,7 @@ beforeEach(() => {
   process.env.CASHFREE_APP_ID = 'test-app-id';
   process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
   process.env.CASHFREE_ENV = 'sandbox';
+  process.env.CASHFREE_API_VERSION = '2022-09-01';
   process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
   // The route's per-IP limiter lives on globalThis and survives between files.
   const g = globalThis as unknown as { __rateLimitMap?: Map<string, unknown> };
@@ -194,5 +196,20 @@ describe('POST /api/cashfree/order — authoritative amount and currency', () =>
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ amount: 54.99, currency: 'EUR', country: 'DE' });
     expect(chargedAmount(fetchMock)).toEqual({ amount: 54.99, currency: 'EUR' });
+  });
+});
+
+
+describe('Production order configuration', () => {
+  it('creates only on the Production host with the required version', async () => {
+    vi.stubEnv('VERCEL_ENV', 'production');
+    vi.stubEnv('CASHFREE_ENV', 'production');
+    vi.stubEnv('NEXT_PUBLIC_CASHFREE_ENV', 'production');
+    const gateway = stubCashfreeOrder();
+    const response = await orderPOST(orderRequest({ country: 'IN', currency: 'INR' }));
+    expect(response.status).toBe(200);
+    expect(gateway.mock.calls[0][0]).toBe('https://api.cashfree.com/pg/orders');
+    expect(gateway.mock.calls[0][1]).toMatchObject({ redirect: 'error', headers: { 'x-api-version': '2022-09-01' } });
+    expect((await response.json()).env).toBe('production');
   });
 });

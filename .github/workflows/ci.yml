@@ -63,8 +63,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
-      CASHFREE_SECRET_KEY: ${{ secrets.CASHFREE_SECRET_KEY }}
-      CASHFREE_APP_ID: ${{ secrets.CASHFREE_APP_ID }}
+      CASHFREE_SECRET_KEY: ci-not-a-real-secret
+      CASHFREE_APP_ID: ci-not-a-real-app-id
+      CASHFREE_ENV: production
+      NEXT_PUBLIC_CASHFREE_ENV: production
+      CASHFREE_API_VERSION: '2022-09-01'
+      VERCEL_ENV: production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5
@@ -89,8 +93,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
-      CASHFREE_SECRET_KEY: ${{ secrets.CASHFREE_SECRET_KEY }}
-      CASHFREE_APP_ID: ${{ secrets.CASHFREE_APP_ID }}
+      CASHFREE_SECRET_KEY: ci-not-a-real-secret
+      CASHFREE_APP_ID: ci-not-a-real-app-id
+      CASHFREE_ENV: production
+      NEXT_PUBLIC_CASHFREE_ENV: production
+      CASHFREE_API_VERSION: '2022-09-01'
+      VERCEL_ENV: production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5

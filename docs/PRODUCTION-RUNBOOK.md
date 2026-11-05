@@ -16,7 +16,7 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
 | App | `NEXT_PUBLIC_APP_URL`, `NEXTAUTH_URL` | `https://studio.supersmartx.com` in prod |
 | Session | `NEXTAUTH_SECRET` (or `AUTH_SECRET`) | ≥32 chars; auth refuses to start in prod without it |
 | OAuth (optional) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_GOOGLE_AUTH` | `.env.example` gate flag is not the code's runtime gate — code checks `GOOGLE_CLIENT_ID` presence (finding F-08) |
-| Payments | `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY`, `CASHFREE_API_VERSION`, `CASHFREE_ENV`, `NEXT_PUBLIC_CASHFREE_ENV` | `CASHFREE_SECRET_KEY` doubles as the webhook HMAC key. `CASHFREE_ENV` is a literal `sandbox`/`production`, fails closed otherwise; `NEXT_PUBLIC_CASHFREE_ENV` must match **exactly** (build-time bake → switching envs requires redeploy) |
+| Payments | `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY`, `CASHFREE_API_VERSION`, `CASHFREE_ENV`, `NEXT_PUBLIC_CASHFREE_ENV` | `CASHFREE_SECRET_KEY` doubles as the webhook HMAC key. Vercel Production requires both selectors `production`, matching Production credentials and exact API version `2022-09-01`; invalid config fails build/runtime |
 | Email | `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | Optional; mail failures are best-effort and never block activation |
 | Database | `DATABASE_URL`, `DIRECT_URL` | **Both required.** `DATABASE_URL` = Supavisor transaction pooler (`:6543`) for runtime; `DIRECT_URL` = session/direct connection (`:5432`) for `prisma migrate`. Production fails closed (`DatabaseNotConfiguredError`) without a `postgres://` `DATABASE_URL`; there is no file or in-memory fallback |
 | Storage | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_SIGNED_URL_TTL_SECONDS` | All four required or upload/download routes answer `503`. Server-only — never a `NEXT_PUBLIC_R2_*`. Bucket CORS must allow the studio origin (root `DEPLOYMENT.md` §1 “Cloudflare R2 bucket CORS (required for Creator export)”) |
@@ -199,3 +199,45 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
   referenced R2 keys, re-run activation SQL by hand (verify is idempotent — use it).
 - Anything security-sensitive you change (secret rotation, CORS, webhook URL)
   is a CHANGE-CONTROL decision, recorded in-repo with evidence.
+
+## Cashfree Production enforcement
+
+Vercel Production must have `CASHFREE_ENV=production`,
+`NEXT_PUBLIC_CASHFREE_ENV=production`, `CASHFREE_API_VERSION=2022-09-01`, and
+matching Production `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` supplied by the
+operator. Credentials are server-only and must never be printed or committed.
+The key is also used to verify webhook signatures.
+
+`next.config.ts` rejects a Production build when any payment requirement is
+missing or invalid. `VERCEL_ENV` / `VERCEL_TARGET_ENV` identify the deployment;
+`NODE_ENV=production` alone also describes local builds and is not sufficient.
+Vercel must expose system environment variables. Missing/contradictory hosted
+context fails closed. Build-derived mode and Production-lock constants prevent
+changing gateway environments within an artifact. Never override these constants.
+Every payment path validates the same configuration before gateway access or
+reconciliation. Production gateway requests use `https://api.cashfree.com/pg`,
+`x-api-version: 2022-09-01`, and reject redirects. There is no API-version fallback.
+Production CSP excludes Sandbox API and payment-frame hosts. The browser refuses
+Sandbox mode in Production builds and checks the environment on both new and
+resumed checkout sessions.
+
+For isolated local development use the Sandbox selectors in `.env.example`,
+Sandbox credentials and a disposable database. Never copy Production credentials
+or the Production database into local payment tests. Explicit local Production
+configuration still means real payments: it is never selected as a fallback.
+Changing mode requires a fresh build. Production environment changes require a
+new Production build; do not promote a Sandbox/Preview artifact.
+
+Before cutover, the operator must confirm the Production database contains only
+Production-origin payment records. Historical pending orders have no environment
+column. An order missing from Production may exist in Sandbox; do not let a mode
+switch reinterpret its absence or automatically release it. Unknown provenance is
+a rollout blocker requiring operator investigation, not cleanup. This change
+contains no record migration, deletion or reset. Existing W2/W8 locking, uncertain
+order handling, signature validation and transactional fulfillment are retained.
+
+Code validates credential presence/format, not merchant ownership or authenticity.
+Operator verification of the Production credential pair remains required. Confirm
+that API version `2022-09-01` supports termination for this merchant before live
+rollout; refused/uncertain termination must keep checkout blocked. No live payment
+is required for automated tests: use mocked network and dummy credentials.

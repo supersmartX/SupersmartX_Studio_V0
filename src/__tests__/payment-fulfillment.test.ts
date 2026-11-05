@@ -5,6 +5,7 @@ import crypto from 'crypto';
 process.env.CASHFREE_APP_ID = 'test-app-id';
 process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
 process.env.CASHFREE_ENV = 'sandbox';
+process.env.CASHFREE_API_VERSION = '2022-09-01';
 process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
 
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
@@ -890,6 +891,7 @@ describeDb('Cashfree environment consistency', () => {
 
   it('selects sandbox only when the server env is exactly sandbox', () => {
     process.env.CASHFREE_ENV = 'sandbox';
+    process.env.CASHFREE_API_VERSION = '2022-09-01';
     expect(getCashfreeEnv()).toBe('sandbox');
     expect(cashfreeBaseUrl()).toBe('https://sandbox.cashfree.com/pg');
   });
@@ -905,6 +907,7 @@ describeDb('Cashfree environment consistency', () => {
 
   it('selects the live host only for an exact production value', () => {
     process.env.CASHFREE_ENV = 'production';
+    process.env.NEXT_PUBLIC_CASHFREE_ENV = 'production';
     expect(getCashfreeEnv()).toBe('production');
     expect(cashfreeBaseUrl()).toBe('https://api.cashfree.com/pg');
   });
@@ -917,12 +920,14 @@ describeDb('Cashfree environment consistency', () => {
 
   it('accepts matching sandbox modes', () => {
     process.env.CASHFREE_ENV = 'sandbox';
+    process.env.CASHFREE_API_VERSION = '2022-09-01';
     process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
     expect(isCashfreeEnvConsistent()).toBe(true);
   });
 
   it('rejects a missing or invalid public env', () => {
     process.env.CASHFREE_ENV = 'sandbox';
+    process.env.CASHFREE_API_VERSION = '2022-09-01';
     delete process.env.NEXT_PUBLIC_CASHFREE_ENV;
     expect(isCashfreeEnvConsistent()).toBe(false);
     process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbx';
@@ -940,6 +945,7 @@ describeDb('Cashfree environment consistency', () => {
 
   it('rejects the mirror-image split', () => {
     process.env.CASHFREE_ENV = 'sandbox';
+    process.env.CASHFREE_API_VERSION = '2022-09-01';
     process.env.NEXT_PUBLIC_CASHFREE_ENV = 'production';
     expect(isCashfreeEnvConsistent()).toBe(false);
   });
@@ -947,7 +953,7 @@ describeDb('Cashfree environment consistency', () => {
 
 /**
  * The server must select one exact Cashfree mode in every runtime. Explicit
- * Sandbox is valid in production for controlled testing; unset/unknown modes
+ * Sandbox is local-only when testing production-mode builds; Vercel Production
  * and browser/server mismatches fail closed.
  */
 describeDb('Cashfree environment validation', () => {
@@ -957,6 +963,7 @@ describeDb('Cashfree environment validation', () => {
     process.env.CASHFREE_APP_ID = 'test-app-id';
     process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
     process.env.CASHFREE_ENV = 'sandbox';
+    process.env.CASHFREE_API_VERSION = '2022-09-01';
     process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
   });
 
@@ -980,19 +987,16 @@ describeDb('Cashfree environment validation', () => {
     it('allows an exact production value', () => {
       vi.stubEnv('NODE_ENV', 'production');
       process.env.CASHFREE_ENV = 'production';
+      process.env.NEXT_PUBLIC_CASHFREE_ENV = 'production';
       expect(isCashfreeEnvUsable()).toBe(true);
       expect(() => assertCashfreeEnvForRuntime()).not.toThrow();
       expect(cashfreeBaseUrl()).toBe('https://api.cashfree.com/pg');
     });
 
-    it('allows explicitly configured Sandbox in a production deployment', () => {
-      vi.stubEnv('NODE_ENV', 'production');
-      process.env.CASHFREE_ENV = 'sandbox';
-      process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
-      expect(isCashfreeEnvUsable()).toBe(true);
-      expect(() => assertCashfreeEnvForRuntime()).not.toThrow();
-      expect(cashfreeBaseUrl()).toBe('https://sandbox.cashfree.com/pg');
-      expect(isCashfreeEnvConsistent()).toBe(true);
+    it('rejects Sandbox in a Vercel Production deployment', () => {
+      vi.stubEnv('VERCEL_ENV', 'production');
+      expect(isCashfreeEnvUsable()).toBe(false);
+      expect(() => cashfreeBaseUrl()).toThrow('cashfree_production_required');
     });
 
     it('allows explicitly configured Production in a production deployment', () => {
@@ -1050,11 +1054,13 @@ describeDb('Cashfree environment validation', () => {
       fetchSpy.mockRestore();
     });
 
-    it('creates a Sandbox order in a production deployment when both modes are Sandbox', async () => {
+    it('rejects a Sandbox order in Vercel Production before gateway access', async () => {
       const user = await createUser('production-sandbox@example.com', 'Env', 'hash');
       vi.mocked(auth).mockResolvedValue({ user: { id: user.id } } as never);
       vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('VERCEL_ENV', 'production');
       process.env.CASHFREE_ENV = 'sandbox';
+      process.env.CASHFREE_API_VERSION = '2022-09-01';
       process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
       globalThis.fetch = vi.fn(async () =>
         new Response(
@@ -1071,8 +1077,8 @@ describeDb('Cashfree environment validation', () => {
 
       const res = await orderPOST(orderBody('creator_monthly'));
 
-      expect(res.status).toBe(200);
-      expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toContain('https://sandbox.cashfree.com/pg');
+      expect(res.status).toBe(503);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
     it('allows another order while a Creator plan is active, so access can be extended before it lapses', async () => {

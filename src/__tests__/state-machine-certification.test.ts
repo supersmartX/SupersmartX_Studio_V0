@@ -16,6 +16,8 @@ import crypto from 'crypto';
 process.env.CASHFREE_APP_ID = 'test-app-id';
 process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
 process.env.CASHFREE_ENV = 'sandbox';
+process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
+process.env.CASHFREE_API_VERSION = '2022-09-01';
 
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/email', () => ({

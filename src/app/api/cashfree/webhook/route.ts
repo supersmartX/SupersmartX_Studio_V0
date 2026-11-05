@@ -1,3 +1,4 @@
+import { getCashfreeConfig } from '@/lib/cashfree-config';
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { findPendingOrder, findUserById } from '@/lib/db';
@@ -32,7 +33,7 @@ function verifyWebhookSignature(
   signature: string,
   timestamp: string
 ): boolean {
-  const secretKey = process.env.CASHFREE_SECRET_KEY || '';
+  const secretKey = getCashfreeConfig().secretKey;
   if (!secretKey) return false;
 
   const signatureData = timestamp + payload;
@@ -61,10 +62,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
     }
 
-    // Fulfilment runs against whichever Cashfree environment the server selected,
-    // which is chosen by CASHFREE_ENV alone and is not tied to NODE_ENV. An
-    // unset or misspelt value must stop fulfilment dead rather than verify the
-    // order against an environment nobody selected and write a real entitlement.
+    // Guard both payment and reversal processing before reading or mutating orders.
     if (!isCashfreeEnvUsable()) {
       logger.error('payment.webhook_failed', {
         route: '/api/cashfree/webhook',

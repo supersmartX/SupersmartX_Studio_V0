@@ -1,5 +1,5 @@
+import { cashfreeHeaders } from './cashfree-config';
 import {
-  apiVersion,
   cashfreeBaseUrl,
   describeGatewayFailure,
   type CashfreeOrder,
@@ -17,15 +17,6 @@ export * from './pending-order-status';
  * 404 counts as absence; timeouts, 5xx, 401 and 429 are all uncertainty.
  */
 
-function gatewayHeaders(): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    'x-client-id': process.env.CASHFREE_APP_ID || '',
-    'x-client-secret': process.env.CASHFREE_SECRET_KEY || '',
-    'x-api-version': apiVersion().value,
-  };
-}
-
 export type GatewayProbe =
   | { kind: 'found'; order: CashfreeOrder }
   | { kind: 'not_found' }
@@ -36,7 +27,8 @@ export async function probeCashfreeOrder(orderId: string): Promise<GatewayProbe>
     const baseUrl = cashfreeBaseUrl();
     const response = await fetch(`${baseUrl}/orders/${encodeURIComponent(orderId)}`, {
       method: 'GET',
-      headers: gatewayHeaders(),
+      headers: cashfreeHeaders(),
+      redirect: 'error',
       cache: 'no-store',
       signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS),
     });
@@ -64,16 +56,17 @@ export type TerminateResult =
 /**
  * Asks Cashfree to terminate an order.
  *
- * On the verified API version this answers 200 with the order in
- * `TERMINATION_REQUESTED`; an immediate read usually already shows
- * `TERMINATED`. A refusal is reported as such — the caller must not create a
+ * A supported termination answers 200 with the order in
+ * `TERMINATION_REQUESTED` or `TERMINATED`. Compatibility with the pinned API
+ * version must be confirmed before rollout. A refusal means the caller must not create a
  * replacement — and a transport failure stays uncertain.
  */
 export async function terminateCashfreeOrder(orderId: string): Promise<TerminateResult> {
   try {
     const response = await fetch(`${cashfreeBaseUrl()}/orders/${encodeURIComponent(orderId)}`, {
       method: 'PATCH',
-      headers: gatewayHeaders(),
+      headers: cashfreeHeaders(),
+      redirect: 'error',
       body: JSON.stringify({ order_status: 'TERMINATED' }),
       cache: 'no-store',
       signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS),

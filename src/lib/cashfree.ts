@@ -24,6 +24,7 @@ export type CashfreeEnv = 'sandbox' | 'production';
  */
 export function resolveCashfreeMode(): CashfreeEnv | null {
   const env = process.env.NEXT_PUBLIC_CASHFREE_ENV;
+  if (process.env.NEXT_PUBLIC_CASHFREE_PRODUCTION_ONLY === 'true' && env !== 'production') return null;
   if (env === 'sandbox' || env === 'production') return env;
   return null;
 }
@@ -45,14 +46,20 @@ export function getCashfreeMode(): CashfreeEnv {
   throw new Error('cashfree_env_invalid');
 }
 
+let cachedMode: CashfreeEnv | null = null;
 let cashfreePromise: Promise<CashfreeInstance> | null = null;
 
 export function loadCashfreeSDK(): Promise<CashfreeInstance> {
-  if (cashfreePromise) return cashfreePromise;
+  let mode: CashfreeEnv;
+  try { mode = getCashfreeMode(); } catch (error) { return Promise.reject(error); }
+  if (cashfreePromise) {
+    return cachedMode === mode ? cashfreePromise : Promise.reject(new Error('cashfree_environment_changed'));
+  }
+  cachedMode = mode;
 
   cashfreePromise = new Promise<CashfreeInstance>((resolve, reject) => {
     if (window.Cashfree) {
-      const cf = window.Cashfree({ mode: getCashfreeMode() });
+      const cf = window.Cashfree({ mode });
       resolve(cf);
       return;
     }
@@ -61,17 +68,17 @@ export function loadCashfreeSDK(): Promise<CashfreeInstance> {
     script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
     script.async = true;
     script.onload = () => {
-      if (window.Cashfree) {
-        const cf = window.Cashfree({ mode: getCashfreeMode() });
-        resolve(cf);
-      } else {
-        reject(new Error('Cashfree SDK failed to load'));
-      }
+      try {
+        if (getCashfreeMode() !== mode) throw new Error('cashfree_environment_changed');
+        if (!window.Cashfree) throw new Error('Cashfree SDK failed to load');
+        resolve(window.Cashfree({ mode }));
+      } catch (error) { reject(error); }
     };
     script.onerror = () => reject(new Error('Failed to load Cashfree SDK'));
     document.head.appendChild(script);
   }).catch((err) => {
     cashfreePromise = null;
+    cachedMode = null;
     throw err;
   });
 

@@ -13,6 +13,12 @@ import { NextRequest } from 'next/server';
  *    `release` needs the literal confirmation word.
  */
 
+process.env.CASHFREE_ENV = 'sandbox';
+process.env.NEXT_PUBLIC_CASHFREE_ENV = 'sandbox';
+process.env.CASHFREE_API_VERSION = '2022-09-01';
+process.env.CASHFREE_APP_ID = 'test-app-id';
+process.env.CASHFREE_SECRET_KEY = 'test-secret-key';
+
 const SECRET = 'test-billing-ops-secret';
 
 const mocks = vi.hoisted(() => ({

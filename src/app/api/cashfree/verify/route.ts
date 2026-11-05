@@ -67,10 +67,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Payment gateway not configured' }, { status: 503 });
     }
 
-    // Never verify (and therefore never activate) against a Cashfree environment
-    // the server has not explicitly selected. An unset or misspelt CASHFREE_ENV
-    // must not be able to fulfil an order against a host nobody chose; an
-    // explicit `sandbox` is a legitimate choice in any deployment.
+    // Invalid deployment configuration must never reach verification or fulfillment.
     if (!isCashfreeEnvUsable()) {
       logger.error('payment.verify_failed', { route: '/api/cashfree/verify', requestId, errorCode: 'cashfree_env_invalid' });
       return NextResponse.json({ error: 'Payment is temporarily unavailable' }, { status: 503 });

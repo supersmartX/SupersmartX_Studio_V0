@@ -44,3 +44,12 @@ npm run test:e2e    # needs browsers: npx playwright install; webServer starts `
   suites are skipped when it is unset, and refused when the URL looks deployed
   (`prod`, the product name, a Supabase host) unless `ALLOW_TEST_DB=1`.
 - Never commit `.env.local` (gitignored).
+
+## Isolated Cashfree development
+
+Keep both Cashfree selectors explicitly `sandbox`, API version `2022-09-01`,
+Sandbox keys and a disposable database. `.env.local` is operator-owned and is not
+rewritten by configuration enforcement. If it already selects Production, local
+checkout can use real payments. Never run tests against that configuration.
+Targeted payment tests mock Cashfree and must have production database access
+disabled. Local `next build`/`next start` can use Sandbox; Vercel Production cannot.

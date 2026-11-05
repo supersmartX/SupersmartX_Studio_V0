@@ -7,75 +7,24 @@ import {
 import { planTermInterval } from '@/lib/entitlements';
 import { logger } from '@/lib/observe/logger';
 
-export const CASHFREE_API_VERSION_FALLBACK = '2023-08-01';
+import { getCashfreeConfig, getCashfreeEnv, cashfreeHeaders } from './cashfree-config';
+import type { CashfreeEnv } from './cashfree-config';
+export { getCashfreeEnv } from './cashfree-config';
+export type { CashfreeEnv } from './cashfree-config';
 
-export type CashfreeEnv = 'sandbox' | 'production';
-
-/** The server's authoritative Cashfree environment; only exact values are valid. */
-export function getCashfreeEnv(): CashfreeEnv {
-  const env = process.env.CASHFREE_ENV;
-  if (env === 'sandbox' || env === 'production') return env;
-  throw new Error('cashfree_env_invalid');
-}
-
-/**
- * Validate the server-selected mode. Sandbox is permitted in production when
- * explicitly configured; missing and unknown values always fail closed.
- */
-export function assertCashfreeEnvForRuntime(): void {
-  getCashfreeEnv();
-}
-
-export function cashfreeBaseUrl(): string {
-  assertCashfreeEnvForRuntime();
-  return getCashfreeEnv() === 'production'
-    ? 'https://api.cashfree.com/pg'
-    : 'https://sandbox.cashfree.com/pg';
-}
-
-/** Non-throwing form of the guard, for request handlers that answer 503. */
+export function assertCashfreeEnvForRuntime(): void { getCashfreeConfig(); }
+export function cashfreeBaseUrl(): string { return getCashfreeConfig().baseUrl; }
 export function isCashfreeEnvUsable(): boolean {
-  try {
-    assertCashfreeEnvForRuntime();
-    return true;
-  } catch {
-    return false;
-  }
+  try { getCashfreeConfig(); return true; } catch { return false; }
 }
-
-/**
- * Guards the split between the server env (runtime) and the browser env
- * (build-time `NEXT_PUBLIC_CASHFREE_ENV`).
- *
- * The Cashfree SDK's mode is fixed in the browser when the script loads, but the
- * order is created server-side. If the two disagree, checkout renders against
- * one Cashfree environment while the order — and therefore the webhook — belongs
- * to the other, so the payment can never settle into an activation. Callers must
- * refuse to create an order while they are inconsistent.
- */
 export function isCashfreeEnvConsistent(): boolean {
-  assertCashfreeEnvForRuntime();
-  const serverEnv = getCashfreeEnv();
-  const publicEnv = process.env.NEXT_PUBLIC_CASHFREE_ENV;
-  if (publicEnv === serverEnv) return true;
-  logger.error('payment.env_mismatch', {
-    route: '/api/cashfree',
-    serverEnv,
-    publicEnv: publicEnv || 'unset',
-  });
-  return false;
+  return process.env.NEXT_PUBLIC_CASHFREE_ENV === getCashfreeEnv();
 }
-
 export function isCashfreeConfigured(): boolean {
-  return Boolean(process.env.CASHFREE_APP_ID && process.env.CASHFREE_SECRET_KEY);
+  return Boolean(process.env.CASHFREE_APP_ID?.trim() && process.env.CASHFREE_SECRET_KEY?.trim());
 }
-
-/** The version actually sent, and whether it came from configuration or the fallback. */
-export function apiVersion(): { value: string; source: 'env' | 'fallback' } {
-  const fromEnv = process.env.CASHFREE_API_VERSION;
-  return fromEnv
-    ? { value: fromEnv, source: 'env' }
-    : { value: CASHFREE_API_VERSION_FALLBACK, source: 'fallback' };
+export function apiVersion(): { value: string; source: 'env' } {
+  return { value: getCashfreeConfig().apiVersion, source: 'env' };
 }
 
 /**
@@ -88,7 +37,7 @@ export interface GatewayProbeDiagnostics {
   host: string;
   cashfreeEnv: CashfreeEnv;
   apiVersion: string;
-  apiVersionSource: 'env' | 'fallback';
+  apiVersionSource: 'env';
   status: number;
   bodyKind: 'json' | 'non_json' | 'empty';
   gatewayErrorCode?: string;
@@ -206,11 +155,8 @@ export async function fetchCashfreeOrder(orderId: string): Promise<CashfreeOrder
   const baseUrl = cashfreeBaseUrl();
   const response = await fetch(`${baseUrl}/orders/${encodeURIComponent(orderId)}`, {
     method: 'GET',
-    headers: {
-      'x-client-id': process.env.CASHFREE_APP_ID || '',
-      'x-client-secret': process.env.CASHFREE_SECRET_KEY || '',
-      'x-api-version': apiVersion().value,
-    },
+    headers: cashfreeHeaders(),
+    redirect: 'error',
     cache: 'no-store',
   });
 

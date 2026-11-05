@@ -1,3 +1,4 @@
+import { isCashfreeEnvUsable } from '@/lib/cashfree-fulfillment';
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import {
@@ -125,6 +126,8 @@ export async function GET(request: NextRequest) {
     const limit = parseLimit(params.get('limit'));
     const probe = params.get('probe') === '1' || params.get('probe') === 'true';
 
+    if (probe && !isCashfreeEnvUsable()) return json({ error: 'Payment gateway not configured' }, 503, requestId);
+
     const rows = await listPendingOrdersForOps({ statuses, limit });
     const report = await buildReconciliationReport({ rows, probe });
     const counts = await countPendingOrdersByStatus();
@@ -182,6 +185,8 @@ export async function POST(request: NextRequest) {
 
   const orderId = typeof body.orderId === 'string' ? body.orderId.trim() : '';
   if (!orderId) return json({ error: 'orderId is required' }, 400, requestId);
+
+  if (!isCashfreeEnvUsable()) return json({ error: 'Payment gateway not configured' }, 503, requestId);
 
   const row = await findPendingOrderLifecycle(orderId).catch(() => null);
   if (!row) return json({ error: 'Order not found' }, 404, requestId);

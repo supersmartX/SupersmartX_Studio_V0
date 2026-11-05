@@ -1,3 +1,4 @@
+import { cashfreeHeaders } from '@/lib/cashfree-config';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { getServerPrice, getServerPricingForCountry, ALL_COUNTRIES } from '@/lib/pricing';
@@ -123,12 +124,8 @@ async function createCashfreeOrder(data: {
   try {
     response = await fetch(`${cashfreeBaseUrlForRequest()}/orders`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-client-id': process.env.CASHFREE_APP_ID!,
-        'x-client-secret': process.env.CASHFREE_SECRET_KEY!,
-        'x-api-version': process.env.CASHFREE_API_VERSION || '2023-08-01',
-      },
+      headers: cashfreeHeaders(),
+      redirect: 'error',
       body: JSON.stringify(payload),
     });
   } catch (error) {
@@ -159,7 +156,7 @@ async function createCashfreeOrder(data: {
 
 /** The response body every reconciliation refusal carries. */
 function blockResponse(block: CheckoutBlock, requestId: string): NextResponse {
-  return NextResponse.json(block.body, {
+  return NextResponse.json({ ...block.body, env: getCashfreeEnv() }, {
     status: block.httpStatus,
     headers: {
       'x-request-id': requestId,
@@ -225,10 +222,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // CASHFREE_ENV selects the Cashfree environment on its own, independently of
-    // NODE_ENV: a production deployment may deliberately point at Sandbox while
-    // testing. Only an unset, misspelt or otherwise invalid value refuses here —
-    // the guard never substitutes one Cashfree environment for the other.
+    // Validate the complete deployment-bound configuration before any reservation or reconciliation.
     if (!isCashfreeEnvUsable()) {
       logger.error('payment.order_failed', { route: '/api/cashfree/order', requestId, errorCode: 'cashfree_env_invalid' });
       return NextResponse.json(
