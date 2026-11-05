@@ -479,7 +479,7 @@ export function ExportModal({
     return (
       <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Export recording" {...swipeHandlers}>
         <div
-          className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
+          className={`absolute inset-0 drawer-backdrop ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
           onClick={closeModal}
         />
         <div ref={panelRef} className={`relative w-full max-w-lg bg-surface border border-border-default rounded-xl shadow-2xl overflow-hidden ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}>
@@ -513,7 +513,7 @@ export function ExportModal({
   return (
     <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label="Export recording" {...swipeHandlers}>
       <div
-        className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
+        className={`absolute inset-0 drawer-backdrop ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
         onClick={closeModal}
       />
 

@@ -47,3 +47,41 @@ Fresh results:
   including actual scroll-rate comparison, pause/resume, close/reopen and review.
 - Both captured screenshots were visually inspected.
 - Production build: passed. Existing middleware deprecation notice remains.
+
+
+## Review and export follow-up - 2026-11-04
+
+Approved correction: release the empty desktop inspector column after Stop and
+center review within the available workspace. The settings button opens the
+existing export dialog during review. Its accessible name becomes Export settings,
+and its expanded state reflects the dialog. Closing returns to the same take.
+The export loading and ready states reuse the existing drawer backdrop (60 percent
+dimming and 4px blur) instead of the nearly opaque black backdrop.
+
+Architecture/security: reuse the existing modal, export callbacks, focus handling,
+and backdrop style. No new dependency, endpoint, storage or entitlement path.
+Recording controls retain their previous behavior. Review has no inspector node,
+so it reserves no width; returning to preparation renders the settings again.
+
+Acceptance criteria:
+- Given an open desktop inspector, when recording stops, then review reaches the
+  workspace's right edge with no empty inspector column.
+- Given review, when Export settings is selected, then the export dialog opens
+  with its normal controls and the background cannot receive interaction.
+- Given export, when Escape or Close is used, then review remains available;
+  Escape returns keyboard focus to the settings trigger.
+- Given a compact viewport, the same review/export flow fits the viewport and
+  preserves the captured take.
+
+Tests extend the existing recording-inspector component and browser suites.
+The 2026-11-03 full-suite results above are historical, not a new full-suite run.
+
+Fresh follow-up verification (2026-11-04):
+- Targeted Vitest: 20 tests passed across inspector, header and review-state suites.
+- Chromium at 1440px and 390px: both recording/review/export tests passed with
+  retries disabled, including workspace width, settings entry, background inertness,
+  Escape/focus restoration, normal Export entry and Close.
+- Review and export screenshots inspected at desktop and mobile widths.
+- TypeScript, ESLint on affected source/test files, and production build passed.
+- Existing Next.js middleware deprecation warning remains.
+- Browser validation used fake camera input; real-camera output was not assessed.

@@ -31,6 +31,16 @@ describe('recording inspector', () => {
     expect(screen.getByRole('textbox', { name: 'Script Editor' })).not.toHaveAttribute('readonly');
   });
 
+  it('releases the desktop column on review and restores settings for a retake', () => {
+    const p = props();
+    const { container, rerender } = render(<InspectorPanel {...p} inspectorContext="recording" />);
+    expect(container.querySelector('aside')).not.toBeNull();
+    rerender(<InspectorPanel {...p} inspectorContext="review" />);
+    expect(container).toBeEmptyDOMElement();
+    rerender(<InspectorPanel {...p} inspectorContext="preparing" />);
+    expect(screen.getByRole('textbox', { name: 'Script Editor' })).not.toHaveAttribute('readonly');
+  });
+
   it('allows closing the recording drawer and preserves review behavior', () => {
     const p = props();
     const { rerender } = render(<InspectorPanel {...p} inspectorContext="recording" isDrawer />);

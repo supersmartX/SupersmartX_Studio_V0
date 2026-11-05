@@ -199,19 +199,9 @@ export function InspectorPanel({
     : inspectorContext === 'review' ? 'Publish'
     : 'Prepare';
 
-  // Review keeps its existing export surface. During capture the inspector
-  // remains mounted, preserving canvas geometry and access to live controls.
-  if (inspectorContext === 'review') {
-    if (isDrawer) return null;
-    return (
-      <aside
-        aria-hidden="true"
-        className={`hidden xl:block h-full shrink-0 overflow-hidden transition-all duration-[180ms] ease-out ${
-          isOpen ? 'w-[300px]' : 'w-0'
-        }`}
-      />
-    );
-  }
+  // Review uses the full canvas and export dialog, with no reserved inspector
+  // column. Capture keeps the live settings panel and its existing geometry.
+  if (inspectorContext === 'review') return null;
 
   // Compact (< 1280px): full-height slide-in drawer from the right, over the canvas.
   // Wide (>= 1280px): inline aside that shares the row with the IconRail.

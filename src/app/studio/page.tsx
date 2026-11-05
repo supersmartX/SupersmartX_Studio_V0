@@ -1202,11 +1202,9 @@ export default function HomePage() {
   // Capture keeps live teleprompter settings accessible; the inspector itself
   // locks controls that must wait until the take has finished.
   const handleToggleInspector = useCallback(() => {
-    // Review has no prepare-only sections on purpose: showing an empty
-    // "Inspector" here would be a dead drawer. Retake is the way back to a
-    // recording setup, and Export is the way out with this take.
+    // After capture, settings belong to the saved take's export workflow.
     if (isReview) {
-      showToast('Your recording is ready. Retake to record again, or export it now.');
+      setDrawerVisible(true);
       return;
     }
     if (!isStudio) {
@@ -1215,7 +1213,7 @@ export default function HomePage() {
       return;
     }
     setIsInspectorOpen((prev) => !prev);
-  }, [isReview, isStudio, showToast]);
+  }, [isReview, isStudio, setDrawerVisible]);
 
   const handleShowShortcuts = useCallback(() => {
     showToast('Space: Start / Stop recording · P: Pause / Resume · M: Mute microphone · ↑ ↓: Move text · Esc: Close');
@@ -1351,7 +1349,7 @@ export default function HomePage() {
           onExport={() => ui.setIsDrawerVisible(true)}
           onShare={share}
           onToggleInspector={handleToggleInspector}
-          isInspectorOpen={isInspectorOpen}
+          isInspectorOpen={isReview ? ui.isDrawerVisible : isInspectorOpen}
           onSignIn={() => {
             setAuthIntent('login');
             ui.handleAuthRequired();

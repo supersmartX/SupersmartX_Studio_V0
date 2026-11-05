@@ -48,7 +48,32 @@ for (const width of [1440, 390]) {
     await toggle.click();
     await expect(speed).toBeVisible();
     await page.getByRole('button', { name: 'Close inspector' }).click();
+    // Leave the desktop inspector open: stopping must reclaim its width.
+    // On compact layouts the drawer must be closed to reach Stop.
+    if (width >= 1280) await toggle.click();
     await stopRecording(page);
+    await expectReview(page);
+    await expect(page.locator('aside')).toHaveCount(0);
+    const main = await page.getByRole('main').boundingBox();
+    expect(main).not.toBeNull();
+    expect(Math.abs(main!.x + main!.width - width)).toBeLessThan(2);
+    await page.screenshot({ path: testInfo.outputPath('review-layout.png') });
+    const exportSettings = page.getByRole('button', { name: 'Export settings', exact: true });
+    await expect(exportSettings).toHaveAttribute('aria-expanded', 'false');
+    await exportSettings.click();
+    const dialog = page.getByRole('dialog', { name: 'Export recording', exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'Ready to export' })).toBeVisible();
+    await expect(page.locator('.studio-shell')).toHaveAttribute('inert', '');
+    await page.screenshot({ path: testInfo.outputPath('export-settings.png') });
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(exportSettings).toBeFocused();
+    await expectReview(page);
+    await page.getByRole('button', { name: 'Export recording', exact: true }).click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
     await expectReview(page);
   });
 }

@@ -151,7 +151,9 @@ export function Header({
           <button
             onClick={onToggleInspector}
             className="p-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-elevated transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-            aria-label="Toggle inspector panel"
+            aria-label={hasRecording ? 'Export settings' : 'Toggle inspector panel'}
+            title={hasRecording ? 'Export settings' : 'Studio settings'}
+            aria-haspopup={hasRecording ? 'dialog' : undefined}
             aria-expanded={isInspectorOpen}
           >
             <SettingsIcon className="w-4 h-4" />
