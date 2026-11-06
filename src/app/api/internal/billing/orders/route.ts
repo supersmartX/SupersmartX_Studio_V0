@@ -1,4 +1,5 @@
-import { isCashfreeEnvUsable } from '@/lib/cashfree-fulfillment';
+import { CashfreeRequestError, fetchCashfreeOrder, isCashfreeEnvUsable } from '@/lib/cashfree-fulfillment';
+import { getCashfreeConfig } from '@/lib/cashfree-config';
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import {
@@ -108,6 +109,66 @@ function parseLimit(raw: string | null): number {
   return Math.min(200, parsed);
 }
 
+// Temporary investigation scope: supplied existing orders only, never arbitrary URLs.
+const DIAGNOSTIC_ORDER_IDS = new Set([
+  'sxs-creator_monthly-a0c3367c-0724-4061-84c6-bb418b119d09',
+  'sxs-creator_monthly-e8c0348e-169f-4ffa-9779-60be176648c4',
+  'sxs-creator_monthly-f4797b8d-911f-4638-ba42-640e948653ac',
+]);
+
+/** No database access, reconciliation, raw gateway bodies, or retries. */
+async function diagnoseCashfree(params: URLSearchParams, requestId: string) {
+  const orderId = params.get('orderId');
+  if (params.getAll('orderId').length !== 1 || !orderId || !DIAGNOSTIC_ORDER_IDS.has(orderId)) {
+    return json({ error: 'An explicitly supplied approved existing orderId is required' }, 400, requestId);
+  }
+  try {
+    if (getCashfreeConfig().mode !== 'production') throw new Error('production_required');
+  } catch {
+    return json({ configurationValidation: 'FAIL', authentication: 'NOT_TESTED', httpStatus: null,
+      gatewayErrorCode: null, gatewayMessage: null, gatewayRequestId: null, orderFound: null }, 503, requestId);
+  }
+
+  const result = {
+    configurationValidation: 'PASS', authentication: 'UNVERIFIED',
+    httpStatus: null as number | null, gatewayRequestId: null as string | null,
+    gatewayErrorCode: null as string | null, gatewayMessage: null as string | null,
+    orderFound: null as boolean | null,
+  };
+  try {
+    const order = await fetchCashfreeOrder(orderId, (metadata) => {
+      result.httpStatus = metadata.status;
+      // Cashfree correlation IDs are UUIDs. Do not reflect arbitrary header text.
+      const id = metadata.gatewayRequestId;
+      result.gatewayRequestId = id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null;
+    });
+    if (order?.order_id === orderId) {
+      result.authentication = 'PASS';
+      result.orderFound = true;
+    } else {
+      result.gatewayErrorCode = 'unexpected_order_response';
+      result.gatewayMessage = 'Cashfree did not return the requested order';
+    }
+  } catch (error) {
+    if (error instanceof CashfreeRequestError) {
+      result.httpStatus = error.status;
+      result.authentication = error.status === 401 || error.status === 403 ? 'FAIL' : 'UNVERIFIED';
+      result.orderFound = error.status === 404 ? false : null;
+      // Allowlisted error text only: upstream messages can contain customer data.
+      const code = error.diagnostics?.gatewayErrorCode;
+      result.gatewayErrorCode = code && ['request_failed', 'authentication_error', 'order_not_found',
+        'order_id_invalid', 'invalid_request_error'].includes(code) ? code : 'cashfree_error';
+      result.gatewayMessage = error.diagnostics?.gatewayMessage === 'authentication Failed'
+        ? 'authentication Failed' : `Cashfree returned HTTP ${error.status}`;
+    } else {
+      result.gatewayErrorCode = 'gateway_request_or_response_failed';
+      result.gatewayMessage = 'Cashfree request or response could not be completed';
+    }
+  }
+  // HTTP 200 means the diagnostic completed; httpStatus describes Cashfree.
+  return json(result, 200, requestId);
+}
+
 /**
  * GET — read-only reconciliation report.
  *
@@ -119,6 +180,14 @@ export async function GET(request: NextRequest) {
   const requestId = getRequestId(request);
   const auth = authorize(request, requestId);
   if (!auth.ok) return auth.response;
+
+  if (request.nextUrl.searchParams.has('diagnostic')) {
+    if (request.nextUrl.searchParams.getAll('diagnostic').length !== 1 ||
+      request.nextUrl.searchParams.get('diagnostic') !== 'cashfree-auth') {
+      return json({ error: 'Unsupported diagnostic' }, 400, requestId);
+    }
+    return diagnoseCashfree(request.nextUrl.searchParams, requestId);
+  }
 
   try {
     const params = request.nextUrl.searchParams;

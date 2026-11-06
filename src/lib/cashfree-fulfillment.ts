@@ -151,7 +151,10 @@ export interface PendingOrder {
 }
 
 /** Authoritative order state straight from Cashfree — never from client input. */
-export async function fetchCashfreeOrder(orderId: string): Promise<CashfreeOrder> {
+export async function fetchCashfreeOrder(
+  orderId: string,
+  onResponse?: (metadata: { status: number; gatewayRequestId: string | null }) => void,
+): Promise<CashfreeOrder> {
   const baseUrl = cashfreeBaseUrl();
   const response = await fetch(`${baseUrl}/orders/${encodeURIComponent(orderId)}`, {
     method: 'GET',
@@ -159,6 +162,12 @@ export async function fetchCashfreeOrder(orderId: string): Promise<CashfreeOrder
     redirect: 'error',
     cache: 'no-store',
   });
+
+  if (onResponse) {
+    const requestId = response.headers.get('x-request-id') ??
+      response.headers.get('x-cf-request-id') ?? response.headers.get('request-id');
+    onResponse({ status: response.status, gatewayRequestId: requestId ? scrubGatewayText(requestId) : null });
+  }
 
   if (!response.ok) {
     const diagnostics = await describeGatewayFailure(response, baseUrl).catch(() => undefined);

@@ -32,6 +32,10 @@ export function getCashfreeEnv(): CashfreeEnv {
 
 function credential(value: string | undefined): string {
   if (!value || value.trim() !== value || /\s/.test(value)) throw new Error('cashfree_credentials_invalid');
+  const wrappedInQuotes = value.length >= 2 &&
+    ((value.startsWith("'") && value.endsWith("'")) ||
+      (value.startsWith('"') && value.endsWith('"')));
+  if (wrappedInQuotes) throw new Error('cashfree_credentials_invalid');
   return value;
 }
 
