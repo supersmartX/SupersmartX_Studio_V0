@@ -8,13 +8,17 @@ import { AuthModal } from '@/components/auth/AuthModal';
 import {
   formatPrice,
   formatPriceZero,
+  formatPriceForCurrency,
   formatSavingsPercent,
+  getPricingForCountry,
 } from '@/lib/pricing';
 import { useRegionalPricing } from '@/hooks/useRegionalPricing';
 import { PRICING_PLANS } from '@/constants';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { SEO_CONFIG } from '@/lib/seo/config';
 import '@/styles/pricing.css';
+
+const INR_PRICING = getPricingForCountry('IN');
 
 const NAV_LINKS = [
   { label: 'Studio', href: '#top' },
@@ -1177,6 +1181,31 @@ export default function LandingPage() {
 .lsx-footer-link:hover {
   color: rgba(255,255,255,0.7);
 }
+.lsx-footer-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 720px;
+  margin: 0 auto 28px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.5);
+}
+.lsx-footer-info-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.7);
+}
+.lsx-footer-info-link {
+  color: rgba(255,255,255,0.5);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.lsx-footer-info-link:hover {
+  color: rgba(255,255,255,0.7);
+}
 /* §8 landing contrast: the pricing-period colour is defined in
    src/styles/pricing.css, which is imported by BOTH this page and the studio's
    PricingModal. Editing it there would restyle the studio too, so the landing
@@ -1759,6 +1788,21 @@ export default function LandingPage() {
         </section>
 
         <footer className="lsx-footer">
+          <div className="lsx-footer-info">
+            <p className="lsx-footer-info-title">SupersmartX Studio</p>
+            <p className="lsx-footer-info-line">
+              {`Browser-based teleprompter and video recording. Plans: Free (${formatPriceForCurrency(0, 'INR', 'en-IN')}), Creator (${formatPriceForCurrency(INR_PRICING.creatorMonthly, 'INR', 'en-IN')} per month or ${formatPriceForCurrency(INR_PRICING.creatorYearly, 'INR', 'en-IN')} per year). Prices shown in INR.`}
+            </p>
+            <p className="lsx-footer-info-line">
+              Operated by SupersmartX, India &middot;{' '}
+              <a
+                href="mailto:support@supersmartx.com"
+                className="lsx-footer-info-link"
+              >
+                support@supersmartx.com
+              </a>
+            </p>
+          </div>
           <div className="lsx-footer-bottom">
             <span>
               &copy; {new Date().getFullYear()} SupersmartX. All rights
@@ -1769,6 +1813,12 @@ export default function LandingPage() {
             </Link>
             <Link href="/legal/privacy" className="lsx-footer-link">
               Privacy
+            </Link>
+            <Link href="/legal/refund" className="lsx-footer-link">
+              Refunds &amp; Cancellations
+            </Link>
+            <Link href="/contact" className="lsx-footer-link">
+              Contact
             </Link>
           </div>
         </footer>

@@ -23,5 +23,17 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'monthly',
       priority: 0.3,
     },
+    {
+      url: `${base}/legal/refund`,
+      lastModified: now,
+      changeFrequency: 'monthly',
+      priority: 0.3,
+    },
+    {
+      url: `${base}/contact`,
+      lastModified: now,
+      changeFrequency: 'monthly',
+      priority: 0.3,
+    },
   ];
 }
