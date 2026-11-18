@@ -607,6 +607,7 @@ export default function HomePage() {
   // Kept in sync with the `xl` breakpoint used by IconRail/CompactNavMenu/InspectorPanel.
   const isCompactLayout = useMediaQuery('(max-width: 1279px)');
   const [activePanel, setActivePanel] = useState<TabType | 'record' | 'share'>('studio');
+  const [freshSessionNeedsCamera, setFreshSessionNeedsCamera] = useState(false);
   const [isMicMuted, setIsMicMuted] = useState(false);
   // The mute state is pushed onto whatever stream is live AT THE MOMENT of the
   // change — including a stream acquired after the toggle (Stop → Start, a
@@ -692,6 +693,12 @@ export default function HomePage() {
     // 'completed' keeps review alive on its own (see isReviewState), so the
     // capture session has to go back to idle or review survives with no take.
     recorder.resetRecording();
+    // A finished take has already released its stream, but useCamera remembers
+    // that a device was used earlier. Re-arm the first-use prompt so this
+    // transition always lands on a usable fresh editor instead of a blank canvas.
+    camera.stop();
+    setFreshSessionNeedsCamera(true);
+    setIsMicMuted(false);
     releaseMasterRecording();
     clearJobs();
     setExportConfig(null);
@@ -700,7 +707,7 @@ export default function HomePage() {
     // DC-1: a new video starts with an empty script. The outgoing take keeps
     // ITS script in its own row; the editor is a fresh draft area from here.
     scriptStorage.clearScript();
-  }, [ui, recorder, releaseMasterRecording, clearJobs, setExportConfig, setPreviewPlatformId, setActivePanel, scriptStorage.clearScript]);
+  }, [ui, recorder, camera.stop, releaseMasterRecording, clearJobs, setExportConfig, setPreviewPlatformId, setActivePanel, scriptStorage.clearScript]);
 
   const discardSessionTake = useCallback(() => {
     ui.setIsDrawerVisible(false);
@@ -709,6 +716,26 @@ export default function HomePage() {
     clearJobs();
     setExportConfig(null);
   }, [ui, recorder, clearMasterRecording, clearJobs, setExportConfig]);
+
+  // Deleting a take ends that video session completely. Do not leave its
+  // script in the editor, where the empty recorder screen looks like a failed
+  // transition instead of a fresh video workspace.
+  const deleteTakeAndStartFreshSession = useCallback(() => {
+    discardSessionTake();
+    // Deleting the take ends the old capture session. Release any remaining
+    // device tracks and show the same first-use prompt as a fresh Studio visit.
+    camera.stop();
+    setFreshSessionNeedsCamera(true);
+    setIsMicMuted(false);
+    setPreviewPlatformId(DEFAULT_PLATFORM_ID);
+    setActivePanel('studio');
+    scriptStorage.clearScript();
+  }, [discardSessionTake, camera.stop, setPreviewPlatformId, setActivePanel, scriptStorage.clearScript]);
+
+  const handleCameraPermissionRequest = useCallback(async () => {
+    const stream = await handleCameraInitialize();
+    if (stream) setFreshSessionNeedsCamera(false);
+  }, [handleCameraInitialize]);
 
   const handleNewVideo = useCallback(() => {
     // Never destroy a take in flight. New Video is a "start over" for an
@@ -1331,7 +1358,7 @@ export default function HomePage() {
         onDontShowChange={welcomeModal.setDontShowAgain}
         onGetStarted={() => {
           welcomeModal.closeModal();
-          if (!camera.isInitialized) handleCameraInitialize();
+          if (!camera.isInitialized) handleCameraPermissionRequest();
         }}
         onExploreStudio={welcomeModal.closeModal}
       />
@@ -1522,11 +1549,11 @@ export default function HomePage() {
                     active capture: the user must keep seeing (and reaching)
                     Stop — the overlay returns the moment the take ends. */}
                 {!camera.isInitialized &&
-                  (!camera.hasInitialized || camera.status === 'error') &&
+                  (freshSessionNeedsCamera || !camera.hasInitialized || camera.status === 'error') &&
                   recorder.recordingState !== 'recording' &&
                   recorder.recordingState !== 'paused' && (
                   <InitOverlay
-                    onInitialize={handleCameraInitialize}
+                    onInitialize={handleCameraPermissionRequest}
                     status={camera.status === 'ready' ? 'idle' : camera.status}
                     errorMessage={camera.errorMessage}
                     permissionBlocked={camera.permissionBlocked}
@@ -1566,9 +1593,9 @@ export default function HomePage() {
                             onClick={handleReviewDelete}
                             aria-label="Delete recording"
                             title="Delete this take"
-                            className="flex items-center justify-center gap-1.5 min-w-[44px] min-h-[44px] px-3 rounded-lg text-text-muted ring-1 ring-white/[0.08] hover:text-recording hover:bg-recording/10 transition-colors"
+                            className="flex items-center justify-center gap-1.5 min-w-[44px] min-h-[44px] px-3 rounded-lg text-error/80 ring-1 ring-error/20 hover:text-error hover:bg-error/10 hover:ring-error/40 transition-colors"
                           >
-                            <TrashIcon className="w-4 h-4" />
+                            <TrashIcon className="w-5 h-5" aria-hidden="true" />
                             <span className="hidden sm:inline text-[12px] font-medium">Delete</span>
                           </button>
                         )}
@@ -1771,7 +1798,7 @@ export default function HomePage() {
             // If a reset step fails, keep the confirmation visible and tell the
             // user instead of making the CTA appear to have silently done nothing.
             if (action === 'new-video') startNewVideoSession();
-            else if (action === 'delete-take') discardSessionTake();
+            else if (action === 'delete-take') deleteTakeAndStartFreshSession();
             setPendingConfirm(null);
           } catch {
             showToast(action === 'new-video'
