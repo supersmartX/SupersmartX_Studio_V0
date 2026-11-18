@@ -4,7 +4,6 @@ import { useState, useRef, useCallback } from 'react';
 import type { TabType } from '@/types';
 import {
   MenuIcon,
-  CameraIcon,
   BookOpenIcon,
   PlusIcon,
   SettingsIcon,
@@ -38,10 +37,8 @@ interface NavItem {
  * This used to be a persistent 4-item bar pinned to the bottom of the viewport
  * on every mobile and tablet width, permanently spending 3.5rem of screen on
  * chrome that is touched a handful of times per session. It is now a single
- * hamburger in the app bar that discloses the same four destinations, so the
- * canvas and the transport keep that space. The items, their labels, their
- * active state and their handlers are unchanged — this is a re-arrangement,
- * not a redesign.
+ * hamburger in the app bar that discloses the primary creation and recordings
+ * destinations plus settings, so the canvas and transport keep that space.
  *
  * A disclosure (button + `aria-expanded` + a panel of ordinary buttons) is the
  * right pattern here rather than `role="menu"`: it is a list of navigation
@@ -71,15 +68,8 @@ export function CompactNavMenu({
   };
 
   const items: NavItem[] = [
-    {
-      label: 'Studio',
-      icon: <CameraIcon className="w-4 h-4" />,
-      onSelect: () => run(() => onPanelChange('studio')),
-      isActive: activePanel === 'studio',
-    },
-    // DC-3: session reset must be an affordance LABELED "New Video", never
-    // smuggled in behind a nav tab called "Studio". Destructive to the session
-    // only — the previous take stays in the library.
+    // DC-3: keep the session reset explicitly labeled "New Video". The
+    // previous take stays in the library.
     {
       label: 'New Video',
       icon: <PlusIcon className="w-4 h-4" />,

@@ -1765,9 +1765,19 @@ export default function HomePage() {
         cancelLabel={pendingConfirmCopy.cancelLabel}
         onConfirm={() => {
           const action = pendingConfirm;
-          setPendingConfirm(null);
-          if (action === 'new-video') startNewVideoSession();
-          else if (action === 'delete-take') discardSessionTake();
+          if (!action) return;
+          try {
+            // Complete the requested transition before dismissing the dialog.
+            // If a reset step fails, keep the confirmation visible and tell the
+            // user instead of making the CTA appear to have silently done nothing.
+            if (action === 'new-video') startNewVideoSession();
+            else if (action === 'delete-take') discardSessionTake();
+            setPendingConfirm(null);
+          } catch {
+            showToast(action === 'new-video'
+              ? 'Could not start a new video. Please try again.'
+              : 'Could not delete this recording. Please try again.');
+          }
         }}
         onCancel={() => setPendingConfirm(null)}
       />

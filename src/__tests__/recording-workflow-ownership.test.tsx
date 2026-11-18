@@ -571,51 +571,46 @@ describe('the studio page owns both transitions', () => {
     expect(reset, 'DC-1: New Video starts with an empty script').toContain('scriptStorage.clearScript');
   });
 
-  it('the desktop rail: "Studio" navigates and "New Video" owns the reset (UX-001)', () => {
-    // UX-001: the rail's studio entry used to BE the destructive one. It is now
-    // a pure panel switch, and the rail carries its own explicitly LABELED
-    // "New Video" entry that owns the reset — the shape the compact menu already had.
-    // Both rails therefore share one handler and cannot drift apart again.
-    const compactNav = handler('handleCompactNav');
-    expect(compactNav, 'the rail\'s Studio entry only switches panels').toContain('setActivePanel(panel)');
-    expect(compactNav, 'the rail\'s Studio entry never starts a new workflow').not.toContain('handleNewVideo');
+  it('runs the confirmed transition before closing the dialog and reports failures', () => {
+    const dialog = extractElement(source, 'ConfirmDialog');
+    expect(dialog, 'the shared confirmation dialog must be rendered').toBeTruthy();
+    const actionPosition = dialog!.indexOf("if (action === 'new-video') startNewVideoSession()");
+    const closePosition = dialog!.indexOf('setPendingConfirm(null)');
 
-    // The reset stays reachable on desktop, through a control explicitly
-    // LABELED "New Video" — the same promise its text makes.
-    const iconRail = extractElement(source, 'IconRail');
-    expect(iconRail, 'IconRail must be rendered').toBeTruthy();
-    expect(iconRail, 'the rail must receive the pure panel switch').toContain(
-      'onPanelChange={handleCompactNav}',
-    );
-    expect(iconRail, 'the rail must carry the explicit New Video action').toContain(
-      'onNewVideo={handleNewVideo}',
-    );
+    expect(actionPosition).toBeGreaterThanOrEqual(0);
+    expect(closePosition).toBeGreaterThan(actionPosition);
+    expect(dialog).toContain('Could not start a new video. Please try again.');
   });
 
-  it('the compact "Studio" tab is a pure panel switch (DC-3)', () => {
-    // The compact menu's Studio entry is navigation: tapping it used to run the
-    // full session reset, silently creating a New Video (clearing the recording,
-    // releasing the master) as a side effect of switching panels.
+  it('the desktop rail keeps New Video and Recordings without a Studio destination', () => {
     const compactNav = handler('handleCompactNav');
-    expect(compactNav, 'the compact tab only switches panels').toContain('setActivePanel(panel)');
-    expect(compactNav, 'the compact tab never starts a new workflow').not.toContain('handleNewVideo');
-    expect(compactNav, 'the compact tab never clears a recording').not.toContain('resetRecording');
-    expect(compactNav, 'the compact tab never releases the master').not.toContain('releaseMasterRecording');
-    expect(compactNav, 'the compact tab never deletes anything').not.toContain('clearMasterRecording');
+    expect(compactNav).toContain('setActivePanel(panel)');
 
-    // The reset stays reachable on compact layouts — through a control
-    // explicitly LABELED "New Video", wired to the same transition.
-    // The compact layout moved from a persistent bottom bar to a hamburger in
-    // the app bar, but the contract is unchanged: the same explicitly LABELED
-    // "New Video" control, wired to the same transition, still owns the reset.
+    const iconRail = extractElement(source, 'IconRail');
+    expect(iconRail, 'IconRail must be rendered').toBeTruthy();
+    const iconRailSource = readSource('src/components/layout/IconRail.tsx');
+    expect(iconRailSource).not.toContain("onPanelChange('studio')");
+    expect(iconRailSource).toContain("onPanelChange('library')");
+    expect(iconRailSource).toContain('New Video');
+    expect(iconRailSource).toContain('Recordings');
+    expect(iconRailSource).not.toMatch(/>\s*Studio\s*</);
+    expect(iconRail).toContain('onPanelChange={handleCompactNav}');
+    expect(iconRail).toContain('onNewVideo={handleNewVideo}');
+  });
+
+  it('the compact navigation keeps New Video and Recordings without a Studio destination', () => {
+    const compactNav = handler('handleCompactNav');
+    expect(compactNav).toContain('setActivePanel(panel)');
+
     const compactMenu = extractElement(source, 'CompactNavMenu');
     expect(compactMenu, 'the compact menu must be rendered').toBeTruthy();
-    expect(compactMenu, 'the compact menu must carry the explicit New Video action').toContain(
-      'onNewVideo={handleNewVideo}',
-    );
-    expect(compactMenu, 'the compact menu must not receive the reset via the panel switch').toContain(
-      'onPanelChange={handleCompactNav}',
-    );
+    const compactMenuSource = readSource('src/components/layout/CompactNavMenu.tsx');
+    expect(compactMenuSource).not.toContain("label: 'Studio'");
+    expect(compactMenuSource).toContain("label: 'New Video'");
+    expect(compactMenuSource).toContain("label: 'Recordings'");
+    expect(compactMenuSource).toContain("onSelect: () => run(() => onPanelChange('library'))");
+    expect(compactMenu).toContain('onNewVideo={handleNewVideo}');
+    expect(compactMenu).toContain('onPanelChange={handleCompactNav}');
   });
 
   it('capturing a take snapshots the current script into the master (DC-1)', () => {
@@ -683,9 +678,13 @@ describe('the studio page owns both transitions', () => {
 /* ----------------------------- test helpers ----------------------------- */
 
 function readStudioPageSource(): string {
+  return readSource('src/app/studio/page.tsx');
+}
+
+function readSource(relativePath: string): string {
   const { readFileSync } = require('fs') as typeof import('fs');
   const { join } = require('path') as typeof import('path');
-  return readFileSync(join(process.cwd(), 'src', 'app', 'studio', 'page.tsx'), 'utf8');
+  return readFileSync(join(process.cwd(), relativePath), 'utf8');
 }
 
 /**

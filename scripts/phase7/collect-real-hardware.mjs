@@ -12,6 +12,7 @@ if (!Number.isFinite(durationSeconds) || durationSeconds < 5 || durationSeconds 
   throw new Error('--duration-seconds must be from 5 to 3600.');
 }
 const recoveryRefresh = process.argv.includes('--recovery-refresh');
+const browserChannel = process.argv.find((arg) => arg.startsWith('--browser-channel='))?.split('=').slice(1).join('=') || undefined;
 const retainDirectoryArg = process.argv.find((arg) => arg.startsWith('--retain-dir='))?.split('=').slice(1).join('=');
 const retainDirectory = retainDirectoryArg ? path.resolve(retainDirectoryArg) : null;
 const diagnosticsDirectoryArg = process.argv.find((arg) => arg.startsWith('--diagnostics-dir='))?.split('=').slice(1).join('=');
@@ -72,7 +73,7 @@ async function retainRecordingBlob(page, recordingId, fileName) {
 }
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000';
-const browser = await chromium.launch({ headless: false, args: ['--autoplay-policy=no-user-gesture-required'] });
+const browser = await chromium.launch({ headless: false, channel: browserChannel, args: ['--autoplay-policy=no-user-gesture-required'] });
 let failureSnapshotWritten = false;
 let captureFailureSnapshot = null;
 const runnerStartedAt = Date.now();
@@ -359,6 +360,7 @@ try {
     console.log(JSON.stringify({
       scenario: 'physical-device-refresh-recovery',
       browserVersion: browser.version(),
+      browserChannel: browserChannel ?? 'playwright-chromium',
       os: { platform: process.platform, release: os.release(), version: os.version() },
       recoveryMessageVisible: true,
       reviewOpened: true,
@@ -477,6 +479,7 @@ try {
         runId: latest.id,
         capturedAt: latest.createdAt ?? evidence.capturedAt,
         browserVersion: browser.version(),
+        browserChannel: browserChannel ?? 'playwright-chromium',
         os: { platform: process.platform, release: os.release(), version: os.version() },
         requestedDurationSeconds: durationSeconds,
         actualDurationSeconds: latest.duration,
