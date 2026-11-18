@@ -129,9 +129,12 @@ export function useVoiceFollow(options: UseVoiceFollowOptions): UseVoiceFollowRe
       const container = containerRef.current;
       const token = stateRef.current?.tokens[tokenIndex];
       if (!container || !token) return;
-      const inner = container.firstElementChild;
-      const textNode = inner?.firstChild ?? null;
-      if (!inner || !textNode || textNode.nodeType !== 3) return; // Node.TEXT_NODE
+      // TeleprompterOverlay now places a start spacer before the script text.
+      // The container's first element is therefore not the text node; target
+      // the script explicitly so a successful speech match can move the view.
+      const scriptElement = container.querySelector<HTMLElement>('[data-testid="teleprompter-text"]');
+      const textNode = scriptElement?.firstChild ?? null;
+      if (!scriptElement || !textNode || textNode.nodeType !== 3) return; // Node.TEXT_NODE
       const text = textNode as Text;
       try {
         const range = document.createRange();
@@ -142,10 +145,11 @@ export function useVoiceFollow(options: UseVoiceFollowOptions): UseVoiceFollowRe
         const containerRect = container.getBoundingClientRect();
         // Content-coordinate top of the matched token's line…
         const tokenContentTop = tokenRect.top - containerRect.top + container.scrollTop;
-        // …minus the reading guide (the script's initial padding-top) so the
-        // spoken line sits where the first line sat — minimal, incremental,
-        // and never jumping: the timed driver resumes from here on toggle-off.
-        const guidePx = parseFloat(window.getComputedStyle(inner).paddingTop) || 0;
+        // …minus the spacer that places the first line on the reading guide,
+        // so the spoken line stays in that same band without a large jump.
+        const guidePx = container.querySelector<HTMLElement>(
+          '[data-testid="teleprompter-start-spacer"]',
+        )?.getBoundingClientRect().height ?? 0;
         const target = Math.max(0, Math.round(tokenContentTop - guidePx));
         container.scrollTop = target;
       } catch {
