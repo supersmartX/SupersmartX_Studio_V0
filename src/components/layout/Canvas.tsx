@@ -62,7 +62,7 @@ export function Canvas({
 
   return (
     <div
-      className="flex-1 min-h-0 flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-canvas overflow-hidden"
+      className="flex-1 min-h-0 min-w-0 flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-canvas overflow-hidden"
       style={getPreviewBoxContainerStyle()}
     >
       <div

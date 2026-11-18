@@ -18,6 +18,8 @@ interface PlatformPreviewSwitcherProps {
   label?: string;
   /** Denser spacing for the review overlay, where vertical room is precious. */
   compact?: boolean;
+  /** Stack formats in the desktop review sidebar; keep the mobile chip row. */
+  sidebar?: boolean;
 }
 
 export function PlatformPreviewSwitcher({
@@ -27,6 +29,7 @@ export function PlatformPreviewSwitcher({
   onLockedClick,
   label = 'Preview as',
   compact = false,
+  sidebar = false,
 }: PlatformPreviewSwitcherProps) {
   // The chip row scrolls horizontally on phones. Without a visible cue the
   // clipped chip at the right edge just looked broken; the fade appears
@@ -58,7 +61,7 @@ export function PlatformPreviewSwitcher({
   return (
     <div
       data-platform-switcher
-      className={`flex items-center ${compact ? 'gap-2 py-0' : 'flex-col gap-2 py-3'}`}
+      className={`flex items-center ${compact ? 'gap-2 py-0' : 'flex-col gap-2 py-3'} ${sidebar ? 'lg:flex-col lg:items-stretch' : ''}`}
     >
       <span className="shrink-0 text-[11px] font-medium text-text-muted uppercase tracking-wider">
         {label}
@@ -70,7 +73,7 @@ export function PlatformPreviewSwitcher({
       <div className={`relative min-w-0 ${compact ? 'flex-1' : 'w-full'}`}>
         <div
           ref={rowRef}
-          className="flex min-w-0 items-center gap-1.5 overflow-x-auto px-2 py-[7px] max-w-full scrollbar-none"
+          className={`flex min-w-0 items-center gap-1.5 overflow-x-auto px-2 py-[7px] max-w-full scrollbar-none ${sidebar ? 'lg:flex-col lg:items-stretch lg:gap-4' : ''}`}
         >
           {LAUNCH_PLATFORM_PRESETS.map((preset) => {
             const isActive = preset.id === selectedPlatformId;
@@ -113,7 +116,7 @@ export function PlatformPreviewSwitcher({
           <div
             data-scroll-cue
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-canvas to-transparent"
+            className={`pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-canvas to-transparent ${sidebar ? 'lg:hidden' : ''}`}
           />
         )}
       </div>

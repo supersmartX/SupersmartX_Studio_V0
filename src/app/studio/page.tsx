@@ -1419,6 +1419,7 @@ export default function HomePage() {
                 <FreeRotateNudge suppressed={isReview || recorder.recordingState !== 'idle'} />
               )}
 
+              <div className="flex flex-1 min-h-0 min-w-0 flex-col lg:flex-row">
               <Canvas
                 focusViewEnabled={focusView.isEnabled}
                 onFocusViewToggle={focusView.toggle}
@@ -1533,15 +1534,8 @@ export default function HomePage() {
                 )}
               </Canvas>
 
-              {/* Review: WATCH → DECIDE → CONTINUE. The take is already the
-                  active library recording the moment it stops, so say that
-                  plainly instead of leaving the user to infer it from a video
-                  that simply appeared.
-                  The tray is an OVERLAY, not another flow row: the format line
-                  and rotate advisory above the canvas stay reserved, so Stop
-                  does not resize or re-centre the frame the user just shot.
-                  Retake is non-destructive; Delete is offered only for a take
-                  created in this session. */}
+              {/* Review controls occupy their own space so the entire platform
+                  frame and playback controls remain visible at every size. */}
               {isReview && masterRecordingData && (
                 <div
                   ref={reviewTrayRef}
@@ -1549,10 +1543,10 @@ export default function HomePage() {
                   role="region"
                   aria-label="Recording ready. Review your recording."
                   tabIndex={-1}
-                  className="pointer-events-none absolute inset-x-0 bottom-0 z-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                  className="shrink-0 max-h-[45%] overflow-y-auto border-t border-border-default bg-surface lg:max-h-none lg:w-64 lg:border-t-0 lg:border-l focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                 >
-                  <div className="pointer-events-auto border-t border-white/[0.06] bg-canvas/90 px-3 pb-1.5 pt-2 shadow-[0_-16px_40px_rgba(0,0,0,0.45)] backdrop-blur-md sm:px-5">
-                    <div className="mx-auto flex max-w-5xl flex-col gap-1.5">
+                  <div className="p-3 lg:p-4">
+                    <div className="mx-auto flex max-w-5xl flex-col gap-2 lg:gap-4">
                       <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
                         <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
                         <span className="text-[12px] font-semibold text-text-primary">
@@ -1565,7 +1559,7 @@ export default function HomePage() {
                         <span className="text-[11px] text-text-muted">Saved in this browser</span>
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-center gap-2">
+                      <div className="flex flex-wrap items-center justify-center gap-2 lg:flex-col lg:items-stretch">
                         {!isLibraryOriginal && (
                           <button
                             type="button"
@@ -1617,6 +1611,7 @@ export default function HomePage() {
                       </p>
 
                       <PlatformPreviewSwitcher
+                        sidebar
                         compact
                         selectedPlatformId={previewPlatformId}
                         onSelect={setPreviewPlatformId}
@@ -1629,6 +1624,7 @@ export default function HomePage() {
                   </div>
                 </div>
               )}
+              </div>
             </div>
 
             {activePanel === 'library' && (
