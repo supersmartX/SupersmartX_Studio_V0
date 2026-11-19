@@ -1,19 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { Prisma } from '@prisma/client';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   reserveCheckout: vi.fn(),
+  findActiveReservation: vi.fn(),
   updateReservation: vi.fn(),
   createSandboxCheckout: vi.fn(),
 }));
 
 vi.mock('@/auth', () => ({ auth: mocks.auth }));
 vi.mock('@/lib/db/prisma', () => ({
-  getPrisma: () => ({ billingReservation: { update: mocks.updateReservation } }),
+  getPrisma: () => ({
+    billingReservation: {
+      update: mocks.updateReservation,
+      findFirst: mocks.findActiveReservation,
+    },
+  }),
 }));
 vi.mock('@/lib/billing/operations', () => ({
   ActiveBillingSubscriptionError: class ActiveBillingSubscriptionError extends Error {},
+  UnresolvedCheckoutReservationError: class UnresolvedCheckoutReservationError extends Error {
+    constructor(readonly reservationId: string) {
+      super('An unresolved checkout already exists');
+    }
+  },
   hashCheckoutConsent: () => 'consent-hash',
   reserveCheckout: mocks.reserveCheckout,
 }));
@@ -66,10 +78,29 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.auth.mockResolvedValue({ user: { id: 'user-1' } });
   mocks.reserveCheckout.mockResolvedValue(undefined);
+  mocks.findActiveReservation.mockResolvedValue(null);
   mocks.updateReservation.mockResolvedValue(undefined);
 });
 
 describe('Paddle checkout persistence recovery', () => {
+  it('returns the existing reservation ID after the per-user uniqueness gate rejects a concurrent checkout', async () => {
+    mocks.reserveCheckout.mockRejectedValue(new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed on the fields: (`user_id`)',
+      { code: 'P2002', clientVersion: '6.19.3', meta: { target: ['user_id'] } },
+    ));
+    mocks.findActiveReservation.mockResolvedValue({ id: 'reservation-existing' });
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body).toMatchObject({
+      error: 'An unresolved checkout already exists. Check its status before starting another.',
+      reservationId: 'reservation-existing',
+    });
+    expect(mocks.createSandboxCheckout).not.toHaveBeenCalled();
+  });
+
   it('returns the reservation ID when provider creation is uncertain and recording that uncertainty fails', async () => {
     mocks.createSandboxCheckout.mockRejectedValue(new Error('provider timeout'));
     mocks.updateReservation.mockRejectedValue(new Error('database unavailable'));

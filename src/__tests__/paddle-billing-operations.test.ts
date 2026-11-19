@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   findUser: vi.fn(),
   upsertAccount: vi.fn(),
   findReservation: vi.fn(),
+  findActiveReservation: vi.fn(),
   createReservation: vi.fn(),
   updateReservation: vi.fn(),
   findTransaction: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock('@/lib/db/prisma', () => ({
       },
       billingReservation: {
         findUnique: mocks.findReservation,
+        findFirst: mocks.findActiveReservation,
         create: mocks.createReservation,
         update: mocks.updateReservation,
       },
@@ -67,6 +69,7 @@ import {
   applyPaidBillingEvent,
   releaseBillingEventLease,
   reserveCheckout,
+  UnresolvedCheckoutReservationError,
   renewBillingEventLease,
 } from '@/lib/billing/operations';
 
@@ -90,6 +93,7 @@ beforeEach(() => {
   mocks.findUser.mockResolvedValue({ plan: 'free', planExpiresAt: null });
   mocks.upsertAccount.mockResolvedValue({});
   mocks.findReservation.mockResolvedValue(null);
+  mocks.findActiveReservation.mockResolvedValue(null);
   mocks.createReservation.mockResolvedValue({});
   mocks.updateReservation.mockResolvedValue({});
   mocks.findLease.mockResolvedValue({ eventId: 'evt-adjustment' });
@@ -297,6 +301,25 @@ describe('Paddle billing operations', () => {
       consentVersion: '1',
       consentHash: 'consent-hash',
     })).rejects.toBeInstanceOf(ActiveBillingSubscriptionError);
+    expect(mocks.createReservation).not.toHaveBeenCalled();
+  });
+
+  it('returns the existing reservation identity instead of attempting a duplicate checkout', async () => {
+    mocks.findActiveReservation.mockResolvedValue({ id: 'reservation-in-progress' });
+
+    await expect(reserveCheckout({
+      userId: 'user-1',
+      reservationId: 'reservation-new',
+      plan: 'creator_monthly',
+      period: 'monthly',
+      amount: 349,
+      currency: 'INR',
+      consentVersion: '1',
+      consentHash: 'consent-hash',
+    })).rejects.toEqual(expect.objectContaining({
+      name: 'UnresolvedCheckoutReservationError',
+      reservationId: 'reservation-in-progress',
+    } satisfies Partial<UnresolvedCheckoutReservationError>));
     expect(mocks.createReservation).not.toHaveBeenCalled();
   });
 });

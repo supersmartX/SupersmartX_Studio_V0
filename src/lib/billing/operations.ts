@@ -12,6 +12,13 @@ export class ActiveBillingSubscriptionError extends Error {
   }
 }
 
+export class UnresolvedCheckoutReservationError extends Error {
+  constructor(readonly reservationId: string) {
+    super('An unresolved checkout already exists');
+    this.name = 'UnresolvedCheckoutReservationError';
+  }
+}
+
 export function isNewerBillingEvent(occurredAt: Date | null, lastEventAt: Date | null): boolean {
   if (!lastEventAt) return true;
   return occurredAt !== null && occurredAt >= lastEventAt;
@@ -109,6 +116,15 @@ export async function reserveCheckout(input: CheckoutConsent & {
         (activeProviderStatuses.includes(account.status) ||
           Boolean(account.paidThroughAt && account.paidThroughAt > new Date()))) {
       throw new ActiveBillingSubscriptionError();
+    }
+
+    const unresolvedReservation = await tx.billingReservation.findFirst({
+      where: { userId: input.userId, status: { in: ['reserved', 'pending'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (unresolvedReservation) {
+      throw new UnresolvedCheckoutReservationError(unresolvedReservation.id);
     }
 
     await tx.billingReservation.create({

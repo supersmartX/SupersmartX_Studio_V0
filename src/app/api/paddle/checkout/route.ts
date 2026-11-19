@@ -17,6 +17,7 @@ import {
   ActiveBillingSubscriptionError,
   hashCheckoutConsent,
   reserveCheckout,
+  UnresolvedCheckoutReservationError,
 } from '@/lib/billing/operations';
 import { getPrisma } from '@/lib/db/prisma';
 import type { CheckoutConsent } from '@/lib/billing/contracts';
@@ -90,8 +91,30 @@ export async function POST(request: NextRequest) {
     if (error instanceof ActiveBillingSubscriptionError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
+    if (error instanceof UnresolvedCheckoutReservationError) {
+      return NextResponse.json({
+        error: 'An unresolved checkout already exists. Check its status before starting another.',
+        reservationId: error.reservationId,
+      }, { status: 409 });
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return NextResponse.json({ error: 'An unresolved checkout already exists' }, { status: 409 });
+      // The partial unique index remains the concurrency authority. If another
+      // request won the race between the lookup and insert, return that
+      // reservation so the customer can recover it instead of getting stuck.
+      let existingReservation: { id: string } | null = null;
+      try {
+        existingReservation = await getPrisma().billingReservation.findFirst({
+          where: { userId: session.user.id, status: { in: ['reserved', 'pending'] } },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
+        });
+      } catch {
+        console.error('Paddle checkout conflict recovery lookup failed');
+      }
+      return NextResponse.json({
+        error: 'An unresolved checkout already exists. Check its status before starting another.',
+        ...(existingReservation ? { reservationId: existingReservation.id } : {}),
+      }, { status: 409 });
     }
     console.error('Paddle checkout reservation failed');
     return NextResponse.json({ error: 'Checkout could not be reserved' }, { status: 500 });
