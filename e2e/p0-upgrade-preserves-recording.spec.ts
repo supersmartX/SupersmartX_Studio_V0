@@ -1,4 +1,4 @@
-﻿/* ============================================================================
+/* ============================================================================
  * P0 LAUNCH GATE â€” "Free records â†’ upgrades â†’ the SAME recording must survive"
  * ============================================================================
  *
@@ -11,7 +11,7 @@
  *     â†’ stops, lands on the review screen
  *     â†’ does NOT record again
  *     â†’ clicks Creator â†’ logs in â†’ pays
- *     â†’ Cashfree returns â†’ webhook/verify activates Creator
+ *     â†’ Paddle returns â†’ webhook/verify activates Creator
  *     â†’ studio returns
  *     â†’ THE SAME RECORDED VIDEO IS STILL THERE          <-- the P0 assertion
  *     â†’ selects Instagram Reels â†’ preview becomes 9:16
@@ -29,9 +29,9 @@
  * the exact point they are substituted, and both are assertions in their own
  * right so the substitution still catches regressions:
  *
- *   1. "Cashfree reports the order PAID". `/api/cashfree/verify` and
- *      `/api/cashfree/webhook` both re-fetch authoritative order state from
- *      Cashfree before touching `users.plan`, so no offline substitute exists
+ *   1. "Paddle reports the order PAID". `/api/paddle/verify` and
+ *      `/api/paddle/webhook` both re-fetch authoritative order state from
+ *      Paddle before touching `users.plan`, so no offline substitute exists
  *      that exercises those routes. The verified PAID outcome (the plan write)
  *      is produced directly here, exactly as `fulfillPaidOrder` would, and the
  *      surrounding journey â€” the real return URL, the real `?payment=success`
@@ -118,7 +118,7 @@ function env(key: string): string {
 }
 
 const R2_READY = hasRealR2Credentials(env);
-const CASHFREE_READY = hasRealCredentials(['CASHFREE_APP_ID', 'CASHFREE_SECRET_KEY'], env);
+const PADDLE_READY = hasRealCredentials(['PADDLE_APP_ID', 'PADDLE_SECRET_KEY'], env);
 
 
 let orderId = `sxs-${PLAN}-p0-${Date.now()}`;
@@ -136,12 +136,12 @@ async function cleanupTestData(email: string) {
   } catch {}
 }
 
-/* Stand in for the settled Cashfree webhook: the PAID order that activates
+/* Stand in for the settled Paddle webhook: the PAID order that activates
  * Creator. This is precisely what `fulfillPaidOrder` writes
- * (src/lib/cashfree-fulfillment.ts:126-137) once Cashfree reports PAID. The
+ * (src/lib/paddle-fulfillment.ts:126-137) once Paddle reports PAID. The
  * pending_orders row is seeded too, so the client's own verify call finds a
  * real order instead of 404-ing. */
-async function activateCreatorForCashfreePaid(email: string) {
+async function activateCreatorForPaddlePaid(email: string) {
   const r = await db().execute({ sql: `SELECT id FROM users WHERE email = ?`, args: [email.toLowerCase()] });
   const userId = r.rows[0]?.id as string | undefined;
   if (!userId) throw new Error(`no user row for ${email} â€” registration did not land`);
@@ -166,7 +166,7 @@ async function activateCreatorForCashfreePaid(email: string) {
 function armVerifyRecorder(page: Page) {
   const calls: string[] = [];
   page.on('request', (req) => {
-    if (req.url().includes('/api/cashfree/verify')) calls.push(req.url());
+    if (req.url().includes('/api/paddle/verify')) calls.push(req.url());
   });
   return async () => {
     await expect
@@ -359,7 +359,7 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
     });
 
     /* ================================================================
-     * 3. PAYS â†’ CASHFREE RETURNS â†’ WEBHOOK/VERIFY ACTIVATES CREATOR
+     * 3. PAYS â†’ PADDLE RETURNS â†’ WEBHOOK/VERIFY ACTIVATES CREATOR
      * ================================================================ */
     await test.step('Creator is on offer immediately after login', async () => {
       const pricing = page.getByRole('dialog', { name: 'Choose Your Plan' });
@@ -372,12 +372,12 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
       await pricing.waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
     });
 
-    await test.step('Cashfree returns and the plan is activated', async () => {
-      if (CASHFREE_READY) {
+    await test.step('Paddle returns and the plan is activated', async () => {
+      if (PADDLE_READY) {
         // Establish a real order through the real route so the order_id below is
-        // genuine; Cashfree still will not mark it PAID without a real payment.
+        // genuine; Paddle still will not mark it PAID without a real payment.
         const created = await page.request
-          .post('/api/cashfree/order', {
+          .post('/api/paddle/order', {
             data: { plan: PLAN, country: 'US' },
           })
           .catch(() => null);
@@ -387,13 +387,13 @@ test('P0: Free records, upgrades, and the same recording survives all the way to
         }
       }
 
-      await activateCreatorForCashfreePaid(CREATOR_EMAIL);
+      await activateCreatorForPaddlePaid(CREATOR_EMAIL);
 
       // Armed before navigating: the studio fires verify on mount.
       const verifyWasCalled = armVerifyRecorder(page);
 
-      // The real return URL the order route hands Cashfree
-      // (src/app/api/cashfree/order/route.ts:70) â€” a genuine cross-document
+      // The real return URL the order route hands Paddle
+      // (src/app/api/paddle/order/route.ts:70) â€” a genuine cross-document
       // navigation, which is exactly what destroys naive in-memory state.
       await page.goto(`/studio?payment=success&order_id=${encodeURIComponent(orderId)}&plan=${PLAN}`);
       await page.waitForTimeout(3000);

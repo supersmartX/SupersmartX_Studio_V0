@@ -266,7 +266,7 @@ export function getServerPricingForCountry(country: string): RegionalPricing | n
 }
 
 /**
- * The amount Cashfree will actually charge, versus the one the sheet rendered.
+ * The amount Paddle will actually charge, versus the one the sheet rendered.
  * Both come from the same table, so a difference means they resolved different
  * regions — the server's geo header against the browser's IP lookup. Currency
  * and amount are compared independently: two regions can share a currency at

@@ -55,7 +55,7 @@ export default function ContactPage() {
               Payments and refunds
             </h2>
             <p>
-              Payments are processed by Cashfree Payments. Approved refunds are
+              Payments are processed by Paddle. Approved refunds are
               returned to the original payment method. Our full policy is on the{' '}
               <a
                 href="/legal/refund"

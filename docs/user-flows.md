@@ -149,7 +149,7 @@ User wants to support SupersmartX development.
 Journey
 - Pricing modal (`PricingModal`) opens when user clicks Upgrade.
 - User can also access pricing via contextual upgrade prompts (locked platform, daily limit, watermark, teleprompter limit).
-- User selects a plan (monthly or yearly) and completes payment via Cashfree SDK.
+- User selects a plan (monthly or yearly) and completes payment via Paddle SDK.
 - Payment success redirects to `/studio?payment=success`.
 
 ↓

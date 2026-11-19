@@ -225,9 +225,6 @@ function buildAdminNotificationHtml(data: PaymentEmailData): string {
             </tr>
           </table>
         </td></tr>
-        <tr><td style="padding:0 32px 24px;">
-          <a href="https://dashboard.cashfree.com/app/orders" style="display:block;width:100%;padding:12px;background-color:#1e1e2e;color:#ffffff;text-align:center;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;">View in Cashfree Dashboard</a>
-        </td></tr>
       </table>
     </td></tr>
   </table>
@@ -275,7 +272,7 @@ export async function sendPaymentConfirmationEmail(data: PaymentEmailData): Prom
 
 /**
  * Operator alert for a billing condition that needs a human: a paid order that
- * could not be applied, or a termination Cashfree has not confirmed.
+ * could not be applied, or a termination Paddle has not confirmed.
  *
  * Deliberately separate from `sendAdminNotification`, which is payment-shaped
  * (it formats an amount and a plan and is only sent on a new payment). Returns

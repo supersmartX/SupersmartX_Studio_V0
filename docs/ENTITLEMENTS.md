@@ -54,7 +54,7 @@ Rules for maintainers:
   dimensions are ignored or must match the clamped preset exactly.
 - `isPlanActive(expiresAt, plan)`: free is always active; paid without a
   future expiry fails CLOSED (treated as expired).
-- Prices live in `src/lib/pricing.ts`; `/api/cashfree/order` resolves price
+- Prices live in `src/lib/pricing.ts`; `/api/paddle/order` resolves price
   by server geo header (client country is a dev-only fallback) and the
   webhook re-verifies amount/currency against `pending_orders`. The order
   response carries that authoritative amount/currency back to the sheet, which
@@ -93,12 +93,12 @@ another term is bought.
   by the export/upload/download routes and `GET /api/recordings`; an expired paid
   plan behaves as Free (and `GET /api/user/stats` reports it as `free` while
   still returning `planExpiresAt` / `planActive` so the UI can say what happened).
-- **Reversals** (`src/lib/cashfree-refund.ts`): a **full** refund of the user's
+- **Reversals** (`src/lib/paddle-refund.ts`): a **full** refund of the user's
   most recently fulfilled order revokes access only when the stored expiry is
   exactly that order's sole grant; every chargeback, partial refund, older-order
   refund, stacked renewal, or refund that arrives before the order granted
   anything is logged for manual review instead of being auto-applied. Refund
-  webhook payload shapes follow Cashfree's documentation but have not been
+  webhook payload shapes follow Paddle's documentation but have not been
   observed live on this account.
 
 ## Phase 4 reconciliation (doc ↔ `src/lib/entitlements.ts`)

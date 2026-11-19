@@ -14,7 +14,7 @@ export default defineConfig({
     // `TRUNCATE`, so files must not run concurrently when a real database is
     // configured. Without `DATABASE_URL` those suites are skipped (see the
     // `describeDb` guard in each file) and normal parallelism applies.
-    fileParallelism: !process.env.DATABASE_URL,
+    fileParallelism: false,
     // A remote database adds real round-trip latency to every hook and test; the
     // shared-database suites are far slower than the in-memory ones they replace.
     hookTimeout: process.env.DATABASE_URL ? 60_000 : 10_000,

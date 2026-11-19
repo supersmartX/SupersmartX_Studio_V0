@@ -1,0 +1,672 @@
+import crypto from 'crypto';
+import { getPrisma } from '@/lib/db/prisma';
+import { classifyBillingAccount } from './accounts';
+import type { CheckoutConsent } from './contracts';
+
+const MAX_BILLING_EVENT_ATTEMPTS = 10;
+
+export class ActiveBillingSubscriptionError extends Error {
+  constructor() {
+    super('An active Paddle subscription already exists');
+    this.name = 'ActiveBillingSubscriptionError';
+  }
+}
+
+export function isNewerBillingEvent(occurredAt: Date | null, lastEventAt: Date | null): boolean {
+  if (!lastEventAt) return true;
+  return occurredAt !== null && occurredAt >= lastEventAt;
+}
+
+export function isFullApprovedEntitlementReversal(input: {
+  action: string;
+  actionType: string;
+  status: string;
+}): boolean {
+  return input.actionType === 'full' && input.status === 'approved' &&
+    (input.action === 'refund' || input.action === 'chargeback');
+}
+
+export function hashCheckoutConsent(consent: Omit<CheckoutConsent, 'consentHash'>): string {
+  return crypto.createHash('sha256').update(JSON.stringify({
+    plan: consent.plan,
+    period: consent.period,
+    amount: consent.amount,
+    currency: consent.currency,
+    consentVersion: consent.consentVersion,
+  })).digest('hex');
+}
+
+export function reservationStatusForRemote(status: string): 'confirmed' | 'pending' | 'failed' | 'canceled' {
+  if (status === 'completed' || status === 'paid' || status === 'billed') return 'confirmed';
+  if (status === 'canceled' || status === 'cancelled') return 'canceled';
+  if (status === 'failed') return 'failed';
+  return 'pending';
+}
+
+export async function reserveCheckout(input: CheckoutConsent & {
+  userId: string;
+  reservationId: string;
+  providerOperationId?: string;
+  providerTransactionId?: string | null;
+}): Promise<void> {
+  const prisma = getPrisma();
+  await prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUnique({
+      where: { id: input.userId },
+      select: { plan: true, planExpiresAt: true },
+    });
+    if (!user) throw new Error('Checkout account was not found');
+    const baseline = classifyBillingAccount({
+      plan: user.plan,
+      planExpiresAt: user.planExpiresAt?.toISOString() ?? null,
+    });
+
+    await tx.billingAccount.upsert({
+      where: { userId: input.userId },
+      create: {
+        userId: input.userId,
+        plan: baseline.plan,
+        status: baseline.status,
+        legacyPlan: user.plan,
+        legacyPaidThroughAt: user.planExpiresAt,
+        paidThroughAt: baseline.paidThroughAt,
+      },
+      update: {},
+    });
+
+    const account = await tx.billingAccount.findUnique({ where: { userId: input.userId } });
+    if (account && !account.legacyPlan && !account.legacyPaidThroughAt) {
+      await tx.billingAccount.update({
+        where: { userId: input.userId },
+        data: { legacyPlan: user.plan, legacyPaidThroughAt: user.planExpiresAt },
+      });
+    }
+
+    const reservation = await tx.billingReservation.findUnique({ where: { id: input.reservationId } });
+    if (reservation) {
+      if (reservation.userId !== input.userId ||
+          reservation.plan !== input.plan ||
+          reservation.consentHash !== input.consentHash) {
+        throw new Error('Checkout reservation does not match the confirmed consent');
+      }
+      await tx.billingReservation.update({
+        where: { id: input.reservationId },
+        data: {
+          providerOperationId: input.providerOperationId,
+          providerTransactionId: input.providerTransactionId,
+          status: reservation.status === 'reserved' ? 'pending' : reservation.status,
+        },
+      });
+      return;
+    }
+
+    const activeProviderStatuses = ['active', 'trialing', 'past_due', 'paused', 'payment_failed'];
+    if (account?.providerSubscriptionId &&
+        (activeProviderStatuses.includes(account.status) ||
+          Boolean(account.paidThroughAt && account.paidThroughAt > new Date()))) {
+      throw new ActiveBillingSubscriptionError();
+    }
+
+    await tx.billingReservation.create({
+      data: {
+        id: input.reservationId,
+        userId: input.userId,
+        plan: input.plan,
+        period: input.period,
+        currency: input.currency,
+        consentHash: input.consentHash,
+        status: 'reserved',
+        providerOperationId: input.providerOperationId,
+        providerTransactionId: input.providerTransactionId,
+      },
+    });
+  });
+}
+
+export async function receiveBillingEvent(input: {
+  eventId: string;
+  eventType: string;
+  payload: unknown;
+  occurredAt?: Date | null;
+}): Promise<{ duplicate: boolean }> {
+  const prisma = getPrisma();
+  const result = await prisma.billingEvent.createMany({
+    data: [{
+      eventId: input.eventId,
+      eventType: input.eventType,
+      payloadJson: JSON.stringify(input.payload),
+      userId: null,
+      occurredAt: input.occurredAt ?? null,
+      status: 'received',
+    }],
+    skipDuplicates: true,
+  });
+  return { duplicate: result.count === 0 };
+}
+
+export async function acquireBillingEventLease(
+  eventId: string,
+  leaseOwner: string,
+  leaseToken: string,
+  leaseUntil: Date,
+  now = new Date(),
+): Promise<boolean> {
+  const prisma = getPrisma();
+  const result = await prisma.billingEvent.updateMany({
+    where: {
+      eventId,
+      status: { in: ['received', 'processing', 'failed'] },
+      nextAttemptAt: { lte: now },
+      OR: [
+        { leaseOwner: null },
+        { leasedUntil: null },
+        { leasedUntil: { lt: now } },
+      ],
+    },
+    data: {
+      status: 'processing',
+      leaseOwner,
+      leaseToken,
+      leasedUntil: leaseUntil,
+    },
+  });
+  return result.count === 1;
+}
+
+export async function renewBillingEventLease(
+  eventId: string,
+  leaseToken: string,
+  leaseUntil: Date,
+  now = new Date(),
+): Promise<boolean> {
+  const prisma = getPrisma();
+  const result = await prisma.billingEvent.updateMany({
+    where: {
+      eventId,
+      status: 'processing',
+      leaseToken,
+      leasedUntil: { gt: now },
+    },
+    data: { leasedUntil: leaseUntil },
+  });
+  return result.count === 1;
+}
+
+export async function releaseBillingEventLease(
+  eventId: string,
+  leaseToken: string,
+  outcome: 'processed' | 'failed' | 'ignored' | 'review',
+  error?: string,
+): Promise<boolean> {
+  const prisma = getPrisma();
+  const now = new Date();
+  const leaseWhere = {
+    eventId,
+    status: 'processing',
+    leaseToken,
+    leasedUntil: { gt: now },
+  };
+  const event = await prisma.billingEvent.findFirst({
+    where: leaseWhere,
+    select: { attemptCount: true },
+  });
+  if (!event) return false;
+  const delayMinutes = Math.min(60, 2 ** Math.min(event.attemptCount, 6));
+  const exhausted = outcome === 'failed' && event.attemptCount + 1 >= MAX_BILLING_EVENT_ATTEMPTS;
+  const finalOutcome = exhausted ? 'review' : outcome;
+  const result = await prisma.billingEvent.updateMany({
+    where: leaseWhere,
+    data: {
+      status: finalOutcome,
+      processedAt: finalOutcome === 'processed' || finalOutcome === 'ignored' || finalOutcome === 'review'
+        ? new Date()
+        : null,
+      nextAttemptAt: outcome === 'failed'
+        ? new Date(Date.now() + delayMinutes * 60_000)
+        : new Date(),
+      lastError: error ?? null,
+      attemptCount: { increment: 1 },
+      leaseOwner: null,
+      leaseToken: null,
+      leasedUntil: null,
+    },
+  });
+  return result.count === 1;
+}
+
+export async function markBillingEventProcessed(eventId: string, leaseToken: string): Promise<boolean> {
+  const prisma = getPrisma();
+  const result = await prisma.billingEvent.updateMany({
+    where: { eventId, status: 'processing', leaseToken, leasedUntil: { gt: new Date() } },
+    data: {
+      status: 'processed',
+      processedAt: new Date(),
+      attemptCount: { increment: 1 },
+      leaseOwner: null,
+      leaseToken: null,
+      leasedUntil: null,
+      lastError: null,
+    },
+  });
+  return result.count === 1;
+}
+
+export async function applyPaidBillingEvent(input: {
+  eventId: string;
+  leaseToken: string;
+  reservationId?: string | null;
+  userId: string;
+  plan: 'creator_monthly' | 'creator_yearly';
+  providerTransactionId: string;
+  providerSubscriptionId: string;
+  providerCustomerId: string;
+  amount: string;
+  currency: string;
+  paidAt: Date;
+  periodStartAt: Date;
+  periodEndAt: Date;
+  nextChargeAt: Date | null;
+}): Promise<void> {
+  const prisma = getPrisma();
+  await prisma.$transaction(async (tx) => {
+    const event = await tx.billingEvent.findFirst({
+      where: {
+        eventId: input.eventId,
+        status: 'processing',
+        leaseToken: input.leaseToken,
+        leasedUntil: { gt: new Date() },
+      },
+      select: { occurredAt: true },
+    });
+    if (!event) throw new Error('Billing event lease was lost');
+
+    const user = await tx.user.findUnique({
+      where: { id: input.userId },
+      select: { plan: true, planExpiresAt: true },
+    });
+    if (!user) throw new Error('Paid event account does not exist');
+
+    const account = await tx.billingAccount.findUnique({ where: { userId: input.userId } });
+    if (!account) throw new Error('Paid event billing account does not exist');
+    if ((account.providerSubscriptionId && account.providerSubscriptionId !== input.providerSubscriptionId) ||
+        (account.providerCustomerId && account.providerCustomerId !== input.providerCustomerId)) {
+      throw new Error('Paid event provider ownership mismatch');
+    }
+
+    await tx.billingTransaction.createMany({
+      data: [{
+        id: crypto.randomUUID(),
+        providerTransactionId: input.providerTransactionId,
+        userId: input.userId,
+        providerSubscriptionId: input.providerSubscriptionId,
+        plan: input.plan,
+        status: 'paid',
+        amount: input.amount,
+        currency: input.currency,
+        paidAt: input.paidAt,
+        periodStartAt: input.periodStartAt,
+        periodEndAt: input.periodEndAt,
+        payloadJson: JSON.stringify({ eventId: input.eventId }),
+      }],
+      skipDuplicates: true,
+    });
+    const transaction = await tx.billingTransaction.findUnique({
+      where: { providerTransactionId: input.providerTransactionId },
+      select: { id: true, userId: true, entitlementGrantedAt: true },
+    });
+    if (!transaction || transaction.userId !== input.userId) {
+      throw new Error('Paid transaction ownership mismatch');
+    }
+
+    let paidThroughAt = account.paidThroughAt;
+    const claimed = transaction.entitlementGrantedAt
+      ? { count: 0 }
+      : await tx.billingTransaction.updateMany({
+        where: { id: transaction.id, entitlementGrantedAt: null },
+        data: { entitlementGrantedAt: new Date() },
+      });
+    if (claimed.count === 1) {
+      const currentCoverage = [
+        account.paidThroughAt,
+        account.legacyPaidThroughAt,
+        user.planExpiresAt,
+      ].filter((value): value is Date => value !== null);
+      const currentPaidThrough = currentCoverage.reduce((latest, value) =>
+        value > latest ? value : latest,
+      input.paidAt);
+      currentCoverage.push(input.periodEndAt);
+      paidThroughAt = currentCoverage.reduce((latest, value) =>
+        value > latest ? value : latest,
+      );
+      await tx.user.update({
+        where: { id: input.userId },
+        data: {
+          plan: input.periodEndAt >= currentPaidThrough ? input.plan : user.plan,
+          planExpiresAt: paidThroughAt,
+        },
+      });
+    }
+
+    const isNewerEvent = isNewerBillingEvent(event.occurredAt, account.lastEventAt);
+    const paidTermIsCurrent = input.periodEndAt >= [
+      account.paidThroughAt,
+      account.legacyPaidThroughAt,
+      user.planExpiresAt,
+    ].filter((value): value is Date => value !== null).reduce(
+      (latest, value) => value > latest ? value : latest,
+      input.paidAt,
+    );
+    await tx.billingAccount.update({
+      where: { userId: input.userId },
+      data: {
+        plan: claimed.count === 1 && paidTermIsCurrent ? input.plan : account.plan,
+        status: claimed.count === 1 && isNewerEvent ? 'active' : account.status,
+        paidThroughAt,
+        nextChargeAt: isNewerEvent ? input.nextChargeAt : account.nextChargeAt,
+        providerCustomerId: input.providerCustomerId,
+        providerSubscriptionId: input.providerSubscriptionId,
+        ...(isNewerEvent ? { lastEventId: input.eventId, lastEventAt: event.occurredAt } : {}),
+      },
+    });
+    if (input.reservationId) {
+      const reservationUpdate = await tx.billingReservation.updateMany({
+        where: {
+          id: input.reservationId,
+          userId: input.userId,
+          plan: input.plan,
+          OR: [
+            { providerTransactionId: null },
+            { providerTransactionId: input.providerTransactionId },
+          ],
+        },
+        data: {
+          status: 'confirmed',
+          providerTransactionId: input.providerTransactionId,
+          remoteStatus: 'paid',
+        },
+      });
+      if (reservationUpdate.count !== 1) throw new Error('Checkout reservation does not match paid transaction');
+    }
+
+    const marked = await tx.billingEvent.updateMany({
+      where: {
+        eventId: input.eventId,
+        status: 'processing',
+        leaseToken: input.leaseToken,
+        leasedUntil: { gt: new Date() },
+      },
+      data: {
+        status: 'processed',
+        processedAt: new Date(),
+        userId: input.userId,
+        attemptCount: { increment: 1 },
+        leaseOwner: null,
+        leaseToken: null,
+        leasedUntil: null,
+        lastError: null,
+      },
+    });
+    if (marked.count !== 1) throw new Error('Billing event lease was lost before commit');
+  });
+}
+
+export async function applyFailedPaymentEvent(input: {
+  eventId: string;
+  leaseToken: string;
+  userId: string;
+  providerSubscriptionId: string | null;
+  providerCustomerId: string | null;
+  occurredAt: Date | null;
+}): Promise<void> {
+  const prisma = getPrisma();
+  await prisma.$transaction(async (tx) => {
+    const lease = await tx.billingEvent.findFirst({
+      where: {
+        eventId: input.eventId,
+        status: 'processing',
+        leaseToken: input.leaseToken,
+        leasedUntil: { gt: new Date() },
+      },
+    });
+    if (!lease) throw new Error('Billing event lease was lost');
+    const account = await tx.billingAccount.findUnique({ where: { userId: input.userId } });
+    if (!account) throw new Error('Failed payment billing account does not exist');
+    if ((account.providerSubscriptionId && account.providerSubscriptionId !== input.providerSubscriptionId) ||
+        (account.providerCustomerId && input.providerCustomerId &&
+          account.providerCustomerId !== input.providerCustomerId)) {
+      throw new Error('Failed payment provider ownership mismatch');
+    }
+    const isNewerEvent = isNewerBillingEvent(input.occurredAt, account.lastEventAt);
+    if (isNewerEvent) {
+      await tx.billingAccount.update({
+        where: { userId: input.userId },
+        data: {
+          status: 'payment_failed',
+          ...(input.providerSubscriptionId ? { providerSubscriptionId: input.providerSubscriptionId } : {}),
+          ...(input.providerCustomerId ? { providerCustomerId: input.providerCustomerId } : {}),
+          lastEventId: input.eventId,
+          lastEventAt: input.occurredAt,
+        },
+      });
+    }
+    const marked = await tx.billingEvent.updateMany({
+      where: { eventId: input.eventId, status: 'processing', leaseToken: input.leaseToken, leasedUntil: { gt: new Date() } },
+      data: {
+        status: 'processed',
+        processedAt: new Date(),
+        userId: input.userId,
+        attemptCount: { increment: 1 },
+        leaseOwner: null,
+        leaseToken: null,
+        leasedUntil: null,
+        lastError: null,
+      },
+    });
+    if (marked.count !== 1) throw new Error('Billing event lease was lost before commit');
+  });
+}
+
+export async function applySubscriptionSnapshot(input: {
+  eventId: string;
+  leaseToken: string;
+  userId: string;
+  subscriptionId: string;
+  customerId: string;
+  status: string;
+  nextChargeAt: Date | null;
+  cancelAtPeriodEnd: boolean;
+  occurredAt: Date | null;
+}): Promise<void> {
+  const prisma = getPrisma();
+  await prisma.$transaction(async (tx) => {
+    const lease = await tx.billingEvent.findFirst({
+      where: {
+        eventId: input.eventId,
+        status: 'processing',
+        leaseToken: input.leaseToken,
+        leasedUntil: { gt: new Date() },
+      },
+    });
+    if (!lease) throw new Error('Billing event lease was lost');
+    const account = await tx.billingAccount.findUnique({ where: { userId: input.userId } });
+    if (!account) throw new Error('Subscription billing account does not exist');
+    if ((account.providerSubscriptionId && account.providerSubscriptionId !== input.subscriptionId) ||
+        (account.providerCustomerId && account.providerCustomerId !== input.customerId)) {
+      throw new Error('Subscription provider ownership mismatch');
+    }
+
+    const isNewerEvent = isNewerBillingEvent(input.occurredAt, account.lastEventAt);
+    if (isNewerEvent) {
+      await tx.billingAccount.update({
+        where: { userId: input.userId },
+        data: {
+          providerSubscriptionId: input.subscriptionId,
+          providerCustomerId: input.customerId,
+          status: input.status,
+          nextChargeAt: input.nextChargeAt,
+          cancelAtPeriodEnd: input.cancelAtPeriodEnd,
+          lastEventId: input.eventId,
+          lastEventAt: input.occurredAt,
+        },
+      });
+      if (input.cancelAtPeriodEnd || input.status === 'canceled') {
+        await tx.billingOperation.updateMany({
+          where: {
+            resourceId: input.subscriptionId,
+            operation: 'cancel_at_period_end',
+            status: { in: ['pending', 'uncertain'] },
+          },
+          data: { status: 'completed', completedAt: new Date(), lastError: null },
+        });
+      }
+    }
+    const marked = await tx.billingEvent.updateMany({
+      where: { eventId: input.eventId, status: 'processing', leaseToken: input.leaseToken, leasedUntil: { gt: new Date() } },
+      data: {
+        status: 'processed',
+        processedAt: new Date(),
+        userId: input.userId,
+        attemptCount: { increment: 1 },
+        leaseOwner: null,
+        leaseToken: null,
+        leasedUntil: null,
+        lastError: null,
+      },
+    });
+    if (marked.count !== 1) throw new Error('Billing event lease was lost before commit');
+  });
+}
+
+export async function applyAdjustmentEvent(input: {
+  eventId: string;
+  leaseToken: string;
+  adjustmentId: string;
+  transactionId: string;
+  action: string;
+  actionType: string;
+  status: string;
+  amount: string;
+  currency: string;
+  updatedAt: Date;
+}): Promise<void> {
+  const prisma = getPrisma();
+  await prisma.$transaction(async (tx) => {
+    const lease = await tx.billingEvent.findFirst({
+      where: {
+        eventId: input.eventId,
+        status: 'processing',
+        leaseToken: input.leaseToken,
+        leasedUntil: { gt: new Date() },
+      },
+    });
+    if (!lease) throw new Error('Billing event lease was lost');
+    const transaction = await tx.billingTransaction.findUnique({
+      where: { providerTransactionId: input.transactionId },
+    });
+    if (!transaction?.userId) throw new Error('Adjustment transaction is not attributed');
+    const account = await tx.billingAccount.findUnique({ where: { userId: transaction.userId } });
+    if (!account) throw new Error('Adjustment billing account does not exist');
+
+    const action = input.action.toLowerCase();
+    if (!/^\d+(?:\.\d{1,2})?$/.test(input.amount) || Number(input.amount) < 0 ||
+        Number(input.amount) > Number(transaction.amount) ||
+        input.currency !== transaction.currency) {
+      throw new Error('Adjustment amount or currency is invalid');
+    }
+    await tx.billingAdjustment.upsert({
+      where: { providerAdjustmentId: input.adjustmentId },
+      create: {
+        providerAdjustmentId: input.adjustmentId,
+        transactionId: input.transactionId,
+        action,
+        actionType: input.actionType,
+        status: input.status,
+        amount: input.amount,
+        currency: input.currency,
+        updatedAt: input.updatedAt,
+      },
+      update: {
+        transactionId: input.transactionId,
+        action,
+        actionType: input.actionType,
+        status: input.status,
+        amount: input.amount,
+        currency: input.currency,
+        updatedAt: input.updatedAt,
+      },
+    });
+
+    const activeAdjustments = await tx.billingAdjustment.findMany({
+      where: {
+        transactionId: input.transactionId,
+        status: 'approved',
+        action: { in: ['refund', 'chargeback'] },
+      },
+      select: { action: true, actionType: true, status: true, updatedAt: true },
+    });
+    const hasRefund = activeAdjustments.some((adjustment) =>
+      adjustment.action === 'refund' && isFullApprovedEntitlementReversal(adjustment));
+    const hasChargeback = activeAdjustments.some((adjustment) =>
+      adjustment.action === 'chargeback' && isFullApprovedEntitlementReversal(adjustment));
+    const hasAnyRefund = activeAdjustments.some((adjustment) => adjustment.action === 'refund');
+    const hasAnyChargeback = activeAdjustments.some((adjustment) => adjustment.action === 'chargeback');
+    await tx.billingTransaction.update({
+      where: { providerTransactionId: input.transactionId },
+      data: {
+        status: hasRefund ? 'refunded' : hasChargeback ? 'disputed' : 'paid',
+        refundedAt: hasAnyRefund
+          ? activeAdjustments.filter((adjustment) => adjustment.action === 'refund')
+            .reduce((latest, adjustment) => adjustment.updatedAt > latest ? adjustment.updatedAt : latest, input.updatedAt)
+          : null,
+        disputedAt: hasAnyChargeback
+          ? activeAdjustments.filter((adjustment) => adjustment.action === 'chargeback')
+            .reduce((latest, adjustment) => adjustment.updatedAt > latest ? adjustment.updatedAt : latest, input.updatedAt)
+          : null,
+      },
+    });
+
+    const remaining = await tx.billingTransaction.findMany({
+      where: { userId: transaction.userId, status: 'paid', periodEndAt: { not: null } },
+      orderBy: { periodEndAt: 'desc' },
+      select: { plan: true, periodEndAt: true },
+    });
+    const legacyExpiry = account.legacyPaidThroughAt;
+    const paidTerm = remaining.find((item) => item.periodEndAt !== null);
+    const legacyIsLater = Boolean(legacyExpiry && (!paidTerm?.periodEndAt || legacyExpiry >= paidTerm.periodEndAt));
+    const paidThroughAt = legacyIsLater ? legacyExpiry : paidTerm?.periodEndAt ?? legacyExpiry;
+    const plan = legacyIsLater
+      ? account.legacyPlan || 'free'
+      : paidTerm?.plan || account.legacyPlan || 'free';
+    const active = Boolean(paidThroughAt && paidThroughAt > new Date());
+
+    await tx.user.update({
+      where: { id: transaction.userId },
+      data: {
+        plan: active ? plan : 'free',
+        planExpiresAt: paidThroughAt,
+      },
+    });
+    await tx.billingAccount.update({
+      where: { userId: transaction.userId },
+      data: {
+        plan: active ? plan : 'free',
+        status: active ? 'active' : 'expired',
+        paidThroughAt,
+      },
+    });
+    const marked = await tx.billingEvent.updateMany({
+      where: { eventId: input.eventId, status: 'processing', leaseToken: input.leaseToken, leasedUntil: { gt: new Date() } },
+      data: {
+        status: 'processed',
+        processedAt: new Date(),
+        userId: transaction.userId,
+        attemptCount: { increment: 1 },
+        leaseOwner: null,
+        leaseToken: null,
+        leasedUntil: null,
+        lastError: null,
+      },
+    });
+    if (marked.count !== 1) throw new Error('Billing event lease was lost before commit');
+  });
+}

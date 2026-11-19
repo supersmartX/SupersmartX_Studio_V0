@@ -49,7 +49,7 @@ interface UseMasterRecordingReturn {
   /**
    * True when the current master came back out of IndexedDB rather than out of
    * a take finished in THIS document. Every cross-document hop — Google OAuth,
-   * the Cashfree redirect, the return trip, a reload, a session refresh —
+   * the Paddle redirect, the return trip, a reload, a session refresh —
    * destroys `recordingState`, so this is the only signal the studio has that a
    * finished take is waiting to be reviewed again.
    */

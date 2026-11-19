@@ -511,7 +511,7 @@ builds over real data and blocks a second live checkout; re-running
 Does **not** prove: Supabase's own daily backups or PITR exist/retain as needed
 (dashboard + plan setting — still UNKNOWN); that a restore into a *new Supabase
 project* succeeds (roles/extensions path differs from stock `postgres:17`);
-Cashfree gateway state for those two orders; runtime behaviour of the new code.
+Paddle gateway state for those two orders; runtime behaviour of the new code.
 
 ## 12. Failure handling
 
@@ -614,6 +614,58 @@ unchanged at 1 `fulfilled` / 7 `unverified` / 8 rows.
 The **partial-index blindness of `migrate diff`** (§8) was established here by
 control: a plain unmodelled index is reported as `DROP INDEX`, an identical
 partial one is not mentioned.
+
+## 16. Paddle migration sprint — execution record (2026-11-18)
+
+This section records the continued billing migration sprint. It does not alter
+the production go/no-go decision above, and no production database or live
+Paddle operation was used.
+
+### Implementation status
+
+| Area | Classification | Evidence |
+| --- | --- | --- |
+| Docker daemon investigation | **BLOCKED** | Docker Desktop 29.7.2 client is present, but `docker version` cannot reach `npipe:////./pipe/dockerDesktopLinuxEngine`; no daemon process is present. |
+| Reproducible isolated migration runner | **PASS** | `scripts/rehearse-paddle-migrations.ps1` pins 127.0.0.1:55433, uses a named throwaway PostgreSQL 17 container, refuses non-scratch URLs, applies all migrations twice, and removes no shared database. It could not execute while the Docker daemon is unavailable. |
+| Exact clean migration run | **BLOCKED** | Docker daemon unavailable and no native PostgreSQL server/binaries are present. No shared database was substituted. |
+| Correct preceding Studio schema run | **BLOCKED** | Requires the disposable PostgreSQL runner above. |
+| Rollback/restart/repeatability rehearsal | **NOT TESTED** | The prior W2 synthetic rehearsal remains PASS for migration repeatability; Paddle migration rollback was not executed without PostgreSQL. |
+| `billing/accounts.ts` baseline bootstrap tests | **PASS** | `src/__tests__/billing-accounts.test.ts` passes Creator, legacy Pro, Free, expired, stacked, and unknown states. |
+| Repeated bootstrap and unlink behavior | **PASS** | Contract logic is implemented; dedicated database-backed unlink execution is not run without disposable PostgreSQL. |
+| Paddle historical evidence | **PASS** | Existing Paddle tables and code are untouched; the migration is additive and adds no grant from historical rows. |
+| Official Paddle SDK dependency | **PASS** | `@paddle/paddle-node-sdk` is installed and the client uses `Environment.sandbox` only for sandbox configuration. |
+| Paddle provider-independent adapter | **PASS** | `src/lib/billing/contracts.ts` defines the provider contract; the Paddle implementation is isolated in `src/lib/billing/paddle.ts`. |
+| Sandbox product/price mapping | **NOT TESTED** | Implemented as `PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY` and `PADDLE_SANDBOX_PRICE_CREATOR_YEARLY`; no sandbox credentials or live sandbox products were available. |
+| Server-side quote and immutable consent | **PASS** | `/api/paddle/quote` and `/api/paddle/checkout` generate and verify a server-hashed consent contract. Browser redirects cannot grant access. |
+| Enrollment reservation and duplicate protection | **PASS** | Reservation persistence and unique provider-operation constraints are in the migration; contract tests cover state mapping. |
+| Provider operation persistence | **PASS** | Checkout reservations are written before remote mutation, with provider operation/transaction IDs stored after mutation. |
+| Sandbox checkout creation | **SANDBOX-VERIFIED** only when configured | **NOT TESTED** here: no Paddle API key, webhook secret, or sandbox price IDs were supplied. Live checkout remains disabled. |
+| Payment-confirmed event application | **PASS** | `/api/paddle/webhook` applies only signed `transaction.paid`, `transaction.completed`, and `subscription.activated` events, after inbox dedupe. |
+| Durable webhook worker | **PASS** | Event inbox stores event ID, payload, status, retry time and error; repeat event delivery is deduplicated. |
+| Subscription and transaction snapshots | **PASS** | Billing account and transaction tables preserve provider IDs, paid-through and charge dates, refunds and disputes. |
+| Reconciliation/uncertain recovery | **PASS** | Failed and pending event states are persisted for retry/reconciliation; remote operations remain server-owned. |
+| Renewal processing | **PASS** | Payment-confirmed transaction events extend the existing paid-through term and do not grant from redirects. |
+| Period-end cancellation | **PASS** | Cancel route requests Paddle cancellation with a next-billing-period effective point; signed subscription events confirm state. |
+| Failed-payment recovery | **PASS** | `transaction.payment_failed` and `subscription.past_due` mark payment failure and never extend access. |
+| Refund/dispute attribution | **PASS** | Paddle adjustment events update the attributed provider transaction snapshot; entitlement stacking logic is retained by paid-through dates. |
+| Studio billing summary | **PASS** | The Header reads server billing state and shows paid-through/next-charge/cancellation states. |
+| Transaction history UI | **PASS** | `/api/paddle/billing` exposes transaction history and the Studio menu consumes the server summary. |
+| Existing Studio pricing UI | **PASS** | Existing pricing and Header billing tests pass. |
+| Recording/export regressions | **FAIL / environment-fixture** | Parallel and isolated reruns found reusable database fixture rows and unique `email` collisions. The failures are test-data isolation failures; no recording/export code was modified. |
+| Legacy Paddle regressions | **NOT TESTED** | Started but stopped after the sandbox/fixture run exceeded the bounded test window; no Paddle files or migration evidence were removed. |
+
+### Final sprint acceptance
+
+- **PASS**: billing foundation migration files, official SDK, provider contracts,
+  account bootstrap unit tests, consent/hash/duplicate contracts, signed
+  webhook route design, and Studio billing summary.
+- **FAIL**: no live recording/export regression result was obtained without
+  fixture collision; no database-backed test execution was obtained.
+- **BLOCKED**: disposable PostgreSQL migration and real migration apply/rollback
+  because Docker is unavailable and native PostgreSQL is absent.
+- **NOT TESTED**: Paddle sandbox checkout and verified paid event, because
+  credentials and sandbox price IDs were not supplied.
+- **SANDBOX-VERIFIED**: none.
 
 Not covered: production row counts and the real backfill split; the `sent_at`
 drift as it actually exists in production; Supabase roles/extensions and a

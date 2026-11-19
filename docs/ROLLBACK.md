@@ -26,7 +26,7 @@ and no code in this repo requires downgrading:
 
 ## Payments/storage
 
-- Cashfree webhook handler is idempotent (`processed_webhooks`); replaying
+- Paddle webhook handler is idempotent (`processed_webhooks`); replaying
   events after rollback is safe.
 - R2 objects are content-addressed by UUID keys; rollback never deletes
   objects. Orphan sweep is covered by account deletion + nightly cleanup.
@@ -37,7 +37,7 @@ Redeploy the previous production build against a scratch Supabase project
 restored from the latest backup (`DATABASE.md` § *Backup and restore*), replay
 the smoke list, record result.
 
-## Cashfree rollback boundary
+## Paddle rollback boundary
 
 Do not roll back to a build that permits Sandbox on Vercel Production. Retain the
 Production-only guard and rebuild with both selectors `production`, version

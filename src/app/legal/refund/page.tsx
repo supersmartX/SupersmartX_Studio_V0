@@ -47,7 +47,7 @@ export default function RefundPage() {
               Paid plans are purchased as a single one-time payment for a fixed
               term - monthly or yearly. Prices are shown in Indian Rupees (INR)
               at checkout for customers in India, and in the local currency for
-              other regions. Payments are processed by Cashfree Payments.
+              other regions. Payments are processed by Paddle.
             </p>
             <p>
               Paid plans do not renew automatically. There is no recurring
@@ -129,7 +129,7 @@ export default function RefundPage() {
               6. How refunds are processed
             </h2>
             <p>
-              Approved refunds are returned through Cashfree Payments to the
+              Approved refunds are returned through Paddle to the
               original payment method, for the amount actually paid. Refunds are
               normally reflected within 5-7 business days, but the exact timing
               depends on your bank or card issuer.

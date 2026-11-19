@@ -4,7 +4,7 @@ import { SessionProvider } from 'next-auth/react';
 
 /**
  * Session is polled so an entitlement change made on the server (a paid
- * activation settled by the Cashfree webhook) reaches an already-open tab.
+ * activation settled by the Paddle webhook) reaches an already-open tab.
  *
  * Without this, the JWT callback re-read the correct plan from the database on
  * every session fetch, but nothing triggered a fetch after the one-shot

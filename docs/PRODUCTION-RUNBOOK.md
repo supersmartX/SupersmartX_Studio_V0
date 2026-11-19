@@ -1,7 +1,7 @@
 # Production Runbook — SupersmartX Studio
 
 > Phase 4 deliverable. Operational reference for the production environment
-> (Vercel + Supabase PostgreSQL + Cloudflare R2 + Cashfree + Resend). **Variable names and
+> (Vercel + Supabase PostgreSQL + Cloudflare R2 + Paddle + Resend). **Variable names and
 > operational semantics only — never secret values.** Duplicate operational
 > material in `DEPLOYMENT.md`, `ROLLBACK.md`, `ENVIRONMENT.md`, `TROUBLESHOOTING.md`,
 > and `INCIDENT_RESPONSE.md` is cross-referenced rather than copied; where this
@@ -16,7 +16,7 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
 | App | `NEXT_PUBLIC_APP_URL`, `NEXTAUTH_URL` | `https://studio.supersmartx.com` in prod |
 | Session | `NEXTAUTH_SECRET` (or `AUTH_SECRET`) | ≥32 chars; auth refuses to start in prod without it |
 | OAuth (optional) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_GOOGLE_AUTH` | `.env.example` gate flag is not the code's runtime gate — code checks `GOOGLE_CLIENT_ID` presence (finding F-08) |
-| Payments | `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY`, `CASHFREE_API_VERSION`, `CASHFREE_ENV`, `NEXT_PUBLIC_CASHFREE_ENV` | `CASHFREE_SECRET_KEY` doubles as the webhook HMAC key. Vercel Production requires both selectors `production`, matching Production credentials and exact API version `2022-09-01`; invalid config fails build/runtime |
+| Payments | `PADDLE_APP_ID`, `PADDLE_SECRET_KEY`, `PADDLE_API_VERSION`, `PADDLE_ENV`, `NEXT_PUBLIC_PADDLE_ENV` | `PADDLE_SECRET_KEY` doubles as the webhook HMAC key. Vercel Production requires both selectors `production`, matching Production credentials and exact API version `2022-09-01`; invalid config fails build/runtime |
 | Email | `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | Optional; mail failures are best-effort and never block activation |
 | Database | `DATABASE_URL`, `DIRECT_URL` | **Both required.** `DATABASE_URL` = Supavisor transaction pooler (`:6543`) for runtime; `DIRECT_URL` = session/direct connection (`:5432`) for `prisma migrate`. Production fails closed (`DatabaseNotConfiguredError`) without a `postgres://` `DATABASE_URL`; there is no file or in-memory fallback |
 | Storage | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_SIGNED_URL_TTL_SECONDS` | All four required or upload/download routes answer `503`. Server-only — never a `NEXT_PUBLIC_R2_*`. Bucket CORS must allow the studio origin (root `DEPLOYMENT.md` §1 “Cloudflare R2 bucket CORS (required for Creator export)”) |
@@ -72,23 +72,23 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
 - **Diagnostics (safe)**: `head` a key to confirm size/content-type/eTag; never
   delete objects outside the cleanup contract without recording it.
 
-## 4. Cashfree (payments)
+## 4. Paddle (payments)
 
-- **Configuration**: `CASHFREE_ENV` + `NEXT_PUBLIC_CASHFREE_ENV` must match each
-  other and the Cashfree dashboard mode. Mismatch → order creation fails closed
+- **Configuration**: `PADDLE_ENV` + `NEXT_PUBLIC_PADDLE_ENV` must match each
+  other and the Paddle dashboard mode. Mismatch → order creation fails closed
   (`503`), never silently routes to the wrong environment.
-- **Webhook**: `POST /api/cashfree/webhook`, HMAC over `timestamp + raw body`
-  with `CASHFREE_SECRET_KEY`, timing-safe compare. Ensure the Cashfree dashboard
+- **Webhook**: `POST /api/paddle/webhook`, HMAC over `timestamp + raw body`
+  with `PADDLE_SECRET_KEY`, timing-safe compare. Ensure the Paddle dashboard
   webhook URL points at production and retries are enabled — webhook is the
   activation path; `?payment=success` never activates anything.
-- **Verify loop**: clients poll `/api/cashfree/verify` (30/min limit). Terminal
+- **Verify loop**: clients poll `/api/paddle/verify` (30/min limit). Terminal
   failure returns `{ status: 'failed' }` and the client stops polling.
 - **Reconciliation**: if a paid order shows no plan in DB, query `pending_orders`
-  vs Cashfree dashboard by `order_id`; the fulfilment path is idempotent — claim,
+  vs Paddle dashboard by `order_id`; the fulfilment path is idempotent — claim,
   grant and the order's `fulfilled_at` marker commit in one transaction — so
   re-triggering verify is safe.
 - **Pending-order lifecycle (W2)**: every checkout reserves the order in
-  `pending_orders` (`creating`) before calling Cashfree, then flips it to
+  `pending_orders` (`creating`) before calling Paddle, then flips it to
   `open`. `creating → open → termination_requested` are the live states and
   exactly one may exist per user (partial unique index
   `pending_orders_one_live_per_user`). `held_review` = money received, not
@@ -103,7 +103,7 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
   (`GET ...?status=held_review,unverified&probe=1`), then
   `POST {action:'reconcile',orderId,dryRun:false}` to drive one order through the
   state machine, or `POST {action:'release',orderId,resolution,confirm:'RELEASE'}`
-  to exit a hold. The route re-reads Cashfree before any write, so it cannot
+  to exit a hold. The route re-reads Paddle before any write, so it cannot
   close a paid order by accident. A refund is *recorded*, never issued.
 - **One-payable-order rule**: a live checkout answers new order creation with
   `409 pending_order_open` (resumable) or `pending_order_terminating` /
@@ -175,18 +175,18 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
 | Symptom | Likely cause | Safe action |
 | ------- | ------------ | ----------- |
 | `/api/health` 503 `degraded` | database unreachable / `DATABASE_URL` missing or non-Postgres | Check Supabase status and the `DATABASE_URL` value (pooler, `:6543`); the app fails closed by design. Confirm the binding via authenticated `checks.db_host` |
-| Payment orders 503 | `CASHFREE_ENV` unset/invalid or mismatch with mirror var | Fix env literals; redeploy (bake) |
-| Webhook 400 `Invalid signature` | Wrong/stale `CASHFREE_SECRET_KEY` vs dashboard | Rotate to matching value in **both** (dashboard + Vercel); never print either value |
+| Payment orders 503 | `PADDLE_ENV` unset/invalid or mismatch with mirror var | Fix env literals; redeploy (bake) |
+| Webhook 400 `Invalid signature` | Wrong/stale `PADDLE_SECRET_KEY` vs dashboard | Rotate to matching value in **both** (dashboard + Vercel); never print either value |
 | Uploads 503 `Storage not configured` | Any of the four `R2_*` missing | Restore vars; verify CORS if browser PUT fails pre-flight |
 | Downloads 404 for a known export | `local/` key (Free local export) or non-completed row | Expected for local exports; otherwise inspect `exports.status` |
 | Exports stuck `uploading` | Client died before `/complete` | Safe: cleanup removes stale jobs after 30 days; user may re-export |
 | `/complete` 400 artifact failure | Encoder produced invalid MP4 | Staging auto-deleted, job stays retryable; capture `requestId` + failure description; do **not** hand-edit job rows |
 | `/complete` 500 (IO) | R2 transient | Staging retained — retry is safe (idempotent replay echo once completed) |
 | Cron sweep 401 | `CRON_SECRET` ≠ `CLEANUP_SECRET` | Align the two values |
-| Checkout `409 paid_order_pending_review` | Payment settled at Cashfree but fulfilment was rejected/threw | Do **not** ask the buyer to pay again. Read the report, then `POST /api/internal/billing/orders {action:'release',orderId,resolution:'fulfilled_manually',confirm:'RELEASE'}` once Cashfree confirms `PAID`. If the release answers `409 claim_unentitled`, the order holds a fulfilment claim with no per-order `fulfilled_at` marker (a crash between the claim and the plan write, or a pre-upgrade row) — investigate before granting, because a blind re-grant pays the term twice |
-| Checkout `409 pending_order_terminating` for >15 min | Cashfree accepted the kill but never confirmed | Expect `payment.order_termination_stuck`. Verify the configured `CASHFREE_API_VERSION` supports `PATCH {order_status:'TERMINATED'}`; do not delete the row. Checkout stays blocked by design |
+| Checkout `409 paid_order_pending_review` | Payment settled at Paddle but fulfilment was rejected/threw | Do **not** ask the buyer to pay again. Read the report, then `POST /api/internal/billing/orders {action:'release',orderId,resolution:'fulfilled_manually',confirm:'RELEASE'}` once Paddle confirms `PAID`. If the release answers `409 claim_unentitled`, the order holds a fulfilment claim with no per-order `fulfilled_at` marker (a crash between the claim and the plan write, or a pre-upgrade row) — investigate before granting, because a blind re-grant pays the term twice |
+| Checkout `409 pending_order_terminating` for >15 min | Paddle accepted the kill but never confirmed | Expect `payment.order_termination_stuck`. Verify the configured `PADDLE_API_VERSION` supports `PATCH {order_status:'TERMINATED'}`; do not delete the row. Checkout stays blocked by design |
 | Checkout `409 pending_order_creating` repeatedly | Create outcome unknown (timeout/5xx) and the orphan probe has not proven absence | Three spaced `404`s over ≥30 s after the 2-minute grace close it automatically. `POST action:'reconcile',dryRun:false` forces a pass; only a gateway-confirmed 404 may close |
-| Checkout `503 pending_order_unconfirmed` | Gateway unreadable during reconciliation | Check Cashfree status/credentials; retry later. Fail closed is deliberate |
+| Checkout `503 pending_order_unconfirmed` | Gateway unreadable during reconciliation | Check Paddle status/credentials; retry later. Fail closed is deliberate |
 | Billing ops route `503` | `BILLING_OPS_SECRET` unset | Set it (never `CLEANUP_SECRET`) and redeploy |
 | 429s in prod | Per-process in-memory limiter resets per instance | Expected semantics; not a distributed guarantee (documented limitation) |
 | Suspected account/session issue | JWT vs DB plan divergence | Plan is always re-read from DB; inspect `users.plan`/`planExpiresAt`, not the cookie |
@@ -200,11 +200,11 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
 - Anything security-sensitive you change (secret rotation, CORS, webhook URL)
   is a CHANGE-CONTROL decision, recorded in-repo with evidence.
 
-## Cashfree Production enforcement
+## Paddle Production enforcement
 
-Vercel Production must have `CASHFREE_ENV=production`,
-`NEXT_PUBLIC_CASHFREE_ENV=production`, `CASHFREE_API_VERSION=2022-09-01`, and
-matching Production `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` supplied by the
+Vercel Production must have `PADDLE_ENV=production`,
+`NEXT_PUBLIC_PADDLE_ENV=production`, `PADDLE_API_VERSION=2022-09-01`, and
+matching Production `PADDLE_APP_ID` / `PADDLE_SECRET_KEY` supplied by the
 operator. Credentials are server-only and must never be printed or committed.
 The key is also used to verify webhook signatures.
 
@@ -215,7 +215,7 @@ Vercel must expose system environment variables. Missing/contradictory hosted
 context fails closed. Build-derived mode and Production-lock constants prevent
 changing gateway environments within an artifact. Never override these constants.
 Every payment path validates the same configuration before gateway access or
-reconciliation. Production gateway requests use `https://api.cashfree.com/pg`,
+reconciliation. Production gateway requests use `https://api.paddle.com/pg`,
 `x-api-version: 2022-09-01`, and reject redirects. There is no API-version fallback.
 Production CSP excludes Sandbox API and payment-frame hosts. The browser refuses
 Sandbox mode in Production builds and checks the environment on both new and

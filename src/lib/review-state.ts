@@ -20,7 +20,7 @@ interface ReviewStateInput {
  *   1. The capture engine finished one in THIS document ('completed').
  *   2. A PREVIOUS document left one behind and IndexedDB restored it.
  *
- * (2) is the upgrade journey: Google OAuth, the Cashfree redirect, the return
+ * (2) is the upgrade journey: Google OAuth, the Paddle redirect, the return
  * trip, a reload and a session refresh are all cross-document or full-remount
  * events. They destroy `recordingState` but not IndexedDB, so the take comes
  * back — while every review surface (review canvas, "Export recording",

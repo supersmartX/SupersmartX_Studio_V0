@@ -21,7 +21,7 @@
 /**
  * Thrown when a process that must not lose state has no durable database.
  * Callers treat this as retryable: a payment webhook answered with a 500 here
- * is re-delivered by Cashfree once the deploy is fixed, which is the only
+ * is re-delivered by Paddle once the deploy is fixed, which is the only
  * outcome that does not lose a paid order.
  */
 export class DatabaseNotConfiguredError extends Error {

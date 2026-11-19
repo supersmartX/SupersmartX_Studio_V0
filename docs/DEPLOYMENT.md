@@ -13,7 +13,7 @@ works if cron and env are provided equivalently.
 
 1. Set ALL production env vars (ENVIRONMENT.md), especially `NEXTAUTH_SECRET`,
    `NEXT_PUBLIC_APP_URL` (= canonical `https://studio.supersmartx.com`),
-   `DATABASE_URL` + `DIRECT_URL`, Cashfree pair + mode, R2 quartet.
+   `DATABASE_URL` + `DIRECT_URL`, Paddle pair + mode, R2 quartet.
 2. CI must be green: lint → typecheck → test → e2e → build
    (`.github/workflows/ci.yml`; e2e/build wait for the first three).
 3. `npm run build` must pass with no missing-env warnings except knowingly
@@ -36,11 +36,11 @@ works if cron and env are provided equivalently.
   download URL works, then expires.
 - Password reset invalidates old sessions.
 
-## Cashfree Production enforcement
+## Paddle Production enforcement
 
-Vercel Production must have `CASHFREE_ENV=production`,
-`NEXT_PUBLIC_CASHFREE_ENV=production`, `CASHFREE_API_VERSION=2022-09-01`, and
-matching Production `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` supplied by the
+Vercel Production must have `PADDLE_ENV=production`,
+`NEXT_PUBLIC_PADDLE_ENV=production`, `PADDLE_API_VERSION=2022-09-01`, and
+matching Production `PADDLE_APP_ID` / `PADDLE_SECRET_KEY` supplied by the
 operator. Credentials are server-only and must never be printed or committed.
 The key is also used to verify webhook signatures.
 
@@ -51,7 +51,7 @@ Vercel must expose system environment variables. Missing/contradictory hosted
 context fails closed. Build-derived mode and Production-lock constants prevent
 changing gateway environments within an artifact. Never override these constants.
 Every payment path validates the same configuration before gateway access or
-reconciliation. Production gateway requests use `https://api.cashfree.com/pg`,
+reconciliation. Production gateway requests use `https://api.paddle.com/pg`,
 `x-api-version: 2022-09-01`, and reject redirects. There is no API-version fallback.
 Production CSP excludes Sandbox API and payment-frame hosts. The browser refuses
 Sandbox mode in Production builds and checks the environment on both new and

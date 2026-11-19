@@ -4,8 +4,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
 import { useSession } from 'next-auth/react';
-import { formatPrice, formatPriceZero, formatPriceForCurrency, formatSavingsPercent, serverPriceMatchesDisplayed, type RegionalPricing } from '@/lib/pricing';
-import { loadCashfreeSDK, resolveCashfreeMode } from '@/lib/cashfree';
+import { formatPrice, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 import { useRegionalPricing } from '@/hooks/useRegionalPricing';
 import { PRICING_PLANS } from '@/constants';
@@ -26,93 +25,6 @@ interface PricingModalProps {
 type BillingPeriod = 'monthly' | 'yearly';
 
 type TierKey = keyof typeof PRICING_PLANS;
-
-/** A created Cashfree order, held while the customer accepts its price. */
-interface PendingCheckout {
-  env: 'sandbox' | 'production';
-  orderId: string;
-  paymentSessionId: string;
-  amount: number;
-  currency: string;
-}
-
-/**
- * What this tab remembers about the checkout it created, so a retry can resume
- * that exact order instead of colliding with the one-order-at-a-time guard.
- *
- * `accepted` is the line between the two ways a checkout is abandoned: the
- * customer confirmed the price and the payment page then failed or was closed
- * (`true` — resuming is what they asked for), or they never accepted it, e.g.
- * they cancelled on the confirmation panel (`false` — the price has to be
- * accepted again before anything is charged).
- *
- * Kept in sessionStorage rather than component state so a reload on the way
- * back from the payment page does not erase the distinction; it is scoped to
- * the tab and cleared as soon as the session proves unusable.
- */
-interface OpenCheckoutRecord extends PendingCheckout {
-  plan: string;
-  accepted: boolean;
-}
-
-const OPEN_CHECKOUT_KEY = 'sxs-open-checkout';
-
-function readOpenCheckout(): OpenCheckoutRecord | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = window.sessionStorage.getItem(OPEN_CHECKOUT_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<OpenCheckoutRecord> | null;
-    if (
-      !parsed ||
-      parsed.env !== resolveCashfreeMode() ||
-      (parsed.env !== 'production' && parsed.env !== 'sandbox') ||
-      typeof parsed.orderId !== 'string' ||
-      typeof parsed.paymentSessionId !== 'string' ||
-      typeof parsed.amount !== 'number' ||
-      typeof parsed.currency !== 'string' ||
-      typeof parsed.plan !== 'string'
-    ) {
-      return null;
-    }
-    return {
-      env: parsed.env,
-      orderId: parsed.orderId,
-      paymentSessionId: parsed.paymentSessionId,
-      amount: parsed.amount,
-      currency: parsed.currency,
-      plan: parsed.plan,
-      accepted: parsed.accepted === true,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeOpenCheckout(record: OpenCheckoutRecord | null) {
-  if (typeof window === 'undefined') return;
-  try {
-    if (record) window.sessionStorage.setItem(OPEN_CHECKOUT_KEY, JSON.stringify(record));
-    else window.sessionStorage.removeItem(OPEN_CHECKOUT_KEY);
-  } catch {
-    // Storage unavailable (private mode, quota). Resume then degrades to
-    // re-accepting the open checkout — never to a silent second charge.
-  }
-}
-
-/** The open order the server refused to duplicate, as reported by the 409. */
-interface OpenCheckoutBlock {
-  env: 'sandbox' | 'production';
-  orderId: string;
-  paymentSessionId: string | null;
-  amount: number | null;
-  currency: string | null;
-  plan: string | null;
-  status: string | null;
-  retryAfterSeconds: number;
-  /** True only when this tab recorded accepting this exact order. */
-  alreadyAccepted: boolean;
-}
 
 
 function checkoutErrorMessage(err: unknown): string {
@@ -142,20 +54,18 @@ function getPlanId(tier: TierKey, period: BillingPeriod): string {
 
 export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthenticated = false, onAuthRequired, initialTier, initialBillingPeriod, initialStep }: PricingModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isOpen, onClose);
-  const [step, setStep] = useState<'select' | 'form' | 'processing' | 'confirm-price' | 'resume-checkout' | 'error'>('select');
+  const [step, setStep] = useState<'select' | 'form' | 'processing' | 'error'>('select');
   const [selectedTier, setSelectedTier] = useState<TierKey>('creator');
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-  const [pendingCheckout, setPendingCheckout] = useState<PendingCheckout | null>(null);
-  const [openCheckout, setOpenCheckout] = useState<OpenCheckoutBlock | null>(null);
-  // One order creation and one SDK hand-off at a time. Two handlers firing
+  const [pendingReservationId, setPendingReservationId] = useState<string | null>(null);
+  const [subscriptionConflict, setSubscriptionConflict] = useState(false);
+  // One checkout creation and hand-off at a time. Two handlers firing
   // before React re-renders (a double tap, Enter plus click) would otherwise
   // POST twice or open the same payment session in two tabs.
   const submitLock = useRef(false);
-  const checkoutLock = useRef(false);
 
   const selectedPlan = getPlanId(selectedTier, billingPeriod);
   const { data: session } = useSession();
@@ -164,11 +74,6 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   // state always terminates and falls back to the US table.
   const { pricing: currentPricing, isLoading: isLoadingPricing } = useRegionalPricing(isOpen);
 
-  useEffect(() => {
-    if (isOpen) {
-      loadCashfreeSDK().catch(() => {});
-    }
-  }, [isOpen]);
 
   // Apply landing/studio checkout intent on open (e.g. ?checkout=creator_monthly → payment form directly)
   useEffect(() => {
@@ -186,7 +91,8 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       setStep('select');
     }
     setErrorMessage('');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setPendingReservationId(null);
+    setSubscriptionConflict(false);
   }, [isOpen]);
 
   const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
@@ -200,24 +106,12 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     return null;
   };
   const currentTier = getUserPlanTier();
-  // Buying another term of the plan you already hold is a renewal, not an
-  // invalid selection: the server extends the stored expiry by one term.
-  const isExtending = selectedTier === currentTier && selectedTier !== 'free';
   const isFreeCurrent = selectedTier === currentTier && selectedTier === 'free';
-  const termLabel = billingPeriod === 'yearly' ? '1 year' : '1 month';
 
   const getTierPrice = (tier: TierKey, period: BillingPeriod): number => {
     if (tier === 'free') return 0;
     const key = `${tier}${period === 'monthly' ? 'Monthly' : 'Yearly'}` as keyof RegionalPricing;
     return (currentPricing[key] as number) || 0;
-  };
-
-  /** The price this sheet has shown for the current selection. */
-  const displayedPrice = getTierPrice(selectedTier, billingPeriod);
-
-  const isValidPhone = (v: string) => {
-    const digits = v.replace(/\D/g, '');
-    return digits.length >= 8 && digits.length <= 15;
   };
 
   const handleClose = useCallback(() => {
@@ -226,10 +120,9 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     setBillingPeriod('monthly');
     setName('');
     setEmail('');
-    setPhone('');
     setErrorMessage('');
-    setPendingCheckout(null);
-    setOpenCheckout(null);
+    setPendingReservationId(null);
+    setSubscriptionConflict(false);
     closeModal();
   }, [closeModal]);
 
@@ -275,52 +168,6 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [shouldRender, handleClose]);
 
-  /** Hands an already-created order to Cashfree. The only path to checkout. */
-  const completeCheckout = useCallback(async (checkout: PendingCheckout) => {
-    if (checkoutLock.current) return;
-    if (checkout.env !== resolveCashfreeMode()) {
-      setStep('error');
-      setErrorMessage('Payment is temporarily unavailable. Please try again shortly.');
-      return;
-    }
-    checkoutLock.current = true;
-    setStep('processing');
-    setErrorMessage('');
-    // Recorded before the hand-off: whatever happens on the payment page, this
-    // order's price has now been accepted, which is what lets a later retry
-    // resume it instead of demanding a fresh decision.
-    writeOpenCheckout({ ...checkout, plan: selectedPlan, accepted: true });
-    try {
-      const cashfree = await loadCashfreeSDK();
-      const baseUrl = window.location.origin;
-      const result = await cashfree.checkout({
-        paymentSessionId: checkout.paymentSessionId,
-        redirectTarget: '_self',
-        returnUrl: `${baseUrl}/studio?payment=success&order_id=${checkout.orderId}&plan=${selectedPlan}`,
-      });
-
-      if (result.error) {
-        // The payment page refused this session (expired, already used). Forget
-        // the acceptance so a retry re-confirms the price and asks the server
-        // for a fresh order, rather than looping on a dead session.
-        writeOpenCheckout(null);
-        setStep('error');
-        setErrorMessage(result.error.message || 'Payment was cancelled');
-        return;
-      }
-
-      showToast('Redirecting to payment...');
-      handleClose();
-    } catch (err) {
-      // A transport/SDK failure says nothing about the session's validity, so
-      // the acceptance stands and the same checkout can be resumed.
-      setStep('error');
-      setErrorMessage(checkoutErrorMessage(err));
-    } finally {
-      checkoutLock.current = false;
-    }
-  }, [selectedPlan, showToast, handleClose]);
-
   const handleSubscribe = useCallback(async () => {
     if (!isAuthenticated) {
       handleClose();
@@ -328,179 +175,115 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       showToast('Please log in or create an account to continue');
       return;
     }
-
     if (selectedPlan === 'free') {
       showToast('Free plan activated!');
       handleClose();
       return;
     }
-
-    // Always require form step to collect phone (Cashfree requires customer_phone)
     if (step === 'select') {
-      // Prefill from session if empty
       if (!email && session?.user?.email) setEmail(session.user.email);
       if (!name && session?.user?.name) setName(session.user.name);
       setStep('form');
       return;
     }
-
-    // step === 'form' -> validate and create order
     const effectiveEmail = (email || session?.user?.email || '').trim();
-    const effectiveName = (name || session?.user?.name || 'User').trim();
-    const effectivePhone = phone.trim();
     if (!effectiveEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(effectiveEmail)) {
       setErrorMessage('Please enter a valid email');
       return;
     }
-    if (!effectivePhone || !isValidPhone(effectivePhone)) {
-      setErrorMessage('Please enter a valid phone number (8-15 digits, include country code e.g. +919999999999)');
-      return;
-    }
-
     if (submitLock.current) return;
     submitLock.current = true;
-
     setStep('processing');
     setErrorMessage('');
-
-    const planPrice = getTierPrice(selectedTier, billingPeriod);
-
     try {
-      // Resolve the build-time mode before anything is instantiated. The SDK
-      // instance is memoised for the whole session and its mode is fixed when the
-      // script loads, so an unset or unrecognised value must stop checkout here
-      // rather than silently becoming sandbox.
-      const browserMode = resolveCashfreeMode();
-      if (!browserMode) {
-        setStep('error');
-        setErrorMessage('Payment is temporarily unavailable. Please try again shortly.');
-        return;
-      }
-
-      const response = await fetch('/api/cashfree/order', {
+      const quoteResponse = await fetch('/api/paddle/quote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({
-          plan: selectedPlan,
-          currency: currentPricing.currency,
-          country: currentPricing.country,
-          amount: planPrice,
-          name: effectiveName,
-          email: effectiveEmail,
-          phone: effectivePhone,
-        }),
+        body: JSON.stringify({ period: billingPeriod }),
       });
-
-      const data = await response.json().catch(() => ({ error: 'Failed to create order' }));
-
-      if (!response.ok) {
-        if (response.status === 401) {
+      const quote = await quoteResponse.json().catch(() => ({ error: 'Failed to create quote' }));
+      if (!quoteResponse.ok) {
+        if (quoteResponse.status === 401) {
           handleClose();
           onAuthRequired?.();
           showToast('Please log in or create an account to continue');
           return;
         }
-        // The account already has a payable order and the server will not
-        // create a second one. That refusal is correct, but it is not the
-        // buyer's dead end: the open order can be described, resumed by them
-        // explicitly, and the block lifts on its own after a known interval.
-        if (response.status === 409 && data.code === 'pending_order_open') {
-          if (data.env !== browserMode) throw new Error('Payment is temporarily unavailable. Please try again shortly.');
-          const orderId = typeof data.orderId === 'string' ? data.orderId : null;
-          const openPlan = typeof data.plan === 'string' ? data.plan : null;
-          const openAmount = typeof data.amount === 'number' && Number.isFinite(data.amount) ? data.amount : null;
-          const openCurrency = typeof data.currency === 'string' && data.currency ? data.currency : null;
-          const remembered = readOpenCheckout();
-          setOpenCheckout({
-            env: browserMode,
-            orderId: orderId ?? '',
-            paymentSessionId: typeof data.paymentSessionId === 'string' ? data.paymentSessionId : null,
-            amount: openAmount,
-            currency: openCurrency,
-            plan: openPlan,
-            status: typeof data.status === 'string' ? data.status : null,
-            retryAfterSeconds:
-              typeof data.retryAfterSeconds === 'number' && Number.isFinite(data.retryAfterSeconds)
-                ? Math.max(1, data.retryAfterSeconds)
-                : 60,
-            // Only an acceptance this tab recorded for this exact order counts.
-            // Anything else (a different order, a declined confirmation, a lost
-            // record) must be accepted again before a payment page opens.
-            alreadyAccepted: Boolean(
-              remembered &&
-              remembered.accepted &&
-              remembered.orderId === orderId &&
-              remembered.plan === openPlan &&
-              remembered.amount === openAmount &&
-              remembered.currency === openCurrency,
-            ),
-          });
-          setStep('resume-checkout');
-          return;
-        }
-        throw new Error(data.error || 'Failed to create order');
+        throw new Error(quote.error || 'Failed to create quote');
       }
-
-      // The SDK was instantiated with a build-time mode. If the server created
-      // this order in the other Cashfree environment, checkout would never
-      // settle against it — stop here rather than sending the user to a payment
-      // page whose order can never activate.
-      if (data.env !== browserMode) {
-        setStep('error');
-        setErrorMessage('Payment is temporarily unavailable. Please try again shortly.');
-        return;
-      }
-
-      // The charge follows the server's region, not the one this sheet
-      // resolved — a VPN, a different geo database, or a region cached up to a
-      // week ago all put the two at odds. An order whose price cannot be read
-      // is not safe to hand to the payment page either.
-      const serverAmount = typeof data.amount === 'number' && Number.isFinite(data.amount) ? data.amount : null;
-      const serverCurrency = typeof data.currency === 'string' && data.currency ? data.currency : null;
-      if (
-        serverAmount === null ||
-        serverCurrency === null ||
-        typeof data.orderId !== 'string' ||
-        typeof data.paymentSessionId !== 'string'
-      ) {
-        setStep('error');
-        setErrorMessage('Payment is temporarily unavailable. Please try again shortly.');
-        return;
-      }
-
-      const checkout: PendingCheckout = {
-        env: browserMode,
-        orderId: data.orderId,
-        paymentSessionId: data.paymentSessionId,
-        amount: serverAmount,
-        currency: serverCurrency,
+      const consent = {
+        plan: quote.plan,
+        period: quote.period,
+        amount: quote.amount,
+        currency: quote.currency,
+        consentVersion: '1' as const,
       };
-
-      // Remember the order before anything can fail. If the payment page never
-      // opens, the retry finds it here instead of colliding with it.
-      writeOpenCheckout({ ...checkout, plan: selectedPlan, accepted: false });
-
-      // Never charge a price the customer has not seen. A difference stops
-      // here, with the order still open, and only their explicit confirmation
-      // sends it to checkout.
-      if (!serverPriceMatchesDisplayed(
-        { amount: planPrice, currency: currentPricing.currency },
-        { amount: checkout.amount, currency: checkout.currency },
-      )) {
-        setPendingCheckout(checkout);
-        setStep('confirm-price');
-        return;
+      const canonical = JSON.stringify(consent);
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+      const consentHash = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+      const checkoutResponse = await fetch('/api/paddle/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ ...consent, consentHash }),
+      });
+      const checkout = await checkoutResponse.json().catch(() => ({ error: 'Failed to create checkout' }));
+      if (!checkoutResponse.ok) {
+        if (typeof checkout.reservationId === 'string') {
+          setPendingReservationId(checkout.reservationId);
+        }
+        if (checkoutResponse.status === 409 &&
+            checkout.error === 'An active Paddle subscription already exists') {
+          setSubscriptionConflict(true);
+        }
+        throw new Error(checkout.error || 'Failed to create checkout');
       }
-
-      await completeCheckout(checkout);
+      if (typeof checkout.checkoutUrl !== 'string' || !checkout.checkoutUrl) {
+        throw new Error('Paddle did not return a checkout URL');
+      }
+      setPendingReservationId(null);
+      showToast('Redirecting to Paddle...');
+      window.location.assign(checkout.checkoutUrl);
     } catch (err) {
       setStep('error');
       setErrorMessage(checkoutErrorMessage(err));
     } finally {
       submitLock.current = false;
     }
-  }, [selectedPlan, selectedTier, billingPeriod, currentPricing, name, email, phone, step, showToast, isAuthenticated, onAuthRequired, session, handleClose, completeCheckout]);
+  }, [selectedPlan, billingPeriod, name, email, step, showToast, isAuthenticated, onAuthRequired, session, handleClose]);
+
+  const handleCheckPendingCheckout = useCallback(async () => {
+    if (!pendingReservationId || submitLock.current) return;
+    submitLock.current = true;
+    setStep('processing');
+    setErrorMessage('');
+    try {
+      const response = await fetch(
+        `/api/paddle/checkout/status?reservationId=${encodeURIComponent(pendingReservationId)}`,
+        { credentials: 'same-origin', cache: 'no-store' },
+      );
+      const checkout = await response.json().catch(() => ({ error: 'Checkout status is unavailable' }));
+      if (!response.ok) throw new Error(checkout.error || 'Checkout status is unavailable');
+      if (typeof checkout.checkoutUrl === 'string') {
+        window.location.assign(checkout.checkoutUrl);
+        return;
+      }
+      if (checkout.retryAllowed === true) {
+        setPendingReservationId(null);
+        setErrorMessage('The previous checkout has ended. You can safely try again.');
+      } else {
+        setErrorMessage(checkout.message ||
+          'Payment access updates only after Paddle verifies the payment. Check again shortly.');
+      }
+      setStep('error');
+    } catch (err) {
+      setStep('error');
+      setErrorMessage(checkoutErrorMessage(err));
+    } finally {
+      submitLock.current = false;
+    }
+  }, [pendingReservationId]);
 
   // UX-012: this dialog has always had NO initial focus — focus stayed on the
   // trigger behind it, so keyboard and screen-reader users opened the pricing
@@ -571,55 +354,8 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   const dialogTitle =
     step === 'select' ? 'Choose Your Plan'
     : step === 'form' ? 'Complete Payment'
-    : step === 'confirm-price' ? 'Confirm Price'
-    : step === 'resume-checkout' ? (openCheckout?.status === 'PAID' ? 'Payment Received' : 'Resume Checkout')
     : step === 'processing' ? 'Processing...'
     : 'Payment Error';
-
-  // The open order, described only from what the server reported.
-  const openChargeLabel =
-    openCheckout && openCheckout.amount !== null && openCheckout.currency !== null
-      ? formatPriceForCurrency(openCheckout.amount, openCheckout.currency)
-      : null;
-  const openPlanLabel = openCheckout?.plan
-    ? `Creator ${openCheckout.plan.includes('yearly') ? 'Yearly' : 'Monthly'}`
-    : 'Creator plan';
-  const openMinutes = openCheckout ? Math.max(1, Math.ceil(openCheckout.retryAfterSeconds / 60)) : 1;
-  const openMinuteLabel = openMinutes === 1 ? '1 minute' : `${openMinutes} minutes`;
-  const openIsPaid = openCheckout?.status === 'PAID';
-  // Resuming means opening *this* order's payment session: possible only when
-  // the server reported one, priced it, and it is for the plan on this sheet.
-  // A paid order is never resumable — its payment already went through.
-  const openIsResumable = Boolean(
-    openCheckout &&
-    !openIsPaid &&
-    openCheckout.paymentSessionId &&
-    openChargeLabel &&
-    openCheckout.plan === selectedPlan,
-  );
-  const openPlanDiffers = Boolean(openCheckout?.plan && openCheckout.plan !== selectedPlan);
-
-  /** Re-open the payment page for the order the server is holding open. */
-  const resumeOpenCheckout = () => {
-    if (
-      !openCheckout ||
-      // Belt and braces: the button is not rendered for a paid order, and this
-      // function spends money, so it refuses one even if that ever changes.
-      openIsPaid ||
-      !openCheckout.paymentSessionId ||
-      openCheckout.amount === null ||
-      openCheckout.currency === null
-    ) {
-      return;
-    }
-    void completeCheckout({
-      env: openCheckout.env,
-      orderId: openCheckout.orderId,
-      paymentSessionId: openCheckout.paymentSessionId,
-      amount: openCheckout.amount,
-      currency: openCheckout.currency,
-    });
-  };
 
   return (
     <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={dialogTitle} {...swipeHandlers}>
@@ -705,13 +441,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                       const badge = tier === currentTier ? 'Current Plan' : BADGES[tier];
                       const isSelected = selectedTier === tier;
                       const isCurrentPlan = tier === currentTier;
-                      // A paid plan can always buy another term: the purchase
-                      // extends the stored expiry instead of being rejected.
-                      // Free stays unselectable — while it is the current plan
-                      // there is nothing to buy, and while a paid plan is held
-                      // it is not a downgrade path.
-                      const canBuyAnotherTerm = isCurrentPlan && tier !== 'free';
-                      const isSelectable = canBuyAnotherTerm || (tier !== 'free' && !isCurrentPlan);
+                      const isSelectable = tier !== 'free' && (!isCurrentPlan || currentTier !== 'free');
                       const price = getTierPrice(tier, billingPeriod);
                       const periodLabel = tier === 'free' ? '/forever' : billingPeriod === 'monthly' ? ' for 1 month' : ' for 1 year';
 
@@ -733,15 +463,10 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                               <span className="lsx-pricing-period">{periodLabel}</span>
                             </div>
                             {tier !== 'free' && billingPeriod === 'yearly' && (
-                              <p className="lsx-pricing-note">One-time payment for 1 year of access (equivalent to {format(getTierPrice(tier, 'yearly') / 12)}/month).</p>
+                              <p className="lsx-pricing-note">Renews every 12 months until canceled.</p>
                             )}
                             {tier !== 'free' && billingPeriod === 'monthly' && (
-                              <p className="lsx-pricing-note">One-time payment for 1 month of access.</p>
-                            )}
-                            {canBuyAnotherTerm && (
-                              <p className="lsx-pricing-note">
-                                Adds {billingPeriod === 'yearly' ? '1 year' : '1 month'} to your current access.
-                              </p>
+                              <p className="lsx-pricing-note">Renews every month until canceled.</p>
                             )}
                           </div>
                           <ul className="lsx-pricing-features">
@@ -768,17 +493,13 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                   >
                     {isFreeCurrent
                       ? 'Current Plan'
-                      : isExtending
-                        ? `Extend by ${termLabel} — ${format(getTierPrice(selectedTier, billingPeriod))}`
-                        : selectedPlan === 'free'
-                          ? PRICING_PLANS.free.cta
-                          : `Pay once for ${format(getTierPrice(selectedTier, billingPeriod))}${billingPeriod === 'monthly' ? ' / 1 month' : ' / 1 year'}`}
+                      : selectedPlan === 'free'
+                        ? PRICING_PLANS.free.cta
+                        : `Subscribe — ${format(getTierPrice(selectedTier, billingPeriod))}${billingPeriod === 'monthly' ? ' / month' : ' / year'}`}
                   </Button>
 
                   <p className="text-xs text-text-muted text-center">
-                    {isExtending
-                      ? `Extends your access by ${termLabel} from its current end date. One-time payment, no automatic renewal.`
-                      : 'Secure checkout powered by Cashfree.'}
+                    Secure recurring subscription powered by Paddle. Cancel any time to stop future renewals.
                   </p>
                 </div>
               )}
@@ -789,7 +510,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     <div>
                       <span className="text-sm font-semibold text-text-primary">{PRICING_PLANS[selectedTier].name} {billingPeriod === 'yearly' ? 'Yearly' : 'Monthly'}</span>
                       <span className="text-xs text-text-muted block mt-1">
-                        One-time payment for {billingPeriod === 'yearly' ? '1 year' : '1 month'} of access in {currentPricing.currency}
+                        Renews every {billingPeriod === 'yearly' ? '12 months' : 'month'} until canceled in {currentPricing.currency}
                       </span>
                     </div>
                     <span className="text-xl font-bold text-text-primary">
@@ -836,34 +557,6 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                         <p className="text-[11px] text-recording">Please enter a valid email address</p>
                       )}
                     </div>
-                    <div className="flex flex-col gap-2">
-                      <label htmlFor="pricing-phone" className="text-xs font-semibold uppercase tracking-wider text-text-muted">Phone Number <span className="normal-case text-[10px]">(with country code)</span></label>
-                      <input
-                        id="pricing-phone"
-                        type="tel"
-                        placeholder="+919999999999"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        onBlur={() => {
-                          if (phone && !isValidPhone(phone)) {
-                            setErrorMessage('Please enter a valid phone number (8-15 digits, include country code)');
-                          } else if (errorMessage.includes('phone')) {
-                            setErrorMessage('');
-                          }
-                        }}
-                        maxLength={20}
-                        className={`w-full px-4 py-3 bg-elevated border rounded-lg text-sm text-text-primary placeholder-text-muted outline-none transition-colors ${
-                          phone && !isValidPhone(phone)
-                            ? 'border-recording focus:border-recording'
-                            : 'border-border-subtle focus:border-accent'
-                        }`}
-                      />
-                      {phone && !isValidPhone(phone) ? (
-                        <p className="text-[11px] text-recording">Include country code, 8-15 digits (e.g. +919999999999, +14155552671)</p>
-                      ) : (
-                        <p className="text-[11px] text-text-muted">Required by Cashfree for payment verification</p>
-                      )}
-                    </div>
                   </div>
 
                   {errorMessage && (
@@ -875,7 +568,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     <Button
                       variant="primary"
                       onClick={handleSubscribe}
-                      disabled={!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !phone || !isValidPhone(phone)}
+                      disabled={!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)}
                       className="flex-1"
                     >
                       Continue to Payment
@@ -883,95 +576,8 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                   </div>
 
                   <p className="text-xs text-text-muted text-center">
-                    Secure checkout powered by Cashfree. Access lasts for the purchased term with no automatic renewal.
+                    Secure checkout powered by Paddle.
                   </p>
-                </div>
-              )}
-
-              {step === 'confirm-price' && pendingCheckout && (
-                <div className="flex flex-col gap-5">
-                  <div className="rounded-xl border border-border-subtle bg-elevated p-5">
-                    <p className="text-sm font-semibold text-text-primary">Your region&apos;s price is different</p>
-                    <p className="text-xs text-text-secondary mt-2">
-                      We showed {format(displayedPrice)}, but the payment service will charge{' '}
-                      <span className="font-semibold text-text-primary">
-                        {formatPriceForCurrency(pendingCheckout.amount, pendingCheckout.currency)}
-                      </span>{' '}
-                      for {PRICING_PLANS[selectedTier].name} {billingPeriod === 'yearly' ? 'Yearly' : 'Monthly'}.
-                      This happens when your location differs from the region we detected. No payment has been taken yet.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <Button
-                      variant="primary"
-                      size="lg"
-                      onClick={() => completeCheckout(pendingCheckout)}
-                      data-modal-initial-focus
-                    >
-                      Accept and pay {formatPriceForCurrency(pendingCheckout.amount, pendingCheckout.currency)}
-                    </Button>
-                    <Button variant="ghost" onClick={handleClose}>Cancel</Button>
-                  </div>
-                </div>
-              )}
-
-              {step === 'resume-checkout' && openCheckout && (
-                <div className="flex flex-col gap-5">
-                  <div className="rounded-xl border border-border-subtle bg-elevated p-5">
-                    <p className="text-sm font-semibold text-text-primary">
-                      {openIsPaid
-                        ? 'Your earlier payment is being confirmed'
-                        : openIsResumable && openCheckout.alreadyAccepted
-                          ? 'Finish your earlier checkout'
-                          : openIsResumable
-                            ? 'You have an unfinished checkout'
-                            : 'An earlier checkout is still open'}
-                    </p>
-
-                    {openIsPaid ? (
-                      <p className="text-xs text-text-secondary mt-2">
-                        {openChargeLabel ? (
-                          <>We have received your payment of <span className="font-semibold text-text-primary">{openChargeLabel}</span> for {openPlanLabel}. </>
-                        ) : (
-                          <>We have received your earlier payment. </>
-                        )}
-                        Your plan is activated as soon as the confirmation reaches our servers, which usually takes under a minute. There is nothing more to pay.
-                      </p>
-                    ) : openIsResumable ? (
-                      <p className="text-xs text-text-secondary mt-2">
-                        <span className="font-semibold text-text-primary">{openChargeLabel}</span> for {openPlanLabel}{' '}
-                        {openCheckout.alreadyAccepted
-                          ? 'is already confirmed, but the payment page closed before it completed.'
-                          : 'is still open for payment.'}{' '}
-                        Resuming reuses that same checkout, so you cannot be charged twice. A new payment can be started in about {openMinuteLabel}.
-                      </p>
-                    ) : (
-                      <p className="text-xs text-text-secondary mt-2">
-                        {openPlanDiffers ? (
-                          <>The checkout that is still open is for {openPlanLabel}, not the plan you selected here. That blocks a new payment for about {openMinuteLabel}.</>
-                        ) : (
-                          <>An unfinished checkout{openChargeLabel ? <> for <span className="font-semibold text-text-primary">{openChargeLabel}</span></> : null} is still open, which blocks a new payment for about {openMinuteLabel}.</>
-                        )}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    {openIsResumable && (
-                      <Button
-                        variant="primary"
-                        size="lg"
-                        onClick={resumeOpenCheckout}
-                        data-modal-initial-focus
-                      >
-                        {openCheckout.alreadyAccepted ? 'Resume payment' : 'Accept and pay'}{openChargeLabel ? ` ${openChargeLabel}` : ''}
-                      </Button>
-                    )}
-                    <Button variant="ghost" onClick={handleClose}>
-                      {openIsPaid ? 'Close' : 'Not now'}
-                    </Button>
-                  </div>
                 </div>
               )}
 
@@ -993,28 +599,39 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     </svg>
                   </div>
                   <div className="text-center">
-                    <p className="text-sm font-semibold text-text-primary">Payment wasn&apos;t completed</p>
+                    <p className="text-sm font-semibold text-text-primary">Checkout needs attention</p>
                     {/* The reason the payment page gave (or a safe generic one
                         for a transport failure) was held in state but never
                         shown, so "try again" was blind advice. */}
                     {errorMessage && (
                       <p className="text-xs text-text-secondary mt-1">{errorMessage}</p>
                     )}
-                    <p className="text-xs text-text-secondary mt-1">Your Free plan is still active. You can try again whenever you&apos;re ready.</p>
+                    {subscriptionConflict && (
+                      <p className="text-xs text-text-secondary mt-1">
+                        Your existing subscription remains in place. Review its status from your account menu.
+                      </p>
+                    )}
+                    <p className="text-xs text-text-secondary mt-1">Your current access stays unchanged until a payment is verified.</p>
                   </div>
                   <div className="flex flex-col gap-2 w-full max-w-[200px]">
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        // Clear the stale failure so the form doesn't reopen
-                        // showing an error for a submit the user hasn't made yet.
-                        setErrorMessage('');
-                        setStep('form');
-                      }}
-                    >
-                      Try again
-                    </Button>
-                    <Button variant="ghost" onClick={handleClose}>Continue with Free</Button>
+                    {pendingReservationId ? (
+                      <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check checkout status</Button>
+                    ) : subscriptionConflict ? (
+                      <Button variant="secondary" onClick={handleClose}>Close</Button>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          setErrorMessage('');
+                          setStep('form');
+                        }}
+                      >
+                        Try again
+                      </Button>
+                    )}
+                    {!subscriptionConflict && (
+                      <Button variant="ghost" onClick={handleClose}>Close</Button>
+                    )}
                   </div>
                 </div>
               )}

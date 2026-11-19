@@ -29,25 +29,19 @@ Build → Validate → Test → Deploy to Staging → Validate → Approval → 
 | `R2_ACCESS_KEY_ID` | *(optional)* | `your-r2-access-key` | R2 storage |
 | `R2_SECRET_ACCESS_KEY` | *(optional)* | `your-r2-secret` | R2 storage |
 | `R2_BUCKET_NAME` | *(optional)* | `your-bucket-name` | R2 storage |
-| `CASHFREE_APP_ID` | *(optional)* | `your-cashfree-id` | Payments |
-| `CASHFREE_SECRET_KEY` | *(optional)* | **`required`** | PG client secret key. **Also the webhook-signing key** — see note below |
-| `CASHFREE_API_VERSION` | `2022-09-01` | `2022-09-01` | Required exact version, no fallback |
-| `CASHFREE_ENV` | `sandbox` | `production` | Payments environment. Exactly `sandbox` or `production`; independent of `NODE_ENV` |
-| `NEXT_PUBLIC_CASHFREE_ENV` | `sandbox` | `production` | Browser checkout environment; must match `CASHFREE_ENV` exactly |
+| `PADDLE_API_KEY` | *(unset)* | *(unset)* | Server-side Paddle SDK key; never expose to browser |
+| `PADDLE_WEBHOOK_SECRET` | *(unset)* | *(unset)* | Webhook destination signing secret |
+| `PADDLE_ENVIRONMENT` | `sandbox` | `sandbox` | Must explicitly be `sandbox` or `live`; checkout/cancel mutations currently sandbox-only |
+| `PADDLE_LIVE_CHECKOUT_DISABLED` | `true` | `true` | Keep enabled until sandbox, PostgreSQL, and operational gates pass |
+| `PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY` / `PADDLE_SANDBOX_PRICE_CREATOR_YEARLY` | *(unset)* | *(unset)* | Sandbox recurring price IDs |
+| `PADDLE_SANDBOX_AMOUNT_MONTHLY` / `PADDLE_SANDBOX_AMOUNT_YEARLY` | *(unset)* | *(unset)* | Exact server quote in the configured currency |
+| `PADDLE_SANDBOX_CURRENCY` | *(unset)* | *(unset)* | Three-letter sandbox quote currency |
+| `CRON_SECRET` | *(unset)* | *(required for worker)* | Separate bearer secret for `/api/internal/paddle/worker` |
 
-> Vercel Production rejects Sandbox. Both selectors must be `production`, the API
-> version must be `2022-09-01`, and matching Production credentials are required
-> at build and runtime. Local Sandbox is supported only with isolated test data.
-> See docs/ENVIRONMENT.md for the build lock and cutover prerequisites.
->
-> `CASHFREE_SECRET_KEY` is also the webhook-signing key. Cashfree signs every
-> webhook with the PG client secret key and publishes **no separate webhook
-> secret** — there is no "Webhooks → Secret" value in the dashboard, in Sandbox
-> or in Production. `/api/cashfree/webhook` therefore reads
-> `CASHFREE_SECRET_KEY` and nothing else: `HMAC-SHA256(timestamp + rawBody)`
-> keyed with it, compared with `timingSafeEqual`. If that key is missing the
-> route refuses every event, so a paid order is never activated by webhook (only
-> by the return trip). Set it in every environment.
+Paddle is not production-enabled. Do not configure live credentials or set the
+live checkout gate to false. The webhook inbox requires the secret configured
+for its Paddle notification destination; it verifies the raw body with the
+official SDK before persisting events.
 
 ### Cloudflare R2 bucket CORS (required for Creator export)
 
@@ -118,11 +112,15 @@ configuration is **NOT VERIFIED** regardless of what the source says.
 - [ ] `CLEANUP_SECRET` is set **and** `CRON_SECRET` is set to the same value
       (Vercel Cron Jobs send `Authorization: Bearer $CRON_SECRET`; the route
       compares it against `CLEANUP_SECRET`)
-- [ ] `CASHFREE_ENV=production` exactly, and `NEXT_PUBLIC_CASHFREE_ENV=production`
-      — Sandbox is rejected on Vercel Production; local Sandbox uses an isolated database
-      — any other value makes every payment path refuse rather than run
-- [ ] `CASHFREE_SECRET_KEY` is set to the Cashfree PG client secret key — it is
-      also the webhook-signing key, and Cashfree publishes no separate one
+- [ ] `PADDLE_LIVE_CHECKOUT_DISABLED=true`; live mutations remain disabled
+- [ ] A disposable PostgreSQL rehearsal has verified the Paddle migration
+      against clean and preceding Studio schemas, including restart/rollback
+- [ ] Sandbox credentials, recurring monthly/yearly price IDs and amounts are
+      verified against the Paddle sandbox catalog
+- [ ] `CRON_SECRET` is configured and the scheduled inbox worker is confirmed
+      running, with retry/review alerting
+- [ ] Paddle sandbox paid, duplicate, renewal, cancellation, failure, refund,
+      dispute, and recovery events are verified before any live-readiness review
 - [ ] Cloudflare R2 bucket CORS is configured — see §1 "Cloudflare R2 bucket
       CORS (required for Creator export)", without which browser upload fails at the PUT
 
@@ -262,7 +260,7 @@ for a bad app deploy — see `docs/ROLLBACK.md`.
 | `CLEANUP_SECRET` | Vercel env | Generate new, redeploy |
 | Google OAuth | Vercel env | Google Cloud Console |
 | Resend API Key | Vercel env | Resend dashboard |
-| Cashfree Keys (incl. webhook signing) | Vercel env | Cashfree dashboard |
+| Paddle Keys (incl. webhook signing) | Vercel env | Paddle dashboard |
 | R2 Keys | Vercel env | Cloudflare dashboard |
 
 **Rules:**

@@ -13,7 +13,7 @@
 | **Server** (Next.js route handlers) | Entitlements (`getEntitlements` + `isPlanActive`), validated export config, quota charges, artifact verification, payment fulfilment, signed URLs | — (it is the only writer for all of the below except browser-only state) |
 | **Database** (Supabase PostgreSQL / Prisma) | Durable system of record: users, plans, orders, export rows, job state, quotas, tombstones | file bytes (R2 holds them), session validity (JWT does) |
 | **R2** (Cloudflare) | Export MP4 bytes + metadata (`headObject` size/content-type/eTag are what `complete` verifies) | ownership, plan, quota — those live in the DB |
-| **External** (Cashfree) | Order payment state (`PAID`/terminal failure) — the only source that activates a plan | anything else |
+| **External** (Paddle) | Order payment state (`PAID`/terminal failure) — the only source that activates a plan | anything else |
 
 Schema history: Prisma Migrate is the authority — `prisma/migrations`
 (`0_init` baseline, then additive migrations), recorded in `_prisma_migrations`,
@@ -84,12 +84,12 @@ Schema history: Prisma Migrate is the authority — `prisma/migrations`
 
 | State | SOURCE OF TRUTH | READERS | WRITERS | TRUST BOUNDARY |
 | ----- | --------------- | ------- | ------- | -------------- |
-| Identity (`users.id`, email, name, password hash) | DB `users` | Session resolution (`findUserById` on every route), payments (by id **or** email), `recordDeletedIdentity` | Signup/NextAuth, OAuth stub creation in `cashfree/order`, `updateUserPassword` | Password hash never leaves the server; login/ forgot / reset are rate-limited per IP |
+| Identity (`users.id`, email, name, password hash) | DB `users` | Session resolution (`findUserById` on every route), payments (by id **or** email), `recordDeletedIdentity` | Signup/NextAuth, OAuth stub creation in `paddle/order`, `updateUserPassword` | Password hash never leaves the server; login/ forgot / reset are rate-limited per IP |
 | Plan + entitlements (`plan`, `planExpiresAt`) | DB `users` row — read from DB, **never from the JWT** | Every route via `getEntitlements` + `isPlanActive`; `GET /api/user/stats` (expired reported as `free`) | Payment fulfilment only (`fulfillPaidOrder` from webhook/verify) | `isPlanActive`: free always active; paid without a future expiry **fails closed**. Expired → every route answers `403` |
 | Session | Signed JWT (NextAuth) with `id`, `plan`, `sessionVersion` (plan re-derived on callback) | Middleware edge gate (`token.id` required), `auth()` in routes | NextAuth sign-in/logout, `session_version` bumps | JWT is never used alone for quota/entitlement decisions — every route re-reads plan + counters from the DB row (`AUTHENTICATION.md`) |
 | Deleted-identity tombstone | DB `deleted_identities` (email → next session version) | Session resolution fallback | `user/delete` (`recordDeletedIdentity`) | Fail closed: if the tombstone write fails, the whole deletion aborts `500` and the user row stays (otherwise an old cookie could be handed to a future re-registration) |
 | Password reset token | DB `reset_tokens` (SHA-256 hash, 1 h expiry) | `consumeResetToken` (atomic single-use) | `forgot-password` (last token wins) | Raw token only in the emailed link; hash at rest; single-use defeats replay |
-| Payment orders | DB `pending_orders` (plan, **server-priced** amount, currency) + Cashfree order state | `verify`, `webhook` (amount/currency re-verified against this row) | `cashfree/order` (create), fulfilment (activate) | One payable order at a time; activation only from Cashfree's authoritative state — never from `?payment=success`; foreign order answers `404` |
+| Payment orders | DB `pending_orders` (plan, **server-priced** amount, currency) + Paddle order state | `verify`, `webhook` (amount/currency re-verified against this row) | `paddle/order` (create), fulfilment (activate) | One payable order at a time; activation only from Paddle's authoritative state — never from `?payment=success`; foreign order answers `404` |
 | Webhook replay ledger | DB `processed_webhooks` | Webhook dedupe check | Webhook handler (mark on terminal paid only) | Dedupe keyed by order id; non-terminal events unmarked so their retry still runs |
 | Quota ledgers (Free daily/monthly budgets) | `monthly_export_counts`, `daily_recording_seconds`, `user_stats` | Atomic consume functions, `/api/user/stats` | Server only | Conditional atomics + revert-on-failure |
 | Rate-limit windows | In-process memory (`rateLimit.ts`, `globalThis` maps) | Limiter | Limiter | Ephemeral per instance — resets on deploy/cold start (documented limitation) |
@@ -109,7 +109,7 @@ Schema history: Prisma Migrate is the authority — `prisma/migrations`
  IndexedDB script            Free-local exports)              signed URLs (3600 s)
  presigned PUT URL      →    single-key, video/mp4,
    (browser upload)           900 s, own prefix
- ?payment=success       →    ignored; Cashfree order
+ ?payment=success       →    ignored; Paddle order
    (attacker-controllable)    state decides activation
 ```
 

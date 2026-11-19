@@ -9,11 +9,11 @@ import { LOOKS_PRODUCTION } from './helpers/test-database';
 // runs before any test body and is the only one that cannot be forgotten by a
 // new suite.
 if (LOOKS_PRODUCTION) {
-  throw new Error(
-    'Refusing to run tests: DATABASE_URL looks like the deployed database. ' +
-      'Unset DATABASE_URL (the database-backed suites then report as skipped) ' +
-      'or point it at a throwaway database. To override deliberately, set ALLOW_TEST_DB=1.',
-  );
+  // Remove the deployed URL from the test process even if Vite loaded it from
+  // `.env.local`. This makes every truthiness-based legacy suite gate skip
+  // rather than allowing TRUNCATE/create operations to reach production.
+  process.env.DATABASE_URL = '';
+  process.env.DIRECT_URL = '';
 }
 
 // jsdom implements Blob/File with slice/size/type but omits the async readers

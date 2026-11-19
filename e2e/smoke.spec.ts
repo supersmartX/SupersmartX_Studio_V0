@@ -368,7 +368,7 @@ test.describe('Smoke Test - API Contract', () => {
   });
 
   test('webhook rejects unsigned payloads', async ({ request }) => {
-    const res = await request.post('/api/cashfree/webhook', { data: {} });
+    const res = await request.post('/api/paddle/webhook', { data: {} });
     // 400 when the gateway secret is configured (missing signature headers),
     // 503/500 when unconfigured — either way an unsigned webhook never succeeds.
     expect(res.status()).toBeGreaterThanOrEqual(400);

@@ -1,10 +1,4 @@
-import { requiresCashfreeProduction, validateCashfreeConfig } from './src/lib/cashfree-config';
 import type { NextConfig } from 'next';
-
-const cashfreeProductionOnly = requiresCashfreeProduction();
-if (cashfreeProductionOnly) validateCashfreeConfig(process.env, true);
-const sandboxConnect = cashfreeProductionOnly ? '' : ' https://sandbox.cashfree.com';
-const sandboxFrames = cashfreeProductionOnly ? '' : ' https://sandbox.cashfree.com https://payments-test.cashfree.com';
 
 const isDev = process.env.NODE_ENV === 'development';
 const r2PublicUrl = process.env.R2_PUBLIC_URL || '';
@@ -20,7 +14,7 @@ const r2ApiHost = /^[0-9a-f]{32}$/i.test(r2AccountId.trim())
   : '';
 const r2ExtraHosts = [r2Domain, r2ApiHost].filter(Boolean).map((h) => ` https://${h}`).join('');
 
-const requiredEnvVars = ['NEXTAUTH_SECRET', 'CASHFREE_SECRET_KEY'];
+const requiredEnvVars = ['NEXTAUTH_SECRET', 'PADDLE_API_KEY', 'PADDLE_WEBHOOK_SECRET'];
 // Storybook evaluates this file outside Next's .env pipeline, where server
 // secrets are legitimately absent — warn only under real Next dev/build.
 const isStorybook = process.env.STORYBOOK === 'true';
@@ -48,7 +42,7 @@ const securityHeaders = [
       // 'unsafe-inline' is retained deliberately: Next.js emits inline
       // bootstrap/runtime scripts for hydration and the build is not verified
       // nonce-based, so removing it would break the app rather than harden it.
-      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''} https://sdk.cashfree.com`,
+      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
       // Defence in depth behind X-Frame-Options: DENY. CSP-level framing control
       // also covers browsers and embedders that ignore X-Frame-Options.
       "frame-ancestors 'none'",
@@ -57,22 +51,17 @@ const securityHeaders = [
       // The avatar is a plain <img> (Header/page), so it is still governed by
       // img-src and was blocked whenever the image was not already cached —
       // which is why it surfaced in Incognito. Exact host only: no wildcard.
-      `img-src 'self' data: blob: https://sdk.cashfree.com https://lh3.googleusercontent.com${r2ExtraHosts}`,
+      `img-src 'self' data: blob: https://lh3.googleusercontent.com${r2ExtraHosts}`,
       "font-src 'self' data: https://fonts.googleapis.com https://fonts.gstatic.com",
-      `connect-src 'self' https://api.cashfree.com${sandboxConnect} https://ipapi.co https://ip-api.com${r2ExtraHosts}`,
+      `connect-src 'self' https://ipapi.co https://ip-api.com${r2ExtraHosts}`,
       `media-src 'self' blob: mediastream: https://d8j0ntlcm91z4.cloudfront.net${r2ExtraHosts}`,
       "worker-src 'self' blob:",
-      `frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://payments.cashfree.com${sandboxFrames}`,
+      "frame-src 'none'",
     ].join('; '),
   },
 ];
 
 const nextConfig: NextConfig = {
-  env: {
-    // Only non-secret build invariants are embedded. Never put credentials here.
-    NEXT_PUBLIC_CASHFREE_PRODUCTION_ONLY: String(cashfreeProductionOnly),
-    CASHFREE_BUILD_ENV: process.env.CASHFREE_ENV || '',
-  },
   poweredByHeader: false,
   async redirects() {
     return [
@@ -124,7 +113,7 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: '/api/cashfree/:path*',
+        source: '/api/paddle/:path*',
         headers: [
           ...securityHeaders,
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate' },

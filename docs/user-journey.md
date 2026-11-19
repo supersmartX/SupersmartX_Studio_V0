@@ -402,7 +402,7 @@ CTA: `Upgrade to Creator`
 ```text
 Upgrade to Creator
        ↓
-Cashfree Checkout
+Paddle Checkout
        ↓
 Payment
        ↓
@@ -527,7 +527,7 @@ VISITOR → Landing → Start Recording — Free → Sign up → Studio
 
 ```text
 LANDING → SIGN UP → FREE EXPERIENCE → Creator trigger → UPGRADE
-→ Cashfree → Creator activated → Studio → Script
+→ Paddle → Creator activated → Studio → Script
 → Unlimited Teleprompter → Unlimited Recording
 → Choose platform (all) → 1080p → No watermark
 → Export → Cloud Library → Download / Preview → RETURN → CREATE AGAIN

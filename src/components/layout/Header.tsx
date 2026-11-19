@@ -13,6 +13,23 @@ interface BillingStatus {
   planActive: boolean;
 }
 
+interface PaddleBillingSummary {
+  account: {
+    paidThroughAt: string | null;
+    nextChargeAt: string | null;
+    cancelAtPeriodEnd: boolean;
+  } | null;
+  transactions: Array<{
+    id: string;
+    status: string;
+    amount: number;
+    currency: string;
+    paidAt: string | null;
+    refundedAt: string | null;
+    disputedAt: string | null;
+  }>;
+}
+
 function formatBillingDate(iso: string): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
@@ -75,6 +92,8 @@ export function Header({
   // an expired plan is indistinguishable from never having bought one without
   // the stored date.
   const [billing, setBilling] = useState<BillingStatus | null>(null);
+  const [paddleBilling, setPaddleBilling] = useState<PaddleBillingSummary | null>(null);
+  const [cancelRequested, setCancelRequested] = useState(false);
   useEffect(() => {
     if (!showUserMenu || !signedIn) return;
     let cancelled = false;
@@ -90,6 +109,12 @@ export function Header({
       .catch(() => {
         // Status is an enhancement: the menu still opens without it.
       });
+    fetch('/api/paddle/billing', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: PaddleBillingSummary | null) => {
+        if (!cancelled && data) setPaddleBilling(data);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -204,6 +229,12 @@ export function Header({
                   {expiredOn && (
                     <p className="text-[11px] text-text-muted">Creator term ended {expiredOn}</p>
                   )}
+                  {paddleBilling?.account?.nextChargeAt && (
+                    <p className="text-[11px] text-text-muted">Next charge {formatBillingDate(paddleBilling.account.nextChargeAt)}</p>
+                  )}
+                  {paddleBilling?.account?.cancelAtPeriodEnd && (
+                    <p className="text-[11px] text-accent">Cancellation scheduled</p>
+                  )}
                   <button
                     role="menuitem"
                     onClick={() => {
@@ -218,6 +249,30 @@ export function Header({
                         ? 'Renew Creator'
                         : 'Upgrade to Creator'}
                   </button>
+                  {paddleBilling?.account && !paddleBilling.account.cancelAtPeriodEnd && (
+                    <button
+                      role="menuitem"
+                      disabled={cancelRequested}
+                      onClick={async () => {
+                        setCancelRequested(true);
+                        const res = await fetch('/api/paddle/cancel', {
+                          method: 'POST',
+                          credentials: 'same-origin',
+                        });
+                        if (res.ok) {
+                          setPaddleBilling((current) => current ? {
+                            ...current,
+                            account: current.account ? { ...current.account, cancelAtPeriodEnd: true } : current.account,
+                          } : current);
+                        } else {
+                          setCancelRequested(false);
+                        }
+                      }}
+                      className="w-full text-left px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:bg-elevated"
+                    >
+                      {cancelRequested ? 'Cancellation pending' : 'Cancel at period end'}
+                    </button>
+                  )}
                 </div>
 
                 <button

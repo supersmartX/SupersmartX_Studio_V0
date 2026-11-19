@@ -111,7 +111,7 @@ npx prisma migrate status      # must show 0_init applied, lifecycle migration p
 | `user_stats` | download/upload counts, storage bytes | CASCADE on user delete |
 | `exports` | export records → R2 keys | CASCADE on user delete; `job_id` SET NULL on job delete |
 | `export_jobs` | encode/upload job state machine | CASCADE on user delete |
-| `processed_webhooks` | Cashfree idempotency ledger | append-only |
+| `processed_webhooks` | Paddle idempotency ledger | append-only |
 | `pending_orders` | server-side order truth for webhook verification | CASCADE on user delete |
 | `checkout_locks` | one TTL row per user serialising checkout + reconciliation | released by the holder; `locked_at` is the TTL |
 | `monthly_export_counts` | `(user_id, period)` atomic quota | CASCADE on user delete |

@@ -40,6 +40,10 @@ const APP_TABLES = [
   'order_notifications',
   'deleted_identities',
   'schema_meta',
+  'billing_events',
+  'billing_transactions',
+  'billing_reservations',
+  'billing_accounts',
 ];
 
 // The only table a fault-injection test (state-machine-certification) drops, so

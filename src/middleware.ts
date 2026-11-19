@@ -5,18 +5,24 @@ const PUBLIC_API_ROUTES = [
   '/api/auth/',
   '/api/auth/forgot-password',
   '/api/auth/reset-password',
-  '/api/cashfree/webhook',
   '/api/health',
   '/api/observe/client-error',
+  '/api/internal/paddle/worker',
   // Vercel Cron Jobs call this path with GET and a bearer secret, never a
   // session cookie, so the session gate would 401 the scheduled sweep. The
   // route authenticates itself with a timing-safe CLEANUP_SECRET comparison —
-  // reaching it still requires that secret.
+  // reaching it still requires that secret. The Paddle worker has its own
+  // CRON_SECRET check in its route handler.
   '/api/export-jobs/cleanup',
 ];
 
+const EXACT_PUBLIC_API_ROUTES = [
+  '/api/paddle/webhook',
+];
+
 function isPublicRoute(pathname: string): boolean {
-  return PUBLIC_API_ROUTES.some((route) => pathname.startsWith(route));
+  return EXACT_PUBLIC_API_ROUTES.includes(pathname)
+    || PUBLIC_API_ROUTES.some((route) => pathname.startsWith(route));
 }
 
 export async function middleware(req: NextRequest) {

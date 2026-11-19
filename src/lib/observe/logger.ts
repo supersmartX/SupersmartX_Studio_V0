@@ -23,7 +23,7 @@ function redactValue(value: unknown): unknown {
 export function sanitizeMeta(meta: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(meta)) {
-    if (['blob', 'video', 'base64', 'arrayBuffer', 'script', 'videoUrl', 'signedUrl', 'cookie', 'authorization', 'secret', 'password', 'token', 'signature', 'r2Secret', 'cashfreeSecret', 'jwt'].some(s => k.toLowerCase().includes(s))) {
+    if (['blob', 'video', 'base64', 'arrayBuffer', 'script', 'videoUrl', 'signedUrl', 'cookie', 'authorization', 'secret', 'password', 'token', 'signature', 'r2Secret', 'paddleSecret', 'jwt'].some(s => k.toLowerCase().includes(s))) {
       out[k] = '[REDACTED]';
     } else if (k === 'r2Key' || k === 'key') {
       out[k] = redactValue(v);

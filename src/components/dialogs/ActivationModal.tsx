@@ -14,7 +14,7 @@ interface ActivationModalProps {
    * only make sense once a plan is actually live.
    *   'confirmed'  — the plan is active; restore the format the user was after.
    *   'unresolved' — we gave up waiting, but the webhook may still land.
-   *   'failed'     — Cashfree says this order is dead. Nothing was activated
+   *   'failed'     — Paddle says the payment failed or was canceled.
    *                  and nothing should be treated as if it were.
    */
   onClose: (outcome: ActivationOutcome) => void;
@@ -108,13 +108,25 @@ export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: Act
 
   /** Ask the server about this order. No order id, no verdict. */
   const verifyOnce = useCallback(async (): Promise<OrderVerdict | null> => {
-    if (!orderId) return null;
     try {
-      const res = await fetch(`/api/cashfree/verify?order_id=${encodeURIComponent(orderId)}`, {
-        method: 'POST',
-      });
+      const res = await fetch('/api/paddle/billing', { credentials: 'same-origin' });
       if (!res.ok) return null;
-      return readVerdict(await res.json().catch(() => null), orderId);
+      const body = await res.json().catch(() => null) as {
+        account?: { status?: string; plan?: string; paidThroughAt?: string | null };
+      } | null;
+      const account = body?.account;
+      if (!account) return { status: 'pending' };
+      if (account.status === 'payment_failed') return { status: 'failed' };
+      if (account.status === 'active' && account.paidThroughAt &&
+          new Date(account.paidThroughAt).getTime() > Date.now()) {
+        return {
+          status: 'activated',
+          orderId: orderId ?? undefined,
+          plan: account.plan,
+          expiresAt: account.paidThroughAt,
+        };
+      }
+      return { status: 'pending' };
     } catch {
       return null;
     }
@@ -157,7 +169,7 @@ export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: Act
 
     const timer = setTimeout(async () => {
       // The server answers for this order: `activated` once its fulfilment
-      // record exists (that path does not need Cashfree to be reachable),
+      // record exists (that path does not need Paddle to be reachable),
       // `failed` for a dead order, `pending` while the webhook race is on.
       const verdict = await verifyOnce();
       if (verdict?.status === 'activated') {

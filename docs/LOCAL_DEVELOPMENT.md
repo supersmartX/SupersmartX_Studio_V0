@@ -22,7 +22,7 @@ npx prisma migrate deploy    # applies prisma/migrations to the database
 ```
 
 Use a **disposable** database for development, not the production project.
-R2/Cashfree/Resend features degrade gracefully when unconfigured (503
+R2/Paddle/Resend features degrade gracefully when unconfigured (503
 `Storage not configured`, local-export fallback).
 
 ## Verification (same order as CI)
@@ -45,11 +45,11 @@ npm run test:e2e    # needs browsers: npx playwright install; webServer starts `
   (`prod`, the product name, a Supabase host) unless `ALLOW_TEST_DB=1`.
 - Never commit `.env.local` (gitignored).
 
-## Isolated Cashfree development
+## Isolated Paddle development
 
-Keep both Cashfree selectors explicitly `sandbox`, API version `2022-09-01`,
+Keep both Paddle selectors explicitly `sandbox`, API version `2022-09-01`,
 Sandbox keys and a disposable database. `.env.local` is operator-owned and is not
 rewritten by configuration enforcement. If it already selects Production, local
 checkout can use real payments. Never run tests against that configuration.
-Targeted payment tests mock Cashfree and must have production database access
+Targeted payment tests mock Paddle and must have production database access
 disabled. Local `next build`/`next start` can use Sandbox; Vercel Production cannot.

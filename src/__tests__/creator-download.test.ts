@@ -16,10 +16,11 @@ vi.mock('@/auth', () => ({ auth: vi.fn() }));
 import { auth } from '@/auth';
 import { GET } from '@/app/api/download/route';
 import { createUser, updateUserPlanById, createExport } from '@/lib/db';
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';
 
 // Database-backed suite: runs only when DATABASE_URL points at a throwaway
 // PostgreSQL database; otherwise the cases are reported as skipped.
-const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeDb = HAS_TEST_DB ? describe : describe.skip;
 
 // NextAuth's `auth` is overloaded (middleware + session getter); narrow to
 // the session-getter signature for mocking.
@@ -35,9 +36,12 @@ function cleanTestData() {
 }
 
 const FUTURE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+let fixtureSequence = 0;
 
 async function seedCreator(email: string) {
-  const user = await createUser(email, 'Creator User', 'correct-horse-battery-staple-1');
+  fixtureSequence += 1;
+  const uniqueEmail = email.replace('@', `-${fixtureSequence}@`);
+  const user = await createUser(uniqueEmail, `Creator User ${fixtureSequence}`, 'correct-horse-battery-staple-1');
   if (!user) throw new Error('seed user creation failed');
   await updateUserPlanById(user.id, 'creator_monthly', FUTURE);
   return user;
@@ -70,7 +74,10 @@ async function downloadAs(userId: string | null, email: string, exportId?: strin
 }
 
 describeDb('creator download across platform ratios', () => {
-  beforeEach(() => cleanTestData());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cleanTestData();
+  });
   afterEach(() => {
     cleanTestData();
     vi.clearAllMocks();

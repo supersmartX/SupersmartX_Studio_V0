@@ -10,7 +10,7 @@
 | Concern | Rule |
 | ------- | ---- |
 | Edge gate | `src/middleware.ts` matches `/api/*`. Every API request must carry a valid session JWT **with a user id**; missing/invalid → `401` before the route runs. `x-request-id` is stamped on every response. |
-| Public routes (skip JWT gate only) | `middleware.ts` `PUBLIC_API_ROUTES`: `auth/forgot-password`, `auth/reset-password`, `auth/[...nextauth]`, `cashfree/webhook`, `health`, `observe/client-error`, `export-jobs/cleanup`. Routes still enforce their own checks (session, secret, validation). |
+| Public routes (skip JWT gate only) | `middleware.ts` `PUBLIC_API_ROUTES`: `auth/forgot-password`, `auth/reset-password`, `auth/[...nextauth]`, `paddle/webhook`, `health`, `observe/client-error`, `export-jobs/cleanup`. Routes still enforce their own checks (session, secret, validation). |
 | Auth tier inside routes | Session routes call `auth()` and require `session.user.id`; then `findUserById` re-reads the user from DB (JWT is never trusted for plan state). |
 | Owner check | All export/job/record lookups are `find…ByIdAndUser(id, userId)` — SQL `WHERE user_id = ?`. A foreign id is answered `404` (never `403`) so existence is not revealed. |
 | Error shape | `{ "error": string }` with a status code. `429` responses carry `Retry-After` (seconds). Payment routes also carry `x-request-id`. |
@@ -61,58 +61,59 @@
 
 ---
 
-## 2. Payments (Cashfree)
+## 2. Payments (Paddle)
 
-### `POST /api/cashfree/order`
-- **AUTH**: session (middleware + `auth()`).
-- **INPUT**: `{ plan, currency?, country?, name, email, phone }`. Valid plans: `creator_monthly`, `creator_yearly` (`free` explicitly rejected `400`).
-- **SERVER VALIDATION**: plan whitelist; email regex (≤254); phone 8–15 digits after sanitising; name ≤200 stripped of `<>\"'&`; price **always** recomputed server-side from geo headers (`x-vercel-ip-country` / `cf-ipcountry`) — client currency/country are dev-only fallbacks; Central Cashfree configuration must pass before reconciliation/reservation: Vercel Production requires both selectors `production`, matching credentials and version `2022-09-01`; explicit local Sandbox remains available. Invalid config returns `503`, fail closed. New and resumable checkout responses carry `env`, which the browser must match.
-- **OWNER CHECK**: the order is bound to the session identity (session id, or the session email for OAuth stubs), and the stub `users` row is ensured **before** the reservation. There is **no** "already subscribed" rejection: buying a term while one is running is the renewal path, and fulfilment extends the stored expiry.
-- **DB/R2 EFFECT**: takes `checkout_locks` (per-user mutex, 60 s TTL, token-owned release), reconciles every earlier order that could still be payable, then writes the `pending_orders` reservation (`status='creating'`) **before** calling Cashfree, and flips it to `open` once the gateway confirms the order exists. The order id is generated here (`sxs-<plan>-<uuid>`), so a crash between reservation and create is recoverable: the id is known and can be probed.
-- **SUCCESS**: `200 { orderId, paymentSessionId, env, amount, currency, country }`. `amount`/`currency` are the figures sent to Cashfree and `country` is the region that resolved them (`null` when the default region priced the order). The sheet compares these to the price it displayed and requires explicit confirmation before checkout when they differ.
-- **BLOCKED** (nothing is created; the buyer is never sent to a dead end):
-  - `409 { code: 'pending_order_open', orderId, paymentSessionId, amount, currency, plan, status, retryAfterSeconds, error }` — an earlier order is still live at Cashfree. The details describe **that** order, so the sheet resumes the existing payment session (no second charge) or says truthfully when a new payment becomes possible. `retryAfterSeconds` is the remaining abandonment window (15 min from that order's creation), not a claim about Cashfree's order lifetime.
-  - `409 { code: 'paid_order_pending_review', orderId, plan, amount, currency, status: 'PAID', retryAfterSeconds: 300, supportReference, error }` — a payment was received but fulfilment did not apply. The buyer is told **not** to pay again; the obligation is held, never released by timeout.
-  - `409 { code: 'pending_order_creating', retryAfterSeconds }` — a reservation's create outcome is being confirmed (2-minute grace plus spaced gateway probes).
-  - `409 { code: 'pending_order_terminating', retryAfterSeconds: 45 }` — Cashfree accepted a termination request but has not confirmed it. `TERMINATION_REQUESTED` is **not** terminal, so checkout stays blocked.
-  - `409 { code: 'checkout_in_progress', retryAfterSeconds: 5 }` — another request for this user holds the checkout lock, or the unique index rejected the reservation.
-  - `503 { code: 'pending_order_unconfirmed' | 'reconciliation_incomplete', retryAfterSeconds }` — an earlier order's authoritative state could not be read, or the user has more reconcilable history than one pass handles. Fail closed.
-- **FAILURES**: `400` invalid plan/fields/phone, or Cashfree answered the create with a definite `400`/`422` (the reservation is closed as `gateway_rejected_create` immediately); `401` no session; `429` rate limit; `503` gateway unconfigured / env invalid / env mismatch, or the create outcome is **indeterminate** (timeout, connection error, 5xx, unreadable body) — the reservation stays `creating` for the orphan probe instead of creating a replacement that could charge twice; `500` unexpected.
-- **RATE LIMIT**: 5 / min per IP (own `globalThis` map). **IDEMPOTENCY**: one live checkout per user, enforced by the partial unique index `pending_orders_one_live_per_user` over `creating|open|termination_requested` — the database, not an application check, is the mutex. Old is not a reason to release: only the gateway's answer changes an order's state.
+Live checkout and cancellation mutations are disabled in code. The implemented checkout and cancellation adapters accept only an explicitly selected sandbox environment. Production Paddle products, price mappings, credentials, database migration, and end-to-end sandbox evidence are still prerequisites; this document does not imply production readiness.
 
-### `POST /api/cashfree/verify`
-- **AUTH**: session. Query param `?order_id=`.
-- **INPUT**: none in body.
-- **SERVER VALIDATION**: `order_id` present (≤200); order must exist and belong to the caller (by user id **or** matching email) — foreign orders answer `404` (same shape as unknown, Phase 2.10); Cashfree env must be usable.
-- **OWNER CHECK**: `findPendingOrder` + owner email comparison.
-- **DB/R2 EFFECT**: fulfilment-marker-first — if this exact order's `pending_orders.fulfilled_at` exists, the verdict is answered from the stored record with **no Cashfree request** (the receipt is still attempted once, built from the stored amount/currency and the account's identity), and only when the account's entitlement is still live. A `processed_webhooks` claim **without** that marker is the crash window: answered `200 {status:'pending'}` with no receipt. Otherwise, on `PAID`: one settlement transaction (`settleFulfilledOrder`) inserts the claim, writes plan + expiry and stamps `fulfilled_at` — it commits all three or rolls all three back. The expiry is computed by the database in one statement: `now() + interval` when the plan is free/expired, otherwise `plan_expires_at + interval`, so a renewal stacks on the stored end date. A concurrent delivery that already committed is reported `already_fulfilled` (no second term); one still mid-flight is reported pending. A throw leaves the whole order claimable, so a retry can settle it.
-- **SUCCESS**: `200 { status: 'activated', orderId, plan, expiresAt }` | `{ status: 'pending', orderStatus }` | `{ status: 'failed', orderStatus }` (terminal Cashfree failure — client stops polling). `activated` requires both this order's marker and a live paid entitlement; `plan`/`expiresAt` describe **this order** and the stored entitlement. A claim without its marker, or a fulfilled order whose grant was since refunded/lapsed, is `pending` — never `activated`. The client confirms only on an `activated` verdict naming the order it asked about — never from `session.user.plan` (a renewal already reads `creator_*`) and never from `?plan=` in the return URL.
-- **FAILURES**: `400` fulfilment rejected (amount/currency mismatch, unsupported plan); `401`; `404` unknown/foreign order; `429`; `503` unconfigured/invalid env; `500` verify failed (nothing partial was written).
-- **RATE LIMIT**: 30 / min per user (above the client's 15-poll loop).
-- **IDEMPOTENCY**: the settlement transaction is the idempotency gate — claim, grant and marker commit together, so a replay finds the marker and answers `activated` from it without a second term or a Cashfree read. There is no claim to release: a failure rolls it back with the grant and marker.
+### `POST /api/paddle/quote`
+- **AUTH**: authenticated user session.
+- **INPUT**: `{ period: 'monthly' | 'yearly' }`.
+- **SERVER VALIDATION**: rejects other periods; resolves plan, amount, and currency only from the sandbox environment mapping. Missing configuration → `503`.
+- **SUCCESS**: `200` with the quote, renewal disclosure, consent text, version, and `liveCheckoutDisabled: true`. `Cache-Control: no-store`.
 
-### `POST /api/cashfree/webhook`
-- **AUTH**: **public route** — secured by signature, not session.
-- **INPUT**: raw body + headers `x-webhook-signature`, `x-webhook-timestamp`.
-- **SERVER VALIDATION**: HMAC (`CASHFREE_SECRET_KEY` is also the webhook-signing key — Cashfree publishes no separate webhook secret) over `timestamp + payload`, `crypto.timingSafeEqual` (length-checked first); missing/invalid → `400` (bad timestamp and bad signature are answered identically — no oracle).
-- **OWNER CHECK**: `order_id` must exist in `pending_orders` (`404` otherwise).
-- **DB/R2 EFFECT**: on terminal `PAID`: one settlement transaction claims the order, writes the plan and stamps the order's `fulfilled_at` marker; amount/currency are re-verified against the stored `pending_orders` row **before** the claim, so a tampered order never consumes it. A duplicate delivery whose settlement committed is acknowledged and sends no second term; a claim that exists with **no marker** answers `200 {status:'pending_review'}` (no receipt) for operator review. Non-terminal events are acknowledged `200 {status:'ok'}` **without** being marked processed.
-- **REVERSALS** (`REFUND*`, `*REVERSAL*`, `*CHARGEBACK*`, `*DISPUTE*` in `type` / `event_type`): handled after the signature check, before the paid-order path. A *full* refund of the user's most recently fulfilled order revokes access only when the stored expiry is exactly that order's sole grant (`processed_at + term`, 60 s tolerance), compare-and-set on the exact expiry; `refund_success` is claimed in `order_notifications` **only once there is a term to reconsider**, so a retry cannot revoke twice and the claim is never spent on an order that granted nothing. Partial refunds, unknown orders, older-order refunds, stacked renewals, refunds that arrive before the order was fulfilled, and every chargeback are **not** applied — they are logged (`payment.*`) for operator review. Unrecognised payload shapes never revoke. Response: `200 { status: 'ok', reversal: 'revoked' | 'ignored' | 'review' }`.
-- **SUCCESS**: `200 { status: 'ok' }` (fulfilled or already fulfilled) | `200 { status: 'pending_review' }` (claim without its fulfilment marker — acknowledged so Cashfree stops retrying, never reported as success).
-- **FAILURES**: `400` missing headers / invalid signature / missing order_id; `404` unknown order; `503` not configured (Retry-After 60); `500` unexpected (the settlement rolled back; Cashfree's retry can settle it).
-- **RATE LIMIT**: none (signature-gated; Cashfree's retry cadence applies).
-- **IDEMPOTENCY**: the settlement transaction is atomic across claim, grant and marker; `processed_webhooks` remains the claim row, but only the order's own `fulfilled_at` marker is evidence of fulfilment. A replayed paid event is acknowledged but never re-activates.
+### `POST /api/paddle/checkout`
+- **AUTH**: authenticated user session.
+- **INPUT**: server quote fields plus a SHA-256 consent hash over plan, period, amount, currency, and consent version.
+- **SERVER VALIDATION**: checks exact plan/period/amount/currency against server configuration and Paddle sandbox price metadata (active recurring price, no trial or regional overrides). Rejects all non-sandbox environments.
+- **DB EFFECT**: creates a single-active enrollment reservation and preserves the user's legacy entitlement baseline before the Paddle transaction-create call. Existing active or paid-through Paddle subscriptions cannot be enrolled a second time. Reservation ID and consent hash are attached to provider custom data for webhook correlation. An indeterminate create leaves the reservation blocking retries; the status route attempts bounded exact-metadata reconciliation and never assumes that no transaction exists.
+- **SUCCESS**: `200 { reservationId, providerOperationId, transactionId, checkoutUrl }`, only when the URL is HTTPS on a Paddle-owned hostname.
+- **FAILURES**: `400` malformed consent; `401` no session; `409` server quote mismatch, existing active subscription, or unresolved reservation; `503` disabled/unconfigured/non-sandbox/price mismatch/provider uncertainty; `500` reservation persistence failure.
 
-### `GET|POST /api/internal/billing/orders`
-- **AUTH**: **no session** — secret-gated. `Authorization: Bearer <BILLING_OPS_SECRET>` or `x-billing-ops-secret`. Unset secret → `503`; wrong/missing → `401`; digests compared with `crypto.timingSafeEqual`. Every response is `Cache-Control: no-store`.
-- **GET (read-only)**: query `status` (comma-separated, default `creating,open,termination_requested,held_review,unverified`), `limit` (default 50, max 200), `probe=1` (adds one Cashfree read per `unverified`/`held_review` row). Returns `{ generatedAt, filter, counts, gatewayCalls, orders[] }`, where each order carries `status`, `claimed`, `entitled`, `gatewayStatus` and a `recommendation` (`mark_fulfilled`, `settle`, `close`, `terminate`, `investigate_claim_unentitled`, `investigate`). It **never writes** — not the order, not the entitlement.
-- **POST `{ action: 'reconcile', orderId, dryRun? }`**: `dryRun` defaults to **true** (same report as GET, scoped to one order). `dryRun: false` runs the same state machine the checkout path runs, so an operator cannot produce a state a checkout would not.
-- **POST `{ action: 'release', orderId, resolution, confirm: 'RELEASE' }`**: the explicit exit from `held_review`. Requires the literal `confirm: 'RELEASE'`. `resolution` must be `refunded`, `not_paid` or `fulfilled_manually`:
-  - `refunded` — money was returned outside this system; the order is closed as `operator_closed`.
-  - `not_paid` — requires a gateway-confirmed `EXPIRED`/`TERMINATED`; anything else answers `409 gateway_still_payable`.
-  - `fulfilled_manually` — requires a gateway-confirmed `PAID`, then settles through the normal transaction (amount/currency re-verified). It obeys the same exactly-once rule as the webhook: a claim **with** the order's `fulfilled_at` marker only repairs the status (never a second term), a claim **without** one answers `409 claim_unentitled`, and a concurrent settlement answers `409 fulfilment_in_progress`. A rejection grants nothing and a throw rolls the whole transaction back, so the order stays reconcilable. It never grants a term against an unpaid order.
-- **FAILURES**: `400` bad body/resolution/missing `confirm`; `401`; `404` order unknown; `409` order not held / not actionable / gateway still payable / claim unentitled / fulfilment in progress / release refused; `503` secret unset; `500` unexpected.
-- **IDEMPOTENCY**: repeated `reconcile` calls converge on the same state (each write is status-guarded); repeated `release` answers `409 order_not_held` once the order left `held_review`.
+### `GET /api/paddle/checkout/status?reservationId=...`
+- **AUTH**: authenticated user session; reservation must belong to the caller.
+- **RECOVERY**: re-reads a known transaction or searches a bounded recent Paddle transaction window for exact reservation/user/plan/consent metadata. Multiple matches are sent for support review. Unresolved outcomes remain pending and block a second enrollment.
+- **SUCCESS**: returns a safe hosted checkout URL only for a provider transaction still in `ready` state. Paid transactions remain `awaiting_confirmation` until the signed webhook worker applies the entitlement. This route never grants access.
+- **RETRY**: only an authoritative terminal transaction failure/cancellation can release a reservation; recurring transactions in payment recovery remain pending to prevent duplicate subscriptions.
+
+### `GET /api/paddle/billing`
+- **AUTH**: authenticated user session.
+- **SUCCESS**: `{ account, transactions }` from server-owned Paddle snapshots; transactions are limited to the caller and the latest 50 rows. `Cache-Control: no-store`.
+
+### `POST /api/paddle/cancel`
+- **AUTH**: authenticated user session.
+- **EFFECT**: records a durable cancellation operation before calling Paddle's documented `subscriptions.cancel(..., { effectiveFrom: 'next_billing_period' })`. Live environment mutations are rejected. Cancellation preserves paid-through coverage.
+- **SUCCESS**: `200 { status: 'cancellation_requested', paidThroughAt }`; repeat requests are idempotent while cancellation is scheduled.
+- **UNCERTAIN**: `503` with an operation ID and a no-retry instruction; unresolved operations block a second cancellation request until webhook reconciliation.
+
+### `POST /api/paddle/webhook`
+- **AUTH**: public route; verifies the raw request body through the official SDK `webhooks.unmarshal(raw, secret, signature)` using `PADDLE_WEBHOOK_SECRET` and `PADDLE_ENVIRONMENT`.
+- **BODY LIMIT**: 1 MiB, enforced while reading the request stream.
+- **DB EFFECT**: inserts the verified event into the durable inbox before responding. No entitlement or snapshot mutation is performed in the request handler.
+- **SUCCESS**: `202 { status: 'accepted', duplicate: false }` after a durable insert; `200` for an already-inbox event. Database errors → `503` so Paddle retries.
+
+### `GET /api/internal/paddle/worker`
+- **AUTH**: Vercel Cron bearer token checked against `CRON_SECRET` with a constant-time comparison. No user session.
+- **SCHEDULING**: `vercel.json` invokes it every five minutes. It processes a bounded batch with renewable lease tokens; expired leases can be reclaimed, and stale workers cannot commit after a newer lease.
+- **EVENT HANDLING**: re-reads paid transactions and subscriptions through the Paddle SDK; validates price, currency, account/customer/subscription ownership, reservation consent, provider billing periods, and exact undiscounted/untaxed totals. A provider transaction ID and transaction ledger claim prevent duplicate entitlement grants. Subscription activation alone never grants access. Missing webhook timestamps are rejected; out-of-order account-state events are guarded by Paddle `occurredAt`.
+- **RENEWAL/CANCELLATION/FAILURE**: paid periods come from the authoritative Paddle transaction/subscription period fields; failed-payment events only change billing status; subscription state updates do not extend paid-through coverage; cancellation at period end preserves paid-through coverage.
+- **REFUND/DISPUTE**: adjustment records are re-read from Paddle and attributed to their exact transaction. Partial refunds/disputes are persisted with amount and currency but do not revoke a whole term. Approved full refunds/chargebacks recompute coverage from remaining paid transaction periods plus preserved legacy coverage.
+- **RETRY/REVIEW**: transient failures use backoff and an expiring lease; repeated failures enter `review` after the bounded retry limit. Invalid attribution or incomplete provider data are retained in `review` for operator action; unsupported event types are acknowledged as ignored.
+
+### Payment idempotency
+- Webhook event IDs are persisted with unique-key deduplication before acknowledgement.
+- Provider transactions have a separate unique ID and an atomic `entitlementGrantedAt` claim, preventing two different events for one transaction from granting twice.
+- Enrollment and cancellation mutations persist local state before provider calls. Unknown remote outcomes remain pending/uncertain and block blind retries.
+- Production SQL behavior and external event shapes still require disposable PostgreSQL and Paddle sandbox verification.
 
 ---
 
@@ -304,8 +305,8 @@
 | `auth/[...nextauth]` POST | 10 / 15 min | IP (last XFF) |
 | `auth/forgot-password` | 3 / min | IP (last XFF) |
 | `auth/reset-password` | 5 / min | IP (last XFF) |
-| `cashfree/order` | 5 / min | IP (own map) |
-| `cashfree/verify` | 30 / min | user |
+| `paddle/order` | 5 / min | IP (own map) |
+| `paddle/verify` | 30 / min | user |
 | `download` | 30 / h | user |
 | `export-jobs` POST | 30 / h (+3 concurrent) | user |
 | `exports/complete` | 30 / h | user |
@@ -323,6 +324,6 @@
 | Finalization token | `exports/complete` | Atomic claim; the loser gets `409` (or the echo), quotas reverted. |
 | Staging-key race | `presigned-put` | Atomic single-key write; loser gets `409`. |
 | Single-use tokens | `reset-password` | Consumed atomically; replay → `400`. |
-| Payment settlement | `cashfree/webhook`, `cashfree/verify`, reconciler | One transaction: `processed_webhooks` claim + plan write + `pending_orders.fulfilled_at`. Commits all three or none; the unique order id is the mutex. |
-| Receipt once | `cashfree/verify` | `sendOrderReceiptOnce` after activation. |
+| Payment settlement | `paddle/webhook`, `paddle/verify`, reconciler | One transaction: `processed_webhooks` claim + plan write + `pending_orders.fulfilled_at`. Commits all three or none; the unique order id is the mutex. |
+| Receipt once | `paddle/verify` | `sendOrderReceiptOnce` after activation. |
 | Atomic conditional counters | download/upload/monthly/daily quotas | A denied consume consumes nothing; every later failure in `complete` reverts what was consumed. |

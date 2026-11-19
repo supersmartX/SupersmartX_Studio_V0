@@ -1,7 +1,7 @@
 # SupersmartX Studio — Architecture
 
 Interactive teleprompter + video script reader with in-browser recording,
-client-side MP4 export (MediaBunny), Cloudflare R2 storage, and Cashfree
+client-side MP4 export (MediaBunny), Cloudflare R2 storage, and Paddle
 subscriptions. Next.js 16 App Router, React 19, Tailwind 4.
 
 ## Layer 3 overview (Step 3)
@@ -23,7 +23,7 @@ subscriptions. Next.js 16 App Router, React 19, Tailwind 4.
 ### Backend (`src/app/api/` route handlers, `src/middleware.ts`, `src/lib/`)
 
 - **API**: route handlers under `src/app/api/` — auth/session, forgot/reset
-  password, Cashfree order/verify/webhook, download, health, observe
+  password, Paddle order/verify/webhook, download, health, observe
   client-error, feedback, recordings, user stats/delete, exports (list, by id,
   preview, presigned-put, complete), export-jobs
   (create, status patch, cleanup). Full per-route contracts:
@@ -32,8 +32,8 @@ subscriptions. Next.js 16 App Router, React 19, Tailwind 4.
   `middleware.ts` (JWT with user id required; `PUBLIC_API_ROUTES` allowlist of
   7); every session route re-reads the user from DB — plan never comes from the
   JWT (`AUTHENTICATION.md`, `AUTHORIZATION.md`).
-- **Payments**: Cashfree hosted checkout — server-priced order (`pricing.ts`,
-  geo header), `pending_orders`, webhook HMAC (`CASHFREE_SECRET_KEY` as signing
+- **Payments**: Paddle hosted checkout — server-priced order (`pricing.ts`,
+  geo header), `pending_orders`, webhook HMAC (`PADDLE_SECRET_KEY` as signing
   key), atomic activation + `processed_webhooks` replay ledger.
 - **Export jobs**: job state machine (`pending → encoding → uploading →
   completed|failed`) where `completed` is server-only; Phase 3 artifact
@@ -54,7 +54,7 @@ subscriptions. Next.js 16 App Router, React 19, Tailwind 4.
 | ------- | ---- | --- |
 | Supabase PostgreSQL | Durable database | `DATABASE.md` |
 | Cloudflare R2 | Export MP4 storage (+ bucket CORS) | `STORAGE.md` |
-| Cashfree | Payments (order/verify/webhook) | `ENVIRONMENT.md` |
+| Paddle | Payments (order/verify/webhook) | `ENVIRONMENT.md` |
 | Resend | Receipt/reset email (best-effort) | `ENVIRONMENT.md` |
 | Vercel | Hosting, cron (`0 2 * * *` cleanup), env, logs | `DEPLOYMENT.md`, `PRODUCTION-RUNBOOK.md` |
 
@@ -66,7 +66,7 @@ subscriptions. Next.js 16 App Router, React 19, Tailwind 4.
 | Server (API routes) | entitlements, validation/clamping, artifact verification, signed URLs, activation | — |
 | Database | identity, plan/expiry, orders, export records, quota ledgers | file bytes |
 | R2 | export bytes (`headObject` size/content-type/eTag) | ownership, plan |
-| Cashfree | payment state (only source that activates a plan) | anything else |
+| Paddle | payment state (only source that activates a plan) | anything else |
 
 ## Runtime topology
 
@@ -77,7 +77,7 @@ Teleprompter ─┐
 Camera+Mic ───┼─► MediaRecorder ─► IndexedDB ─► MediaBunny encode ─► MP4 Blob ─┐
               │                                                                ├─► R2 (signed PUT or multipart)
 AuthModal ────┼─► NextAuth (credentials/OAuth) ─► PostgreSQL/Supabase ───────┘
-PricingModal ─┼─► /api/cashfree/order ─► Cashfree ─► webhook ─► plan activation
+PricingModal ─┼─► /api/paddle/order ─► Paddle ─► webhook ─► plan activation
 LibraryPanel ─┴─► /api/exports, /download, /preview (signed GET URLs)
 ```
 
@@ -93,7 +93,7 @@ LibraryPanel ─┴─► /api/exports, /download, /preview (signed GET URLs)
   `prisma/schema.prisma` + `prisma/migrations`.
 - `src/lib/` — `entitlements.ts` (plan contract), `r2.ts` (storage),
   `rate-limit.ts` (in-memory limiter), `pricing.ts` (server prices),
-  `cashfree.ts`, `email.ts` (Resend), `validation.ts`, `user-store.ts`,
+  `paddle.ts`, `email.ts` (Resend), `validation.ts`, `user-store.ts`,
   `observe/logger.ts`, `export/*` (encode pipeline), `recording-store.ts`,
   `local-exports-store.ts` (IndexedDB).
 - `src/hooks/` — `useExportPipeline`, `useRecorder`, `useCamera`,

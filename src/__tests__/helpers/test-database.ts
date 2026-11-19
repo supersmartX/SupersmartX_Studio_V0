@@ -8,7 +8,25 @@
  * deployed one is refused here, and both the shared harness and the run-wide
  * guard read that decision from this module.
  */
-const configuredUrl = (process.env.DATABASE_URL ?? '').trim();
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+function readConfiguredUrl(): string {
+  if ((process.env.DATABASE_URL ?? '').trim()) return (process.env.DATABASE_URL ?? '').trim();
+  for (const name of ['.env.local', '.env']) {
+    try {
+      const text = readFileSync(join(process.cwd(), name), 'utf8');
+      for (const line of text.split(/\r?\n/)) {
+        const match = line.match(/^\s*DATABASE_URL\s*=\s*(.*)\s*$/);
+        if (!match) continue;
+        return match[1].trim().replace(/^(['"])(.*)\1$/, '$2');
+      }
+    } catch {}
+  }
+  return '';
+}
+
+const configuredUrl = readConfiguredUrl();
 
 /**
  * Markers of the deployed database: the word "prod", the product name, or a

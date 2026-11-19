@@ -146,7 +146,7 @@ export default function HomePage() {
   // Both the phase and the review flag are resolved in one place
   // (src/lib/review-state.ts) because the take can arrive two ways: finished
   // in this document, or restored from IndexedDB after a cross-document hop
-  // (Google OAuth, the Cashfree redirect, the return trip, a reload). Every
+  // (Google OAuth, the Paddle redirect, the return trip, a reload). Every
   // review surface below routes through `isReview` — never through
   // `recorder.recordingState` directly, which is exactly what left a paid-for
   // take stranded after an upgrade.
@@ -214,19 +214,14 @@ export default function HomePage() {
     orderId: null,
   });
 
-  // Detect ?payment=success query param after the Cashfree redirect.
-  //
-  // The param says "we came back", never "we paid". The configured return_url
-  // is the same for a settled order and a declined one, so the outcome is
-  // decided by ActivationModal asking the server, which asks Cashfree. This
-  // effect only opens the modal and scrubs the URL; it deliberately does not
-  // verify, so there is exactly one authority for what the order actually is.
+  // Paddle redirects are informational only. Server billing evidence decides
+  // whether access is active; the redirect never grants or verifies it.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get('payment') === 'success') {
+    if (params.get('payment') === 'success' || params.has('transaction_id')) {
       const plan = params.get('plan') || 'creator_monthly';
-      const orderId = params.get('order_id');
+      const orderId = params.get('transaction_id') || params.get('order_id');
       setActivationModal({ isOpen: true, plan, orderId });
       // Clean URL without reload
       window.history.replaceState({}, '', window.location.pathname);
@@ -761,7 +756,7 @@ export default function HomePage() {
 
   // Restore the master recording from IndexedDB. This is the only thing that
   // carries a take across a cross-document navigation (Google OAuth, the
-  // Cashfree redirect, the return trip, a reload), so it runs for every
+  // Paddle redirect, the return trip, a reload), so it runs for every
   // session — the hook makes it one attempt per document and refuses to
   // resurrect a take the user explicitly discarded or left behind via New Video.
   useEffect(() => {

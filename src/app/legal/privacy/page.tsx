@@ -39,7 +39,7 @@ export default function PrivacyPage() {
                 last name (when you create an account)
               </li>
               <li>
-                <strong>Payment information:</strong> Processed by Cashfree - we
+                <strong>Payment information:</strong> Processed by Paddle - we
                 do not store card details
               </li>
               <li>
@@ -140,7 +140,7 @@ export default function PrivacyPage() {
             </h2>
             <ul className="ml-4 list-inside list-disc space-y-1">
               <li>
-                <strong>Cashfree:</strong> Payment processing
+                <strong>Paddle:</strong> Payment processing
               </li>
               <li>
                 <strong>Vercel:</strong> Hosting and deployment

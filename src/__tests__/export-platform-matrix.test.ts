@@ -21,10 +21,11 @@ import { resetDb } from '@/__tests__/helpers/db';
 import { setMigrated, createUser, updateUserPlanById, createExportJob, updateExportJobStatus } from '@/lib/db';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlatformId } from '@/types';
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';
 
 // Database-backed suite: runs only when DATABASE_URL points at a throwaway
 // PostgreSQL database; otherwise the cases are reported as skipped.
-const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeDb = HAS_TEST_DB ? describe : describe.skip;
 
 function cleanTestData() {
   resetDb();
@@ -67,6 +68,7 @@ function presignedRequest(platformId: PlatformId) {
 describeDb('custom platform is rejected by every export stage', () => {
   beforeEach(cleanTestData);
   afterEach(() => {
+    cleanTestData();
     vi.clearAllMocks();
   });
 
@@ -117,6 +119,7 @@ describeDb('custom platform is rejected by every export stage', () => {
 describeDb('portrait presets survive the server entitlement check', () => {
   beforeEach(cleanTestData);
   afterEach(() => {
+    cleanTestData();
     vi.clearAllMocks();
   });
 

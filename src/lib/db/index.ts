@@ -1386,7 +1386,7 @@ function mapLifecycleRow(row: PendingOrderRecord): PendingOrderLifecycleRow {
 }
 
 /**
- * Reserves the order id in the database *before* anything is sent to Cashfree.
+ * Reserves the order id in the database before anything is sent to the payment provider.
  *
  * The insert is the concurrency gate: a second live row for the same user is
  * rejected by the partial unique index, which is reported as
@@ -1427,7 +1427,7 @@ export async function markPendingOrderOpen(orderId: string): Promise<boolean> {
 }
 
 /**
- * Records that Cashfree accepted a kill request but has not confirmed it.
+ * Records that Paddle accepted a cancellation request but has not confirmed it.
  * `termination_requested_at` is stamped once and kept, so the stuck-termination
  * alert can measure how long the state has really lasted.
  */

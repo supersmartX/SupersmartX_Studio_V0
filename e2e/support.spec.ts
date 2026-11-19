@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 // The success page is server-verified: "Payment Successful" is only rendered
-// when Cashfree's authoritative state says PAID for the signed-in account. With
+// when Paddle's authoritative state says PAID for the signed-in account. With
 // no session and no reachable gateway, the page MUST fall back to the neutral
 // confirming state. These specs lock that in — an earlier version of this file
 // asserted the opposite (a success heading from URL parameters alone), which is

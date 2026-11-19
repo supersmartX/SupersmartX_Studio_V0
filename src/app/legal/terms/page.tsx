@@ -99,7 +99,7 @@ export default function TermsPage() {
               6. Payments
             </h2>
             <p>
-              Paid features are processed through Cashfree. We do not store your
+              Paid features are processed through Paddle. We do not store your
               payment information. Prices may vary by region based on purchasing
               power parity.
             </p>
