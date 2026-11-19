@@ -6,6 +6,42 @@ export const dynamic = 'force-dynamic';
 
 const MAX_WEBHOOK_BODY_BYTES = 1_048_576;
 
+function webhookWorkerBaseUrl(): string | null {
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim()
+    || process.env.NEXTAUTH_URL?.trim()
+    || (process.env.VERCEL_URL?.trim() ? `https://${process.env.VERCEL_URL.trim()}` : '');
+  if (!configured) return null;
+  try {
+    const url = new URL(configured);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+async function triggerBillingWorker(): Promise<void> {
+  const secret = process.env.CRON_SECRET?.trim();
+  const baseUrl = webhookWorkerBaseUrl();
+  if (!secret || !baseUrl) return;
+  try {
+    const response = await fetch(`${baseUrl}/api/internal/paddle/worker`, {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${secret}`,
+        'cache-control': 'no-store',
+      },
+      signal: AbortSignal.timeout(5_000),
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      console.error('Paddle worker trigger returned a non-success status', response.status);
+    }
+  } catch {
+    console.error('Paddle worker could not be triggered after webhook receipt');
+  }
+}
+
 async function readBoundedBody(request: NextRequest): Promise<string | null> {
   const contentLength = Number(request.headers.get('content-length'));
   if (Number.isFinite(contentLength) && contentLength > MAX_WEBHOOK_BODY_BYTES) return null;
@@ -65,6 +101,9 @@ export async function POST(request: NextRequest) {
       payload: event,
       occurredAt,
     });
+    if (!receipt.duplicate) {
+      await triggerBillingWorker();
+    }
     return NextResponse.json(
       { status: 'accepted', duplicate: receipt.duplicate },
       { status: receipt.duplicate ? 200 : 202, headers: { 'Cache-Control': 'no-store' } },

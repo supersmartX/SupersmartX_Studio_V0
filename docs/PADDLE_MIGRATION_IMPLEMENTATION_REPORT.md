@@ -70,6 +70,64 @@ npx tsc --noEmit
 Result: **9 tests passed across 2 files**; TypeScript passed; focused ESLint
 passed with no warnings.
 
+## Vercel Hobby worker compatibility (2026-11-19)
+
+Status: **LOCAL PASS; DEPLOYMENT COMPATIBLE WITH DAILY CRON; SANDBOX NOT VERIFIED**
+
+The Paddle worker performs authoritative provider rereads, lease-fenced event
+processing, transaction/subscription grant application, failed-payment snapshots,
+cancellation reconciliation and refund/dispute adjustment processing. Webhook
+delivery persists each event first, but before this change it did not actively
+trigger worker processing: on the existing 5-minute cron, events usually waited
+for the next cron invocation, with the daily cron fallback handling recovery
+instead.
+
+The existing architecture can safely satisfy Vercel Hobby requirements.
+The signed webhook route now triggers the secret-authenticated worker route once
+after a non-duplicate event is durably received. The trigger is a bounded,
+best-effort immediate sweep; it does not grant access or bypass the worker,
+signature verification, lease, replay protection or transaction checks.
+Webhook duplicate receipt does not trigger another sweep.
+
+Provider operation failures, event failures and worker crashes are covered by
+the durable inbox and lease/retry logic. Exponential retry remains active;
+events exhaust to manual review after 10 attempts. The worker route can also
+process out-of-order events only after timestamp and provider ownership checks.
+No billing state can safely wait for as much as 24 hours, so daily execution
+alone is not sufficient for normal live event processing. Event-driven trigger
+processing is the selected solution, with a daily sweep as crash/recovery
+fallback.
+
+`vercel.json` now schedules both project jobs once per day:
+
+- Paddle worker: `0 3 * * *`
+- Export cleanup: `0 2 * * *`
+
+No other scheduled job uses an interval shorter than daily.
+
+Worker compatibility files changed:
+
+- `vercel.json`: changed Paddle worker from 5-minute to daily fallback cron.
+- `src/app/api/paddle/webhook/route.ts`: triggers the lease-fenced worker after
+  first-time durable webhook persistence, with a 5-second timeout and no impact
+  on the webhook acknowledgement; duplicate events do not retrigger it.
+- `src/__tests__/paddle-webhook-route.test.ts`: verifies first receipts trigger
+  the worker and duplicate receipts do not.
+
+Validation completed:
+
+```powershell
+npx vitest run src/__tests__/paddle-webhook-route.test.ts src/__tests__/paddle-worker-route.test.ts src/__tests__/paddle-billing-operations.test.ts
+npx tsc --noEmit
+npx eslint src/app/api/paddle/webhook/route.ts src/app/api/internal/paddle/worker/route.ts src/lib/billing/operations.ts src/__tests__/paddle-webhook-route.test.ts src/__tests__/paddle-worker-route.test.ts src/__tests__/paddle-billing-operations.test.ts
+```
+
+Result: **18 tests passed across 3 files**; TypeScript and focused ESLint passed.
+This evidence validates local route, worker, idempotency and operation behavior
+only. It does not prove real Paddle events, PostgreSQL concurrency or a deployed
+Vercel function. Deployment remains pending, and sandbox verification remains
+not tested.
+
 ### Verification run for this review
 
 ```powershell

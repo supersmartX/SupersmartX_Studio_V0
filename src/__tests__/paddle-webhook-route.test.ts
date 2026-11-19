@@ -23,6 +23,9 @@ beforeEach(() => {
   vi.stubEnv('PADDLE_API_KEY', 'test-key');
   vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
   vi.stubEnv('PADDLE_WEBHOOK_SECRET', 'test-secret');
+  vi.stubEnv('CRON_SECRET', 'worker-secret');
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://studio.supersmartx.com');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }));
   mocks.receive.mockResolvedValue({ duplicate: false });
 });
 
@@ -70,6 +73,14 @@ describe('Paddle webhook route', () => {
       eventType: 'transaction.paid',
       occurredAt: new Date('2026-11-18T12:00:00.000Z'),
     }));
+    expect(fetch).toHaveBeenCalledWith(
+      'https://studio.supersmartx.com/api/internal/paddle/worker',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: 'Bearer worker-secret',
+        }),
+      }),
+    );
   });
 
   it('acknowledges a duplicate only after durable inbox reports it exists', async () => {
@@ -87,6 +98,7 @@ describe('Paddle webhook route', () => {
     }));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: 'accepted', duplicate: true });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('rejects a verified event without a valid occurred-at timestamp', async () => {
