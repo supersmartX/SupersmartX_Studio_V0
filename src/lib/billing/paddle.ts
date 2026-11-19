@@ -146,6 +146,30 @@ export function isSafePaddleCheckoutUrl(value: string): boolean {
   }
 }
 
+export type PaddlePriceMismatchReason =
+  | 'quote_configuration'
+  | 'price_identity'
+  | 'price_inactive'
+  | 'currency_mismatch'
+  | 'amount_mismatch'
+  | 'trial_enabled'
+  | 'billing_cycle_mismatch'
+  | 'price_override';
+
+export class PaddlePriceMismatchError extends Error {
+  constructor(readonly reason: PaddlePriceMismatchReason) {
+    super('Configured Paddle sandbox price does not match the quote');
+    this.name = 'PaddlePriceMismatchError';
+  }
+}
+
+export class PaddlePriceLookupError extends Error {
+  constructor(readonly statusCode: number | null) {
+    super('Paddle sandbox price lookup failed');
+    this.name = 'PaddlePriceLookupError';
+  }
+}
+
 export function getSandboxQuote(plan: BillingPlan): CheckoutQuote | null {
   const config = getSandboxConfiguration(plan);
   if (!config) return null;
@@ -170,19 +194,37 @@ export async function assertSandboxPriceMatches(
   if (getPaddleEnvironment() !== 'sandbox') throw new Error('Paddle sandbox is not selected');
   const config = getSandboxConfiguration(plan);
   if (!config || config.amount !== amount || config.currency !== currency.toUpperCase()) {
-    throw new Error('Checkout quote no longer matches server configuration');
+    throw new PaddlePriceMismatchError('quote_configuration');
   }
-  const price = await paddle.prices.get(config.priceId);
+  let price;
+  try {
+    price = await paddle.prices.get(config.priceId);
+  } catch (error) {
+    const statusCode = typeof error === 'object' && error !== null && 'status' in error &&
+      typeof error.status === 'number'
+      ? error.status
+      : typeof error === 'object' && error !== null && 'statusCode' in error &&
+        typeof error.statusCode === 'number'
+        ? error.statusCode
+        : null;
+    throw new PaddlePriceLookupError(statusCode);
+  }
   const expectedInterval = config.period === 'monthly' ? 'month' : 'year';
-  if (price.id !== config.priceId || price.status !== 'active' ||
-      price.unitPrice.currencyCode !== config.currency ||
-      normalizePaddleAmount(price.unitPrice.amount, config.currency, 'minor') !==
-        normalizePaddleAmount(config.amount, config.currency) ||
-      price.trialPeriod !== null ||
-      price.billingCycle?.interval !== expectedInterval ||
-      price.billingCycle.frequency !== 1 ||
-      price.unitPriceOverrides.length > 0) {
-    throw new Error('Configured Paddle sandbox price does not match the quote');
+  if (price.id !== config.priceId) throw new PaddlePriceMismatchError('price_identity');
+  if (price.status !== 'active') throw new PaddlePriceMismatchError('price_inactive');
+  if (price.unitPrice.currencyCode !== config.currency) {
+    throw new PaddlePriceMismatchError('currency_mismatch');
+  }
+  if (normalizePaddleAmount(price.unitPrice.amount, config.currency, 'minor') !==
+      normalizePaddleAmount(config.amount, config.currency)) {
+    throw new PaddlePriceMismatchError('amount_mismatch');
+  }
+  if (price.trialPeriod !== null) throw new PaddlePriceMismatchError('trial_enabled');
+  if (price.billingCycle?.interval !== expectedInterval || price.billingCycle.frequency !== 1) {
+    throw new PaddlePriceMismatchError('billing_cycle_mismatch');
+  }
+  if ((price.unitPriceOverrides?.length ?? 0) > 0) {
+    throw new PaddlePriceMismatchError('price_override');
   }
 }
 

@@ -8,6 +8,8 @@ import {
   getSandboxQuote,
   isPaddleCheckoutEnabled,
   isSafePaddleCheckoutUrl,
+  PaddlePriceLookupError,
+  PaddlePriceMismatchError,
   PaddleBillingProvider,
 } from '@/lib/billing/paddle';
 import {
@@ -53,7 +55,18 @@ export async function POST(request: NextRequest) {
   if (!paddle) return NextResponse.json({ error: 'Paddle is not configured' }, { status: 503 });
   try {
     await assertSandboxPriceMatches(paddle, body.plan, body.amount, quote.currency);
-  } catch {
+  } catch (error) {
+    if (error instanceof PaddlePriceLookupError) {
+      console.error('Paddle sandbox price lookup failed', { statusCode: error.statusCode });
+      return NextResponse.json({
+        error: 'Paddle sandbox price verification is temporarily unavailable',
+      }, { status: 503 });
+    }
+    console.error('Paddle sandbox price validation failed', {
+      reason: error instanceof PaddlePriceMismatchError
+        ? error.reason
+        : 'unexpected_verification_error',
+    });
     return NextResponse.json({ error: 'Paddle sandbox price does not match the confirmed quote' }, { status: 503 });
   }
 

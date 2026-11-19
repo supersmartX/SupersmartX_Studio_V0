@@ -142,7 +142,10 @@ describe('Paddle billing contracts', () => {
       unitPrice: { ...price.unitPrice, amount: '798' },
     });
     await expect(assertSandboxPriceMatches(paddle, 'creator_monthly', 7.99, 'USD'))
-      .rejects.toThrow('Configured Paddle sandbox price does not match the quote');
+      .rejects.toMatchObject({ reason: 'amount_mismatch' });
+    getPrice.mockRejectedValue({ status: 403 });
+    await expect(assertSandboxPriceMatches(paddle, 'creator_monthly', 7.99, 'USD'))
+      .rejects.toMatchObject({ statusCode: 403 });
   });
 
   it('handles currency-specific zero and three-decimal minor units', () => {
