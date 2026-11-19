@@ -16,6 +16,59 @@ export function getPaddleClient(): Paddle | null {
   });
 }
 
+type PaddleAmountUnit = 'major' | 'minor';
+
+function currencyFractionDigits(currency: string): number | null {
+  const code = currency.trim().toUpperCase();
+  try {
+    if (!/^[A-Z]{3}$/.test(code) || !Intl.supportedValuesOf('currency').includes(code)) {
+      return null;
+    }
+    return new Intl.NumberFormat('en', { style: 'currency', currency: code })
+      .resolvedOptions().maximumFractionDigits ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizePaddleAmount(
+  value: string | number,
+  currency: string,
+  unit: PaddleAmountUnit = 'major',
+): string | null {
+  const fractionDigits = currencyFractionDigits(currency);
+  if (fractionDigits === null) return null;
+  const text = String(value).trim();
+  if (unit === 'minor') {
+    if (!/^\d+$/.test(text)) return null;
+    try {
+      return BigInt(text).toString();
+    } catch {
+      return null;
+    }
+  }
+
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(text);
+  if (!match) return null;
+  let fraction = match[2] ?? '';
+  if (fraction.length > fractionDigits) {
+    const excess = fraction.slice(fractionDigits);
+    if (!/^0+$/.test(excess)) return null;
+    fraction = fraction.slice(0, fractionDigits);
+  }
+  fraction = fraction.padEnd(fractionDigits, '0');
+  try {
+    const whole = match[1];
+    if (whole === undefined) return null;
+    const scale = BigInt(10) ** BigInt(fractionDigits);
+    const wholeMinor = BigInt(whole) * scale;
+    const fractionalMinor = fraction ? BigInt(fraction) : BigInt(0);
+    return (wholeMinor + fractionalMinor).toString();
+  } catch {
+    return null;
+  }
+}
+
 export function getSandboxConfiguration(plan: BillingPlan): {
   priceId: string;
   amount: number;
@@ -31,9 +84,12 @@ export function getSandboxConfiguration(plan: BillingPlan): {
     : 'PADDLE_SANDBOX_AMOUNT_YEARLY']?.trim();
   const currency = process.env.PADDLE_SANDBOX_CURRENCY?.trim().toUpperCase();
   const amount = amountValue ? Number(amountValue) : NaN;
-  if (!priceId || !currency || !/^[A-Z]{3}$/.test(currency) ||
-      !amountValue || !/^\d+(?:\.\d{1,2})?$/.test(amountValue) ||
-      !Number.isFinite(amount) || amount <= 0) return null;
+  const amountMinor = amountValue && currency
+    ? normalizePaddleAmount(amountValue, currency)
+    : null;
+  if (!priceId || !currency || !amountMinor || BigInt(amountMinor) <= BigInt(0) ||
+      !Number.isFinite(amount) || amount <= 0 ||
+      normalizePaddleAmount(amount, currency) !== amountMinor) return null;
   return { priceId, amount, currency, period: monthly ? 'monthly' : 'yearly' };
 }
 
@@ -55,21 +111,17 @@ export function getPaddlePriceConfiguration(plan: BillingPlan): {
     : 'PADDLE_LIVE_AMOUNT_YEARLY']?.trim();
   const currency = process.env.PADDLE_LIVE_CURRENCY?.trim().toUpperCase();
   const amount = amountValue ? Number(amountValue) : NaN;
-  if (!priceId || !currency || !/^[A-Z]{3}$/.test(currency) ||
-      !amountValue || !/^\d+(?:\.\d{1,2})?$/.test(amountValue) ||
-      !Number.isFinite(amount) || amount <= 0) return null;
+  const amountMinor = amountValue && currency
+    ? normalizePaddleAmount(amountValue, currency)
+    : null;
+  if (!priceId || !currency || !amountMinor || BigInt(amountMinor) <= BigInt(0) ||
+      !Number.isFinite(amount) || amount <= 0 ||
+      normalizePaddleAmount(amount, currency) !== amountMinor) return null;
   return { priceId, amount, currency, period: monthly ? 'monthly' : 'yearly' };
 }
 
 export function getSandboxPriceId(plan: BillingPlan): string | null {
   return getSandboxConfiguration(plan)?.priceId ?? null;
-}
-
-export function normalizePaddleAmount(value: string | number): string | null {
-  const text = String(value).trim();
-  if (!/^\d+(?:\.\d+)?$/.test(text)) return null;
-  const [whole, fraction = ''] = text.split('.');
-  return `${whole.replace(/^0+(?=\d)/, '')}.${fraction.replace(/0+$/, '') || '0'}`;
 }
 
 export function isSafePaddleCheckoutUrl(value: string): boolean {
@@ -115,7 +167,8 @@ export async function assertSandboxPriceMatches(
   const expectedInterval = config.period === 'monthly' ? 'month' : 'year';
   if (price.id !== config.priceId || price.status !== 'active' ||
       price.unitPrice.currencyCode !== config.currency ||
-      normalizePaddleAmount(price.unitPrice.amount) !== normalizePaddleAmount(config.amount) ||
+      normalizePaddleAmount(price.unitPrice.amount, config.currency, 'minor') !==
+        normalizePaddleAmount(config.amount, config.currency) ||
       price.trialPeriod !== null ||
       price.billingCycle?.interval !== expectedInterval ||
       price.billingCycle.frequency !== 1 ||

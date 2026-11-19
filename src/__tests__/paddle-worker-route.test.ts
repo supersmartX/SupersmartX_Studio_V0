@@ -17,7 +17,6 @@ const mocks = vi.hoisted(() => ({
   transactionGet: vi.fn(),
   subscriptionGet: vi.fn(),
   priceConfiguration: vi.fn(),
-  normalizeAmount: vi.fn(),
   adjustmentList: vi.fn(),
 }));
 
@@ -41,16 +40,19 @@ vi.mock('@/lib/billing/operations', () => ({
   releaseBillingEventLease: mocks.release,
 }));
 
-vi.mock('@/lib/billing/paddle', () => ({
-  getPaddleClient: () => ({
-    transactions: { get: mocks.transactionGet },
-    subscriptions: { get: mocks.subscriptionGet },
-    adjustments: { list: mocks.adjustmentList },
-  }),
-  getPaddlePriceConfiguration: mocks.priceConfiguration,
-  isAuthoritativelyPaid: (status: string) => ['paid', 'completed', 'billed'].includes(status),
-  normalizePaddleAmount: mocks.normalizeAmount,
-}));
+vi.mock('@/lib/billing/paddle', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/billing/paddle')>();
+  return {
+    ...actual,
+    getPaddleClient: () => ({
+      transactions: { get: mocks.transactionGet },
+      subscriptions: { get: mocks.subscriptionGet },
+      adjustments: { list: mocks.adjustmentList },
+    }),
+    getPaddlePriceConfiguration: mocks.priceConfiguration,
+    isAuthoritativelyPaid: (status: string) => ['paid', 'completed', 'billed'].includes(status),
+  };
+});
 
 import { GET } from '@/app/api/internal/paddle/worker/route';
 
@@ -72,15 +74,9 @@ beforeEach(() => {
   mocks.findTransaction.mockResolvedValue(null);
   mocks.priceConfiguration.mockReturnValue({
     priceId: 'pri-monthly',
-    amount: 349,
-    currency: 'INR',
+    amount: 7.99,
+    currency: 'USD',
     period: 'monthly',
-  });
-  mocks.normalizeAmount.mockImplementation((value: string | number) => {
-    const text = String(value).trim();
-    if (!/^\d+(?:\.\d+)?$/.test(text)) return null;
-    const [whole, fraction = ''] = text.split('.');
-    return `${whole.replace(/^0+(?=\d)/, '')}.${fraction.replace(/0+$/, '') || '0'}`;
   });
   mocks.renew.mockResolvedValue(true);
 });
@@ -245,19 +241,19 @@ describe('Paddle durable webhook worker', () => {
         quantity: 1,
         price: {
           id: 'pri-monthly',
-          unitPrice: { currencyCode: 'INR', amount: '349.00' },
+          unitPrice: { currencyCode: 'USD', amount: '799' },
           trialPeriod: null,
           billingCycle: { interval: 'month', frequency: 1 },
         },
       }],
       billingPeriod: { startsAt: periodStart, endsAt: periodEnd },
       details: { totals: {
-        subtotal: '349.00',
-        discount: '0.00',
-        tax: '0.00',
-        grandTotal: '349.00',
+        subtotal: '799',
+        discount: '0',
+        tax: '0',
+        grandTotal: '799',
       } },
-      currencyCode: 'INR',
+      currencyCode: 'USD',
       billedAt: '2026-11-18T12:00:00.000Z',
       updatedAt: '2026-11-18T12:00:00.000Z',
     });
@@ -283,8 +279,8 @@ describe('Paddle durable webhook worker', () => {
       providerTransactionId: 'txn-paid',
       providerSubscriptionId: 'sub-1',
       providerCustomerId: 'ctm-1',
-      amount: '349.00',
-      currency: 'INR',
+      amount: '799',
+      currency: 'USD',
       periodStartAt: new Date(periodStart),
       periodEndAt: new Date(periodEnd),
     }));
@@ -293,6 +289,22 @@ describe('Paddle durable webhook worker', () => {
       expect.any(String),
       'review',
       expect.any(String),
+    );
+
+    mocks.priceConfiguration.mockReturnValue({
+      priceId: 'pri-monthly',
+      amount: 8,
+      currency: 'USD',
+      period: 'monthly',
+    });
+    await GET(request());
+
+    expect(mocks.applyPaid).toHaveBeenCalledOnce();
+    expect(mocks.release).toHaveBeenCalledWith(
+      'evt-paid',
+      expect.any(String),
+      'review',
+      'transaction_price_mismatch',
     );
   });
 
@@ -312,19 +324,19 @@ describe('Paddle durable webhook worker', () => {
         quantity: 1,
         price: {
           id: 'pri-monthly',
-          unitPrice: { currencyCode: 'INR', amount: '349.00' },
+          unitPrice: { currencyCode: 'USD', amount: '799' },
           trialPeriod: null,
           billingCycle: { interval: 'month', frequency: 1 },
         },
       }],
       billingPeriod: { startsAt: '2026-11-18T00:00:00.000Z', endsAt: '2026-12-18T00:00:00.000Z' },
       details: { totals: {
-        subtotal: '349.00',
-        discount: '0.00',
-        tax: '34.90',
-        grandTotal: '383.90',
+        subtotal: '799',
+        discount: '0',
+        tax: '1',
+        grandTotal: '800',
       } },
-      currencyCode: 'INR',
+      currencyCode: 'USD',
       billedAt: '2026-11-18T12:00:00.000Z',
       updatedAt: '2026-11-18T12:00:00.000Z',
     };

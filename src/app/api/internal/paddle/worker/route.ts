@@ -164,7 +164,8 @@ async function processPaidTransaction(
   if (items.length !== 1 || items[0].quantity !== 1 || !items[0].price ||
       items[0].price.id !== config.priceId ||
       items[0].price.unitPrice.currencyCode !== config.currency ||
-      normalizePaddleAmount(items[0].price.unitPrice.amount) !== normalizePaddleAmount(config.amount) ||
+      normalizePaddleAmount(items[0].price.unitPrice.amount, config.currency, 'minor') !==
+        normalizePaddleAmount(config.amount, config.currency) ||
       items[0].price.trialPeriod !== null ||
       items[0].price.billingCycle?.interval !== (config.period === 'monthly' ? 'month' : 'year') ||
       items[0].price.billingCycle.frequency !== 1) {
@@ -195,10 +196,12 @@ async function processPaidTransaction(
   const total = totals?.grandTotal;
   if (!paidAt || !total || !/^\d+(?:\.\d+)?$/.test(total) ||
       transaction.currencyCode !== config.currency ||
-      !totals || normalizePaddleAmount(totals.subtotal) !== normalizePaddleAmount(config.amount) ||
-      normalizePaddleAmount(totals.discount) !== '0.0' ||
-      normalizePaddleAmount(totals.tax) !== '0.0' ||
-      normalizePaddleAmount(total) !== normalizePaddleAmount(config.amount)) {
+      !totals || normalizePaddleAmount(totals.subtotal, config.currency, 'minor') !==
+        normalizePaddleAmount(config.amount, config.currency) ||
+      normalizePaddleAmount(totals.discount, config.currency, 'minor') !== '0' ||
+      normalizePaddleAmount(totals.tax, config.currency, 'minor') !== '0' ||
+      normalizePaddleAmount(total, config.currency, 'minor') !==
+        normalizePaddleAmount(config.amount, config.currency)) {
     throw new ReviewEventError('paid_transaction_totals_invalid');
   }
 

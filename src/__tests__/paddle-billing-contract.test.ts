@@ -7,6 +7,7 @@ import {
 } from '@/lib/billing/operations';
 import { classifyBillingAccount } from '@/lib/billing/accounts';
 import {
+  assertSandboxPriceMatches,
   getPaddleEnvironment,
   getSandboxQuote,
   isAuthoritativelyPaid,
@@ -100,8 +101,71 @@ describe('Paddle billing contracts', () => {
       period: 'monthly',
       liveCheckoutDisabled: true,
     });
-    expect(normalizePaddleAmount('0349.000')).toBe('349.0');
-    expect(normalizePaddleAmount('3e2')).toBeNull();
+    expect(normalizePaddleAmount('0349.00', 'INR')).toBe('34900');
+    expect(normalizePaddleAmount('3e2', 'USD')).toBeNull();
+  });
+
+  it('normalizes USD major units to Paddle minor units without floating point', () => {
+    expect(normalizePaddleAmount('7.99', 'USD')).toBe('799');
+    expect(normalizePaddleAmount('65.99', 'USD')).toBe('6599');
+    expect(normalizePaddleAmount(0.1, 'USD')).toBe('10');
+    expect(normalizePaddleAmount('7.99', 'USD')).toBe(
+      normalizePaddleAmount('799', 'USD', 'minor'),
+    );
+    expect(normalizePaddleAmount('7.99', 'USD')).not.toBe(
+      normalizePaddleAmount('798', 'USD', 'minor'),
+    );
+  });
+
+  it('accepts an exact Sandbox price in minor units and rejects a different amount', async () => {
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+    const price = {
+      id: 'pri_monthly',
+      status: 'active',
+      unitPrice: { currencyCode: 'USD', amount: '799' },
+      trialPeriod: null,
+      billingCycle: { interval: 'month', frequency: 1 },
+      unitPriceOverrides: [],
+    };
+    const getPrice = vi.fn().mockResolvedValue(price);
+    const paddle = {
+      prices: { get: getPrice },
+    } as unknown as import('@paddle/paddle-node-sdk').Paddle;
+
+    await expect(assertSandboxPriceMatches(paddle, 'creator_monthly', 7.99, 'USD'))
+      .resolves.toBeUndefined();
+    getPrice.mockResolvedValue({
+      ...price,
+      unitPrice: { ...price.unitPrice, amount: '798' },
+    });
+    await expect(assertSandboxPriceMatches(paddle, 'creator_monthly', 7.99, 'USD'))
+      .rejects.toThrow('Configured Paddle sandbox price does not match the quote');
+  });
+
+  it('handles currency-specific zero and three-decimal minor units', () => {
+    expect(normalizePaddleAmount('123', 'JPY')).toBe('123');
+    expect(normalizePaddleAmount('123.00', 'JPY')).toBe('123');
+    expect(normalizePaddleAmount('123.01', 'JPY')).toBeNull();
+    expect(normalizePaddleAmount('1.234', 'KWD')).toBe('1234');
+
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '1.234');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'KWD');
+    expect(getSandboxQuote('creator_monthly')?.amount).toBe(1.234);
+  });
+
+  it('fails safely for unsupported currencies and excessive precision', () => {
+    expect(normalizePaddleAmount('1.00', 'ZZZ')).toBeNull();
+    expect(normalizePaddleAmount('1.001', 'USD')).toBeNull();
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '1.00');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'ZZZ');
+    expect(getSandboxQuote('creator_monthly')).toBeNull();
   });
 
   it('maps the configured yearly subscription without changing the displayed price', () => {
