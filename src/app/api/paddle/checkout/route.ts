@@ -5,12 +5,13 @@ import {
   assertSandboxPriceMatches,
   getPaddleClient,
   getPaddleEnvironment,
-  getSandboxQuote,
+  getTrustedPaddleCountry,
   isPaddleCheckoutEnabled,
   isSafePaddleCheckoutUrl,
   PaddlePriceLookupError,
   PaddlePriceMismatchError,
   PaddleBillingProvider,
+  verifySandboxQuoteToken,
 } from '@/lib/billing/paddle';
 import {
   ActiveBillingSubscriptionError,
@@ -36,13 +37,16 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => null) as Partial<CheckoutConsent> | null;
   if (!body || (body.plan !== 'creator_monthly' && body.plan !== 'creator_yearly') ||
-      body.consentVersion !== '1' || typeof body.currency !== 'string' ||
+      body.consentVersion !== '2' || typeof body.currency !== 'string' ||
       typeof body.amount !== 'number' || !Number.isFinite(body.amount) || body.amount <= 0 ||
+      typeof body.period !== 'string' || typeof body.quoteToken !== 'string' ||
       typeof body.consentHash !== 'string') {
     return NextResponse.json({ error: 'Invalid checkout consent' }, { status: 400 });
   }
-  const quote = getSandboxQuote(body.plan);
-  if (!quote || quote.period !== body.period || quote.amount !== body.amount || quote.currency !== body.currency) {
+  const quote = verifySandboxQuoteToken(body.quoteToken);
+  if (!quote || quote.country !== getTrustedPaddleCountry(request.headers) ||
+      quote.plan !== body.plan || quote.period !== body.period ||
+      quote.amount !== body.amount || quote.currency !== body.currency) {
     return NextResponse.json({ error: 'Checkout quote no longer matches server pricing' }, { status: 409 });
   }
   const consent = body as CheckoutConsent;
@@ -54,7 +58,10 @@ export async function POST(request: NextRequest) {
   const paddle = getPaddleClient();
   if (!paddle) return NextResponse.json({ error: 'Paddle is not configured' }, { status: 503 });
   try {
-    await assertSandboxPriceMatches(paddle, body.plan, body.amount, quote.currency);
+    const price = await assertSandboxPriceMatches(paddle, body.plan);
+    if (price.productId !== quote.productId || price.id !== quote.priceId) {
+      throw new PaddlePriceMismatchError('price_identity');
+    }
   } catch (error) {
     if (error instanceof PaddlePriceLookupError) {
       console.error('Paddle sandbox price lookup failed', { statusCode: error.statusCode });

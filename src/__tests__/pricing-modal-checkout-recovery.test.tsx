@@ -72,15 +72,23 @@ describe('PricingModal checkout recovery', () => {
   });
 
   it('lets a user check a reservation after an uncertain checkout response', async () => {
+    const quote = {
+      plan: 'creator_monthly',
+      period: 'monthly',
+      country: 'IN',
+      amount: 349,
+      currency: 'INR',
+      quoteToken: 'signed-quote-token',
+      expiresAt: '2026-11-18T12:15:00.000Z',
+    };
     mocks.fetch
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          plan: 'creator_monthly',
-          period: 'monthly',
-          amount: 349,
-          currency: 'INR',
-        }),
+        json: async () => quote,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => quote,
       })
       .mockResolvedValueOnce({
         ok: false,
@@ -111,12 +119,14 @@ describe('PricingModal checkout recovery', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue to Payment' }));
+    const continueButton = await screen.findByRole('button', { name: 'Continue to Payment' });
+    await waitFor(() => expect(continueButton).toBeEnabled());
+    fireEvent.click(continueButton);
 
     expect(await screen.findByRole('button', { name: 'Check checkout status' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Check checkout status' }));
 
-    await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(4));
     expect(await screen.findByText(/Payment access updates only after Paddle verifies/)).toBeInTheDocument();
     expect(mocks.assign).not.toHaveBeenCalled();
   });

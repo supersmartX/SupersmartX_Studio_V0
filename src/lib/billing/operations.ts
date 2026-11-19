@@ -27,13 +27,15 @@ export function isFullApprovedEntitlementReversal(input: {
 }
 
 export function hashCheckoutConsent(consent: Omit<CheckoutConsent, 'consentHash'>): string {
-  return crypto.createHash('sha256').update(JSON.stringify({
+  const canonical = {
     plan: consent.plan,
     period: consent.period,
     amount: consent.amount,
     currency: consent.currency,
     consentVersion: consent.consentVersion,
-  })).digest('hex');
+    ...(consent.consentVersion === '2' ? { quoteToken: consent.quoteToken } : {}),
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
 
 export function reservationStatusForRemote(status: string): 'confirmed' | 'pending' | 'failed' | 'canceled' {
@@ -86,6 +88,8 @@ export async function reserveCheckout(input: CheckoutConsent & {
     if (reservation) {
       if (reservation.userId !== input.userId ||
           reservation.plan !== input.plan ||
+          reservation.period !== input.period ||
+          reservation.currency !== input.currency ||
           reservation.consentHash !== input.consentHash) {
         throw new Error('Checkout reservation does not match the confirmed consent');
       }

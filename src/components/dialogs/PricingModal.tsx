@@ -4,10 +4,11 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
 import { useSession } from 'next-auth/react';
-import { formatPrice, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
+import { formatPrice, formatPriceForCurrency, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 import { useRegionalPricing } from '@/hooks/useRegionalPricing';
 import { PRICING_PLANS } from '@/constants';
+import type { CheckoutQuote } from '@/lib/billing/contracts';
 import '@/styles/pricing.css';
 
 interface PricingModalProps {
@@ -37,6 +38,24 @@ function checkoutErrorMessage(err: unknown): string {
     : raw;
 }
 
+async function requestCheckoutQuote(period: BillingPeriod): Promise<CheckoutQuote> {
+  const response = await fetch('/api/paddle/quote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ period }),
+  });
+  const quote = await response.json().catch(() => ({ error: 'Failed to create quote' }));
+  if (!response.ok) throw new Error(quote.error || 'Failed to create quote');
+  if (typeof quote.plan !== 'string' || typeof quote.period !== 'string' ||
+      typeof quote.country !== 'string' || typeof quote.amount !== 'number' ||
+      typeof quote.currency !== 'string' || typeof quote.quoteToken !== 'string' ||
+      typeof quote.expiresAt !== 'string') {
+    throw new Error('Paddle returned an invalid quote');
+  }
+  return quote as CheckoutQuote;
+}
+
 const CHECK_ICON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <polyline points="20 6 9 17 4 12" />
@@ -62,6 +81,8 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   const [errorMessage, setErrorMessage] = useState('');
   const [pendingReservationId, setPendingReservationId] = useState<string | null>(null);
   const [subscriptionConflict, setSubscriptionConflict] = useState(false);
+  const [checkoutQuote, setCheckoutQuote] = useState<CheckoutQuote | null>(null);
+  const [isLoadingQuote, setIsLoadingQuote] = useState(false);
   // One checkout creation and hand-off at a time. Two handlers firing
   // before React re-renders (a double tap, Enter plus click) would otherwise
   // POST twice or open the same payment session in two tabs.
@@ -93,7 +114,29 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     setErrorMessage('');
     setPendingReservationId(null);
     setSubscriptionConflict(false);
+    setCheckoutQuote(null);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || step !== 'form' || selectedTier === 'free') return;
+    let cancelled = false;
+    setCheckoutQuote(null);
+    setIsLoadingQuote(true);
+    setErrorMessage('');
+    requestCheckoutQuote(billingPeriod)
+      .then((quote) => {
+        if (!cancelled) setCheckoutQuote(quote);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setErrorMessage(checkoutErrorMessage(error));
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingQuote(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, step, selectedTier, billingPeriod]);
 
   const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
 
@@ -183,6 +226,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     if (step === 'select') {
       if (!email && session?.user?.email) setEmail(session.user.email);
       if (!name && session?.user?.name) setName(session.user.name);
+      setErrorMessage('');
       setStep('form');
       return;
     }
@@ -196,28 +240,24 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     setStep('processing');
     setErrorMessage('');
     try {
-      const quoteResponse = await fetch('/api/paddle/quote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ period: billingPeriod }),
-      });
-      const quote = await quoteResponse.json().catch(() => ({ error: 'Failed to create quote' }));
-      if (!quoteResponse.ok) {
-        if (quoteResponse.status === 401) {
-          handleClose();
-          onAuthRequired?.();
-          showToast('Please log in or create an account to continue');
-          return;
-        }
-        throw new Error(quote.error || 'Failed to create quote');
+      if (!checkoutQuote) throw new Error('A confirmed Paddle quote is required before payment');
+      const quote = await requestCheckoutQuote(billingPeriod);
+      if (quote.plan !== selectedPlan ||
+          quote.country !== checkoutQuote.country ||
+          quote.amount !== checkoutQuote.amount ||
+          quote.currency !== checkoutQuote.currency) {
+        setCheckoutQuote(quote);
+        setStep('form');
+        setErrorMessage('Your confirmed price changed. Review the updated quote before continuing.');
+        return;
       }
       const consent = {
         plan: quote.plan,
         period: quote.period,
         amount: quote.amount,
         currency: quote.currency,
-        consentVersion: '1' as const,
+        consentVersion: '2' as const,
+        quoteToken: quote.quoteToken,
       };
       const canonical = JSON.stringify(consent);
       const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
@@ -251,7 +291,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     } finally {
       submitLock.current = false;
     }
-  }, [selectedPlan, billingPeriod, name, email, step, showToast, isAuthenticated, onAuthRequired, session, handleClose]);
+  }, [selectedPlan, billingPeriod, name, email, step, showToast, isAuthenticated, onAuthRequired, session, handleClose, checkoutQuote]);
 
   const handleCheckPendingCheckout = useCallback(async () => {
     if (!pendingReservationId || submitLock.current) return;
@@ -510,13 +550,24 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     <div>
                       <span className="text-sm font-semibold text-text-primary">{PRICING_PLANS[selectedTier].name} {billingPeriod === 'yearly' ? 'Yearly' : 'Monthly'}</span>
                       <span className="text-xs text-text-muted block mt-1">
-                        Renews every {billingPeriod === 'yearly' ? '12 months' : 'month'} until canceled in {currentPricing.currency}
+                        Renews every {billingPeriod === 'yearly' ? '12 months' : 'month'} until canceled in {checkoutQuote?.currency ?? '...'}
                       </span>
                     </div>
                     <span className="text-xl font-bold text-text-primary">
-                      {format(getTierPrice(selectedTier, billingPeriod))}
+                      {isLoadingQuote
+                        ? 'Confirming...'
+                        : checkoutQuote
+                          ? formatPriceForCurrency(
+                            checkoutQuote.amount,
+                            checkoutQuote.currency,
+                            checkoutQuote.country === 'IN' ? 'en-IN' : 'en-US',
+                          )
+                          : 'Price unavailable'}
                     </span>
                   </div>
+                  <p className="text-xs text-text-muted text-center">
+                    Paddle calculates any applicable tax from your billing location and displays the final total before payment.
+                  </p>
 
                   <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-2">
@@ -568,7 +619,8 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     <Button
                       variant="primary"
                       onClick={handleSubscribe}
-                      disabled={!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)}
+                      disabled={isLoadingQuote || !checkoutQuote ||
+                        !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)}
                       className="flex-1"
                     >
                       Continue to Payment

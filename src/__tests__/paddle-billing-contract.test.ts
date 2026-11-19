@@ -8,13 +8,40 @@ import {
 import { classifyBillingAccount } from '@/lib/billing/accounts';
 import {
   assertSandboxPriceMatches,
+  createSandboxCheckoutQuote,
   getPaddleEnvironment,
+  getTrustedPaddleCountry,
   getSandboxQuote,
   isAuthoritativelyPaid,
   isSafePaddleCheckoutUrl,
   normalizePaddleAmount,
+  validatePaddlePaidTotals,
   validatePaddleAttribution,
+  verifySandboxPriceRecord,
 } from '@/lib/billing/paddle';
+
+function validSandboxPrice(input: {
+  id: string;
+  amount: string;
+  interval: 'month' | 'year';
+  overrideAmount: string;
+}): Parameters<typeof verifySandboxPriceRecord>[0] {
+  return {
+    id: input.id,
+    productId: 'pro_creator',
+    type: 'standard',
+    status: 'active',
+    unitPrice: { currencyCode: 'USD', amount: input.amount },
+    trialPeriod: null,
+    billingCycle: { interval: input.interval, frequency: 1 },
+    quantity: { minimum: 1, maximum: 999999 },
+    taxMode: 'location',
+    unitPriceOverrides: [{
+      countryCodes: ['IN'],
+      unitPrice: { currencyCode: 'INR', amount: input.overrideAmount },
+    }],
+  } as unknown as Parameters<typeof verifySandboxPriceRecord>[0];
+}
 
 describe('Paddle billing contracts', () => {
   it('creates an immutable consent hash and rejects changed consent', () => {
@@ -90,16 +117,20 @@ describe('Paddle billing contracts', () => {
     expect(getSandboxQuote('creator_monthly')).toBeNull();
   });
 
-  it('uses only configured sandbox price quotes and normalizes provider money exactly', () => {
+  it('quotes India in INR and other countries at the configured USD base price', () => {
     vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
     vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
-    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '349.00');
-    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'INR');
-    expect(getSandboxQuote('creator_monthly')).toMatchObject({
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+    expect(getSandboxQuote('creator_monthly', 'IN')).toMatchObject({
       amount: 349,
       currency: 'INR',
       period: 'monthly',
       liveCheckoutDisabled: true,
+    });
+    expect(getSandboxQuote('creator_monthly', 'US')).toMatchObject({
+      amount: 7.99,
+      currency: 'USD',
     });
     expect(normalizePaddleAmount('0349.00', 'INR')).toBe('34900');
     expect(normalizePaddleAmount('3e2', 'USD')).toBeNull();
@@ -117,34 +148,41 @@ describe('Paddle billing contracts', () => {
     );
   });
 
-  it('accepts an exact Sandbox price in minor units and rejects a different amount', async () => {
+  it('accepts the exact India override while validating the USD base price', async () => {
     vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
     vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
     vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
     vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
-    const price = {
+    const price = validSandboxPrice({
       id: 'pri_monthly',
-      status: 'active',
-      unitPrice: { currencyCode: 'USD', amount: '799' },
-      trialPeriod: null,
-      billingCycle: { interval: 'month', frequency: 1 },
-      unitPriceOverrides: [],
-    };
+      amount: '799',
+      interval: 'month',
+      overrideAmount: '34900',
+    });
     const getPrice = vi.fn().mockResolvedValue(price);
     const paddle = {
       prices: { get: getPrice },
     } as unknown as import('@paddle/paddle-node-sdk').Paddle;
 
-    await expect(assertSandboxPriceMatches(paddle, 'creator_monthly', 7.99, 'USD'))
-      .resolves.toBeUndefined();
+    await expect(assertSandboxPriceMatches(paddle, 'creator_monthly'))
+      .resolves.toMatchObject({ id: 'pri_monthly' });
     getPrice.mockResolvedValue({
       ...price,
       unitPrice: { ...price.unitPrice, amount: '798' },
     });
-    await expect(assertSandboxPriceMatches(paddle, 'creator_monthly', 7.99, 'USD'))
+    await expect(assertSandboxPriceMatches(paddle, 'creator_monthly'))
       .rejects.toMatchObject({ reason: 'amount_mismatch' });
+    await expect(assertSandboxPriceMatches({
+      prices: {
+        get: vi.fn().mockResolvedValue({
+          ...price,
+          billingCycle: { interval: 'year', frequency: 1 },
+        }),
+      },
+    } as unknown as import('@paddle/paddle-node-sdk').Paddle, 'creator_monthly'))
+      .rejects.toMatchObject({ reason: 'billing_cycle_mismatch' });
     getPrice.mockRejectedValue({ status: 403 });
-    await expect(assertSandboxPriceMatches(paddle, 'creator_monthly', 7.99, 'USD'))
+    await expect(assertSandboxPriceMatches(paddle, 'creator_monthly'))
       .rejects.toMatchObject({ statusCode: 403 });
   });
 
@@ -158,7 +196,7 @@ describe('Paddle billing contracts', () => {
     vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
     vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '1.234');
     vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'KWD');
-    expect(getSandboxQuote('creator_monthly')?.amount).toBe(1.234);
+    expect(getSandboxQuote('creator_monthly')).toBeNull();
   });
 
   it('fails safely for unsupported currencies and excessive precision', () => {
@@ -174,15 +212,128 @@ describe('Paddle billing contracts', () => {
   it('maps the configured yearly subscription without changing the displayed price', () => {
     vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
     vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_YEARLY', 'pri_yearly');
-    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_YEARLY', '2899.00');
-    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'INR');
-    expect(getSandboxQuote('creator_yearly')).toMatchObject({
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_YEARLY', '65.99');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+    expect(getSandboxQuote('creator_yearly', 'IN')).toMatchObject({
       plan: 'creator_yearly',
       period: 'yearly',
       amount: 2899,
       currency: 'INR',
       renewalLabel: 'Renews every 12 months',
     });
+    expect(getSandboxQuote('creator_yearly', 'US')).toMatchObject({
+      amount: 65.99,
+      currency: 'USD',
+    });
+  });
+
+  it('uses the trusted Vercel country header and ignores it outside Vercel', () => {
+    vi.stubEnv('VERCEL', '1');
+    expect(getTrustedPaddleCountry(new Headers({ 'x-vercel-ip-country': 'in' }))).toBe('IN');
+    vi.stubEnv('VERCEL', '');
+    expect(getTrustedPaddleCountry(new Headers({ 'x-vercel-ip-country': 'IN' }))).toBe('US');
+  });
+
+  it('signs the regional quote and binds it to the active configured Paddle price', async () => {
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+    vi.stubEnv('AUTH_SECRET', 'test-quote-signing-secret');
+    const price = validSandboxPrice({
+      id: 'pri_monthly',
+      amount: '799',
+      interval: 'month',
+      overrideAmount: '34900',
+    });
+    const paddle = {
+      prices: { get: vi.fn().mockResolvedValue(price) },
+    } as unknown as import('@paddle/paddle-node-sdk').Paddle;
+
+    await expect(createSandboxCheckoutQuote(paddle, 'creator_monthly', 'IN'))
+      .resolves.toMatchObject({
+        plan: 'creator_monthly',
+        period: 'monthly',
+        country: 'IN',
+        amount: 349,
+        currency: 'INR',
+        quoteToken: expect.any(String),
+      });
+  });
+
+  it('rejects malformed, duplicate, wrong-country and wrong-amount regional overrides', () => {
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+    const price = validSandboxPrice({
+      id: 'pri_monthly',
+      amount: '799',
+      interval: 'month',
+      overrideAmount: '34900',
+    });
+    expect(() => verifySandboxPriceRecord(price, 'creator_monthly')).not.toThrow();
+    const invalidOverrides = [
+      [{ countryCodes: ['US'], unitPrice: { currencyCode: 'INR', amount: '34900' } }],
+      [{ countryCodes: ['IN'], unitPrice: { currencyCode: 'INR', amount: '35000' } }],
+      [
+        { countryCodes: ['IN'], unitPrice: { currencyCode: 'INR', amount: '34900' } },
+        { countryCodes: ['IN'], unitPrice: { currencyCode: 'INR', amount: '34900' } },
+      ],
+      [null],
+      [{ countryCodes: ['IN', 'US'], unitPrice: { currencyCode: 'INR', amount: '34900' } }],
+    ];
+    for (const unitPriceOverrides of invalidOverrides) {
+      expect(() => verifySandboxPriceRecord({
+        ...price,
+        unitPriceOverrides,
+      } as typeof price, 'creator_monthly')).toThrow();
+    }
+  });
+
+  it('validates tax-inclusive and tax-exclusive totals without accepting inconsistent totals', () => {
+    const fields = (subtotal: string, tax: string, total: string) => ({
+      subtotal,
+      discount: '0',
+      tax,
+      total,
+    });
+    const detail = (subtotal: string, tax: string, total: string) => ({
+      totals: {
+        ...fields(subtotal, tax, total),
+        currencyCode: 'USD',
+        credit: '0',
+        creditToBalance: '0',
+        balance: '0',
+        grandTotal: total,
+        grandTotalTax: tax,
+      },
+      lineItems: [{
+        quantity: 1,
+        unitTotals: fields(subtotal, tax, total),
+        totals: fields(subtotal, tax, total),
+      }],
+    });
+    expect(validatePaddlePaidTotals({
+      ...detail('799', '64', '863'),
+      currency: 'USD',
+      quotedAmount: 7.99,
+    })).toBe(true);
+    expect(validatePaddlePaidTotals({
+      ...detail('735', '64', '799'),
+      currency: 'USD',
+      quotedAmount: 7.99,
+    })).toBe(true);
+    expect(validatePaddlePaidTotals({
+      ...detail('799', '64', '864'),
+      currency: 'USD',
+      quotedAmount: 7.99,
+    })).toBe(false);
+    expect(validatePaddlePaidTotals({
+      ...detail('799', '64', '863'),
+      currency: 'INR',
+      quotedAmount: 7.99,
+    })).toBe(false);
   });
 
   it('accepts only HTTPS Paddle-hosted checkout URLs', () => {

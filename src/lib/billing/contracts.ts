@@ -5,12 +5,15 @@ export type BillingPlan = 'creator_monthly' | 'creator_yearly';
 export interface CheckoutQuote {
   plan: BillingPlan;
   period: BillingPeriod;
-  currency: string;
+  country: string;
+  currency: 'USD' | 'INR';
   amount: number;
-  consentVersion: '1';
+  consentVersion: '2';
   consentText: string;
   renewalLabel: string;
   liveCheckoutDisabled: true;
+  quoteToken: string;
+  expiresAt: string;
 }
 
 export interface CheckoutConsent {
@@ -18,7 +21,8 @@ export interface CheckoutConsent {
   period: BillingPeriod;
   amount: number;
   currency: string;
-  consentVersion: '1';
+  consentVersion: '1' | '2';
+  quoteToken?: string;
   consentHash: string;
 }
 

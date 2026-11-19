@@ -55,6 +55,7 @@ vi.mock('@/lib/billing/paddle', async (importOriginal) => {
 });
 
 import { GET } from '@/app/api/internal/paddle/worker/route';
+import { createSandboxCheckoutQuote } from '@/lib/billing/paddle';
 
 function request(secret = 'worker-secret') {
   return new NextRequest('http://localhost/api/internal/paddle/worker', {
@@ -62,9 +63,49 @@ function request(secret = 'worker-secret') {
   });
 }
 
+function paidDetails(currency: string, subtotal: string, tax: string, total: string) {
+  const amounts = { subtotal, discount: '0', tax, total };
+  return {
+    totals: {
+      ...amounts,
+      currencyCode: currency,
+      credit: '0',
+      creditToBalance: '0',
+      balance: '0',
+      grandTotal: total,
+      grandTotalTax: tax,
+    },
+    lineItems: [{ quantity: 1, unitTotals: amounts, totals: amounts }],
+  };
+}
+
+function regionalPrice(input: {
+  id: string;
+  baseAmount: string;
+  interval: 'month' | 'year';
+  indiaAmount: string;
+}) {
+  return {
+    id: input.id,
+    productId: 'pro_creator',
+    type: 'standard',
+    status: 'active',
+    unitPrice: { currencyCode: 'USD', amount: input.baseAmount },
+    trialPeriod: null,
+    billingCycle: { interval: input.interval, frequency: 1 },
+    quantity: { minimum: 1, maximum: 999999 },
+    taxMode: 'location',
+    unitPriceOverrides: [{
+      countryCodes: ['IN'],
+      unitPrice: { currencyCode: 'INR', amount: input.indiaAmount },
+    }],
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('CRON_SECRET', 'worker-secret');
+  vi.stubEnv('PADDLE_ENVIRONMENT', '');
   mocks.findEvents.mockResolvedValue([]);
   mocks.acquire.mockResolvedValue(true);
   mocks.release.mockResolvedValue(true);
@@ -114,6 +155,25 @@ describe('Paddle durable webhook worker', () => {
       'review',
       'transaction_not_paid',
     );
+    expect(mocks.applyPaid).not.toHaveBeenCalled();
+  });
+
+  it('does not process a duplicate webhook event when another worker owns its lease', async () => {
+    mocks.findEvents.mockResolvedValue([{
+      eventId: 'evt-duplicate',
+      occurredAt: new Date('2026-11-18T12:00:00.000Z'),
+      payloadJson: JSON.stringify({
+        eventId: 'evt-duplicate',
+        eventType: 'transaction.paid',
+        data: { id: 'txn-duplicate' },
+      }),
+    }]);
+    mocks.acquire.mockResolvedValue(false);
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.transactionGet).not.toHaveBeenCalled();
     expect(mocks.applyPaid).not.toHaveBeenCalled();
   });
 
@@ -223,6 +283,8 @@ describe('Paddle durable webhook worker', () => {
       id: 'reservation-1',
       userId: 'user-1',
       plan: 'creator_monthly',
+      period: 'monthly',
+      currency: 'USD',
       consentHash: 'consent-1',
       providerTransactionId: null,
     });
@@ -247,12 +309,7 @@ describe('Paddle durable webhook worker', () => {
         },
       }],
       billingPeriod: { startsAt: periodStart, endsAt: periodEnd },
-      details: { totals: {
-        subtotal: '799',
-        discount: '0',
-        tax: '0',
-        grandTotal: '799',
-      } },
+      details: paidDetails('USD', '799', '0', '799'),
       currencyCode: 'USD',
       billedAt: '2026-11-18T12:00:00.000Z',
       updatedAt: '2026-11-18T12:00:00.000Z',
@@ -308,7 +365,7 @@ describe('Paddle durable webhook worker', () => {
     );
   });
 
-  it('does not grant a paid transaction when tax or discount changes the confirmed price', async () => {
+  it('grants a paid transaction with valid location tax and records the actual total', async () => {
     const data = {
       id: 'txn-paid',
       status: 'paid',
@@ -330,12 +387,7 @@ describe('Paddle durable webhook worker', () => {
         },
       }],
       billingPeriod: { startsAt: '2026-11-18T00:00:00.000Z', endsAt: '2026-12-18T00:00:00.000Z' },
-      details: { totals: {
-        subtotal: '799',
-        discount: '0',
-        tax: '1',
-        grandTotal: '800',
-      } },
+      details: paidDetails('USD', '799', '64', '863'),
       currencyCode: 'USD',
       billedAt: '2026-11-18T12:00:00.000Z',
       updatedAt: '2026-11-18T12:00:00.000Z',
@@ -358,6 +410,8 @@ describe('Paddle durable webhook worker', () => {
       id: 'reservation-1',
       userId: 'user-1',
       plan: 'creator_monthly',
+      period: 'monthly',
+      currency: 'USD',
       consentHash: 'consent-1',
       providerTransactionId: null,
     });
@@ -373,9 +427,220 @@ describe('Paddle durable webhook worker', () => {
 
     await GET(request());
 
-    expect(mocks.applyPaid).not.toHaveBeenCalled();
-    expect(mocks.release).toHaveBeenCalledWith(
+    expect(mocks.applyPaid).toHaveBeenCalledWith(expect.objectContaining({
+      amount: '863',
+      currency: 'USD',
+    }));
+    expect(mocks.release).not.toHaveBeenCalledWith(
       'evt-taxed',
+      expect.any(String),
+      'review',
+      expect.any(String),
+    );
+  });
+
+  it.each([
+    {
+      plan: 'creator_monthly' as const,
+      period: 'monthly' as const,
+      country: 'IN',
+      amount: 349,
+      currency: 'INR',
+      priceId: 'pri-monthly',
+      baseAmount: '799',
+      indiaAmount: '34900',
+      interval: 'month' as const,
+      totalMinor: '34900',
+    },
+    {
+      plan: 'creator_yearly' as const,
+      period: 'yearly' as const,
+      country: 'IN',
+      amount: 2899,
+      currency: 'INR',
+      priceId: 'pri-yearly',
+      baseAmount: '6599',
+      indiaAmount: '289900',
+      interval: 'year' as const,
+      totalMinor: '289900',
+    },
+    {
+      plan: 'creator_monthly' as const,
+      period: 'monthly' as const,
+      country: 'US',
+      amount: 7.99,
+      currency: 'USD',
+      priceId: 'pri-monthly',
+      baseAmount: '799',
+      indiaAmount: '34900',
+      interval: 'month' as const,
+      totalMinor: '799',
+    },
+    {
+      plan: 'creator_yearly' as const,
+      period: 'yearly' as const,
+      country: 'US',
+      amount: 65.99,
+      currency: 'USD',
+      priceId: 'pri-yearly',
+      baseAmount: '6599',
+      indiaAmount: '289900',
+      interval: 'year' as const,
+      totalMinor: '6599',
+    },
+  ])('verifies a $currency $period quote against the paid transaction', async (priceConfig) => {
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+    vi.stubEnv('AUTH_SECRET', 'worker-test-quote-secret');
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri-monthly');
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_YEARLY', 'pri-yearly');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_YEARLY', '65.99');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+    mocks.priceConfiguration.mockReturnValue({
+      priceId: priceConfig.priceId,
+      amount: priceConfig.plan === 'creator_monthly' ? 7.99 : 65.99,
+      currency: 'USD',
+      period: priceConfig.period,
+    });
+
+    const price = regionalPrice({
+      id: priceConfig.priceId,
+      baseAmount: priceConfig.baseAmount,
+      interval: priceConfig.interval,
+      indiaAmount: priceConfig.indiaAmount,
+    });
+    const quote = await createSandboxCheckoutQuote({
+      prices: { get: vi.fn().mockResolvedValue(price) },
+    } as never, priceConfig.plan, priceConfig.country);
+    const createdAt = new Date();
+    const periodEnd = new Date(createdAt);
+    periodEnd.setUTCMonth(periodEnd.getUTCMonth() + (priceConfig.period === 'monthly' ? 1 : 12));
+    const consentHash = `consent-${priceConfig.plan}-${priceConfig.country}`;
+    const customData = {
+      sup_user_id: 'user-1',
+      sup_plan: priceConfig.plan,
+      sup_consent_hash: consentHash,
+      sup_consent_version: '2',
+      sup_reservation_id: 'reservation-1',
+      sup_quote_token: quote.quoteToken,
+    };
+    const data = {
+      id: 'txn-regional',
+      status: 'paid',
+      subscriptionId: 'sub-1',
+      customerId: 'ctm-1',
+      createdAt: createdAt.toISOString(),
+      billedAt: createdAt.toISOString(),
+      updatedAt: createdAt.toISOString(),
+      address: { countryCode: priceConfig.country },
+      currencyCode: priceConfig.currency,
+      customData,
+      items: [{
+        quantity: 1,
+        price,
+      }],
+      billingPeriod: {
+        startsAt: createdAt.toISOString(),
+        endsAt: periodEnd.toISOString(),
+      },
+      details: paidDetails(
+        priceConfig.currency,
+        priceConfig.totalMinor,
+        '0',
+        priceConfig.totalMinor,
+      ),
+    };
+    mocks.findEvents.mockResolvedValue([{
+      eventId: 'evt-regional',
+      occurredAt: createdAt,
+      payloadJson: JSON.stringify({
+        eventId: 'evt-regional',
+        eventType: 'transaction.paid',
+        data,
+      }),
+    }]);
+    mocks.findAccount.mockImplementation(({ where }: { where: Record<string, string> }) =>
+      Promise.resolve(where.providerSubscriptionId
+        ? null
+        : { userId: 'user-1', plan: 'free', providerSubscriptionId: null, providerCustomerId: null }),
+    );
+    mocks.findReservation.mockResolvedValue({
+      id: 'reservation-1',
+      userId: 'user-1',
+      plan: priceConfig.plan,
+      period: priceConfig.period,
+      currency: priceConfig.currency,
+      consentHash,
+      providerTransactionId: null,
+    });
+    mocks.transactionGet.mockResolvedValue(data);
+    mocks.subscriptionGet.mockResolvedValue({
+      id: 'sub-1',
+      customerId: 'ctm-1',
+      status: 'active',
+      customData: null,
+      currentBillingPeriod: data.billingPeriod,
+      nextBilledAt: periodEnd.toISOString(),
+    });
+
+    await GET(request());
+
+    expect(mocks.applyPaid).toHaveBeenCalledWith(expect.objectContaining({
+      plan: priceConfig.plan,
+      currency: priceConfig.currency,
+      amount: priceConfig.totalMinor,
+      reservationId: 'reservation-1',
+    }));
+    expect(mocks.release).not.toHaveBeenCalledWith(
+      'evt-regional',
+      expect.any(String),
+      'review',
+      expect.any(String),
+    );
+
+    const wrongCountryData = {
+      ...data,
+      id: 'txn-wrong-country',
+      address: { countryCode: priceConfig.country === 'IN' ? 'US' : 'IN' },
+    };
+    mocks.findEvents.mockResolvedValue([{
+      eventId: 'evt-wrong-country',
+      occurredAt: createdAt,
+      payloadJson: JSON.stringify({
+        eventId: 'evt-wrong-country',
+        eventType: 'transaction.paid',
+        data: wrongCountryData,
+      }),
+    }]);
+    mocks.transactionGet.mockResolvedValue(wrongCountryData);
+    await GET(request());
+    expect(mocks.applyPaid).toHaveBeenCalledOnce();
+    expect(mocks.release).toHaveBeenCalledWith(
+      'evt-wrong-country',
+      expect.any(String),
+      'review',
+      'transaction_country_mismatch',
+    );
+
+    const wrongCurrencyData = {
+      ...data,
+      id: 'txn-wrong-currency',
+      currencyCode: priceConfig.currency === 'INR' ? 'USD' : 'INR',
+    };
+    mocks.findEvents.mockResolvedValue([{
+      eventId: 'evt-wrong-currency',
+      occurredAt: createdAt,
+      payloadJson: JSON.stringify({
+        eventId: 'evt-wrong-currency',
+        eventType: 'transaction.paid',
+        data: wrongCurrencyData,
+      }),
+    }]);
+    mocks.transactionGet.mockResolvedValue(wrongCurrencyData);
+    await GET(request());
+    expect(mocks.applyPaid).toHaveBeenCalledOnce();
+    expect(mocks.release).toHaveBeenCalledWith(
+      'evt-wrong-currency',
       expect.any(String),
       'review',
       'paid_transaction_totals_invalid',

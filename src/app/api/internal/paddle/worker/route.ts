@@ -1,10 +1,15 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  getPaddleEnvironment,
   getPaddleClient,
   getPaddlePriceConfiguration,
   isAuthoritativelyPaid,
   normalizePaddleAmount,
+  PaddlePriceMismatchError,
+  validatePaddlePaidTotals,
+  verifySandboxPriceRecord,
+  verifySandboxQuoteToken,
 } from '@/lib/billing/paddle';
 import {
   acquireBillingEventLease,
@@ -123,7 +128,7 @@ async function processPaidTransaction(
   const transactionId = text(eventData.id);
   if (!transactionId) throw new ReviewEventError('transaction_id_missing');
 
-  const transaction = await paddle.transactions.get(transactionId);
+  const transaction = await paddle.transactions.get(transactionId, { include: ['address'] });
   if (transaction.id !== transactionId) throw new ReviewEventError('transaction_id_mismatch');
   if (!isAuthoritativelyPaid(transaction.status)) {
     throw new ReviewEventError('transaction_not_paid');
@@ -160,16 +165,64 @@ async function processPaidTransaction(
   }
   const config = getPaddlePriceConfiguration(plan);
   if (!config) throw new ReviewEventError('price_mapping_not_configured');
+  const quoteToken = text(authoritativeCustom.sup_quote_token);
+  const consentVersion = text(authoritativeCustom.sup_consent_version);
+  let expectedCurrency = config.currency;
+  let expectedAmount = config.amount;
+  let expectedPriceId = config.priceId;
+  let expectedProductId: string | null = null;
+  let expectedPeriod = config.period;
+  let quotedCountry: string | null = null;
+  if (quoteToken) {
+    if (getPaddleEnvironment() !== 'sandbox' || consentVersion !== '2') {
+      throw new ReviewEventError('checkout_quote_mismatch');
+    }
+    const transactionCreatedAt = date(transaction.createdAt);
+    const quote = transactionCreatedAt
+      ? verifySandboxQuoteToken(quoteToken, transactionCreatedAt)
+      : null;
+    if (!quote || quote.plan !== plan) throw new ReviewEventError('checkout_quote_mismatch');
+    if (!owner.reservation || owner.reservation.plan !== plan ||
+        owner.reservation.period !== quote.period ||
+        owner.reservation.currency !== quote.currency ||
+        owner.reservation.consentHash !== text(authoritativeCustom.sup_consent_hash)) {
+      throw new ReviewEventError('reservation_does_not_match_paid_transaction');
+    }
+    expectedCurrency = quote.currency;
+    expectedAmount = quote.amount;
+    expectedPriceId = quote.priceId;
+    expectedProductId = quote.productId;
+    expectedPeriod = quote.period;
+    quotedCountry = quote.country;
+  } else if (consentVersion === '2') {
+    throw new ReviewEventError('checkout_quote_missing');
+  }
+
   const items = transaction.items;
   if (items.length !== 1 || items[0].quantity !== 1 || !items[0].price ||
-      items[0].price.id !== config.priceId ||
+      items[0].price.id !== expectedPriceId ||
+      (expectedProductId !== null && items[0].price.productId !== expectedProductId) ||
       items[0].price.unitPrice.currencyCode !== config.currency ||
       normalizePaddleAmount(items[0].price.unitPrice.amount, config.currency, 'minor') !==
         normalizePaddleAmount(config.amount, config.currency) ||
       items[0].price.trialPeriod !== null ||
-      items[0].price.billingCycle?.interval !== (config.period === 'monthly' ? 'month' : 'year') ||
+      items[0].price.billingCycle?.interval !== (expectedPeriod === 'monthly' ? 'month' : 'year') ||
       items[0].price.billingCycle.frequency !== 1) {
     throw new ReviewEventError('transaction_price_mismatch');
+  }
+  if (getPaddleEnvironment() === 'sandbox') {
+    try {
+      verifySandboxPriceRecord(items[0].price, plan);
+    } catch (error) {
+      if (error instanceof PaddlePriceMismatchError) {
+        throw new ReviewEventError('transaction_price_mismatch');
+      }
+      throw error;
+    }
+  }
+  if (quotedCountry !== null &&
+      transaction.address?.countryCode?.toUpperCase() !== quotedCountry) {
+    throw new ReviewEventError('transaction_country_mismatch');
   }
   const eventSubscriptionId = text(field(eventData, 'subscriptionId', 'subscription_id'));
   const eventCustomerId = text(field(eventData, 'customerId', 'customer_id'));
@@ -178,7 +231,10 @@ async function processPaidTransaction(
     throw new ReviewEventError('event_transaction_attribution_mismatch');
   }
   if (owner.reservation &&
-      (owner.reservation.plan !== plan || owner.reservation.consentHash !== text(authoritativeCustom.sup_consent_hash) ||
+      (owner.reservation.plan !== plan ||
+       (quoteToken === null && owner.reservation.consentHash !== text(authoritativeCustom.sup_consent_hash)) ||
+       (quoteToken === null && (owner.reservation.period !== config.period ||
+         owner.reservation.currency !== config.currency)) ||
        (owner.reservation.providerTransactionId &&
         owner.reservation.providerTransactionId !== transactionId))) {
     throw new ReviewEventError('reservation_does_not_match_paid_transaction');
@@ -194,14 +250,14 @@ async function processPaidTransaction(
   const paidAt = date(transaction.billedAt) ?? occurredAt ?? date(transaction.updatedAt);
   const totals = transaction.details?.totals;
   const total = totals?.grandTotal;
-  if (!paidAt || !total || !/^\d+(?:\.\d+)?$/.test(total) ||
-      transaction.currencyCode !== config.currency ||
-      !totals || normalizePaddleAmount(totals.subtotal, config.currency, 'minor') !==
-        normalizePaddleAmount(config.amount, config.currency) ||
-      normalizePaddleAmount(totals.discount, config.currency, 'minor') !== '0' ||
-      normalizePaddleAmount(totals.tax, config.currency, 'minor') !== '0' ||
-      normalizePaddleAmount(total, config.currency, 'minor') !==
-        normalizePaddleAmount(config.amount, config.currency)) {
+  if (!paidAt || !total ||
+      transaction.currencyCode !== expectedCurrency ||
+      !validatePaddlePaidTotals({
+        totals,
+        lineItems: transaction.details?.lineItems ?? [],
+        currency: expectedCurrency,
+        quotedAmount: expectedAmount,
+      })) {
     throw new ReviewEventError('paid_transaction_totals_invalid');
   }
 
