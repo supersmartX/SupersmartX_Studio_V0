@@ -7,6 +7,15 @@ export function getPaddleEnvironment(): 'sandbox' | 'live' | null {
   return null;
 }
 
+export function isPaddleCheckoutEnabled(): boolean {
+  const environment = getPaddleEnvironment();
+  if (environment === 'sandbox') return true;
+  if (environment === 'live') {
+    return process.env.PADDLE_LIVE_CHECKOUT_DISABLED !== 'true';
+  }
+  return false;
+}
+
 export function getPaddleClient(): Paddle | null {
   const apiKey = process.env.PADDLE_API_KEY?.trim();
   const environment = getPaddleEnvironment();

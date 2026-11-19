@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { auth } from '@/auth';
 import { NextResponse } from 'next/server';
-import { getPaddleClient, getPaddleEnvironment, PaddleBillingProvider } from '@/lib/billing/paddle';
+import { getPaddleClient, getPaddleEnvironment, isPaddleCheckoutEnabled, PaddleBillingProvider } from '@/lib/billing/paddle';
 import { getPrisma } from '@/lib/db/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -9,8 +9,8 @@ export const dynamic = 'force-dynamic';
 export async function POST() {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (process.env.PADDLE_LIVE_CHECKOUT_DISABLED !== 'true') {
-    return NextResponse.json({ error: 'Paddle cancellation is disabled' }, { status: 503 });
+  if (!isPaddleCheckoutEnabled()) {
+    return NextResponse.json({ error: 'Paddle cancellation is unavailable' }, { status: 503 });
   }
   if (getPaddleEnvironment() !== 'sandbox') {
     return NextResponse.json({ error: 'Live Paddle subscription mutations are disabled' }, { status: 503 });

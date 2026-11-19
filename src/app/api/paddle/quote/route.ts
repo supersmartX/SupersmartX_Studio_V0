@@ -1,15 +1,19 @@
 import { auth } from '@/auth';
 import { NextResponse } from 'next/server';
 import type { BillingPeriod } from '@/lib/billing/contracts';
-import { getSandboxQuote } from '@/lib/billing/paddle';
+import { getPaddleEnvironment, getSandboxQuote, isPaddleCheckoutEnabled } from '@/lib/billing/paddle';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (process.env.PADDLE_LIVE_CHECKOUT_DISABLED !== 'true') {
-    return NextResponse.json({ error: 'Paddle checkout is disabled' }, { status: 503 });
+  if (!isPaddleCheckoutEnabled()) {
+    return NextResponse.json({
+      error: getPaddleEnvironment() === 'live'
+        ? 'Live Paddle checkout is disabled'
+        : 'Paddle checkout is unavailable',
+    }, { status: 503 });
   }
 
   const body = await request.json().catch(() => null) as { period?: unknown } | null;

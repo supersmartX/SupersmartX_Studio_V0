@@ -1,7 +1,15 @@
 import crypto from 'crypto';
 import { auth } from '@/auth';
 import { NextRequest, NextResponse } from 'next/server';
-import { assertSandboxPriceMatches, getPaddleClient, getSandboxQuote, isSafePaddleCheckoutUrl, PaddleBillingProvider } from '@/lib/billing/paddle';
+import {
+  assertSandboxPriceMatches,
+  getPaddleClient,
+  getPaddleEnvironment,
+  getSandboxQuote,
+  isPaddleCheckoutEnabled,
+  isSafePaddleCheckoutUrl,
+  PaddleBillingProvider,
+} from '@/lib/billing/paddle';
 import {
   ActiveBillingSubscriptionError,
   hashCheckoutConsent,
@@ -16,8 +24,12 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (process.env.PADDLE_LIVE_CHECKOUT_DISABLED !== 'true') {
-    return NextResponse.json({ error: 'Paddle checkout is disabled' }, { status: 503 });
+  if (!isPaddleCheckoutEnabled()) {
+    return NextResponse.json({
+      error: getPaddleEnvironment() === 'live'
+        ? 'Live Paddle checkout is disabled'
+        : 'Paddle checkout is unavailable',
+    }, { status: 503 });
   }
 
   const body = await request.json().catch(() => null) as Partial<CheckoutConsent> | null;
