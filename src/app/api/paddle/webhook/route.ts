@@ -101,9 +101,7 @@ export async function POST(request: NextRequest) {
       payload: event,
       occurredAt,
     });
-    if (!receipt.duplicate) {
-      await triggerBillingWorker();
-    }
+    await triggerBillingWorker();
     return NextResponse.json(
       { status: 'accepted', duplicate: receipt.duplicate },
       { status: receipt.duplicate ? 200 : 202, headers: { 'Cache-Control': 'no-store' } },

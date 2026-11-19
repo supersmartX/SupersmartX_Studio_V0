@@ -98,6 +98,52 @@ describe('Paddle webhook route', () => {
     }));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: 'accepted', duplicate: true });
+    expect(fetch).toHaveBeenCalledWith(
+      'https://studio.supersmartx.com/api/internal/paddle/worker',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: 'Bearer worker-secret',
+        }),
+      }),
+    );
+  });
+
+  it('keeps a first event accepted and durable when the worker trigger fails', async () => {
+    mocks.unmarshal.mockResolvedValue({
+      eventId: 'evt-trigger-failure',
+      eventType: 'transaction.paid',
+      occurredAt: '2026-11-18T12:00:00.000Z',
+      data: { id: 'txn-trigger-failure' },
+    });
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('worker invocation failed'));
+
+    const res = await POST(new NextRequest('http://localhost/api/paddle/webhook', {
+      method: 'POST',
+      headers: { 'paddle-signature': 'valid' },
+      body: '{}',
+    }));
+
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ status: 'accepted', duplicate: false });
+    expect(mocks.receive).toHaveBeenCalledOnce();
+  });
+
+  it('does not call the worker when its server-side secret is unavailable', async () => {
+    vi.stubEnv('CRON_SECRET', '');
+    mocks.unmarshal.mockResolvedValue({
+      eventId: 'evt-no-worker-secret',
+      eventType: 'transaction.paid',
+      occurredAt: '2026-11-18T12:00:00.000Z',
+      data: { id: 'txn-no-worker-secret' },
+    });
+
+    const res = await POST(new NextRequest('http://localhost/api/paddle/webhook', {
+      method: 'POST',
+      headers: { 'paddle-signature': 'valid' },
+      body: '{}',
+    }));
+
+    expect(res.status).toBe(202);
     expect(fetch).not.toHaveBeenCalled();
   });
 

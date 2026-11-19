@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   createReservation: vi.fn(),
   updateReservation: vi.fn(),
   findTransaction: vi.fn(),
+  createTransaction: vi.fn(),
+  claimTransactionGrant: vi.fn(),
   findAccount: vi.fn(),
   updateTransaction: vi.fn(),
   findUserTransactions: vi.fn(),
@@ -41,6 +43,8 @@ vi.mock('@/lib/db/prisma', () => ({
       },
       billingTransaction: {
         findUnique: mocks.findTransaction,
+        createMany: mocks.createTransaction,
+        updateMany: mocks.claimTransactionGrant,
         update: mocks.updateTransaction,
         findMany: mocks.findUserTransactions,
       },
@@ -60,6 +64,7 @@ import {
   ActiveBillingSubscriptionError,
   acquireBillingEventLease,
   applyAdjustmentEvent,
+  applyPaidBillingEvent,
   releaseBillingEventLease,
   reserveCheckout,
   renewBillingEventLease,
@@ -80,6 +85,8 @@ const leaseInput = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.createTransaction.mockResolvedValue({ count: 1 });
+  mocks.claimTransactionGrant.mockResolvedValue({ count: 0 });
   mocks.findUser.mockResolvedValue({ plan: 'free', planExpiresAt: null });
   mocks.upsertAccount.mockResolvedValue({});
   mocks.findReservation.mockResolvedValue(null);
@@ -109,6 +116,59 @@ beforeEach(() => {
 });
 
 describe('Paddle billing operations', () => {
+  it('does not claim entitlement twice for the same provider transaction', async () => {
+    mocks.findLease.mockResolvedValue({
+      eventId: 'evt-paid-duplicate',
+      occurredAt: new Date('2026-11-18T12:00:00.000Z'),
+    });
+    mocks.findUser.mockResolvedValue({
+      plan: 'creator_monthly',
+      planExpiresAt: new Date('2026-12-18T00:00:00.000Z'),
+    });
+    mocks.findAccount.mockResolvedValue({
+      userId: 'user-1',
+      providerSubscriptionId: 'sub-1',
+      providerCustomerId: 'ctm-1',
+      paidThroughAt: new Date('2026-12-18T00:00:00.000Z'),
+      legacyPaidThroughAt: null,
+      legacyPlan: null,
+      plan: 'creator_monthly',
+      status: 'active',
+      lastEventAt: null,
+    });
+    mocks.findTransaction.mockResolvedValue({
+      id: 'billing-txn-1',
+      userId: 'user-1',
+      entitlementGrantedAt: new Date('2026-11-18T12:00:00.000Z'),
+    });
+    mocks.createTransaction.mockResolvedValue({ count: 0 });
+
+    await applyPaidBillingEvent({
+      eventId: 'evt-paid-duplicate',
+      leaseToken: 'lease-token',
+      reservationId: null,
+      userId: 'user-1',
+      plan: 'creator_monthly',
+      providerTransactionId: 'txn-paid-duplicate',
+      providerSubscriptionId: 'sub-1',
+      providerCustomerId: 'ctm-1',
+      amount: '349.00',
+      currency: 'INR',
+      paidAt: new Date('2026-11-18T12:00:00.000Z'),
+      periodStartAt: new Date('2026-11-18T12:00:00.000Z'),
+      periodEndAt: new Date('2026-12-18T00:00:00.000Z'),
+      nextChargeAt: new Date('2026-12-18T00:00:00.000Z'),
+    });
+
+    expect(mocks.createTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.arrayContaining([
+        expect.objectContaining({ providerTransactionId: 'txn-paid-duplicate' }),
+      ]),
+      skipDuplicates: true,
+    }));
+    expect(mocks.claimTransactionGrant).not.toHaveBeenCalled();
+  });
+
   it('records a partial refund without revoking the paid term', async () => {
     await applyAdjustmentEvent(leaseInput);
 

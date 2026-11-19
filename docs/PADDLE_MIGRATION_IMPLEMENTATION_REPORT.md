@@ -128,6 +128,51 @@ only. It does not prove real Paddle events, PostgreSQL concurrency or a deployed
 Vercel function. Deployment remains pending, and sandbox verification remains
 not tested.
 
+## Production Paddle schema migration (2026-11-19)
+
+Status: **PASS**
+
+After explicit production authorization, Prisma applied only the two pending
+Paddle migrations to the confirmed Supabase production database:
+
+- `20261118000000_paddle_billing`
+- `20261119000000_paddle_adjustment_amount`
+
+Database identity used for the run:
+
+- Project: `supersmart-x-studio-v0`
+- Host: `aws-0-ap-northeast-2.pooler.supabase.com:5432`
+- Database: `postgres`
+- Schema: `public`
+- Environment: production
+
+Command:
+
+```powershell
+npx prisma migrate deploy
+```
+
+Result: both migration SQL files were applied successfully. A subsequent
+`npx prisma migrate status` reported `Database schema is up to date!` with four
+migrations found.
+
+Verified endpoint behavior after migration:
+
+- `GET /api/paddle/billing` returned HTTP 401 for an unauthenticated request.
+- `POST /api/paddle/quote` returned HTTP 401 for an unauthenticated request.
+
+Those 401 responses confirm the routes remain protected by Studio authentication;
+they do not prove authenticated billing queries succeed. A P2021 missing-table
+error was not returned by these probes.
+
+Production safety remained unchanged:
+
+- `PADDLE_LIVE_CHECKOUT_DISABLED=true`
+- No Vercel environment variables changed.
+- No deployment was made.
+- No live Paddle operation was performed.
+- No data or legacy entitlement migration was included in the applied SQL.
+
 ### Verification run for this review
 
 ```powershell
