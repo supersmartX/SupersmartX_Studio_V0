@@ -106,23 +106,40 @@ export async function POST(request: NextRequest) {
       reservationId,
     });
   } catch {
-    await getPrisma().billingReservation.update({
-      where: { id: reservationId },
-      data: { status: 'pending', remoteStatus: 'provider_create_uncertain' },
-    });
+    try {
+      await getPrisma().billingReservation.update({
+        where: { id: reservationId },
+        data: { status: 'pending', remoteStatus: 'provider_create_uncertain' },
+      });
+    } catch {
+      // The reservation was committed before contacting Paddle. Keep its ID
+      // available to the customer so the recovery endpoint can reconcile it.
+      console.error('Paddle checkout uncertainty could not be persisted', { reservationId });
+    }
     return NextResponse.json({
-      error: 'Checkout creation outcome is uncertain; do not retry. Support must reconcile this reservation.',
+      error: 'Checkout creation outcome is uncertain. Check its status before trying again.',
       reservationId,
     }, { status: 503 });
   }
-  await reserveCheckout({
-    ...consent,
-    consentHash,
-    userId: session.user.id,
-    reservationId,
-    providerOperationId: result.providerOperationId,
-    providerTransactionId: result.transactionId,
-  });
+  try {
+    await reserveCheckout({
+      ...consent,
+      consentHash,
+      userId: session.user.id,
+      reservationId,
+      providerOperationId: result.providerOperationId,
+      providerTransactionId: result.transactionId,
+    });
+  } catch {
+    // Paddle may already have created the transaction. Do not return an
+    // unhandled 500 or ask the customer to create another transaction: the
+    // committed reservation is the recovery key for matching its metadata.
+    console.error('Paddle checkout transaction link persistence failed', { reservationId });
+    return NextResponse.json({
+      error: 'Checkout was created but its status could not be saved. Check its status before trying again.',
+      reservationId,
+    }, { status: 503 });
+  }
   if (!result.checkoutUrl || !isSafePaddleCheckoutUrl(result.checkoutUrl)) {
     return NextResponse.json({
       error: 'Paddle created a transaction without a safe checkout URL; do not retry.',

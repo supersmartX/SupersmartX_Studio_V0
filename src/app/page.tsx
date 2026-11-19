@@ -104,7 +104,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How much does SupersmartX Studio cost?',
-    a: 'Free forever with a standard teleprompter (3 minutes per recording), YouTube 16:9, 720p, unlimited local downloads and watermark. Free recording is limited to up to 10 minutes per browser profile per local calendar day. This is a device-local limit and may reset if site data is cleared or you switch browser profiles. Creator access is a one-time payment for 1 month or 1 year; access expires at the end of the purchased term with no automatic renewal.',
+    a: 'Free forever with a standard teleprompter (3 minutes per recording), YouTube 16:9, 720p, unlimited local downloads and watermark. Free recording is limited to up to 10 minutes per browser profile per local calendar day. This is a device-local limit and may reset if site data is cleared or you switch browser profiles. Creator is a monthly or yearly subscription that renews automatically until canceled. Canceling stops future renewals, and access continues through the paid period.',
   },
   {
     q: 'Is there a watermark on the free plan?',
@@ -1598,7 +1598,7 @@ export default function LandingPage() {
                 Start free. Upgrade when ready.
               </h2>
               <p className="lsx-section-subtitle">
-                One-time payment - no automatic renewal.
+                Creator subscriptions renew automatically until canceled.
               </p>
             </div>
 
@@ -1684,18 +1684,18 @@ export default function LandingPage() {
                     )}
                     <span className="lsx-pricing-period">
                       {' '}
-                      for {billingPeriod === 'monthly' ? '1 month' : '1 year'}
+                      / {billingPeriod === 'monthly' ? 'month' : 'year'}
                     </span>
                   </div>
                   {billingPeriod === 'yearly' && (
                     <p className="lsx-pricing-note">
-                      One-time payment for 1 year of access (equivalent to{' '}
+                      Renews every 12 months until canceled (equivalent to{' '}
                       {format(currentPricing.creatorYearly / 12)}/month).
                     </p>
                   )}
                   {billingPeriod === 'monthly' && (
                     <p className="lsx-pricing-note">
-                      One-time payment for 1 month of access.
+                      Renews every month until canceled.
                     </p>
                   )}
                 </div>

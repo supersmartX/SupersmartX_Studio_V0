@@ -94,6 +94,7 @@ export function Header({
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [paddleBilling, setPaddleBilling] = useState<PaddleBillingSummary | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
+  const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   useEffect(() => {
     if (!showUserMenu || !signedIn) return;
     let cancelled = false;
@@ -255,23 +256,38 @@ export function Header({
                       disabled={cancelRequested}
                       onClick={async () => {
                         setCancelRequested(true);
-                        const res = await fetch('/api/paddle/cancel', {
-                          method: 'POST',
-                          credentials: 'same-origin',
-                        });
-                        if (res.ok) {
-                          setPaddleBilling((current) => current ? {
-                            ...current,
-                            account: current.account ? { ...current.account, cancelAtPeriodEnd: true } : current.account,
-                          } : current);
-                        } else {
+                        setCancelNotice(null);
+                        try {
+                          const res = await fetch('/api/paddle/cancel', {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                          });
+                          const result = await res.json().catch(() => null) as { status?: string } | null;
+                          if (res.ok && result?.status === 'cancellation_requested') {
+                            setCancelNotice('Cancellation is confirmed for the end of your paid period.');
+                            setPaddleBilling((current) => current ? {
+                              ...current,
+                              account: current.account ? { ...current.account, cancelAtPeriodEnd: true } : current.account,
+                            } : current);
+                          } else if (res.status === 202 && result?.status === 'cancellation_pending_reconciliation') {
+                            setCancelNotice('Paddle has not confirmed cancellation yet. Your current access remains active. Refresh this page later to check the status.');
+                          } else {
+                            throw new Error('Cancellation could not be confirmed');
+                          }
+                        } catch {
                           setCancelRequested(false);
+                          setCancelNotice('Cancellation could not be confirmed. Check your billing status before submitting another request.');
                         }
                       }}
                       className="w-full text-left px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:bg-elevated"
                     >
-                      {cancelRequested ? 'Cancellation pending' : 'Cancel at period end'}
+                      {cancelRequested ? 'Cancellation awaiting confirmation' : 'Cancel at period end'}
                     </button>
+                  )}
+                  {cancelNotice && (
+                    <p role="status" aria-live="polite" className="px-2.5 py-1.5 text-[11px] text-text-muted">
+                      {cancelNotice}
+                    </p>
                   )}
                 </div>
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { findUserById, listUserExportR2Keys, purgeUserOwnedData, deleteUserById, recordDeletedIdentity } from '@/lib/db';
+import { getPrisma } from '@/lib/db/prisma';
 import { listUserRecordings, deleteRecording } from '@/lib/r2';
 import { rateLimit } from '@/lib/rate-limit';
 
@@ -19,7 +20,7 @@ function clearSessionCookies(response: NextResponse): NextResponse {
   return response;
 }
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE(_request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -34,6 +35,41 @@ export async function DELETE(request: NextRequest) {
 
     const user = await findUserById(session.user.id);
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 401 });
+
+    // Never delete the local billing identity while Paddle may still collect
+    // future payments or while a checkout/provider mutation is unresolved.
+    // Cancellation is safe only after the provider-confirmed period-end flag
+    // has been recorded (or Paddle has already canceled/expired the contract).
+    const prisma = getPrisma();
+    const [billingAccount, unresolvedReservation, unresolvedOperation] = await Promise.all([
+      prisma.billingAccount.findUnique({
+        where: { userId: session.user.id },
+        select: { providerSubscriptionId: true, status: true, cancelAtPeriodEnd: true },
+      }),
+      prisma.billingReservation.findFirst({
+        where: { userId: session.user.id, status: { in: ['reserved', 'pending'] } },
+        select: { id: true },
+      }),
+      prisma.billingOperation.findFirst({
+        where: { userId: session.user.id, status: { in: ['pending', 'uncertain'] } },
+        select: { id: true },
+      }),
+    ]);
+    const subscriptionMayRenew = Boolean(
+      billingAccount?.providerSubscriptionId &&
+      !billingAccount.cancelAtPeriodEnd &&
+      !['canceled', 'expired'].includes(billingAccount.status),
+    );
+    if (subscriptionMayRenew) {
+      return NextResponse.json({
+        error: 'Stop future Paddle billing before deleting your account. Your paid access remains through the current period.',
+      }, { status: 409 });
+    }
+    if (unresolvedReservation || unresolvedOperation) {
+      return NextResponse.json({
+        error: 'Paddle billing is still being reconciled. Check its status before deleting your account.',
+      }, { status: 409 });
+    }
 
     // 1. Identify all R2 objects owned by user (exports prefix)
     let r2Keys: string[] = [];

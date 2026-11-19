@@ -44,15 +44,17 @@ export default function RefundPage() {
               2. Billing
             </h2>
             <p>
-              Paid plans are purchased as a single one-time payment for a fixed
-              term - monthly or yearly. Prices are shown in Indian Rupees (INR)
-              at checkout for customers in India, and in the local currency for
-              other regions. Payments are processed by Paddle.
+              Creator plans are recurring monthly or yearly subscriptions.
+              Your selected subscription renews automatically at the amount and
+              currency shown at checkout until you cancel. Paddle displays any
+              applicable tax and the final amount before payment. Payments are
+              processed by Paddle.
             </p>
             <p>
-              Paid plans do not renew automatically. There is no recurring
-              charge, so no cancellation is needed to stop future billing -
-              simply do not purchase another term.
+              Free access does not require payment. Existing one-time purchases
+              remain valid through their original expiry and do not become
+              subscriptions. New Creator subscriptions are not started for
+              existing customers without their explicit consent.
             </p>
           </section>
 
@@ -61,14 +63,14 @@ export default function RefundPage() {
               3. Cancellation
             </h2>
             <p>
-              You may stop using the Service at any time. If you want your paid
-              plan closed before the end of its term, email us at the address in
-              section 7 and we will close it on your account.
+              You may cancel a Creator subscription from your account at any
+              time. Cancellation stops future renewals; access remains through
+              the paid period. Cancellation does not itself refund a payment.
+              To request a refund, follow section 5.
             </p>
             <p>
-              Closing a plan does not automatically refund the remaining period.
-              Access continues until the paid term expires unless a refund is
-              approved under section 4.
+              Existing one-time purchases remain available until their original
+              expiry. They are not automatically converted to recurring billing.
             </p>
           </section>
 

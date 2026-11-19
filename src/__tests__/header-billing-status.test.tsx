@@ -87,4 +87,58 @@ describe('Header — billing status', () => {
 
     expect(screen.getByRole('menuitem', { name: 'Manage or extend plan' })).toBeInTheDocument();
   });
+
+  it('does not show cancellation as scheduled while provider confirmation is pending', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/user/stats') {
+        return Promise.resolve({ ok: true, json: async () => ({ planExpiresAt: '2027-01-15T09:30:00.000Z', planActive: true }) });
+      }
+      if (url === '/api/paddle/billing') {
+        return Promise.resolve({ ok: true, json: async () => ({
+          account: { paidThroughAt: '2027-01-15T09:30:00.000Z', nextChargeAt: '2027-01-15T09:30:00.000Z', cancelAtPeriodEnd: false },
+          transactions: [],
+        }) });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 202,
+        json: async () => ({ status: 'cancellation_pending_reconciliation' }),
+      });
+    }));
+    render(<Header hasRecording={false} onExport={noop} onShare={noop} userPlan="creator_monthly" />);
+
+    await openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Cancel at period end' }));
+
+    expect(await screen.findByText(/Paddle has not confirmed cancellation yet/)).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Cancellation awaiting confirmation' })).toBeDisabled();
+    expect(screen.queryByText('Cancellation scheduled')).toBeNull();
+  });
+
+  it('shows cancellation as scheduled only after the API returns confirmed status', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/user/stats') {
+        return Promise.resolve({ ok: true, json: async () => ({ planExpiresAt: '2027-01-15T09:30:00.000Z', planActive: true }) });
+      }
+      if (url === '/api/paddle/billing') {
+        return Promise.resolve({ ok: true, json: async () => ({
+          account: { paidThroughAt: '2027-01-15T09:30:00.000Z', nextChargeAt: '2027-01-15T09:30:00.000Z', cancelAtPeriodEnd: false },
+          transactions: [],
+        }) });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'cancellation_requested' }),
+      });
+    }));
+    render(<Header hasRecording={false} onExport={noop} onShare={noop} userPlan="creator_monthly" />);
+
+    await openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Cancel at period end' }));
+
+    expect(await screen.findByText('Cancellation is confirmed for the end of your paid period.')).toBeInTheDocument();
+    expect(screen.getByText('Cancellation scheduled')).toBeInTheDocument();
+    expect(screen.getByText('Access until Jan 15, 2027')).toBeInTheDocument();
+  });
 });

@@ -121,7 +121,7 @@ export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgra
             </>
           )}
         </div>
-        <p className="text-[11px] text-text-secondary">One-time payment for 1 month of access. No automatic renewal.</p>
+        <p className="text-[11px] text-text-secondary">Monthly subscription renews each month until canceled.</p>
 
         {/* UX-008 (audit P1): this note used to render BELOW the buttons, so
             the consequence of the primary action was something a guest read only

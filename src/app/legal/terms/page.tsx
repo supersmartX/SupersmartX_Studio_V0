@@ -99,9 +99,13 @@ export default function TermsPage() {
               6. Payments
             </h2>
             <p>
-              Paid features are processed through Paddle. We do not store your
-              payment information. Prices may vary by region based on purchasing
-              power parity.
+              Creator subscriptions are billed monthly or yearly and renew
+              automatically until canceled. You can cancel future renewals
+              from your account. Cancellation does not end access immediately;
+              Creator access continues through the paid period. Applicable tax
+              and the final amount are shown before you confirm payment. Paddle
+              processes payments, and we do not store your card details. Prices
+              may vary by region.
             </p>
           </section>
 

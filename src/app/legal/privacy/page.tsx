@@ -65,8 +65,8 @@ export default function PrivacyPage() {
             <ul className="ml-4 list-inside list-disc space-y-1">
               <li>To provide and maintain the Service</li>
               <li>
-                To process payments and manage the paid access period you
-                purchased
+                To process subscription payments and manage subscription access,
+                while preserving records for existing one-time purchases
               </li>
               <li>
                 To send transactional emails (password reset, payment
