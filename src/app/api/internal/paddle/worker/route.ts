@@ -22,6 +22,8 @@ import {
   renewBillingEventLease,
 } from '@/lib/billing/operations';
 import { getPrisma } from '@/lib/db/prisma';
+import { releaseOrderNotification, tryClaimOrderNotification } from '@/lib/db';
+import { isEmailConfigured, sendPaymentConfirmationEmail } from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -129,6 +131,7 @@ async function resolveOwner(input: {
 }
 
 async function processPaidTransaction(
+  eventType: string,
   eventId: string,
   leaseToken: string,
   occurredAt: Date | null,
@@ -140,7 +143,7 @@ async function processPaidTransaction(
   const transactionId = text(eventData.id);
   if (!transactionId) throw new ReviewEventError('transaction_id_missing');
 
-  const transaction = await paddle.transactions.get(transactionId, { include: ['address'] });
+  const transaction = await paddle.transactions.get(transactionId, { include: ['address', 'customer'] });
   if (transaction.id !== transactionId) throw new ReviewEventError('transaction_id_mismatch');
   if (!isAuthoritativelyPaid(transaction.status)) {
     throw new ReviewEventError('transaction_not_paid');
@@ -307,6 +310,36 @@ async function processPaidTransaction(
     periodEndAt,
     nextChargeAt: date(subscription.nextBilledAt),
   });
+
+  // Paddle already sends the official invoice. Studio sends a separate account
+  // confirmation only after Paddle reports the transaction completed. The
+  // provider transaction ID plus a distinct notification kind dedupes retries.
+  if (eventType === 'transaction.completed' && !isEmailConfigured()) {
+    console.warn('Studio payment confirmation skipped: Resend is not configured');
+  }
+  if (eventType === 'transaction.completed' && isEmailConfigured()) {
+    if (!transaction.customer || transaction.customer.id !== customerId || !transaction.customer.email) {
+      throw new Error('Paddle customer email is unavailable for the payment confirmation');
+    }
+    const claimed = await tryClaimOrderNotification(transactionId, 'paddle_receipt');
+    if (claimed) {
+      const sent = await sendPaymentConfirmationEmail({
+        orderId: transactionId,
+        plan,
+        amount: Number(total),
+        currency: transaction.currencyCode,
+        customerName: transaction.customer.name ?? '',
+        customerEmail: transaction.customer.email,
+        billingPeriod: expectedPeriod,
+        accessUntil: periodEndAt.toISOString(),
+        nextChargeAt: date(subscription.nextBilledAt)?.toISOString() ?? null,
+      });
+      if (!sent) {
+        await releaseOrderNotification(transactionId, 'paddle_receipt');
+        throw new Error('Studio payment confirmation email could not be delivered');
+      }
+    }
+  }
 }
 
 async function processSubscriptionEvent(
@@ -442,7 +475,7 @@ async function processEvent(event: JsonRecord, eventId: string, leaseToken: stri
   const customData = record(field(data, 'customData', 'custom_data'));
 
   if (eventType === 'transaction.paid' || eventType === 'transaction.completed') {
-    await processPaidTransaction(eventId, leaseToken, occurredAt, data, customData);
+    await processPaidTransaction(eventType, eventId, leaseToken, occurredAt, data, customData);
     return 'processed' as const;
   }
   if (eventType === 'transaction.payment_failed' || eventType === 'transaction.past_due') {

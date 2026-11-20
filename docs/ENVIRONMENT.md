@@ -20,7 +20,7 @@ Source of truth for names: `.env.example`. Required in production:
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` | Cloudflare R2 | All four required; else 503. Bucket must be PRIVATE |
 | `R2_SIGNED_URL_TTL_SECONDS` | Download URL TTL | Default 3600 |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth | Optional; enables Google provider |
-| `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | Email receipts | Optional; payment mail is best-effort (`Promise.allSettled`) |
+| `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | Password reset and Studio payment confirmations | Optional; Paddle confirmation is sent after `transaction.completed`, best-effort, to Paddle's verified customer email. Paddle sends the official invoice separately. |
 | `CLEANUP_SECRET` | Nightly export-job cleanup auth | Constant-time compared; endpoint 401s without it. Must equal `CRON_SECRET`, because Vercel sends one bearer value to both cron paths. |
 | `ADMIN_EMAIL` | Admin payment notifications | Optional |
 | `DISCORD_WEBHOOK_URL` | Feedback submissions (`POST /api/feedback` only — not an alert channel) | Optional; unset → feedback returns 503 |

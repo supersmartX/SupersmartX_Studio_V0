@@ -16,6 +16,7 @@ The required apps/packages/infrastructure directories are reserved for future ex
 - [x] Active subscription responses include current plan, billing/access dates and cancellation state.
 - [x] Failed renewal account menu exposes Paddle's owner-verified payment-method recovery link when supplied.
 - [x] Re-enrollment clears a previous subscription pointer only after Paddle confirms cancellation/expiry and the paid period has ended.
+- [x] Completed Paddle transactions send a deduplicated Studio payment confirmation to Paddle's verified customer email when Resend is configured; pending payments do not send it.
 - [x] Align documented contracts and configuration.
 - [ ] Targeted unit/route/UI tests, type check, lint, build.
 
@@ -26,7 +27,7 @@ The required apps/packages/infrastructure directories are reserved for future ex
 - [ ] Payment methods account inventory; UPI mandate/deferred-payment scenarios.
 - [ ] Live catalog/credentials/webhook configuration verification and release approval.
 - [ ] Unified regional display/quote pricing, billing-country recovery, discounts/credits/trials/plan-change decisions.
-- [ ] Payment-method update, invoices/history and lifecycle notifications.
+- [ ] Payment-method update, invoices/history, and failed-payment/cancellation/refund lifecycle notifications.
 - [ ] Resubscription after cancellation, cancellation persistence failures/concurrency and deletion races.
 - [ ] Partial/cumulative refund and dispute-reversal policy, retention and Cashfree closeout.
 - [ ] Durable checkout recovery after refresh; complete accessibility/offline/rate-limit/error states.

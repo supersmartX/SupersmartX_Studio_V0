@@ -28,6 +28,11 @@ interface PaymentEmailData {
    * would disagree with the entitlement on a renewal or a retried send.
    */
   accessUntil?: string | null;
+  nextChargeAt?: string | null;
+}
+
+export function isEmailConfigured(): boolean {
+  return Boolean(process.env.RESEND_API_KEY?.trim());
 }
 
 function sanitizeHtml(str: string): string {
@@ -104,6 +109,7 @@ function buildUserConfirmationHtml(data: PaymentEmailData): string {
   const safeName = sanitizeHtml(data.customerName || 'there');
   const safeOrderId = sanitizeHtml(data.orderId);
   const accessUntilStr = formatAccessUntil(data.accessUntil);
+  const nextChargeAtStr = formatAccessUntil(data.nextChargeAt);
 
   return `
 <!DOCTYPE html>
@@ -153,6 +159,10 @@ function buildUserConfirmationHtml(data: PaymentEmailData): string {
                   <td style="padding:4px 0;font-size:13px;color:#71717a;">Access until</td>
                   <td style="padding:4px 0;font-size:13px;color:#ffffff;text-align:right;">${sanitizeHtml(accessUntilStr)}</td>
                 </tr>` : ''}
+                ${nextChargeAtStr ? `<tr>
+                  <td style="padding:4px 0;font-size:13px;color:#71717a;">Next billing date</td>
+                  <td style="padding:4px 0;font-size:13px;color:#ffffff;text-align:right;">${sanitizeHtml(nextChargeAtStr)}</td>
+                </tr>` : ''}
               </table>
             </td></tr>
           </table>
@@ -176,7 +186,7 @@ function buildUserConfirmationHtml(data: PaymentEmailData): string {
         <!-- Footer -->
         <tr><td style="padding:20px 32px;border-top:1px solid #1e1e2e;">
           <p style="margin:0;font-size:11px;color:#52525b;text-align:center;">
-            This is a receipt for your payment. No further action is required.<br>
+            This is your SupersmartX Studio payment confirmation. Paddle sends your official invoice separately.<br>
             Questions? Reply to this email or contact <a href="mailto:${sanitizeAttr(ADMIN_EMAIL)}" style="color:#7C3AED;">${sanitizeHtml(ADMIN_EMAIL)}</a>
           </p>
         </td></tr>
@@ -236,7 +246,8 @@ function buildUserConfirmationText(data: PaymentEmailData): string {
   const price = formatCurrency(data.amount, data.currency);
   const planName = getPlanDisplayName(data.plan);
   const accessUntilStr = formatAccessUntil(data.accessUntil);
-  return `Payment Successful\n\nHi ${data.customerName || 'there'},\n\nYour ${planName} access is now active for the purchased term.\n\nAmount: ${price}\nOrder ID: ${data.orderId}\n${accessUntilStr ? `Access until: ${accessUntilStr}\n` : ''}\nAccess ends at the end of the purchased term. There is no automatic renewal.\n\nOpen SupersmartX Studio: ${APP_URL}/studio\n\nQuestions? Reply to this email or contact ${ADMIN_EMAIL}`;
+  const nextChargeAtStr = formatAccessUntil(data.nextChargeAt);
+  return `Payment Successful\n\nHi ${data.customerName || 'there'},\n\nYour ${planName} subscription payment is confirmed and your access is active.\n\nAmount: ${price}\nOrder ID: ${data.orderId}\n${accessUntilStr ? `Access until: ${accessUntilStr}\n` : ''}${nextChargeAtStr ? `Next billing date: ${nextChargeAtStr}\n` : ''}\nPaddle will email your official invoice separately. Manage your subscription from your Studio account.\n\nOpen SupersmartX Studio: ${APP_URL}/studio\n\nQuestions? Reply to this email or contact ${ADMIN_EMAIL}`;
 }
 
 function buildAdminNotificationText(data: PaymentEmailData): string {
