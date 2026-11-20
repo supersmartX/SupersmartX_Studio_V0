@@ -2,4 +2,4 @@
 
 ## 2026-11-20 payment remediation
 
-Implementation in progress; validation and remaining work are tracked in PAYMENT_REMEDIATION.md. No deployment or live activation implied.
+Implemented initial enrollment recovery, Paddle payment handoff, paid-only entitlement, renewal attribution, serialized account updates, and active/failed-payment customer guidance. Validation and remaining release work are tracked in PAYMENT_REMEDIATION.md. No deployment or live activation implied.

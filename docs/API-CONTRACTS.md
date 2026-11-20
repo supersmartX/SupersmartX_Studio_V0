@@ -74,21 +74,24 @@ Live checkout and cancellation mutations are disabled in code. The implemented c
 
 ### `POST /api/paddle/checkout`
 - **AUTH**: authenticated user session.
-- **INPUT**: server quote fields plus a SHA-256 consent hash over plan, period, amount, currency, and consent version.
-- **SERVER VALIDATION**: checks exact plan/period/amount/currency against server configuration and Paddle sandbox price metadata (active recurring price, no trial or regional overrides). Rejects all non-sandbox environments.
-- **DB EFFECT**: creates a single-active enrollment reservation and preserves the user's legacy entitlement baseline before the Paddle transaction-create call. Existing active or paid-through Paddle subscriptions cannot be enrolled a second time. Reservation ID and consent hash are attached to provider custom data for webhook correlation. An indeterminate create leaves the reservation blocking retries; the status route attempts bounded exact-metadata reconciliation and never assumes that no transaction exists.
-- **SUCCESS**: `200 { reservationId, providerOperationId, transactionId, checkoutUrl }`, only when the URL is HTTPS on an explicitly approved merchant payment page (`PADDLE_CHECKOUT_URL`, or an additional page listed in `PADDLE_CHECKOUT_URLS`). The `_ptxn` query parameter is allowed; other hosts, paths, credentials, or fragments are rejected.
-- **FAILURES**: `400` malformed consent or field bounds; `401` no session; `409` server quote mismatch, existing active subscription, or unresolved reservation; `413` oversized request; `429` per-account rate limit; `503` disabled/unconfigured/non-sandbox/price mismatch/provider uncertainty; `500` reservation persistence failure.
+- **INPUT**: exact current `CheckoutRequest` (plan, period, amount, currency, consent version 2, signed quote token, SHA-256 consent hash). Version 1 exists only for stored historical records, not new HTTP checkout.
+- **SERVER VALIDATION**: checks the signed quote and country, consent hash, configured Paddle price, fulfilment readiness, request size and per-user rate limit. Regional INR pricing is permitted only by the configured India override. Rejects live checkout.
+- **DECISION ORDER**: an active/past-due subscription prevents a second enrollment; otherwise the service reconciles the open reservation with Paddle. Draft/ready transactions resume the same checkout. Paid/completed transactions enqueue authoritative reconciliation and wait for entitlement. An unlinked reservation expires only after a bounded provider search proves no transaction exists. Ambiguous/provider-unavailable states stay recoverable and never trigger a duplicate charge.
+- **DB EFFECT**: preserves legacy entitlement before reserving. Reservation and consent metadata correlate checkout to the user. Uncertain provider outcomes retain a recovery key. Repeat submission resumes the existing transaction instead of creating another.
+- **SUCCESS**: `200 { reservationId, providerOperationId, transactionId, checkoutUrl, resumed? }`, on the configured HTTPS merchant payment page only. `_ptxn` is the transaction ID; other hosts, paths, credentials or fragments are rejected.
+- **ACTIVE SUBSCRIPTION**: `409 { state: 'active_subscription' | 'payment_action_required', subscription: { plan, status, nextChargeAt, paidThroughAt, cancelAtPeriodEnd } }`. UI shows current plan and billing/access date; payment recovery is routed to the account menu.
+- **FAILURES**: `400` malformed consent/field bounds; `401` no session; `409` quote mismatch, active plan or unresolved provider outcome; `413` oversized request; `429` per-user rate limit; `503` disabled/unconfigured/non-sandbox/provider uncertainty; `500` reservation persistence failure.
 
 ### `GET /api/paddle/checkout/status?reservationId=...`
 - **AUTH**: authenticated user session; reservation must belong to the caller.
-- **RECOVERY**: re-reads a known transaction or searches a bounded recent Paddle transaction window for exact reservation/user/plan/consent metadata. Multiple matches are sent for support review. Unresolved outcomes remain pending and block a second enrollment.
-- **SUCCESS**: returns a safe hosted checkout URL only for a provider transaction still in `ready` state. Paid transactions remain `awaiting_confirmation` until the signed webhook worker applies the entitlement. This route never grants access.
-- **RETRY**: only an authoritative terminal transaction failure/cancellation can release a reservation; recurring transactions in payment recovery remain pending to prevent duplicate subscriptions.
+- **RECOVERY**: re-reads a known transaction or searches a bounded recent Paddle transaction window for exact reservation/user/plan/consent metadata. Multiple matches or provider outages stay unresolved for safe recovery.
+- **RESUME**: returns the configured merchant payment page for an attributed `draft` or `ready` transaction, reusing the same transaction ID.
+- **PAID**: durably enqueues reconciliation and triggers the worker after the response. Entitlement is granted only after the worker re-fetches authoritative payment data; redirects never grant access.
+- **RETRY**: releases only provider-confirmed terminal attempts; ambiguous or potentially payable transactions stay pending to prevent duplicate subscriptions.
 
 ### `GET /api/paddle/billing`
 - **AUTH**: authenticated user session.
-- **SUCCESS**: `{ account, transactions }` from server-owned Paddle snapshots; transactions are limited to the caller and the latest 50 rows. `Cache-Control: no-store`.
+- **SUCCESS**: `{ account, transactions }` from server-owned Paddle snapshots; transactions are limited to the caller and the latest 50 rows. The account includes status, paid-through/next-charge/cancellation dates. A provider-verified management URL is available for payment recovery on a past-due subscription. `Cache-Control: no-store`.
 
 ### `POST /api/paddle/cancel`
 - **AUTH**: authenticated user session.
@@ -105,7 +108,7 @@ Live checkout and cancellation mutations are disabled in code. The implemented c
 
 ### `GET /api/internal/paddle/worker`
 - **AUTH**: Vercel Cron bearer token checked against `CRON_SECRET` with a constant-time comparison. No user session.
-- **SCHEDULING**: `vercel.json` invokes it once daily (`0 3 * * *`, the longest interval Vercel Hobby allows) as a recovery sweep. Normal processing is event-driven: each first-time webhook receipt triggers this route after the response is sent, and the trigger retries once on a connection failure. Each invocation drains pending events in a loop — up to 64 leases or a 45 s budget — with renewable lease tokens; expired leases can be reclaimed, and stale workers cannot commit after a newer lease.
+- **SCHEDULING**: each first-time durable webhook receipt triggers the worker after the response is sent, with one retry on connection failure. The once-daily cron is a recovery sweep. Each invocation drains pending events in a bounded loop with renewable lease tokens; expired leases can be reclaimed, and stale workers cannot commit after a newer lease.
 - **EVENT HANDLING**: re-reads paid transactions and subscriptions through the Paddle SDK; validates price, currency, account/customer/subscription ownership, reservation consent, provider billing periods, and exact undiscounted/untaxed totals. A provider transaction ID and transaction ledger claim prevent duplicate entitlement grants. Subscription activation alone never grants access. Missing webhook timestamps are rejected; out-of-order account-state events are guarded by Paddle `occurredAt`.
 - **RENEWAL/CANCELLATION/FAILURE**: paid periods come from the authoritative Paddle transaction/subscription period fields; failed-payment events only change billing status; subscription state updates do not extend paid-through coverage; cancellation at period end preserves paid-through coverage.
 - **REFUND/DISPUTE**: adjustment records are re-read from Paddle and attributed to their exact transaction. Partial refunds/disputes are persisted with amount and currency but do not revoke a whole term. Approved full refunds/chargebacks recompute coverage from remaining paid transaction periods plus preserved legacy coverage.

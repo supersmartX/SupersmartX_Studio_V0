@@ -13,7 +13,13 @@ async function lockBillingUser(tx: Prisma.TransactionClient, userId: string): Pr
 const MAX_BILLING_EVENT_ATTEMPTS = 10;
 
 export class ActiveBillingSubscriptionError extends Error {
-  constructor() {
+  constructor(readonly subscription: {
+    plan: string;
+    status: string;
+    nextChargeAt: string | null;
+    paidThroughAt: string | null;
+    cancelAtPeriodEnd: boolean;
+  }) {
     super('An active Paddle subscription already exists');
     this.name = 'ActiveBillingSubscriptionError';
   }
@@ -123,7 +129,13 @@ export async function reserveCheckout(input: CheckoutConsent & {
     if (account?.providerSubscriptionId &&
         (activeProviderStatuses.includes(account.status) ||
           Boolean(account.paidThroughAt && account.paidThroughAt > new Date()))) {
-      throw new ActiveBillingSubscriptionError();
+      throw new ActiveBillingSubscriptionError({
+        plan: account.plan,
+        status: account.status,
+        nextChargeAt: account.nextChargeAt?.toISOString() ?? null,
+        paidThroughAt: account.paidThroughAt?.toISOString() ?? null,
+        cancelAtPeriodEnd: account.cancelAtPeriodEnd,
+      });
     }
 
     const unresolvedReservation = await tx.billingReservation.findFirst({
@@ -148,6 +160,42 @@ export async function reserveCheckout(input: CheckoutConsent & {
         providerTransactionId: input.providerTransactionId,
       },
     });
+  });
+}
+
+/**
+ * Retire only the current pointer to a provider subscription that Paddle has
+ * independently confirmed terminal. The transaction ledger remains intact;
+ * this permits a later enrollment to bind a new subscription without making
+ * future paid grants conflict with an expired subscription ID.
+ */
+export async function clearEndedBillingSubscription(input: {
+  userId: string;
+  subscriptionId: string;
+  now?: Date;
+}): Promise<boolean> {
+  const prisma = getPrisma();
+  const now = input.now ?? new Date();
+  return prisma.$transaction(async (tx) => {
+    await lockBillingUser(tx, input.userId);
+    const account = await tx.billingAccount.findUnique({ where: { userId: input.userId } });
+    if (!account || account.providerSubscriptionId !== input.subscriptionId ||
+        account.paidThroughAt && account.paidThroughAt > now) return false;
+    const updated = await tx.billingAccount.updateMany({
+      where: {
+        userId: input.userId,
+        providerSubscriptionId: input.subscriptionId,
+        OR: [{ paidThroughAt: null }, { paidThroughAt: { lte: now } }],
+      },
+      data: {
+        providerCustomerId: null,
+        providerSubscriptionId: null,
+        cancelAtPeriodEnd: false,
+        nextChargeAt: null,
+        status: 'expired',
+      },
+    });
+    return updated.count === 1;
   });
 }
 

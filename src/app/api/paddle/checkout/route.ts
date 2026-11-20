@@ -18,6 +18,7 @@ import {
 } from '@/lib/billing/paddle';
 import {
   ActiveBillingSubscriptionError,
+  clearEndedBillingSubscription,
   hashCheckoutConsent,
   reserveCheckout,
   UnresolvedCheckoutReservationError,
@@ -25,6 +26,9 @@ import {
 import {
   expireStaleUnclaimedCheckoutReservations,
   failUnclaimedReservation,
+  recoverCheckoutReservation,
+  requestPaidCheckoutReconciliation,
+  type CheckoutRecovery,
 } from '@/lib/billing/reservations';
 import { getBillingReadiness } from '@/lib/billing/readiness';
 import { getPrisma } from '@/lib/db/prisma';
@@ -39,6 +43,56 @@ const CHECKOUT_RATE_LIMIT_MAX = 20;
 const CHECKOUT_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 const MAX_CHECKOUT_BODY_BYTES = 8_192;
 const CONSENT_HASH_PATTERN = /^[0-9a-f]{64}$/;
+const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing', 'past_due', 'paused', 'payment_failed'];
+
+// A repeated Subscribe is answered from the existing reservation instead of
+// creating a second provider transaction. Customer-facing text never mentions
+// reservations, transaction states or the provider.
+function checkoutRecoveryResponse(recovery: CheckoutRecovery): NextResponse | null {
+  if (recovery.kind === 'resume') {
+    return NextResponse.json({
+      reservationId: recovery.reservationId,
+      providerOperationId: recovery.transactionId,
+      transactionId: recovery.transactionId,
+      checkoutUrl: recovery.checkoutUrl,
+      resumed: true,
+    }, { headers: { 'Cache-Control': 'no-store' } });
+  }
+  if (recovery.kind === 'awaiting_payment') {
+    return NextResponse.json({
+      status: 'awaiting_confirmation',
+      reservationId: recovery.reservationId,
+      retryAllowed: false,
+      checkoutUrl: null,
+      message: 'Your payment was received. We are activating your plan now.',
+    }, { headers: { 'Cache-Control': 'no-store' } });
+  }
+  if (recovery.kind === 'pending') {
+    return NextResponse.json({
+      error: 'We are still confirming your previous checkout. Please check its status before trying again.',
+      reservationId: recovery.reservationId,
+    }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
+  }
+  return null;
+}
+
+async function enqueuePaidReconciliation(recovery: CheckoutRecovery): Promise<void> {
+  if (recovery.kind !== 'awaiting_payment') return;
+  if (recovery.remoteStatus !== 'paid' && recovery.remoteStatus !== 'completed') return;
+  try {
+    await requestPaidCheckoutReconciliation({
+      reservation: {
+        id: recovery.reservationId,
+        userId: recovery.userId,
+        plan: recovery.plan,
+        consentHash: recovery.consentHash,
+      },
+      transactionId: recovery.transactionId,
+    });
+  } catch {
+    console.error('Paid checkout reconciliation could not be queued');
+  }
+}
 
 export async function POST(request: NextRequest) {
   const session = await auth();
@@ -124,6 +178,79 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Paddle payment page is not configured' }, { status: 503 });
   }
   try {
+    const account = await getPrisma().billingAccount.findUnique({
+      where: { userId: session.user.id },
+      select: {
+        providerSubscriptionId: true,
+        providerCustomerId: true,
+        paidThroughAt: true,
+      },
+    });
+    if (account?.providerSubscriptionId &&
+        (!account.paidThroughAt || account.paidThroughAt <= new Date())) {
+      const oldSubscription = await paddle.subscriptions.get(account.providerSubscriptionId);
+      if (oldSubscription.id !== account.providerSubscriptionId ||
+          oldSubscription.customerId !== account.providerCustomerId ||
+          !['canceled', 'expired'].includes(oldSubscription.status)) {
+        return NextResponse.json({
+          error: 'Your existing subscription is still being verified. Please try again shortly.',
+        }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
+      }
+      const cleared = await clearEndedBillingSubscription({
+        userId: session.user.id,
+        subscriptionId: account.providerSubscriptionId,
+      });
+      if (!cleared) {
+        return NextResponse.json({
+          error: 'Your existing subscription is still being verified. Please try again shortly.',
+        }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
+      }
+    }
+  } catch {
+    console.error('Paddle subscription expiry could not be verified');
+    return NextResponse.json({
+      error: 'Your existing subscription is still being verified. Please try again shortly.',
+    }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  // A valid subscription takes precedence over any stale checkout reservation.
+  // Keep the database guard in reserveCheckout as the concurrency authority.
+  try {
+    const account = await getPrisma().billingAccount.findUnique({
+      where: { userId: session.user.id },
+      select: {
+        providerSubscriptionId: true,
+        plan: true,
+        status: true,
+        nextChargeAt: true,
+        paidThroughAt: true,
+        cancelAtPeriodEnd: true,
+      },
+    });
+    if (account?.providerSubscriptionId &&
+        (ACTIVE_SUBSCRIPTION_STATUSES.includes(account.status) ||
+          Boolean(account.paidThroughAt && account.paidThroughAt > new Date()))) {
+      return NextResponse.json({
+        state: ['past_due', 'payment_failed'].includes(account.status)
+          ? 'payment_action_required'
+          : 'active_subscription',
+        subscription: {
+          plan: account.plan,
+          status: account.status,
+          nextChargeAt: account.nextChargeAt?.toISOString() ?? null,
+          paidThroughAt: account.paidThroughAt?.toISOString() ?? null,
+          cancelAtPeriodEnd: account.cancelAtPeriodEnd,
+        },
+      }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
+    }
+  } catch {
+    console.error('Paddle subscription state lookup failed');
+    return NextResponse.json({
+      error: 'Your subscription status could not be checked. Please try again shortly.',
+    }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  try {
     const reconciled = await expireStaleUnclaimedCheckoutReservations({
       userId: session.user.id,
       paddle,
@@ -139,6 +266,21 @@ export async function POST(request: NextRequest) {
     // stale row, and the status endpoint can expire it on demand.
     console.error('Stale Paddle checkout reservation reconciliation failed');
   }
+
+  // Reuse an existing checkout whenever it can still take payment. This is what
+  // makes a repeated Subscribe idempotent: the customer returns to the same
+  // transaction, and Paddle never receives a second create call.
+  let recovery: CheckoutRecovery = { kind: 'none' };
+  try {
+    recovery = await recoverCheckoutReservation({ userId: session.user.id, paddle });
+  } catch {
+    console.error('Paddle checkout recovery lookup failed');
+  }
+  const recovered = checkoutRecoveryResponse(recovery);
+  if (recovered) {
+    await enqueuePaidReconciliation(recovery);
+    return recovered;
+  }
   const reservationId = crypto.randomUUID();
   try {
     await reserveCheckout({
@@ -149,9 +291,28 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof ActiveBillingSubscriptionError) {
-      return NextResponse.json({ error: error.message }, { status: 409 });
+      return NextResponse.json({
+        state: ['past_due', 'payment_failed'].includes(error.subscription.status)
+          ? 'payment_action_required'
+          : 'active_subscription',
+        subscription: error.subscription,
+      }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
     }
     if (error instanceof UnresolvedCheckoutReservationError) {
+      // A concurrent request may have finished linking its transaction between
+      // our recovery pass and the reservation gate, so try once more before
+      // falling back to a blocking answer.
+      let conflicted: CheckoutRecovery = { kind: 'none' };
+      try {
+        conflicted = await recoverCheckoutReservation({ userId: session.user.id, paddle });
+      } catch {
+        console.error('Paddle checkout conflict recovery lookup failed');
+      }
+      const conflictResponse = checkoutRecoveryResponse(conflicted);
+      if (conflictResponse) {
+        await enqueuePaidReconciliation(conflicted);
+        return conflictResponse;
+      }
       return NextResponse.json({
         error: 'An unresolved checkout already exists. Check its status before starting another.',
         reservationId: error.reservationId,
@@ -159,8 +320,19 @@ export async function POST(request: NextRequest) {
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       // The partial unique index remains the concurrency authority. If another
-      // request won the race between the lookup and insert, return that
-      // reservation so the customer can recover it instead of getting stuck.
+      // request won the race between the lookup and insert, recover whatever it
+      // created so a double click resumes that checkout instead of duplicating.
+      let conflicted: CheckoutRecovery = { kind: 'none' };
+      try {
+        conflicted = await recoverCheckoutReservation({ userId: session.user.id, paddle });
+      } catch {
+        console.error('Paddle checkout conflict recovery lookup failed');
+      }
+      const conflictResponse = checkoutRecoveryResponse(conflicted);
+      if (conflictResponse) {
+        await enqueuePaidReconciliation(conflicted);
+        return conflictResponse;
+      }
       let existingReservation: { id: string } | null = null;
       try {
         existingReservation = await getPrisma().billingReservation.findFirst({
@@ -169,7 +341,7 @@ export async function POST(request: NextRequest) {
           select: { id: true },
         });
       } catch {
-        console.error('Paddle checkout conflict recovery lookup failed');
+        console.error('Paddle checkout conflict recovery fallback lookup failed');
       }
       return NextResponse.json({
         error: 'An unresolved checkout already exists. Check its status before starting another.',

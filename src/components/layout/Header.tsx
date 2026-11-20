@@ -15,9 +15,11 @@ interface BillingStatus {
 
 interface PaddleBillingSummary {
   account: {
+    status: string;
     paidThroughAt: string | null;
     nextChargeAt: string | null;
     cancelAtPeriodEnd: boolean;
+    paymentMethodUpdateUrl?: string | null;
   } | null;
   transactions: Array<{
     id: string;
@@ -235,6 +237,20 @@ export function Header({
                   )}
                   {paddleBilling?.account?.cancelAtPeriodEnd && (
                     <p className="text-[11px] text-accent">Cancellation scheduled</p>
+                  )}
+                  {paddleBilling?.account && ['past_due', 'payment_failed'].includes(paddleBilling.account.status) && (
+                    <p role="status" className="text-[11px] text-warning">Your latest payment needs attention.</p>
+                  )}
+                  {paddleBilling?.account?.paymentMethodUpdateUrl && (
+                    <a
+                      role="menuitem"
+                      href={paddleBilling.account.paymentMethodUpdateUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block w-full px-2.5 py-1.5 rounded-md text-[12px] font-medium text-accent-text hover:bg-elevated"
+                    >
+                      Retry payment or update payment method
+                    </a>
                   )}
                   <button
                     role="menuitem"

@@ -1,12 +1,15 @@
 import { auth } from '@/auth';
-import { NextRequest, NextResponse } from 'next/server';
-import { getPaddleClient, getPaddleEnvironment, isSafePaddleCheckoutUrl } from '@/lib/billing/paddle';
+import { after, NextRequest, NextResponse } from 'next/server';
+import { getPaddleClient, getPaddleEnvironment } from '@/lib/billing/paddle';
 import { reservationStatusForRemote } from '@/lib/billing/operations';
 import {
   expireUnclaimedReservation,
   findReservationTransaction,
   isStaleCheckoutReservation,
+  requestPaidCheckoutReconciliation,
+  resumableCheckoutUrl,
 } from '@/lib/billing/reservations';
+import { triggerBillingWorker } from '@/lib/billing/worker-trigger';
 import { getPrisma } from '@/lib/db/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -117,6 +120,19 @@ export async function GET(request: NextRequest) {
         remoteStatus = 'pending';
       }
     }
+    if (remoteStatus === 'confirmed') {
+      await requestPaidCheckoutReconciliation({
+        reservation: {
+          id: reservation.id,
+          userId: reservation.userId,
+          plan: reservation.plan,
+          consentHash: reservation.consentHash,
+        },
+        transactionId: transaction.id,
+        occurredAt: transaction.billedAt ? new Date(transaction.billedAt) : null,
+      });
+      after(triggerBillingWorker);
+    }
     if (remoteStatus === 'failed' || remoteStatus === 'canceled') {
       await getPrisma().billingReservation.updateMany({
         where: {
@@ -129,11 +145,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const checkoutUrl = transaction.status === 'ready' &&
-      typeof transaction.checkout?.url === 'string' &&
-      isSafePaddleCheckoutUrl(transaction.checkout.url)
-      ? transaction.checkout.url
-      : null;
+    const checkoutUrl = resumableCheckoutUrl(transaction);
     return NextResponse.json({
       status: remoteStatus === 'confirmed' ? 'awaiting_confirmation' : remoteStatus,
       retryAllowed: remoteStatus === 'failed' || remoteStatus === 'canceled',

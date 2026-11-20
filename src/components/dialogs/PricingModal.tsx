@@ -25,7 +25,15 @@ type BillingPeriod = 'monthly' | 'yearly';
 
 type TierKey = keyof typeof PRICING_PLANS;
 
-type CheckoutNoticeKind = 'temporary' | 'checking' | 'cancelled' | 'unknown' | 'unavailable' | 'conflict';
+type CheckoutNoticeKind = 'temporary' | 'checking' | 'cancelled' | 'unknown' | 'unavailable' | 'conflict' | 'payment_retry';
+
+interface ActiveSubscriptionNotice {
+  plan: string;
+  status: string;
+  nextChargeAt: string | null;
+  paidThroughAt: string | null;
+  cancelAtPeriodEnd: boolean;
+}
 
 const CHECKOUT_NOTICE: Record<CheckoutNoticeKind, { title: string; message: string }> = {
   temporary: {
@@ -48,9 +56,10 @@ const CHECKOUT_NOTICE: Record<CheckoutNoticeKind, { title: string; message: stri
     title: 'This plan is temporarily unavailable',
     message: "We're unable to process this subscription right now. Please try again later.",
   },
-  conflict: {
-    title: 'You already have an active subscription',
-    message: 'Your existing subscription remains in place. Review its status from your account menu.',
+  conflict: { title: 'You already have an active subscription', message: 'Your current plan is still active.' },
+  payment_retry: {
+    title: 'Your subscription payment needs attention',
+    message: 'Your subscription is already in payment recovery. Update your payment method from the account menu to retry it.',
   },
 };
 
@@ -58,9 +67,10 @@ const CHECKOUT_NOTICE: Record<CheckoutNoticeKind, { title: string; message: stri
 // status and the two routing flags are read here; none of the text is shown.
 function checkoutNoticeFor(
   status: number,
-  body: { error?: unknown; reservationId?: unknown },
+  body: { state?: unknown; error?: unknown; reservationId?: unknown },
 ): CheckoutNoticeKind {
-  if (status === 409 && body.error === 'An active Paddle subscription already exists') return 'conflict';
+  if (status === 409 && body.state === 'active_subscription') return 'conflict';
+  if (status === 409 && body.state === 'payment_action_required') return 'payment_retry';
   if (typeof body.reservationId === 'string') return 'unknown';
   if (status === 400 || status === 409 || status === 503) return 'unavailable';
   return 'temporary';
@@ -105,6 +115,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   const [selectedTier, setSelectedTier] = useState<TierKey>('creator');
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
   const [pendingReservationId, setPendingReservationId] = useState<string | null>(null);
+  const [activeSubscription, setActiveSubscription] = useState<ActiveSubscriptionNotice | null>(null);
   const [notice, setNotice] = useState<CheckoutNoticeKind | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   // One checkout creation and hand-off at a time. Two handlers firing
@@ -128,6 +139,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     setStep('select');
     setNotice(null);
     setPendingReservationId(null);
+    setActiveSubscription(null);
     setIsCheckingStatus(false);
   }, [isOpen]);
 
@@ -156,6 +168,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     setBillingPeriod('monthly');
     setNotice(null);
     setPendingReservationId(null);
+    setActiveSubscription(null);
     setIsCheckingStatus(false);
     closeModal();
   }, [closeModal]);
@@ -248,10 +261,15 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       });
       const checkout = await checkoutResponse.json().catch(() => ({})) as {
         error?: unknown;
+        state?: unknown;
+        subscription?: ActiveSubscriptionNotice;
         reservationId?: unknown;
         checkoutUrl?: unknown;
       };
       if (!checkoutResponse.ok) {
+        if (checkout.state === 'active_subscription' && checkout.subscription) {
+          setActiveSubscription(checkout.subscription);
+        }
         if (typeof checkout.reservationId === 'string') {
           setPendingReservationId(checkout.reservationId);
         }
@@ -553,12 +571,30 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     </svg>
                   </div>
                   <div className="text-center">
-                    <p className="text-sm text-text-secondary">{CHECKOUT_NOTICE[notice].message}</p>
-                    <p className="text-xs text-text-secondary mt-1">Your current access stays unchanged until a payment is verified.</p>
+                    <p className="text-base font-semibold text-text-primary">{CHECKOUT_NOTICE[notice].title}</p>
+                    {(notice === 'conflict' || notice === 'payment_retry') && activeSubscription ? (
+                      <div className="mt-2 space-y-1 text-sm text-text-secondary">
+                        <p>You're subscribed to {activeSubscription.plan === 'creator_yearly' ? 'Creator Yearly' : 'Creator Monthly'}.</p>
+                        {notice === 'payment_retry' && <p>Your latest payment needs attention. Use the payment recovery link in your account menu.</p>}
+                        {activeSubscription.cancelAtPeriodEnd && activeSubscription.paidThroughAt ? (
+                          <p>Your access continues until {new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(activeSubscription.paidThroughAt))}.</p>
+                        ) : activeSubscription.nextChargeAt ? (
+                          <p>Next billing date: {new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(activeSubscription.nextChargeAt))}.</p>
+                        ) : activeSubscription.paidThroughAt ? (
+                          <p>Access through {new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(activeSubscription.paidThroughAt))}.</p>
+                        ) : null}
+                        <p>Manage your subscription from the account menu.</p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-text-secondary">{CHECKOUT_NOTICE[notice].message}</p>
+                    )}
+                    {notice !== 'conflict' && notice !== 'payment_retry' && <p className="text-xs text-text-secondary mt-1">Your current access stays unchanged until a payment is verified.</p>}
                   </div>
                   <div className="flex flex-col gap-2 w-full max-w-[220px]">
                     {notice === 'unknown' && pendingReservationId ? (
                       <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check checkout status</Button>
+                    ) : notice === 'conflict' || notice === 'payment_retry' ? (
+                      <Button variant="secondary" onClick={handleClose}>Close and manage from account menu</Button>
                     ) : notice === 'temporary' || notice === 'cancelled' ? (
                       <Button
                         variant="secondary"

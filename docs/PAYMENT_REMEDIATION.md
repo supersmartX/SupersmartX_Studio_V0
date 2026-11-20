@@ -8,11 +8,15 @@ The required apps/packages/infrastructure directories are reserved for future ex
 
 ## Implementation and validation
 
-- [ ] Merchant checkout URL and Paddle.js page, scoped CSP and tests.
-- [ ] Paid-status correction, renewal enrollment validation, transient processing retry.
-- [ ] Serialize account grant/refund/status writes.
-- [ ] Prompt webhook acknowledgement and frequent fallback schedule.
-- [ ] Align documented contracts and configuration.
+- [x] Merchant checkout URL and Paddle.js page, scoped CSP and tests.
+- [x] Paid-status correction, renewal enrollment validation, transient processing retry.
+- [x] Serialize account grant/refund/status writes.
+- [x] Durable webhook acknowledgement and event-triggered worker; daily cron recovery sweep.
+- [x] Repeat Subscribe resumes the existing transaction; only verified missing/terminal attempts are released.
+- [x] Active subscription responses include current plan, billing/access dates and cancellation state.
+- [x] Failed renewal account menu exposes Paddle's owner-verified payment-method recovery link when supplied.
+- [x] Re-enrollment clears a previous subscription pointer only after Paddle confirms cancellation/expiry and the paid period has ended.
+- [x] Align documented contracts and configuration.
 - [ ] Targeted unit/route/UI tests, type check, lint, build.
 
 ## Remaining release work
