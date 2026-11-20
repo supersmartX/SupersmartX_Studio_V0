@@ -85,7 +85,7 @@ describe('Paddle checkout safety gates', () => {
       currency: quote.currency,
       consentVersion: '2',
       quoteToken: quote.quoteToken,
-      consentHash: 'unneeded-for-rejected-consent',
+      consentHash: 'a'.repeat(64),
     };
     const post = (body: Record<string, unknown>, country = 'IN') =>
       checkoutPOST(new NextRequest('http://localhost/api/paddle/checkout', {
@@ -115,6 +115,64 @@ describe('Paddle checkout safety gates', () => {
     }));
 
     expect(response.status).toBe(400);
+  });
+
+  it('rejects oversized checkout bodies without creating a reservation', async () => {
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+
+    const response = await checkoutPOST(new NextRequest('http://localhost/api/paddle/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: 'creator_monthly', padding: 'x'.repeat(9_000) }),
+    }));
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toMatchObject({ error: 'Checkout request is too large' });
+  });
+
+  it('rate limits repeated checkout attempts per user', async () => {
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+    mocks.auth.mockResolvedValue({ user: { id: 'user-checkout-rate-limit' } });
+
+    const post = () => checkoutPOST(new NextRequest('http://localhost/api/paddle/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: 'creator_monthly' }),
+    }));
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+      expect((await post()).status).toBe(400);
+    }
+    const limited = await post();
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toMatch(/^\d+$/);
+  });
+
+  it('rate limits repeated quote requests per user', async () => {
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+    mocks.auth.mockResolvedValue({ user: { id: 'user-quote-rate-limit' } });
+
+    const post = () => quotePOST(new Request('http://localhost/api/paddle/quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ period: 'monthly' }),
+    }));
+
+    for (let attempt = 0; attempt < 60; attempt++) {
+      expect((await post()).status).toBe(200);
+    }
+    const limited = await post();
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toMatch(/^\d+$/);
   });
 
   it('fails closed for live environment while the safety flag is true', async () => {

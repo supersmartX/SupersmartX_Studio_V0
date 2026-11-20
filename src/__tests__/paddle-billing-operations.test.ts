@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  lock: vi.fn().mockResolvedValue([]),
   findLease: vi.fn(),
   findUser: vi.fn(),
   upsertAccount: vi.fn(),
@@ -19,11 +20,14 @@ const mocks = vi.hoisted(() => ({
   updateUser: vi.fn(),
   updateAccount: vi.fn(),
   updateEvent: vi.fn(),
+  findOperation: vi.fn(),
+  updateOperation: vi.fn(),
 }));
 
 vi.mock('@/lib/db/prisma', () => ({
   getPrisma: () => {
     const tx = {
+      $queryRaw: mocks.lock,
       billingEvent: {
         findFirst: mocks.findLease,
         updateMany: mocks.updateEvent,
@@ -54,6 +58,11 @@ vi.mock('@/lib/db/prisma', () => ({
         upsert: mocks.upsertAdjustment,
         findMany: mocks.findAdjustments,
       },
+      billingOperation: {
+        findFirst: mocks.findOperation,
+        update: mocks.updateOperation,
+        updateMany: mocks.updateOperation,
+      },
     };
     return {
       ...tx,
@@ -67,6 +76,8 @@ import {
   acquireBillingEventLease,
   applyAdjustmentEvent,
   applyPaidBillingEvent,
+  applySubscriptionSnapshot,
+  recordCancellationRequest,
   releaseBillingEventLease,
   reserveCheckout,
   UnresolvedCheckoutReservationError,
@@ -117,6 +128,8 @@ beforeEach(() => {
   mocks.updateUser.mockResolvedValue({});
   mocks.updateAccount.mockResolvedValue({});
   mocks.updateEvent.mockResolvedValue({ count: 1 });
+  mocks.findOperation.mockResolvedValue(null);
+  mocks.updateOperation.mockResolvedValue({ count: 1 });
 });
 
 describe('Paddle billing operations', () => {
@@ -171,10 +184,13 @@ describe('Paddle billing operations', () => {
       skipDuplicates: true,
     }));
     expect(mocks.claimTransactionGrant).not.toHaveBeenCalled();
+    expect(mocks.lock).toHaveBeenCalledOnce();
+    expect(mocks.lock.mock.invocationCallOrder[0]).toBeLessThan(mocks.findUser.mock.invocationCallOrder[0]);
   });
 
   it('records a partial refund without revoking the paid term', async () => {
     await applyAdjustmentEvent(leaseInput);
+    expect(mocks.lock.mock.invocationCallOrder[0]).toBeLessThan(mocks.findAccount.mock.invocationCallOrder[0]);
 
     expect(mocks.upsertAdjustment).toHaveBeenCalledWith(expect.objectContaining({
       create: expect.objectContaining({
@@ -189,6 +205,41 @@ describe('Paddle billing operations', () => {
         refundedAt: leaseInput.updatedAt,
       }),
     }));
+    expect(mocks.updateUser).toHaveBeenCalledWith(expect.objectContaining({
+      data: {
+        plan: 'creator_monthly',
+        planExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
+      },
+    }));
+  });
+
+  it('does not let a delayed adjustment overwrite newer account lifecycle state', async () => {
+    const newerEventAt = new Date('2026-11-19T09:00:00.000Z');
+    mocks.findAccount.mockResolvedValue({
+      userId: 'user-1',
+      plan: 'creator_monthly',
+      status: 'canceled',
+      paidThroughAt: new Date('2027-01-01T00:00:00.000Z'),
+      legacyPlan: 'creator_monthly',
+      legacyPaidThroughAt: null,
+      lastEventId: 'evt-subscription-canceled',
+      lastEventAt: newerEventAt,
+    });
+
+    await applyAdjustmentEvent({
+      ...leaseInput,
+      occurredAt: new Date('2026-11-18T12:00:00.000Z'),
+    });
+
+    const accountUpdate = mocks.updateAccount.mock.calls[0][0] as {
+      data: Record<string, unknown>;
+    };
+    expect(accountUpdate.data).toEqual({
+      paidThroughAt: new Date('2027-01-01T00:00:00.000Z'),
+    });
+    expect(accountUpdate.data).not.toHaveProperty('status');
+    expect(accountUpdate.data).not.toHaveProperty('lastEventId');
+    expect(accountUpdate.data).not.toHaveProperty('lastEventAt');
     expect(mocks.updateUser).toHaveBeenCalledWith(expect.objectContaining({
       data: {
         plan: 'creator_monthly',
@@ -321,5 +372,97 @@ describe('Paddle billing operations', () => {
       reservationId: 'reservation-in-progress',
     } satisfies Partial<UnresolvedCheckoutReservationError>));
     expect(mocks.createReservation).not.toHaveBeenCalled();
+  });
+
+  it('records a provider-confirmed cancellation under the same user lock', async () => {
+    mocks.findOperation.mockResolvedValue({ id: 'operation-1' });
+    mocks.findAccount.mockResolvedValue({
+      userId: 'user-1',
+      providerSubscriptionId: 'sub-1',
+      cancelAtPeriodEnd: false,
+      lastEventAt: new Date('2026-11-20T09:00:00.000Z'),
+    });
+    const requestedAt = new Date('2026-11-20T10:00:00.000Z');
+
+    await recordCancellationRequest({
+      userId: 'user-1',
+      subscriptionId: 'sub-1',
+      operationId: 'operation-1',
+      requestedAt,
+    });
+
+    expect(mocks.lock.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.findOperation.mock.invocationCallOrder[0]);
+    expect(mocks.updateOperation).toHaveBeenCalledWith({
+      where: { id: 'operation-1' },
+      data: { status: 'completed', completedAt: requestedAt, lastError: null },
+    });
+    expect(mocks.updateAccount).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      data: {
+        cancelAtPeriodEnd: true,
+        lastEventId: 'operation:operation-1',
+        lastEventAt: requestedAt,
+      },
+    });
+  });
+
+  it('refuses to record a cancellation for another subscription', async () => {
+    mocks.findOperation.mockResolvedValue({ id: 'operation-1' });
+    mocks.findAccount.mockResolvedValue({
+      userId: 'user-1',
+      providerSubscriptionId: 'sub-other',
+      cancelAtPeriodEnd: false,
+      lastEventAt: null,
+    });
+
+    await expect(recordCancellationRequest({
+      userId: 'user-1',
+      subscriptionId: 'sub-1',
+      operationId: 'operation-1',
+    })).rejects.toThrow(/ownership mismatch/i);
+    expect(mocks.updateOperation).not.toHaveBeenCalled();
+    expect(mocks.updateAccount).not.toHaveBeenCalled();
+  });
+
+  it('keeps a locally confirmed cancellation when an older provider snapshot arrives', async () => {
+    const snapshotAt = new Date('2026-11-20T09:59:00.000Z');
+    mocks.findLease.mockResolvedValue({ eventId: 'evt-snapshot' });
+    mocks.findAccount.mockResolvedValue({
+      userId: 'user-1',
+      providerSubscriptionId: 'sub-1',
+      providerCustomerId: 'ctm-1',
+      status: 'active',
+      plan: 'creator_monthly',
+      cancelAtPeriodEnd: true,
+      paidThroughAt: new Date('2026-12-01T00:00:00.000Z'),
+      lastEventAt: new Date('2026-11-20T09:30:00.000Z'),
+    });
+    mocks.findOperation.mockResolvedValue({ id: 'operation-1' });
+
+    await applySubscriptionSnapshot({
+      eventId: 'evt-snapshot',
+      leaseToken: 'lease-token',
+      userId: 'user-1',
+      subscriptionId: 'sub-1',
+      customerId: 'ctm-1',
+      status: 'active',
+      nextChargeAt: new Date('2026-12-01T00:00:00.000Z'),
+      cancelAtPeriodEnd: false,
+      occurredAt: snapshotAt,
+    });
+
+    expect(mocks.findOperation).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        userId: 'user-1',
+        resourceId: 'sub-1',
+        operation: 'cancel_at_period_end',
+        status: 'completed',
+        completedAt: { gte: snapshotAt },
+      }),
+    }));
+    expect(mocks.updateAccount).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ cancelAtPeriodEnd: true }),
+    }));
   });
 });

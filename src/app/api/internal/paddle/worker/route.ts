@@ -17,6 +17,7 @@ import {
   applyFailedPaymentEvent,
   applyPaidBillingEvent,
   applySubscriptionSnapshot,
+  completeReconciledCancellation,
   releaseBillingEventLease,
   renewBillingEventLease,
 } from '@/lib/billing/operations';
@@ -27,6 +28,10 @@ export const maxDuration = 60;
 
 const BATCH_SIZE = 8;
 const LEASE_MS = 4 * 60_000;
+// A single invocation may drain several batches so a backlog cannot persist
+// until the next schedule. Bounded by both an event count and the runtime budget.
+const MAX_EVENTS_PER_INVOCATION = 64;
+const DRAIN_BUDGET_MS = 45_000;
 
 class ReviewEventError extends Error {}
 
@@ -90,6 +95,7 @@ async function resolveOwner(input: {
   customerId: string;
   customData: JsonRecord;
   transactionId?: string;
+  renewal?: boolean;
 }) {
   const prisma = getPrisma();
   const [accountBySubscription, customUserId] = await Promise.all([
@@ -99,7 +105,7 @@ async function resolveOwner(input: {
   const accountByUser = customUserId
     ? await prisma.billingAccount.findUnique({ where: { userId: customUserId } })
     : null;
-  const reservation = await findReservation(input.customData, input.transactionId);
+  const reservation = await findReservation(input.customData, input.renewal ? undefined : input.transactionId);
   const mappedUserId = accountBySubscription?.userId ?? reservation?.userId ?? accountByUser?.userId ?? null;
   if (!mappedUserId) throw new ReviewEventError('provider_account_not_attributed');
   if ((accountBySubscription && accountBySubscription.userId !== mappedUserId) ||
@@ -109,6 +115,12 @@ async function resolveOwner(input: {
   }
   const account = accountByUser ?? await prisma.billingAccount.findUnique({ where: { userId: mappedUserId } });
   if (!account) throw new ReviewEventError('billing_account_not_found');
+  if (input.renewal && (!accountBySubscription ||
+      accountBySubscription.providerCustomerId !== input.customerId)) {
+    // The initial paid event may still be in flight. Never bootstrap a renewal
+    // from caller-supplied metadata alone.
+    throw new Error('Renewal enrollment is not yet recorded');
+  }
   if ((account.providerSubscriptionId && account.providerSubscriptionId !== input.subscriptionId) ||
       (account.providerCustomerId && account.providerCustomerId !== input.customerId)) {
     throw new ReviewEventError('provider_customer_or_subscription_mismatch');
@@ -135,7 +147,7 @@ async function processPaidTransaction(
   }
   const subscriptionId = transaction.subscriptionId;
   const customerId = transaction.customerId;
-  if (!subscriptionId || !customerId) throw new ReviewEventError('subscription_or_customer_missing');
+  if (!subscriptionId || !customerId) throw new Error('Paid transaction is still being completed');
   const subscription = await paddle.subscriptions.get(subscriptionId);
   if (subscription.id !== subscriptionId || subscription.customerId !== customerId) {
     throw new ReviewEventError('subscription_customer_mismatch');
@@ -151,7 +163,8 @@ async function processPaidTransaction(
     ...authoritativeCustom,
     ...(reservationId ? { sup_reservation_id: reservationId } : {}),
   };
-  const owner = await resolveOwner({ subscriptionId, customerId, customData, transactionId });
+  const renewal = transaction.origin === 'subscription_recurring';
+  const owner = await resolveOwner({ subscriptionId, customerId, customData, transactionId, renewal });
   const plan = planValue(authoritativeCustom.sup_plan) ??
     planValue(subscriptionCustom.sup_plan) ??
     planValue(eventCustomData.sup_plan) ??
@@ -173,13 +186,30 @@ async function processPaidTransaction(
   let expectedProductId: string | null = null;
   let expectedPeriod = config.period;
   let quotedCountry: string | null = null;
+  let quoteCreatedAt = date(transaction.createdAt);
+  if (renewal) {
+    const originalId = owner.reservation?.providerTransactionId;
+    if (!originalId || originalId === transactionId) {
+      throw new ReviewEventError('renewal_enrollment_missing');
+    }
+    const original = await paddle.transactions.get(originalId);
+    const originalCustom = record(original.customData);
+    if (original.id !== originalId || original.subscriptionId !== subscriptionId ||
+        original.customerId !== customerId || !isAuthoritativelyPaid(original.status) ||
+        originalCustom.sup_quote_token !== quoteToken ||
+        originalCustom.sup_consent_hash !== authoritativeCustom.sup_consent_hash ||
+        originalCustom.sup_reservation_id !== owner.reservation?.id ||
+        originalCustom.sup_user_id !== owner.userId) {
+      throw new ReviewEventError('renewal_enrollment_mismatch');
+    }
+    quoteCreatedAt = date(original.createdAt);
+  }
   if (quoteToken) {
     if (getPaddleEnvironment() !== 'sandbox' || consentVersion !== '2') {
       throw new ReviewEventError('checkout_quote_mismatch');
     }
-    const transactionCreatedAt = date(transaction.createdAt);
-    const quote = transactionCreatedAt
-      ? verifySandboxQuoteToken(quoteToken, transactionCreatedAt)
+    const quote = quoteCreatedAt
+      ? verifySandboxQuoteToken(quoteToken, quoteCreatedAt)
       : null;
     if (!quote || quote.plan !== plan) throw new ReviewEventError('checkout_quote_mismatch');
     if (!owner.reservation || owner.reservation.plan !== plan ||
@@ -235,17 +265,17 @@ async function processPaidTransaction(
        (quoteToken === null && owner.reservation.consentHash !== text(authoritativeCustom.sup_consent_hash)) ||
        (quoteToken === null && (owner.reservation.period !== config.period ||
          owner.reservation.currency !== config.currency)) ||
-       (owner.reservation.providerTransactionId &&
+       (!renewal && owner.reservation.providerTransactionId &&
         owner.reservation.providerTransactionId !== transactionId))) {
     throw new ReviewEventError('reservation_does_not_match_paid_transaction');
   }
 
-  const periodStartAt = date(transaction.billingPeriod?.startsAt) ??
-    date(subscription.currentBillingPeriod?.startsAt);
-  const periodEndAt = date(transaction.billingPeriod?.endsAt) ??
-    date(subscription.currentBillingPeriod?.endsAt);
+  // A subscription snapshot may already describe a later term when an older
+  // transaction is replayed. Coverage must belong to this paid transaction.
+  const periodStartAt = date(transaction.billingPeriod?.startsAt);
+  const periodEndAt = date(transaction.billingPeriod?.endsAt);
   if (!periodStartAt || !periodEndAt || periodEndAt <= periodStartAt) {
-    throw new ReviewEventError('provider_billing_period_missing');
+    throw new Error('Paid transaction billing period is not yet available');
   }
   const paidAt = date(transaction.billedAt) ?? occurredAt ?? date(transaction.updatedAt);
   const totals = transaction.details?.totals;
@@ -264,7 +294,7 @@ async function processPaidTransaction(
   await applyPaidBillingEvent({
     eventId,
     leaseToken,
-    reservationId: owner.reservation?.id,
+    reservationId: renewal ? undefined : owner.reservation?.id,
     userId: owner.userId,
     plan,
     providerTransactionId: transactionId,
@@ -336,6 +366,7 @@ async function processFailedTransaction(
     customerId: transaction.customerId,
     customData,
     transactionId,
+    renewal: transaction.origin === 'subscription_recurring',
   });
   await applyFailedPaymentEvent({
     eventId,
@@ -359,7 +390,7 @@ async function processAdjustment(
   const transaction = await getPrisma().billingTransaction.findUnique({
     where: { providerTransactionId: transactionId },
   });
-  if (!transaction?.userId) throw new ReviewEventError('adjustment_transaction_unattributed');
+  if (!transaction?.userId) throw new Error('Adjustment is waiting for its paid transaction');
   const paddle = getPaddleClient();
   if (!paddle) throw new Error('Paddle client is not configured');
   const [authoritativeTransaction, adjustments] = await Promise.all([
@@ -401,6 +432,7 @@ async function processAdjustment(
     amount: authoritative.totals.total,
     currency: authoritative.currencyCode,
     updatedAt: new Date(authoritative.updatedAt),
+    occurredAt: new Date(authoritative.updatedAt),
   });
 }
 
@@ -409,7 +441,7 @@ async function processEvent(event: JsonRecord, eventId: string, leaseToken: stri
   const data = record(event.data);
   const customData = record(field(data, 'customData', 'custom_data'));
 
-  if (eventType === 'transaction.paid' || eventType === 'transaction.completed' || eventType === 'transaction.billed') {
+  if (eventType === 'transaction.paid' || eventType === 'transaction.completed') {
     await processPaidTransaction(eventId, leaseToken, occurredAt, data, customData);
     return 'processed' as const;
   }
@@ -483,25 +515,16 @@ async function reconcileCancellationOperations() {
       const subscription = await paddle.subscriptions.get(operation.resourceId);
       const scheduledCancel = subscription.scheduledChange?.action === 'cancel';
       if (scheduledCancel || subscription.status === 'canceled') {
-        await prisma.$transaction([
-          prisma.billingOperation.updateMany({
-            where: { id: operation.id, status: { in: ['pending', 'uncertain'] } },
-            data: { status: 'completed', completedAt: new Date(), lastError: null },
-          }),
-          prisma.billingAccount.updateMany({
-            where: {
-              userId: operation.userId,
-              providerSubscriptionId: operation.resourceId,
-            },
-            data: {
-              cancelAtPeriodEnd: scheduledCancel,
-              status: subscription.status,
-              ...(subscription.status === 'canceled' && subscription.canceledAt
-                ? { canceledAt: new Date(subscription.canceledAt) }
-                : {}),
-            },
-          }),
-        ]);
+        await completeReconciledCancellation({
+          operationId: operation.id,
+          userId: operation.userId,
+          subscriptionId: operation.resourceId,
+          cancelAtPeriodEnd: scheduledCancel,
+          status: subscription.status,
+          canceledAt: subscription.status === 'canceled' && subscription.canceledAt
+            ? new Date(subscription.canceledAt)
+            : null,
+        });
         reconciled += 1;
       } else if (subscription.status === 'active' || subscription.status === 'trialing' ||
           subscription.status === 'past_due') {
@@ -532,54 +555,68 @@ export async function GET(request: NextRequest) {
   }
 
   const prisma = getPrisma();
-  const now = new Date();
-  const candidates = await prisma.billingEvent.findMany({
-    where: {
-      status: { in: ['received', 'failed', 'processing'] },
-      nextAttemptAt: { lte: now },
-      OR: [{ leaseOwner: null }, { leasedUntil: null }, { leasedUntil: { lt: now } }],
-    },
-    orderBy: { receivedAt: 'asc' },
-    take: BATCH_SIZE,
-    select: { eventId: true, payloadJson: true, occurredAt: true },
-  });
+  const deadline = Date.now() + DRAIN_BUDGET_MS;
   const counts = { processed: 0, ignored: 0, review: 0, retry: 0, leased: 0, cancellationsReconciled: 0 };
   const owner = `paddle-worker:${crypto.randomUUID()}`;
 
-  for (const candidate of candidates) {
-    const leaseToken = crypto.randomUUID();
-    const leased = await acquireBillingEventLease(
-      candidate.eventId,
-      owner,
-      leaseToken,
-      new Date(Date.now() + LEASE_MS),
-    );
-    if (!leased) continue;
-    counts.leased += 1;
-    try {
-      const event = record(JSON.parse(candidate.payloadJson));
-      const result = await processWithLeaseHeartbeat(
+  while (counts.leased < MAX_EVENTS_PER_INVOCATION && Date.now() < deadline) {
+    const now = new Date();
+    const candidates = await prisma.billingEvent.findMany({
+      where: {
+        status: { in: ['received', 'failed', 'processing'] },
+        nextAttemptAt: { lte: now },
+        OR: [{ leaseOwner: null }, { leasedUntil: null }, { leasedUntil: { lt: now } }],
+      },
+      orderBy: { receivedAt: 'asc' },
+      take: BATCH_SIZE,
+      select: { eventId: true, payloadJson: true, occurredAt: true },
+    });
+    if (candidates.length === 0) break;
+
+    let leasedThisBatch = 0;
+    for (const candidate of candidates) {
+      if (counts.leased >= MAX_EVENTS_PER_INVOCATION || Date.now() >= deadline) break;
+      const leaseToken = crypto.randomUUID();
+      const leased = await acquireBillingEventLease(
         candidate.eventId,
+        owner,
         leaseToken,
-        () => processEvent(event, candidate.eventId, leaseToken, candidate.occurredAt),
+        new Date(Date.now() + LEASE_MS),
       );
-      if (result === 'ignored') {
-        await releaseBillingEventLease(candidate.eventId, leaseToken, 'ignored', 'unsupported_event_type');
-        counts.ignored += 1;
-      } else {
-        counts.processed += 1;
-      }
-    } catch (error) {
-      if (error instanceof ReviewEventError) {
-        await releaseBillingEventLease(candidate.eventId, leaseToken, 'review', error.message);
-        counts.review += 1;
-      } else {
-        await releaseBillingEventLease(candidate.eventId, leaseToken, 'failed', 'provider_or_persistence_error');
-        console.error('Paddle event processing failed', candidate.eventId);
-        counts.retry += 1;
+      if (!leased) continue;
+      leasedThisBatch += 1;
+      counts.leased += 1;
+      try {
+        const event = record(JSON.parse(candidate.payloadJson));
+        const result = await processWithLeaseHeartbeat(
+          candidate.eventId,
+          leaseToken,
+          () => processEvent(event, candidate.eventId, leaseToken, candidate.occurredAt),
+        );
+        if (result === 'ignored') {
+          await releaseBillingEventLease(candidate.eventId, leaseToken, 'ignored', 'unsupported_event_type');
+          counts.ignored += 1;
+        } else {
+          counts.processed += 1;
+        }
+      } catch (error) {
+        if (error instanceof ReviewEventError) {
+          await releaseBillingEventLease(candidate.eventId, leaseToken, 'review', error.message);
+          counts.review += 1;
+        } else {
+          await releaseBillingEventLease(candidate.eventId, leaseToken, 'failed', 'provider_or_persistence_error');
+          console.error('Paddle event processing failed', candidate.eventId);
+          counts.retry += 1;
+        }
       }
     }
+
+    // Another invocation owns the remaining candidates; stop instead of
+    // repeatedly scanning the same locked rows.
+    if (leasedThisBatch === 0) break;
+    if (candidates.length < BATCH_SIZE) break;
   }
+
   counts.cancellationsReconciled = await reconcileCancellationOperations();
   return NextResponse.json(counts, { headers: { 'Cache-Control': 'no-store' } });
 }

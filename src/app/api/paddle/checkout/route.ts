@@ -3,14 +3,15 @@ import { auth } from '@/auth';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   assertSandboxPriceMatches,
+  getPaddleCheckoutUrl,
   getPaddleClient,
   getPaddleEnvironment,
   getTrustedPaddleCountry,
   isPaddleCheckoutEnabled,
-  isSafePaddleCheckoutUrl,
   PaddlePriceLookupError,
   PaddlePriceMismatchError,
   PaddleBillingProvider,
+  toPaddleHandoffUrl,
   verifySandboxQuoteToken,
 } from '@/lib/billing/paddle';
 import {
@@ -20,14 +21,28 @@ import {
   UnresolvedCheckoutReservationError,
 } from '@/lib/billing/operations';
 import { getPrisma } from '@/lib/db/prisma';
-import type { CheckoutConsent } from '@/lib/billing/contracts';
+import { rateLimit } from '@/lib/rate-limit';
+import { readBoundedBody } from '@/lib/request-body';
+import type { CheckoutRequest } from '@/lib/billing/contracts';
 import { Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
+const CHECKOUT_RATE_LIMIT_MAX = 20;
+const CHECKOUT_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const MAX_CHECKOUT_BODY_BYTES = 8_192;
+const CONSENT_HASH_PATTERN = /^[0-9a-f]{64}$/;
+
 export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl = rateLimit(`paddle-checkout:${session.user.id}`, CHECKOUT_RATE_LIMIT_MAX, CHECKOUT_RATE_LIMIT_WINDOW_MS);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'Too many checkout attempts. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+    );
+  }
   if (!isPaddleCheckoutEnabled()) {
     return NextResponse.json({
       error: getPaddleEnvironment() === 'live'
@@ -36,12 +51,22 @@ export async function POST(request: NextRequest) {
     }, { status: 503 });
   }
 
-  const body = await request.json().catch(() => null) as Partial<CheckoutConsent> | null;
+  const raw = await readBoundedBody(request, MAX_CHECKOUT_BODY_BYTES);
+  if (raw === null) {
+    return NextResponse.json({ error: 'Checkout request is too large' }, { status: 413 });
+  }
+  let body: Partial<CheckoutRequest> | null = null;
+  try {
+    body = JSON.parse(raw) as Partial<CheckoutRequest> | null;
+  } catch {
+    body = null;
+  }
   if (!body || (body.plan !== 'creator_monthly' && body.plan !== 'creator_yearly') ||
       body.consentVersion !== '2' || typeof body.currency !== 'string' ||
       typeof body.amount !== 'number' || !Number.isFinite(body.amount) || body.amount <= 0 ||
       typeof body.period !== 'string' || typeof body.quoteToken !== 'string' ||
-      typeof body.consentHash !== 'string') {
+      body.quoteToken.length > 4096 ||
+      typeof body.consentHash !== 'string' || !CONSENT_HASH_PATTERN.test(body.consentHash)) {
     return NextResponse.json({ error: 'Invalid checkout consent' }, { status: 400 });
   }
   const quote = verifySandboxQuoteToken(body.quoteToken);
@@ -50,7 +75,7 @@ export async function POST(request: NextRequest) {
       quote.amount !== body.amount || quote.currency !== body.currency) {
     return NextResponse.json({ error: 'Checkout quote no longer matches server pricing' }, { status: 409 });
   }
-  const consent = body as CheckoutConsent;
+  const consent = body as CheckoutRequest;
   const consentHash = hashCheckoutConsent(consent);
   if (body.consentHash !== consentHash) {
     return NextResponse.json({ error: 'Checkout consent changed' }, { status: 409 });
@@ -79,6 +104,9 @@ export async function POST(request: NextRequest) {
   }
 
   const provider = new PaddleBillingProvider(paddle);
+  if (!getPaddleCheckoutUrl()) {
+    return NextResponse.json({ error: 'Paddle payment page is not configured' }, { status: 503 });
+  }
   const reservationId = crypto.randomUUID();
   try {
     await reserveCheckout({
@@ -163,7 +191,10 @@ export async function POST(request: NextRequest) {
       reservationId,
     }, { status: 503 });
   }
-  if (!result.checkoutUrl || !isSafePaddleCheckoutUrl(result.checkoutUrl)) {
+  const checkoutUrl = result.checkoutUrl && result.transactionId
+    ? toPaddleHandoffUrl(result.checkoutUrl, result.transactionId)
+    : null;
+  if (!checkoutUrl) {
     return NextResponse.json({
       error: 'Paddle created a transaction without a safe checkout URL; do not retry.',
       reservationId,
@@ -175,6 +206,6 @@ export async function POST(request: NextRequest) {
     reservationId,
     providerOperationId: result.providerOperationId,
     transactionId: result.transactionId,
-    checkoutUrl: result.checkoutUrl,
+    checkoutUrl,
   }, { headers: { 'Cache-Control': 'no-store' } });
 }

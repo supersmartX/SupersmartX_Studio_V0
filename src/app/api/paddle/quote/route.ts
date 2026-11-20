@@ -10,12 +10,25 @@ import {
   PaddlePriceLookupError,
   PaddlePriceMismatchError,
 } from '@/lib/billing/paddle';
+import { rateLimit } from '@/lib/rate-limit';
+import { readBoundedBody } from '@/lib/request-body';
 
 export const dynamic = 'force-dynamic';
+
+const QUOTE_RATE_LIMIT_MAX = 60;
+const QUOTE_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const MAX_QUOTE_BODY_BYTES = 8_192;
 
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl = rateLimit(`paddle-quote:${session.user.id}`, QUOTE_RATE_LIMIT_MAX, QUOTE_RATE_LIMIT_WINDOW_MS);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'Too many quote requests. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+    );
+  }
   if (!isPaddleCheckoutEnabled()) {
     return NextResponse.json({
       error: getPaddleEnvironment() === 'live'
@@ -24,7 +37,16 @@ export async function POST(request: Request) {
     }, { status: 503 });
   }
 
-  const body = await request.json().catch(() => null) as { period?: unknown } | null;
+  const raw = await readBoundedBody(request, MAX_QUOTE_BODY_BYTES);
+  if (raw === null) {
+    return NextResponse.json({ error: 'Quote request is too large' }, { status: 413 });
+  }
+  let body: { period?: unknown } | null = null;
+  try {
+    body = JSON.parse(raw) as { period?: unknown } | null;
+  } catch {
+    body = null;
+  }
   if (body?.period !== 'monthly' && body?.period !== 'yearly') {
     return NextResponse.json({ error: 'Invalid billing period' }, { status: 400 });
   }

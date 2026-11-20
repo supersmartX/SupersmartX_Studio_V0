@@ -29,6 +29,44 @@ mutations remain sandbox-only; live payment activation is not authorized.
 | Paddle sandbox | NOT TESTED | Sandbox environment and API key are configured, but webhook secret, sandbox price IDs, amounts and currency are absent. No Paddle API call was made. |
 | Production readiness | BLOCKED | Requires disposable PostgreSQL lifecycle tests, complete sandbox setup and end-to-end sandbox evidence, and an approved tax policy. |
 
+## Hardening pass (2026-11-20)
+
+Local code changes, all covered by the test suites below:
+
+- Checkout URL acceptance is an explicit allowlist (`PADDLE_CHECKOUT_URL` /
+  `PADDLE_CHECKOUT_URLS`, origin + path, HTTPS, `_ptxn` only), replacing the
+  single-URL equality check.
+- The worker drains up to 64 leases or a 45 s budget per invocation instead of
+  stopping at one batch; `vercel.json` keeps the supported daily recovery
+  schedule (`0 3 * * *`) and the webhook triggers the worker on receipt. The
+  GitHub Actions and Pro-interval variants below are superseded.
+- A delayed adjustment recomputes paid-through coverage but cannot overwrite a
+  newer account lifecycle status (`lastEventAt` guard).
+- `/api/paddle/quote`, `/api/paddle/checkout`, and `/api/paddle/cancel` have
+  per-user in-memory rate limits (`429` + `Retry-After`) and an 8 KiB bounded
+  JSON body reader (`/api/paddle/checkout` also requires a 64-hex consent hash
+  and caps the quote token at 4096 chars). The webhook reuses the same bounded
+  reader with its 1 MiB limit.
+- Runbook, environment, deployment, database, rollback, architecture and
+  troubleshooting docs now describe Paddle Billing only; retired gateway
+  variables (`PADDLE_ENV`, `PADDLE_SECRET_KEY`, `PADDLE_APP_ID`,
+  `PADDLE_API_VERSION`, `BILLING_OPS_SECRET`) and the deleted
+  `/api/internal/billing/orders` route were removed.
+
+Verification (2026-11-20):
+
+```powershell
+npx vitest run <13 billing/security suites>
+npx tsc --noEmit
+npx eslint src/app/api/paddle/{quote,checkout,cancel,webhook}/route.ts \
+  src/lib/request-body.ts src/lib/billing/operations.ts <5 touched tests>
+```
+
+Result: **13 test files passed, 93 tests passed**; `security.test.ts` skipped
+because `DATABASE_URL` is unset (its cases need PostgreSQL); TypeScript and
+focused ESLint exited 0. This remains mock/local evidence: no sandbox payment,
+signed webhook delivery, or PostgreSQL concurrency run was performed.
+
 ## Paddle webhook production reachability fix (2026-11-19)
 
 Status: **LOCAL FIX PASS; DEPLOYMENT REQUIRED; SANDBOX NOT VERIFIED**
@@ -83,11 +121,10 @@ for the next cron invocation, with the daily cron fallback handling recovery
 instead.
 
 The existing architecture can safely satisfy Vercel Hobby requirements.
-The signed webhook route now triggers the secret-authenticated worker route once
-after a non-duplicate event is durably received. The trigger is a bounded,
-best-effort immediate sweep; it does not grant access or bypass the worker,
-signature verification, lease, replay protection or transaction checks.
-Webhook duplicate receipt does not trigger another sweep.
+The signed webhook route now triggers the secret-authenticated worker route
+after every durably received event, first receipt or duplicate. The trigger is a
+bounded, best-effort immediate sweep; it does not grant access or bypass the
+worker, signature verification, lease, replay protection or transaction checks.
 
 Provider operation failures, event failures and worker crashes are covered by
 the durable inbox and lease/retry logic. Exponential retry remains active;
@@ -109,10 +146,12 @@ Worker compatibility files changed:
 
 - `vercel.json`: changed Paddle worker from 5-minute to daily fallback cron.
 - `src/app/api/paddle/webhook/route.ts`: triggers the lease-fenced worker after
-  first-time durable webhook persistence, with a 5-second timeout and no impact
-  on the webhook acknowledgement; duplicate events do not retrigger it.
-- `src/__tests__/paddle-webhook-route.test.ts`: verifies first receipts trigger
-  the worker and duplicate receipts do not.
+  durable webhook persistence with a 50-second deadline, one connection-failure
+  retry and no retry on a non-2xx answer; duplicates retrigger a sweep. Route
+  `maxDuration` is 60 s so `after()` covers the worker's 45 s drain.
+- `src/__tests__/paddle-webhook-route.test.ts`: verifies first receipts and
+  duplicates trigger the worker, a connection failure retries once, and an
+  answered error is not retried.
 
 Validation completed:
 
@@ -361,7 +400,7 @@ and the lease columns exist in both the schema and migration.
 | Subscription lifecycle | PARTIAL | Paid, failed/past-due, cancellation and subscription-updated event branches exist. Renewal next-charge and period-end fields depend on actual notification shape, provider correlation and database-backed verification. A webhook worker/scheduler route is absent. |
 | Entitlement integration | PARTIAL | Paid events update `users.plan` and `planExpiresAt`; failed payments do not extend access. The server currently can create a grant from a paid event only after the transaction re-read and custom-data/ownership checks. |
 | Refund/dispute integration | PARTIAL | Adjustment events mark transaction refund/dispute timestamps only. They do not revoke or isolate a stacked entitlement grant. Historical provider reversals are not recoverable through a provider-specific route. |
-| Live checkout safety | PASS | Checkout, quote, and cancellation routes require `PADDLE_LIVE_CHECKOUT_DISABLED=true`; the Paddle provider also rejects non-sandbox environments for checkout. |
+| Live checkout safety | PASS | Checkout, quote and cancellation gate on `isPaddleCheckoutEnabled()` (sandbox only), and the Paddle provider rejects non-sandbox environments. `PADDLE_LIVE_CHECKOUT_DISABLED` is reserved and no longer read by the routes. |
 
 ### Earlier missing readiness items (superseded by current implementation)
 
@@ -384,3 +423,117 @@ and the lease columns exist in both the schema and migration.
 
 Required Paddle sandbox settings are incomplete. No sandbox or live checkout,
 webhook, transaction, cancellation, or refund call was made.
+
+## Pre-deployment review (2026-11-20, later pass)
+
+Status: **LOCAL PASS for the reviewed code; PRODUCTION BLOCKED; SANDBOX NOT VERIFIED**
+
+No deployment, commit, push, Vercel setting change or payment was performed.
+
+### 1. Cron compatibility and webhook-triggered processing
+
+- `vercel.json` has only daily schedules: worker `0 3 * * *`, export cleanup
+  `0 2 * * *`. Nothing uses `*/5`.
+- The webhook route keeps `after(triggerBillingWorker)` so the acknowledgement is
+  not delayed, raises `maxDuration` to 60 s, gives the trigger a 50 s deadline,
+  retries once on a connection-level failure, and does not retry a non-2xx
+  answer. Duplicate receipts also retrigger a sweep; the worker's lease fences
+  make that safe.
+- Tests: `paddle-webhook-route.test.ts` (9) covers first receipt, duplicate
+  receipt, connection-failure retry and answered-error no-retry.
+- **Production blocker:** `GET /api/internal/paddle/worker` returns
+  `503 {"error":"Billing worker is not configured"}`. That branch requires
+  `CRON_SECRET`; therefore neither the webhook trigger nor the daily cron can
+  authenticate in production today. The deployed commit (`b5437a5`, reported by
+  `/api/health`) still awaits the trigger synchronously with a 5 s abort, so the
+  reviewed trigger/drain changes are also not deployed.
+
+### 2. Sandbox checkout URL allowlist and `/pay` handoff
+
+- `isSafePaddleCheckoutUrl` accepts HTTPS URLs whose origin and normalized path
+  match `PADDLE_CHECKOUT_URL`/`PADDLE_CHECKOUT_URLS`; the query (including
+  `_ptxn`) is ignored, so a Paddle-returned `_ptxn` link passes.
+- `toPaddleHandoffUrl` adds `_ptxn` when Paddle omits it and rejects a
+  conflicting value; the checkout route returns 503 instead of handing over an
+  unsafe URL.
+- Tests: contract test covers append, idempotent append, conflict, wrong path,
+  HTTP and empty transaction id; the page test covers sandbox + `test_` token +
+  `txn_[a-z0-9]{26}` gating.
+- **Production blocker:** `GET /pay` returns 404. `src/app/pay/` is untracked and
+  is not part of `b5437a5`, so the handoff target does not exist in production.
+  The `next.config.ts` `/pay` CSP additions are likewise undeployed.
+
+### 3. Entitlement locking consistency
+
+- Payment, refund/dispute, failed-payment and subscription projections already
+  take `lockBillingUser` (`SELECT ... FOR UPDATE`).
+- The cancel route previously wrote `billingAccount.cancelAtPeriodEnd` in an
+  unlocked array `$transaction`; it now calls `recordCancellationRequest`, which
+  locks the user, re-checks the operation is `pending`, verifies subscription
+  ownership, completes the operation and stamps `lastEventAt` from the same
+  locked read.
+- Worker reconciliation previously wrote the account unlocked; it now calls
+  `completeReconciledCancellation`, fenced on `pending|uncertain` and under the
+  same lock.
+- A provider snapshot that precedes a locally confirmed cancellation can no
+  longer clear it: `applySubscriptionSnapshot` checks for a completed
+  `cancel_at_period_end` operation with `completedAt >= occurredAt`.
+- Tests: three new operations tests (lock-before-read, ownership rejection,
+  stale-snapshot guard) and two new worker tests (reconciled completion,
+  provider-confirms-not-scheduled failure).
+
+### 4. Original production HTTP 503
+
+Not attributed, and not claimed fixed. Read-only probe evidence (no credentials,
+no state change) against `https://studio.supersmartx.com`:
+
+| Request | Status | Body |
+| --- | --- | --- |
+| `GET /api/health` | 200 | commit `b5437a5` |
+| `GET /pay` | 404 | HTML 404 |
+| `GET /api/internal/paddle/worker` | 503 | `Billing worker is not configured` |
+| `GET /api/export-jobs/cleanup` | 401 | `Unauthorized` |
+| `POST /api/paddle/webhook` (unsigned) | 401 | `Invalid webhook signature` |
+| `GET /api/paddle/{billing,quote,checkout/status}` | 401 | `Unauthorized` |
+
+The only 503 reproducible without a Studio session is the worker's missing
+`CRON_SECRET`. Checkout/quote/cancel 503 branches sit behind session auth and
+cannot be attributed from outside. Attributing the originally reported 503
+requires the Vercel function log for that request (path, timestamp, response
+body) or the `x-vercel-id`; the route 503 reasons are: live environment,
+checkout disabled, Paddle client not configured, price lookup/mismatch,
+checkout URL not configured, and provider outcome uncertain.
+
+### 5. Live checkout disabled
+
+- `isPaddleCheckoutEnabled()` returns true only for `PADDLE_ENVIRONMENT=sandbox`;
+  quote, checkout and cancel all gate on it (503 otherwise).
+- Provider methods `assertSandboxPriceMatches`, `createSandboxCheckout`,
+  `cancelSandboxSubscription` (and the billing-provider create path) throw unless
+  the environment is sandbox.
+- `/pay` requires sandbox plus a `test_` client token plus a 26-char `txn_` id.
+- `PADDLE_LIVE_CHECKOUT_DISABLED` is now documentation-only: live stays disabled
+  structurally, so the flag's value cannot enable live. Source check completed;
+  the production environment value was not readable without Vercel access.
+
+### 6. No data, pricing, entitlement or environment changes
+
+- Repository: no `prisma/` schema or migration changes, no pricing or
+  entitlement module changes, and no tracked `.env`/`.env.local` changes.
+  `.env.example` is the only env-surface file touched (template comments and new
+  variable names, no values).
+- No database statement was executed and no production environment variable was
+  written. Vercel environment state was not readable from this workstation.
+
+### 7. Verification
+
+```powershell
+npx vitest run <25 billing/security suites>
+npx tsc --noEmit
+npx eslint <18 touched source/test files>
+```
+
+Result: **19 files passed / 6 skipped; 260 tests passed, 106 skipped** (skips
+need `DATABASE_URL`, e.g. `security.test.ts`); TypeScript and focused ESLint
+exited 0. This is local evidence only.
+

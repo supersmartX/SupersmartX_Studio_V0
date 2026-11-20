@@ -26,16 +26,17 @@ vi.mock('@/lib/billing/operations', () => ({
       super('An unresolved checkout already exists');
     }
   },
-  hashCheckoutConsent: () => 'consent-hash',
+  hashCheckoutConsent: () => 'a'.repeat(64),
   reserveCheckout: mocks.reserveCheckout,
 }));
 vi.mock('@/lib/billing/paddle', () => ({
   assertSandboxPriceMatches: vi.fn().mockResolvedValue({ id: 'pri-1', productId: 'pro-1' }),
+  getPaddleCheckoutUrl: () => 'https://checkout.paddle.com/checkout',
   getPaddleClient: () => ({}),
   getPaddleEnvironment: () => 'sandbox',
   getTrustedPaddleCountry: () => 'IN',
   isPaddleCheckoutEnabled: () => true,
-  isSafePaddleCheckoutUrl: () => true,
+  toPaddleHandoffUrl: (url: string, transactionId: string) => `${url}?_ptxn=${transactionId}`,
   PaddlePriceLookupError: class PaddlePriceLookupError extends Error {},
   PaddlePriceMismatchError: class PaddlePriceMismatchError extends Error {},
   PaddleBillingProvider: class {
@@ -63,7 +64,7 @@ const consent = {
   currency: 'INR',
   consentVersion: '2',
   quoteToken: 'signed-quote',
-  consentHash: 'consent-hash',
+  consentHash: 'a'.repeat(64),
 };
 
 function request() {

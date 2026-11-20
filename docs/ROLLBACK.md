@@ -21,13 +21,17 @@ and no code in this repo requires downgrading:
   ship a new additive migration that corrects it. Procedure:
   `DATABASE.md` § *Backup and restore*.
 - Never run `DROP TABLE` by hand; never run `prisma db push` to "reset" a
-  schema — it drops the `pending_orders_one_live_per_user` partial index that
-  enforces one live checkout per user.
+  schema — it drops the partial unique indexes that enforce one live checkout
+  (`billing_reservations_one_active_per_user`, legacy
+  `pending_orders_one_live_per_user`) and one open cancellation
+  (`billing_operations_one_open_cancel_per_subscription`).
 
 ## Payments/storage
 
-- Paddle webhook handler is idempotent (`processed_webhooks`); replaying
-  events after rollback is safe.
+- Paddle Billing webhook receipt is idempotent (`billing_events` primary key);
+  replaying events after a rollback is safe. Entitlement grants are additionally
+  deduplicated per provider transaction by the `entitlement_granted_at` claim,
+  so worker replay cannot double-grant.
 - R2 objects are content-addressed by UUID keys; rollback never deletes
   objects. Orphan sweep is covered by account deletion + nightly cleanup.
 

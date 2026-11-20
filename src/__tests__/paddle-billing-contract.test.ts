@@ -9,12 +9,15 @@ import { classifyBillingAccount } from '@/lib/billing/accounts';
 import {
   assertSandboxPriceMatches,
   createSandboxCheckoutQuote,
+  approvedPaddleCheckoutUrls,
+  getPaddleCheckoutUrl,
   getPaddleEnvironment,
   getTrustedPaddleCountry,
   getSandboxQuote,
   isAuthoritativelyPaid,
   isSafePaddleCheckoutUrl,
   normalizePaddleAmount,
+  toPaddleHandoffUrl,
   validatePaddlePaidTotals,
   validatePaddleAttribution,
   verifySandboxPriceRecord,
@@ -107,7 +110,8 @@ describe('Paddle billing contracts', () => {
   it('requires an authoritative paid transaction', () => {
     expect(isAuthoritativelyPaid('paid')).toBe(true);
     expect(isAuthoritativelyPaid('completed')).toBe(true);
-    expect(isAuthoritativelyPaid('billed')).toBe(true);
+    expect(isAuthoritativelyPaid('billed')).toBe(false);
+    expect(reservationStatusForRemote('billed')).toBe('pending');
     expect(isAuthoritativelyPaid('ready')).toBe(false);
   });
 
@@ -336,11 +340,56 @@ describe('Paddle billing contracts', () => {
     })).toBe(false);
   });
 
-  it('accepts only HTTPS Paddle-hosted checkout URLs', () => {
-    expect(isSafePaddleCheckoutUrl('https://checkout.paddle.com/checkout/test')).toBe(true);
-    expect(isSafePaddleCheckoutUrl('http://checkout.paddle.com/checkout/test')).toBe(false);
-    expect(isSafePaddleCheckoutUrl('https://paddle.com.attacker.example/checkout/test')).toBe(false);
-    expect(isSafePaddleCheckoutUrl('https://example.com/checkout')).toBe(false);
+  it('accepts only the configured HTTPS merchant payment page', () => {
+    vi.stubEnv('PADDLE_CHECKOUT_URL', 'https://studio.example.com/pay');
+    expect(isSafePaddleCheckoutUrl('https://studio.example.com/pay?_ptxn=txn_test')).toBe(true);
+    for (const url of [
+      'http://studio.example.com/pay', 'https://studio.example.com.attacker.example/pay',
+      'https://studio.example.com/other', 'https://user@studio.example.com/pay',
+      'https://studio.example.com/pay#fragment', 'https://checkout.paddle.com/pay',
+    ]) expect(isSafePaddleCheckoutUrl(url)).toBe(false);
+    vi.stubEnv('PADDLE_CHECKOUT_URL', '');
+    expect(isSafePaddleCheckoutUrl('https://studio.example.com/pay')).toBe(false);
+  });
+
+  it('accepts every explicitly approved merchant payment page and nothing else', () => {
+    vi.stubEnv('PADDLE_CHECKOUT_URL', 'https://studio.example.com/pay');
+    vi.stubEnv('PADDLE_CHECKOUT_URLS', 'https://preview.example.com/pay, https://legacy.example.com/checkout');
+    expect(approvedPaddleCheckoutUrls().map((url) => `${url.origin}${url.pathname}`)).toEqual([
+      'https://preview.example.com/pay',
+      'https://legacy.example.com/checkout',
+      'https://studio.example.com/pay',
+    ]);
+    expect(getPaddleCheckoutUrl()).toBe('https://studio.example.com/pay');
+    expect(isSafePaddleCheckoutUrl('https://preview.example.com/pay?_ptxn=txn_test')).toBe(true);
+    expect(isSafePaddleCheckoutUrl('https://legacy.example.com/checkout?_ptxn=txn_test')).toBe(true);
+    for (const url of [
+      'https://preview.example.com/other',
+      'https://preview.example.com.attacker.example/pay',
+      'http://preview.example.com/pay',
+      'https://preview.example.com/pay#fragment',
+    ]) expect(isSafePaddleCheckoutUrl(url)).toBe(false);
+
+    vi.stubEnv('PADDLE_CHECKOUT_URL', 'not a url');
+    expect(getPaddleCheckoutUrl()).toBe('https://preview.example.com/pay');
+    vi.stubEnv('PADDLE_CHECKOUT_URLS', 'http://insecure.example.com/pay');
+    vi.stubEnv('PADDLE_CHECKOUT_URL', '');
+    expect(getPaddleCheckoutUrl()).toBeNull();
+    expect(isSafePaddleCheckoutUrl('http://insecure.example.com/pay')).toBe(false);
+    vi.stubEnv('PADDLE_CHECKOUT_URLS', '');
+  });
+
+  it('hands the approved page to /pay with the exact transaction id', () => {
+    vi.stubEnv('PADDLE_CHECKOUT_URL', 'https://studio.example.com/pay');
+    const txn = 'txn_01h8j3k4m5n6p7q8r9s0t1u2v3';
+    expect(toPaddleHandoffUrl('https://studio.example.com/pay', txn))
+      .toBe(`https://studio.example.com/pay?_ptxn=${txn}`);
+    expect(toPaddleHandoffUrl(`https://studio.example.com/pay?_ptxn=${txn}`, txn))
+      .toBe(`https://studio.example.com/pay?_ptxn=${txn}`);
+    expect(toPaddleHandoffUrl('https://studio.example.com/pay?_ptxn=txn_other', txn)).toBeNull();
+    expect(toPaddleHandoffUrl('https://studio.example.com/checkout', txn)).toBeNull();
+    expect(toPaddleHandoffUrl(`http://studio.example.com/pay?_ptxn=${txn}`, txn)).toBeNull();
+    expect(toPaddleHandoffUrl('https://studio.example.com/pay', '')).toBeNull();
   });
 
   it('rejects customer, plan and subscription ownership mismatches', () => {

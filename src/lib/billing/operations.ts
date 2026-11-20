@@ -2,6 +2,13 @@ import crypto from 'crypto';
 import { getPrisma } from '@/lib/db/prisma';
 import { classifyBillingAccount } from './accounts';
 import type { CheckoutConsent } from './contracts';
+import type { Prisma } from '@prisma/client';
+
+// All billing projections for an account use the same lock before reading
+// mutable coverage. Per-event leases alone do not serialize different events.
+async function lockBillingUser(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+}
 
 const MAX_BILLING_EVENT_ATTEMPTS = 10;
 
@@ -46,7 +53,7 @@ export function hashCheckoutConsent(consent: Omit<CheckoutConsent, 'consentHash'
 }
 
 export function reservationStatusForRemote(status: string): 'confirmed' | 'pending' | 'failed' | 'canceled' {
-  if (status === 'completed' || status === 'paid' || status === 'billed') return 'confirmed';
+  if (status === 'completed' || status === 'paid') return 'confirmed';
   if (status === 'canceled' || status === 'cancelled') return 'canceled';
   if (status === 'failed') return 'failed';
   return 'pending';
@@ -60,6 +67,7 @@ export async function reserveCheckout(input: CheckoutConsent & {
 }): Promise<void> {
   const prisma = getPrisma();
   await prisma.$transaction(async (tx) => {
+    await lockBillingUser(tx, input.userId);
     const user = await tx.user.findUnique({
       where: { id: input.userId },
       select: { plan: true, planExpiresAt: true },
@@ -289,6 +297,7 @@ export async function applyPaidBillingEvent(input: {
 }): Promise<void> {
   const prisma = getPrisma();
   await prisma.$transaction(async (tx) => {
+    await lockBillingUser(tx, input.userId);
     const event = await tx.billingEvent.findFirst({
       where: {
         eventId: input.eventId,
@@ -440,6 +449,7 @@ export async function applyFailedPaymentEvent(input: {
 }): Promise<void> {
   const prisma = getPrisma();
   await prisma.$transaction(async (tx) => {
+    await lockBillingUser(tx, input.userId);
     const lease = await tx.billingEvent.findFirst({
       where: {
         eventId: input.eventId,
@@ -499,6 +509,7 @@ export async function applySubscriptionSnapshot(input: {
 }): Promise<void> {
   const prisma = getPrisma();
   await prisma.$transaction(async (tx) => {
+    await lockBillingUser(tx, input.userId);
     const lease = await tx.billingEvent.findFirst({
       where: {
         eventId: input.eventId,
@@ -516,6 +527,20 @@ export async function applySubscriptionSnapshot(input: {
     }
 
     const isNewerEvent = isNewerBillingEvent(input.occurredAt, account.lastEventAt);
+    // A provider snapshot that predates a locally confirmed cancellation must not
+    // clear it. The route records `completedAt` under the same user lock, so the
+    // comparison is against a committed write, not a racing read.
+    const keepLocalCancellation = !input.cancelAtPeriodEnd && account.cancelAtPeriodEnd &&
+      Boolean(await tx.billingOperation.findFirst({
+        where: {
+          userId: input.userId,
+          resourceId: input.subscriptionId,
+          operation: 'cancel_at_period_end',
+          status: 'completed',
+          completedAt: { gte: input.occurredAt ?? new Date() },
+        },
+        select: { id: true },
+      }));
     if (isNewerEvent) {
       await tx.billingAccount.update({
         where: { userId: input.userId },
@@ -524,7 +549,7 @@ export async function applySubscriptionSnapshot(input: {
           providerCustomerId: input.customerId,
           status: input.status,
           nextChargeAt: input.nextChargeAt,
-          cancelAtPeriodEnd: input.cancelAtPeriodEnd,
+          cancelAtPeriodEnd: keepLocalCancellation ? true : input.cancelAtPeriodEnd,
           lastEventId: input.eventId,
           lastEventAt: input.occurredAt,
         },
@@ -557,6 +582,75 @@ export async function applySubscriptionSnapshot(input: {
   });
 }
 
+export async function completeReconciledCancellation(input: {
+  operationId: string;
+  userId: string;
+  subscriptionId: string;
+  cancelAtPeriodEnd: boolean;
+  status: string;
+  canceledAt: Date | null;
+}): Promise<boolean> {
+  const prisma = getPrisma();
+  return prisma.$transaction(async (tx) => {
+    await lockBillingUser(tx, input.userId);
+    const completed = await tx.billingOperation.updateMany({
+      where: { id: input.operationId, status: { in: ['pending', 'uncertain'] } },
+      data: { status: 'completed', completedAt: new Date(), lastError: null },
+    });
+    if (completed.count !== 1) return false;
+    await tx.billingAccount.updateMany({
+      where: { userId: input.userId, providerSubscriptionId: input.subscriptionId },
+      data: {
+        cancelAtPeriodEnd: input.cancelAtPeriodEnd,
+        status: input.status,
+        ...(input.canceledAt ? { canceledAt: input.canceledAt } : {}),
+      },
+    });
+    return true;
+  });
+}
+
+export async function recordCancellationRequest(input: {
+  userId: string;
+  subscriptionId: string;
+  operationId: string;
+  requestedAt?: Date;
+}): Promise<void> {
+  const prisma = getPrisma();
+  const requestedAt = input.requestedAt ?? new Date();
+  await prisma.$transaction(async (tx) => {
+    await lockBillingUser(tx, input.userId);
+    const operation = await tx.billingOperation.findFirst({
+      where: {
+        id: input.operationId,
+        userId: input.userId,
+        resourceId: input.subscriptionId,
+        operation: 'cancel_at_period_end',
+        status: 'pending',
+      },
+      select: { id: true },
+    });
+    if (!operation) throw new Error('Cancellation operation is not pending');
+    const account = await tx.billingAccount.findUnique({ where: { userId: input.userId } });
+    if (!account || account.providerSubscriptionId !== input.subscriptionId) {
+      throw new Error('Cancellation subscription ownership mismatch');
+    }
+    await tx.billingOperation.update({
+      where: { id: input.operationId },
+      data: { status: 'completed', completedAt: requestedAt, lastError: null },
+    });
+    await tx.billingAccount.update({
+      where: { userId: input.userId },
+      data: {
+        cancelAtPeriodEnd: true,
+        ...(isNewerBillingEvent(requestedAt, account.lastEventAt)
+          ? { lastEventId: `operation:${input.operationId}`, lastEventAt: requestedAt }
+          : {}),
+      },
+    });
+  });
+}
+
 export async function applyAdjustmentEvent(input: {
   eventId: string;
   leaseToken: string;
@@ -568,6 +662,7 @@ export async function applyAdjustmentEvent(input: {
   amount: string;
   currency: string;
   updatedAt: Date;
+  occurredAt?: Date | null;
 }): Promise<void> {
   const prisma = getPrisma();
   await prisma.$transaction(async (tx) => {
@@ -584,6 +679,7 @@ export async function applyAdjustmentEvent(input: {
       where: { providerTransactionId: input.transactionId },
     });
     if (!transaction?.userId) throw new Error('Adjustment transaction is not attributed');
+    await lockBillingUser(tx, transaction.userId);
     const account = await tx.billingAccount.findUnique({ where: { userId: transaction.userId } });
     if (!account) throw new Error('Adjustment billing account does not exist');
 
@@ -658,6 +754,8 @@ export async function applyAdjustmentEvent(input: {
       ? account.legacyPlan || 'free'
       : paidTerm?.plan || account.legacyPlan || 'free';
     const active = Boolean(paidThroughAt && paidThroughAt > new Date());
+    const adjustmentAt = input.occurredAt ?? input.updatedAt;
+    const isNewerEvent = isNewerBillingEvent(adjustmentAt, account.lastEventAt);
 
     await tx.user.update({
       where: { id: transaction.userId },
@@ -669,9 +767,16 @@ export async function applyAdjustmentEvent(input: {
     await tx.billingAccount.update({
       where: { userId: transaction.userId },
       data: {
-        plan: active ? plan : 'free',
-        status: active ? 'active' : 'expired',
         paidThroughAt,
+        // Coverage is always recomputed from the attributed transactions, but a
+        // delayed adjustment must not overwrite a newer subscription lifecycle
+        // state (for example a cancellation recorded after this refund).
+        ...(isNewerEvent ? {
+          plan: active ? plan : 'free',
+          status: active ? 'active' : 'expired',
+          lastEventId: input.eventId,
+          lastEventAt: adjustmentAt,
+        } : {}),
       },
     });
     const marked = await tx.billingEvent.updateMany({

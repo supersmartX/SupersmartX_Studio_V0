@@ -37,12 +37,7 @@ export function getPaddleEnvironment(): 'sandbox' | 'live' | null {
 }
 
 export function isPaddleCheckoutEnabled(): boolean {
-  const environment = getPaddleEnvironment();
-  if (environment === 'sandbox') return true;
-  if (environment === 'live') {
-    return process.env.PADDLE_LIVE_CHECKOUT_DISABLED !== 'true';
-  }
-  return false;
+  return getPaddleEnvironment() === 'sandbox';
 }
 
 export function getPaddleClient(): Paddle | null {
@@ -252,17 +247,74 @@ export function getSandboxPriceId(plan: BillingPlan): string | null {
   return getSandboxConfiguration(plan)?.priceId ?? null;
 }
 
+function parseApprovedCheckoutPage(raw: string): URL | null {
+  try {
+    const url = new URL(raw.trim());
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function sameCheckoutPage(a: URL, b: URL): boolean {
+  const normalize = (pathname: string) => pathname.replace(/\/+$/, '') || '/';
+  return a.origin === b.origin && normalize(a.pathname) === normalize(b.pathname);
+}
+
+/**
+ * Every approved merchant payment page. Paddle may return any of these with a
+ * `_ptxn` query parameter, so approval is by origin and path, never by the
+ * untrusted query string. `PADDLE_CHECKOUT_URL` remains the primary page and
+ * `PADDLE_CHECKOUT_URLS` adds additional explicitly approved pages (for
+ * example a preview deployment).
+ */
+export function approvedPaddleCheckoutUrls(): URL[] {
+  const values = [
+    ...(process.env.PADDLE_CHECKOUT_URLS ?? '').split(/[\s,]+/),
+    process.env.PADDLE_CHECKOUT_URL ?? '',
+  ];
+  const approved: URL[] = [];
+  for (const value of values) {
+    if (!value.trim()) continue;
+    const url = parseApprovedCheckoutPage(value);
+    if (url && !approved.some((existing) => sameCheckoutPage(existing, url))) {
+      approved.push(url);
+    }
+  }
+  return approved;
+}
+
+export function getPaddleCheckoutUrl(): string | null {
+  const primary = process.env.PADDLE_CHECKOUT_URL?.trim();
+  if (primary && parseApprovedCheckoutPage(primary)) return primary;
+  return approvedPaddleCheckoutUrls()[0]?.toString() ?? null;
+}
+
 export function isSafePaddleCheckoutUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' &&
-      !url.username &&
-      !url.password &&
-      !url.port &&
-      (url.hostname === 'paddle.com' || url.hostname.endsWith('.paddle.com'));
+    return url.protocol === 'https:' && !url.username && !url.password && !url.hash &&
+      approvedPaddleCheckoutUrls().some((approved) => sameCheckoutPage(url, approved));
   } catch {
     return false;
   }
+}
+
+/**
+ * Paddle normally returns the approved page with `_ptxn` already appended, but
+ * its documentation also shows callers appending it. `/pay` requires the exact
+ * transaction, so add it when missing and reject a conflicting value.
+ */
+export function toPaddleHandoffUrl(value: string, transactionId: string): string | null {
+  if (!transactionId || !isSafePaddleCheckoutUrl(value)) return null;
+  const url = new URL(value);
+  const existing = url.searchParams.get('_ptxn');
+  if (existing !== null && existing !== transactionId) return null;
+  if (existing === null) url.searchParams.set('_ptxn', transactionId);
+  return url.toString();
 }
 
 export type PaddlePriceMismatchReason =
@@ -524,7 +576,7 @@ export async function createSandboxCheckoutQuote(
 }
 
 export function isAuthoritativelyPaid(status: unknown): boolean {
-  return status === 'paid' || status === 'completed' || status === 'billed';
+  return status === 'paid' || status === 'completed';
 }
 
 export function validatePaddleAttribution(input: {
@@ -572,7 +624,12 @@ export class PaddleBillingProvider implements BillingProvider {
       throw new PaddlePriceMismatchError('price_identity');
     }
 
+    const checkoutUrl = getPaddleCheckoutUrl();
+    if (!checkoutUrl || !isSafePaddleCheckoutUrl(checkoutUrl)) {
+      throw new Error('Paddle checkout URL is not configured');
+    }
     const transaction = await this.paddle.transactions.create({
+      checkout: { url: checkoutUrl },
       items: [{ priceId: quote.priceId, quantity: 1 }],
       currencyCode: quote.currency,
       collectionMode: 'automatic',

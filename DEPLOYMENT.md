@@ -32,14 +32,15 @@ Build → Validate → Test → Deploy to Staging → Validate → Approval → 
 | `PADDLE_API_KEY` | *(unset)* | *(unset)* | Server-side Paddle SDK key; never expose to browser |
 | `PADDLE_WEBHOOK_SECRET` | *(unset)* | *(unset)* | Webhook destination signing secret |
 | `PADDLE_ENVIRONMENT` | `sandbox` | `sandbox` | Must explicitly be `sandbox` or `live`; checkout/cancel mutations currently sandbox-only |
-| `PADDLE_LIVE_CHECKOUT_DISABLED` | `true` | `true` | Keep enabled until sandbox, PostgreSQL, and operational gates pass |
+| `PADDLE_LIVE_CHECKOUT_DISABLED` | `true` | `true` | Reserved release gate; current code permits mutations only in `sandbox`, so live stays blocked regardless of this value |
 | `PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY` / `PADDLE_SANDBOX_PRICE_CREATOR_YEARLY` | *(unset)* | *(unset)* | Sandbox recurring price IDs |
 | `PADDLE_SANDBOX_AMOUNT_MONTHLY` / `PADDLE_SANDBOX_AMOUNT_YEARLY` | *(unset)* | *(unset)* | Exact server quote in the configured currency |
 | `PADDLE_SANDBOX_CURRENCY` | *(unset)* | *(unset)* | Three-letter sandbox quote currency |
-| `CRON_SECRET` | *(unset)* | *(required for worker)* | Separate bearer secret for `/api/internal/paddle/worker` |
+| `CRON_SECRET` | *(unset)* | *(required for worker)* | Bearer secret Vercel Cron sends to every cron path; must equal `CLEANUP_SECRET` (the cleanup route compares it against that value) |
 
-Paddle is not production-enabled. Do not configure live credentials or set the
-live checkout gate to false. The webhook inbox requires the secret configured
+Paddle is not production-enabled. Do not configure live credentials; live
+checkout, quote and cancellation stay disabled in code until a reviewed change
+ships. The webhook inbox requires the secret configured
 for its Paddle notification destination; it verifies the raw body with the
 official SDK before persisting events.
 
@@ -225,11 +226,13 @@ npx prisma migrate deploy    # applies everything pending, in order
 ```
 
 **Never** use `prisma migrate dev` or `prisma db push` against a database
-carrying this schema. `pending_orders_one_live_per_user` is a partial unique
-index, which Prisma's schema language cannot express; both commands see
-permanent drift, and `db push` drops the index that prevents duplicate payable
-orders. New migrations are hand-written, additive `migration.sql` files in a
-timestamped directory, with `prisma/schema.prisma` kept in step.
+carrying this schema. The partial unique indexes
+`pending_orders_one_live_per_user`, `billing_reservations_one_active_per_user`,
+and `billing_operations_one_open_cancel_per_subscription` cannot be expressed in
+Prisma's schema language; both commands see permanent drift, and `db push`
+drops the indexes that prevent duplicate payable orders and duplicate
+cancellations. New migrations are hand-written, additive `migration.sql` files
+in a timestamped directory, with `prisma/schema.prisma` kept in step.
 
 **If `migrate deploy` fails with "relation already exists"**, the database was
 created outside Prisma Migrate, so `_prisma_migrations` is empty and `0_init`
@@ -442,8 +445,10 @@ vercel logs | grep -i error
 3. Run the retention sweep manually: `POST /api/export-jobs/cleanup` with an
    `x-cleanup-secret: <CLEANUP_SECRET>` header (the same route also answers
    `GET`, which is what the nightly cron uses)
-4. Check `CRON_SECRET` equals `CLEANUP_SECRET` — if the nightly job 401s, stale
-   jobs are never reclaimed
+4. Check `CLEANUP_SECRET` matches the value the cleanup cron sends — a nightly
+   401 means stale jobs are never reclaimed. Vercel sends `CRON_SECRET` as the
+   bearer for every cron path, so `CLEANUP_SECRET` must equal `CRON_SECRET`; the
+   same value authenticates the daily Paddle inbox worker
 
 ### Scenario: Rate Limiter Issues
 

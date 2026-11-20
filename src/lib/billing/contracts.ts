@@ -26,6 +26,12 @@ export interface CheckoutConsent {
   consentHash: string;
 }
 
+/** Current HTTP enrollment contract; version 1 remains readable for history. */
+export interface CheckoutRequest extends CheckoutConsent {
+  consentVersion: '2';
+  quoteToken: string;
+}
+
 export interface ProviderCheckout {
   providerOperationId: string;
   transactionId: string | null;

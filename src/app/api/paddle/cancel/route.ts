@@ -2,13 +2,25 @@ import crypto from 'crypto';
 import { auth } from '@/auth';
 import { NextResponse } from 'next/server';
 import { getPaddleClient, getPaddleEnvironment, isPaddleCheckoutEnabled, PaddleBillingProvider } from '@/lib/billing/paddle';
+import { recordCancellationRequest } from '@/lib/billing/operations';
 import { getPrisma } from '@/lib/db/prisma';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
+
+const CANCEL_RATE_LIMIT_MAX = 10;
+const CANCEL_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 export async function POST() {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl = rateLimit(`paddle-cancel:${session.user.id}`, CANCEL_RATE_LIMIT_MAX, CANCEL_RATE_LIMIT_WINDOW_MS);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'Too many cancellation attempts. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } },
+    );
+  }
   if (!isPaddleCheckoutEnabled()) {
     return NextResponse.json({ error: 'Paddle cancellation is unavailable' }, { status: 503 });
   }
@@ -69,16 +81,22 @@ export async function POST() {
       operationId,
     }, { status: 503 });
   }
-  await prisma.$transaction([
-    prisma.billingOperation.update({
-      where: { id: operationId },
-      data: { status: 'completed', completedAt: new Date() },
-    }),
-    prisma.billingAccount.update({
-      where: { userId: session.user.id },
-      data: { cancelAtPeriodEnd: true },
-    }),
-  ]);
+  try {
+    await recordCancellationRequest({
+      userId: session.user.id,
+      subscriptionId: account.providerSubscriptionId,
+      operationId,
+    });
+  } catch {
+    // Paddle already scheduled the cancellation. The pending operation is the
+    // recovery key; the worker's reconciliation applies it without a retry.
+    console.error('Paddle cancellation was confirmed but could not be recorded', { operationId });
+    return NextResponse.json({
+      status: 'cancellation_pending_reconciliation',
+      operationId,
+      paidThroughAt: account.paidThroughAt?.toISOString() ?? null,
+    }, { status: 202 });
+  }
   return NextResponse.json({
     status: 'cancellation_requested',
     paidThroughAt: account.paidThroughAt?.toISOString() ?? null,

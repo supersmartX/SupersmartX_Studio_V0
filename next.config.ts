@@ -106,6 +106,15 @@ const nextConfig: NextConfig = {
         headers: securityHeaders,
       },
       {
+        source: '/pay',
+        headers: securityHeaders.map((header) => header.key === 'Content-Security-Policy'
+          ? { ...header, value: header.value
+            .replace("script-src 'self'", "script-src 'self' https://cdn.paddle.com")
+            .replace("connect-src 'self'", "connect-src 'self' https://*.paddle.com")
+            .replace("frame-src 'none'", 'frame-src https://*.paddle.com') }
+          : header),
+      },
+      {
         source: '/api/auth/:path*',
         headers: [
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate' },

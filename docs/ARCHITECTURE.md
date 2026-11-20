@@ -32,9 +32,14 @@ subscriptions. Next.js 16 App Router, React 19, Tailwind 4.
   `middleware.ts` (JWT with user id required; `PUBLIC_API_ROUTES` allowlist of
   7); every session route re-reads the user from DB — plan never comes from the
   JWT (`AUTHENTICATION.md`, `AUTHORIZATION.md`).
-- **Payments**: Paddle hosted checkout — server-priced order (`pricing.ts`,
-  geo header), `pending_orders`, webhook HMAC (`PADDLE_SECRET_KEY` as signing
-  key), atomic activation + `processed_webhooks` replay ledger.
+- **Payments**: Paddle **Billing** sandbox checkout — signed server quote
+  (`pricing.ts`, trusted country header), `billing_reservations` (one active per
+  user), merchant payment page with `_ptxn`, SDK-verified webhook into
+  `billing_events`, and a worker (webhook-triggered, with a daily recovery cron)
+  that re-reads Paddle and projects
+  entitlements under a per-user `FOR UPDATE` lock. Unique provider IDs plus an
+  atomic `entitlementGrantedAt` claim prevent duplicate grants. Live mutations
+  are disabled in code (`API-CONTRACTS.md`, `ENTITLEMENTS.md`).
 - **Export jobs**: job state machine (`pending → encoding → uploading →
   completed|failed`) where `completed` is server-only; Phase 3 artifact
   verification in `/api/exports/complete` (final authority over bytes).

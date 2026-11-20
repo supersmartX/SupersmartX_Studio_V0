@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   applyFailed: vi.fn(),
   applySubscription: vi.fn(),
   applyAdjustment: vi.fn(),
+  completeCancellation: vi.fn(),
+  updateOperation: vi.fn(),
   transactionGet: vi.fn(),
   subscriptionGet: vi.fn(),
   priceConfiguration: vi.fn(),
@@ -26,7 +28,7 @@ vi.mock('@/lib/db/prisma', () => ({
     billingAccount: { findUnique: mocks.findAccount },
     billingReservation: { findUnique: mocks.findReservation },
     billingTransaction: { findUnique: mocks.findTransaction },
-    billingOperation: { findMany: mocks.findOperations },
+    billingOperation: { findMany: mocks.findOperations, updateMany: mocks.updateOperation },
   }),
 }));
 
@@ -37,6 +39,7 @@ vi.mock('@/lib/billing/operations', () => ({
   applyFailedPaymentEvent: mocks.applyFailed,
   applyPaidBillingEvent: mocks.applyPaid,
   applySubscriptionSnapshot: mocks.applySubscription,
+  completeReconciledCancellation: mocks.completeCancellation,
   releaseBillingEventLease: mocks.release,
 }));
 
@@ -50,7 +53,6 @@ vi.mock('@/lib/billing/paddle', async (importOriginal) => {
       adjustments: { list: mocks.adjustmentList },
     }),
     getPaddlePriceConfiguration: mocks.priceConfiguration,
-    isAuthoritativelyPaid: (status: string) => ['paid', 'completed', 'billed'].includes(status),
   };
 });
 
@@ -120,9 +122,69 @@ beforeEach(() => {
     period: 'monthly',
   });
   mocks.renew.mockResolvedValue(true);
+  mocks.updateOperation.mockResolvedValue({ count: 1 });
 });
 
 describe('Paddle durable webhook worker', () => {
+  it('ignores invoice issuance and retries paid transactions awaiting a subscription', async () => {
+    const event = (eventType: string) => [{ eventId: 'evt-processing', occurredAt: new Date(),
+      payloadJson: JSON.stringify({ eventType, data: { id: 'txn-processing' } }) }];
+    mocks.findEvents.mockResolvedValue(event('transaction.billed'));
+    await GET(request());
+    expect(mocks.transactionGet).not.toHaveBeenCalled();
+    expect(mocks.applyPaid).not.toHaveBeenCalled();
+    mocks.findEvents.mockResolvedValue(event('transaction.paid'));
+    mocks.transactionGet.mockResolvedValue({ id: 'txn-processing', status: 'paid', customerId: 'ctm-1', subscriptionId: null });
+    await GET(request());
+    expect(mocks.release).toHaveBeenLastCalledWith('evt-processing', expect.any(String), 'failed', 'provider_or_persistence_error');
+    expect(mocks.applyPaid).not.toHaveBeenCalled();
+  });
+
+  it.each(['valid', 'foreign-customer', 'wrong-consent', 'not-enrolled'] as const)(
+    'checks a renewal with an expired initial quote: %s', async (scenario) => {
+      vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+      vi.stubEnv('AUTH_SECRET', 'renewal-test-secret');
+      vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri-monthly');
+      vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
+      vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+      const enrolledAt = new Date('2026-09-01T12:00:00Z');
+      const price = regionalPrice({ id: 'pri-monthly', baseAmount: '799', interval: 'month', indiaAmount: '34900' });
+      const quote = await createSandboxCheckoutQuote({ prices: { get: vi.fn().mockResolvedValue(price) } } as never,
+        'creator_monthly', 'US', enrolledAt);
+      const customData = { sup_user_id: 'user-1', sup_plan: 'creator_monthly', sup_reservation_id: 'res-1',
+        sup_consent_version: '2', sup_consent_hash: 'consent', sup_quote_token: quote.quoteToken };
+      const original = { id: 'txn-original', status: 'completed', subscriptionId: 'sub-1',
+        customerId: scenario === 'foreign-customer' ? 'ctm-other' : 'ctm-1',
+        createdAt: enrolledAt.toISOString(), customData: { ...customData,
+          sup_consent_hash: scenario === 'wrong-consent' ? 'other' : 'consent' } };
+      const renewal = { id: 'txn-renewal', origin: 'subscription_recurring', status: 'completed',
+        subscriptionId: 'sub-1', customerId: 'ctm-1', createdAt: '2026-10-01T12:00:00Z',
+        billedAt: '2026-10-01T12:00:00Z', customData, currencyCode: 'USD', address: { countryCode: 'US' },
+        items: [{ quantity: 1, price }], details: paidDetails('USD', '799', '0', '799'),
+        billingPeriod: { startsAt: '2026-10-01T12:00:00Z', endsAt: '2026-11-01T12:00:00Z' } };
+      mocks.findEvents.mockResolvedValue([{ eventId: 'evt-renewal', occurredAt: new Date('2026-10-01T12:00:00Z'),
+        payloadJson: JSON.stringify({ eventType: 'transaction.completed', data: renewal }) }]);
+      mocks.findAccount.mockResolvedValue(scenario === 'not-enrolled' ? null : {
+        userId: 'user-1', providerSubscriptionId: 'sub-1', providerCustomerId: 'ctm-1', plan: 'creator_monthly' });
+      mocks.findReservation.mockResolvedValue({ id: 'res-1', userId: 'user-1', plan: 'creator_monthly',
+        period: 'monthly', currency: 'USD', consentHash: 'consent', providerTransactionId: 'txn-original' });
+      mocks.transactionGet.mockImplementation((id: string) => Promise.resolve(id === 'txn-original' ? original : renewal));
+      mocks.subscriptionGet.mockResolvedValue({ id: 'sub-1', customerId: 'ctm-1', customData,
+        nextBilledAt: '2026-11-01T12:00:00Z', currentBillingPeriod: renewal.billingPeriod });
+      await GET(request());
+      if (scenario === 'valid') {
+        expect(mocks.applyPaid).toHaveBeenCalledWith(expect.objectContaining({
+          providerTransactionId: 'txn-renewal', reservationId: undefined,
+          periodEndAt: new Date('2026-11-01T12:00:00Z'),
+        }));
+        expect(mocks.release).not.toHaveBeenCalled();
+      } else {
+        expect(mocks.applyPaid).not.toHaveBeenCalled();
+        expect(mocks.release).toHaveBeenCalled();
+      }
+    },
+  );
+
   it('rejects unauthorized invocations', async () => {
     const response = await GET(request('wrong-secret'));
     expect(response.status).toBe(401);
@@ -175,6 +237,26 @@ describe('Paddle durable webhook worker', () => {
     expect(response.status).toBe(200);
     expect(mocks.transactionGet).not.toHaveBeenCalled();
     expect(mocks.applyPaid).not.toHaveBeenCalled();
+  });
+
+  it('drains more than one batch in a single invocation', async () => {
+    const batch = (start: number, count: number) => Array.from({ length: count }, (_, index) => ({
+      eventId: `evt-drain-${start + index}`,
+      occurredAt: new Date('2026-11-18T12:00:00.000Z'),
+      payloadJson: JSON.stringify({
+        eventType: 'customer.updated',
+        data: { id: `ctm-${start + index}` },
+      }),
+    }));
+    mocks.findEvents
+      .mockResolvedValueOnce(batch(0, 8))
+      .mockResolvedValueOnce(batch(8, 3));
+
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(body).toMatchObject({ ignored: 11, leased: 11 });
+    expect(mocks.release).toHaveBeenCalledTimes(11);
   });
 
   it('does not interpret subscription.activated IDs as transaction IDs', async () => {
@@ -704,5 +786,54 @@ describe('Paddle durable webhook worker', () => {
       amount: '100.00',
       currency: 'INR',
     }));
+  });
+
+  it('completes a pending cancellation once Paddle confirms the scheduled change', async () => {
+    mocks.findOperations.mockResolvedValue([
+      { id: 'operation-1', userId: 'user-1', resourceId: 'sub-1' },
+    ]);
+    mocks.subscriptionGet.mockResolvedValue({
+      id: 'sub-1',
+      status: 'active',
+      scheduledChange: { action: 'cancel', effectiveAt: '2026-12-01T00:00:00.000Z' },
+      canceledAt: null,
+    });
+
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ cancellationsReconciled: 1 });
+    expect(mocks.completeCancellation).toHaveBeenCalledWith({
+      operationId: 'operation-1',
+      userId: 'user-1',
+      subscriptionId: 'sub-1',
+      cancelAtPeriodEnd: true,
+      status: 'active',
+      canceledAt: null,
+    });
+  });
+
+  it('fails a pending cancellation Paddle reports as active without a scheduled change', async () => {
+    mocks.findOperations.mockResolvedValue([
+      { id: 'operation-2', userId: 'user-1', resourceId: 'sub-1' },
+    ]);
+    mocks.subscriptionGet.mockResolvedValue({
+      id: 'sub-1',
+      status: 'active',
+      scheduledChange: null,
+      canceledAt: null,
+    });
+
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ cancellationsReconciled: 1 });
+    expect(mocks.completeCancellation).not.toHaveBeenCalled();
+    expect(mocks.updateOperation).toHaveBeenCalledWith({
+      where: { id: 'operation-2', status: { in: ['pending', 'uncertain'] } },
+      data: { status: 'failed', lastError: 'provider_confirms_cancellation_not_scheduled' },
+    });
   });
 });

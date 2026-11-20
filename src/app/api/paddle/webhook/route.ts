@@ -1,10 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { getPaddleClient } from '@/lib/billing/paddle';
 import { receiveBillingEvent } from '@/lib/billing/operations';
+import { readBoundedBody } from '@/lib/request-body';
 
 export const dynamic = 'force-dynamic';
+// `after()` keeps this invocation alive until the triggered worker responds, so
+// the budget must cover the worker's own 45 s drain. Not used by the webhook
+// response itself, which is sent before the trigger starts.
+export const maxDuration = 60;
 
 const MAX_WEBHOOK_BODY_BYTES = 1_048_576;
+const WORKER_TRIGGER_TIMEOUT_MS = 50_000;
+const WORKER_TRIGGER_RETRY_DELAY_MS = 250;
 
 function webhookWorkerBaseUrl(): string | null {
   const configured = process.env.NEXT_PUBLIC_APP_URL?.trim()
@@ -24,52 +31,38 @@ async function triggerBillingWorker(): Promise<void> {
   const secret = process.env.CRON_SECRET?.trim();
   const baseUrl = webhookWorkerBaseUrl();
   if (!secret || !baseUrl) return;
-  try {
-    const response = await fetch(`${baseUrl}/api/internal/paddle/worker`, {
-      method: 'GET',
-      headers: {
-        authorization: `Bearer ${secret}`,
-        'cache-control': 'no-store',
-      },
-      signal: AbortSignal.timeout(5_000),
-      cache: 'no-store',
-    });
-    if (!response.ok) {
-      console.error('Paddle worker trigger returned a non-success status', response.status);
+  const deadline = Date.now() + WORKER_TRIGGER_TIMEOUT_MS;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const remaining = deadline - Date.now();
+    if (remaining < 1_000) break;
+    try {
+      const response = await fetch(`${baseUrl}/api/internal/paddle/worker`, {
+        method: 'GET',
+        headers: {
+          authorization: `Bearer ${secret}`,
+          'cache-control': 'no-store',
+        },
+        signal: AbortSignal.timeout(remaining),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        console.error('Paddle worker trigger returned a non-success status', response.status);
+      }
+      return;
+    } catch {
+      // A connection-level failure is worth one retry; a timeout is not, because
+      // the worker it started may still be running and owns the event leases.
+      if (attempt === 1 || remaining < 5_000) {
+        console.error('Paddle worker could not be triggered after webhook receipt');
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, WORKER_TRIGGER_RETRY_DELAY_MS));
     }
-  } catch {
-    console.error('Paddle worker could not be triggered after webhook receipt');
   }
-}
-
-async function readBoundedBody(request: NextRequest): Promise<string | null> {
-  const contentLength = Number(request.headers.get('content-length'));
-  if (Number.isFinite(contentLength) && contentLength > MAX_WEBHOOK_BODY_BYTES) return null;
-  const reader = request.body?.getReader();
-  if (!reader) return '';
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_WEBHOOK_BODY_BYTES) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
 }
 
 export async function POST(request: NextRequest) {
-  const raw = await readBoundedBody(request);
+  const raw = await readBoundedBody(request, MAX_WEBHOOK_BODY_BYTES);
   if (raw === null) {
     return NextResponse.json({ error: 'Webhook payload is too large' }, { status: 413 });
   }
@@ -101,7 +94,7 @@ export async function POST(request: NextRequest) {
       payload: event,
       occurredAt,
     });
-    await triggerBillingWorker();
+    after(triggerBillingWorker);
     return NextResponse.json(
       { status: 'accepted', duplicate: receipt.duplicate },
       { status: receipt.duplicate ? 200 : 202, headers: { 'Cache-Control': 'no-store' } },

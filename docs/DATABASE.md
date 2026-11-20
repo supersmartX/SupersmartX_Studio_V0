@@ -69,6 +69,8 @@ authority. The runtime never migrates; deploys do.
 | --------- | ------- |
 | `0_init` | Baseline: all 12 original tables, indexes and FKs (tracked since `e4e69bf`) |
 | `20261030150000_pending_order_lifecycle` | W2 pending-order lifecycle, per-user checkout lock, partial unique index |
+| `20261118000000_paddle_billing` | Six Paddle Billing tables (accounts, reservations, events, transactions, operations, adjustments) with unique provider IDs and partial unique indexes |
+| `20261119000000_paddle_adjustment_amount` | Adds `amount`/`currency` to `billing_adjustments` for refund/chargeback records |
 
 **Commands** (all of these read `DIRECT_URL` for DDL):
 
@@ -79,11 +81,13 @@ npx prisma migrate deploy     # apply pending migrations (CI, production, rehear
 
 **Forbidden against this database:**
 
-- `npx prisma migrate dev` — generates SQL from `schema.prisma`, and the
-  partial unique index `pending_orders_one_live_per_user` has no Prisma
+- `npx prisma migrate dev` — generates SQL from `schema.prisma`, and the partial
+  unique indexes `pending_orders_one_live_per_user`,
+  `billing_reservations_one_active_per_user`, and
+  `billing_operations_one_open_cancel_per_subscription` have no Prisma
   representation, so every run reports permanent drift and may offer to "fix" it.
-- `npx prisma db push` — does not use the migration history and **drops** that
-  index.
+- `npx prisma db push` — does not use the migration history and **drops** those
+  indexes.
 
 New migrations are hand-written: create
 `prisma/migrations/<yyyymmddhhmmss>_<name>/migration.sql` with additive SQL, and
@@ -102,7 +106,7 @@ npx prisma migrate resolve --applied 0_init
 npx prisma migrate status      # must show 0_init applied, lifecycle migration pending
 ```
 
-## Tables (13)
+## Tables (19)
 
 | Table | Purpose | Delete behaviour |
 | ----- | ------- | ---------------- |
@@ -111,12 +115,18 @@ npx prisma migrate status      # must show 0_init applied, lifecycle migration p
 | `user_stats` | download/upload counts, storage bytes | CASCADE on user delete |
 | `exports` | export records → R2 keys | CASCADE on user delete; `job_id` SET NULL on job delete |
 | `export_jobs` | encode/upload job state machine | CASCADE on user delete |
-| `processed_webhooks` | Paddle idempotency ledger | append-only |
-| `pending_orders` | server-side order truth for webhook verification | CASCADE on user delete |
-| `checkout_locks` | one TTL row per user serialising checkout + reconciliation | released by the holder; `locked_at` is the TTL |
+| `processed_webhooks` | legacy idempotency ledger (retired gateway) | append-only |
+| `pending_orders` | legacy order truth for the retired gateway flow | CASCADE on user delete |
+| `checkout_locks` | legacy per-user checkout lock (retired flow) | released by the holder; `locked_at` is the TTL |
+| `billing_accounts` | Paddle snapshot: plan, status, paid-through, customer/subscription IDs, last applied event | CASCADE on user delete |
+| `billing_reservations` | one active checkout enrollment per user, consent hash, provider transaction/link | CASCADE from `billing_accounts` |
+| `billing_events` | durable webhook inbox (signature-verified payload, lease, attempts, outcome) | append-only; `user_id` SET NULL |
+| `billing_transactions` | attributed paid terms; unique provider transaction ID and `entitlement_granted_at` claim | keep; `user_id` SET NULL |
+| `billing_operations` | cancellation operations (`pending`/`uncertain`/`completed`) | CASCADE from `billing_accounts` |
+| `billing_adjustments` | refund/chargeback records attributed to a transaction | CASCADE from `billing_transactions` |
 | `monthly_export_counts` | `(user_id, period)` atomic quota | CASCADE on user delete |
 | `daily_recording_seconds` | `(user_id, day)` recording-second ledger (BUS-001) | CASCADE on user delete |
-| `order_notifications` | receipt-once ledger for order emails | append-only |
+| `order_notifications` | legacy receipt-once ledger for order emails | append-only |
 | `deleted_identities` | tombstones: deleted email → next session version | append-only |
 | `schema_meta` | legacy migration-version marker read by `/api/health` | — |
 
@@ -154,7 +164,40 @@ with a claim and no marker is reported `investigate_claim_unentitled`; if the
 gateway confirms it was paid, an operator decides by hand (grant once, or
 refund), because the database cannot prove which of those already happened.
 
+## Paddle Billing schema
+
+Migration `20261118000000_paddle_billing` adds the current payment path. The W2
+`pending_orders` lifecycle above is retained for historical rows only; checkout
+no longer writes it.
+
+- `billing_accounts` — one row per user (`user_id` PK, FK to `users` CASCADE),
+  unique `provider_customer_id` / `provider_subscription_id`, plus the preserved
+  `legacy_plan` and `legacy_paid_through_at` baseline.
+- `billing_reservations` — `billing_reservations_one_active_per_user`
+  (`WHERE status IN ('reserved','pending')`) and
+  `UNIQUE (user_id, provider_operation_id)`. This is the duplicate-checkout mutex.
+- `billing_events` — PK `event_id`; the signed webhook is inserted before
+  acknowledgement. Lease columns (`status`, `lease_owner`, `lease_token`,
+  `leased_until`, `attempt_count`) fence concurrent workers; ten failed attempts
+  move the row to `review`.
+- `billing_transactions` — `UNIQUE (provider_transaction_id)` plus the atomic
+  `entitlement_granted_at` claim; period fields feed paid-through coverage.
+- `billing_operations` —
+  `billing_operations_one_open_cancel_per_subscription` (partial unique on
+  `user_id, resource_id` for `cancel_at_period_end` while `pending`/`uncertain`)
+  prevents duplicate cancellation requests.
+- `billing_adjustments` — PK `provider_adjustment_id`, FK to the attributed
+  transaction (CASCADE), `amount`/`currency` added by
+  `20261119000000_paddle_adjustment_amount`. Only approved full
+  refunds/chargebacks reverse a term.
+
 ## Concurrency
+
+Entitlement projection is serialized per user by
+`SELECT id FROM users WHERE id = $1 FOR UPDATE` (`lockBillingUser` in
+`src/lib/billing/operations.ts`); per-event leases alone do not serialize
+different events for the same account. A delayed adjustment recomputes coverage
+but cannot overwrite a newer account lifecycle status.
 
 Quota/counter mutations are single-statement atomic UPDATEs
 (`atomicIncrementUploadCount`, `atomicTryConsumeMonthlyExport`,
@@ -176,12 +219,15 @@ reservations ever race.
   ```sql
   SELECT version();
   SELECT migration_name, finished_at FROM _prisma_migrations ORDER BY started_at;
-  SELECT status, count(*) FROM pending_orders GROUP BY 1;
+  SELECT status, count(*) FROM billing_events GROUP BY 1;
+  SELECT status, count(*) FROM billing_reservations GROUP BY 1;
+  SELECT status, count(*) FROM pending_orders GROUP BY 1;  -- legacy flow only
   ```
 
 - **Never**: edit `_prisma_migrations` or `schema_meta` by hand, run `db push`
-  or `migrate dev`, or delete `pending_orders` rows to "clear" a blocked
-  checkout.
+  or `migrate dev`, delete `billing_reservations` rows to "clear" a blocked
+  checkout, or write `billing_transactions` / `billing_accounts` / `users.plan`
+  by hand — entitlement is applied only by the webhook worker.
 
 ### Backup and restore (Supabase)
 
@@ -221,7 +267,8 @@ migrations are already applied.
    ```
 2. Verify the copy before any cutover: `npx prisma migrate status` (must report
    no pending migrations), then row counts on `users`, `exports`,
-   `pending_orders` against the source.
+   `billing_accounts`, `billing_events`, and `billing_transactions` against the
+   source.
 3. Cut over by repointing `DATABASE_URL` and `DIRECT_URL` at the restored
    project and redeploying. Nothing else references the host.
 4. Record the backup timestamp used, the verification output, and who approved
