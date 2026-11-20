@@ -110,6 +110,24 @@ describe('Paddle checkout recovery', () => {
     expect(mocks.transactionGet).not.toHaveBeenCalled();
   });
 
+  it('reports a released reservation as retryable without asking Paddle again', async () => {
+    mocks.findReservation.mockResolvedValue({
+      ...reservation,
+      status: 'failed',
+      providerTransactionId: null,
+    });
+
+    const response = await GET(request());
+
+    expect(await response.json()).toMatchObject({
+      status: 'failed',
+      retryAllowed: true,
+      checkoutUrl: null,
+    });
+    expect(mocks.transactionGet).not.toHaveBeenCalled();
+    expect(mocks.transactionList).not.toHaveBeenCalled();
+  });
+
   it('recovers a timed-out create by exact reservation metadata without granting access', async () => {
     mocks.findReservation.mockResolvedValue({
       ...reservation,

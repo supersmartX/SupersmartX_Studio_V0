@@ -27,6 +27,17 @@ export async function GET(request: NextRequest) {
   if (!reservation || reservation.userId !== session.user.id) {
     return NextResponse.json({ error: 'Checkout reservation was not found' }, { status: 404 });
   }
+  if (reservation.status === 'failed' || reservation.status === 'expired' ||
+      reservation.status === 'canceled') {
+    // Already terminal: re-querying Paddle would report the empty result of a
+    // dead attempt as "still being reconciled".
+    return NextResponse.json({
+      status: 'failed',
+      retryAllowed: true,
+      checkoutUrl: null,
+      message: 'The previous checkout attempt did not create a payment. You can start a new checkout safely.',
+    }, { headers: { 'Cache-Control': 'no-store' } });
+  }
   const paddle = getPaddleClient();
   if (!paddle) return NextResponse.json({ error: 'Paddle is not configured' }, { status: 503 });
 

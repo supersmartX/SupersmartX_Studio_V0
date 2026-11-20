@@ -92,6 +92,26 @@ export async function expireUnclaimedReservation(
 }
 
 /**
+ * Releases one unclaimed reservation Paddle refused outright, so the customer
+ * can retry immediately instead of waiting for the staleness sweep.
+ */
+export async function failUnclaimedReservation(
+  reservation: Pick<CheckoutReservationLike, 'id' | 'userId'>,
+  remoteStatus = 'provider_rejected',
+): Promise<boolean> {
+  const failed = await getPrisma().billingReservation.updateMany({
+    where: {
+      id: reservation.id,
+      userId: reservation.userId,
+      status: { in: ['reserved', 'pending'] },
+      providerTransactionId: null,
+    },
+    data: { status: 'failed', remoteStatus },
+  });
+  return failed.count === 1;
+}
+
+/**
  * Reconciles every stale, unlinked reservation for one user before a new
  * checkout is reserved.
  *

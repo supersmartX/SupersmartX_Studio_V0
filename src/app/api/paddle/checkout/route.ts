@@ -3,11 +3,13 @@ import { auth } from '@/auth';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   assertSandboxPriceMatches,
+  describeCheckoutCreateFailure,
   getPaddleCheckoutUrl,
   getPaddleClient,
   getPaddleEnvironment,
   getTrustedPaddleCountry,
   isPaddleCheckoutEnabled,
+  PaddleCheckoutCreateError,
   PaddlePriceLookupError,
   PaddlePriceMismatchError,
   PaddleBillingProvider,
@@ -20,7 +22,10 @@ import {
   reserveCheckout,
   UnresolvedCheckoutReservationError,
 } from '@/lib/billing/operations';
-import { expireStaleUnclaimedCheckoutReservations } from '@/lib/billing/reservations';
+import {
+  expireStaleUnclaimedCheckoutReservations,
+  failUnclaimedReservation,
+} from '@/lib/billing/reservations';
 import { getBillingReadiness } from '@/lib/billing/readiness';
 import { getPrisma } from '@/lib/db/prisma';
 import { rateLimit } from '@/lib/rate-limit';
@@ -183,7 +188,36 @@ export async function POST(request: NextRequest) {
       userId: session.user.id,
       reservationId,
     });
-  } catch {
+  } catch (error) {
+    const failure = error instanceof PaddleCheckoutCreateError
+      ? error.failure
+      : describeCheckoutCreateFailure(error);
+    console.error('Paddle checkout create failed', {
+      kind: failure.kind,
+      reason: failure.reason,
+      status: failure.status,
+      fields: failure.fields,
+      reservationId,
+    });
+    if (failure.kind === 'rejected') {
+      // Paddle refused before creating anything, so releasing the reservation
+      // is exact: the retry cannot duplicate a live checkout. If the release
+      // does not land, fall through to the blocking reply so the reservation
+      // is not silently presented as retryable.
+      let released = false;
+      try {
+        released = await failUnclaimedReservation({ id: reservationId, userId: session.user.id });
+      } catch {
+        console.error('Paddle rejected checkout reservation could not be released', { reservationId });
+      }
+      if (released) {
+        return NextResponse.json({
+          error: 'Paddle declined this checkout attempt. No payment was taken, so you can try again.',
+          reason: failure.reason,
+          retryAllowed: true,
+        }, { status: 502, headers: { 'Cache-Control': 'no-store' } });
+      }
+    }
     try {
       await getPrisma().billingReservation.update({
         where: { id: reservationId },
@@ -222,6 +256,11 @@ export async function POST(request: NextRequest) {
     ? toPaddleHandoffUrl(result.checkoutUrl, result.transactionId)
     : null;
   if (!checkoutUrl) {
+    console.error('Paddle checkout transaction has no safe handoff URL', {
+      reservationId,
+      transactionId: result.transactionId,
+      returnedCheckoutUrl: Boolean(result.checkoutUrl),
+    });
     return NextResponse.json({
       error: 'Paddle created a transaction without a safe checkout URL; do not retry.',
       reservationId,

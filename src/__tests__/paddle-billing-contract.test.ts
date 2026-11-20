@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ApiError } from '@paddle/paddle-node-sdk';
 import {
   hashCheckoutConsent,
   isFullApprovedEntitlementReversal,
@@ -18,6 +19,7 @@ import {
   isSafePaddleCheckoutUrl,
   normalizePaddleAmount,
   PaddleBillingProvider,
+  PaddleCheckoutCreateError,
   toPaddleHandoffUrl,
   validatePaddlePaidTotals,
   validatePaddleAttribution,
@@ -465,5 +467,96 @@ describe('Paddle billing contracts', () => {
     expect(validatePaddleAttribution({ ...base, eventUserId: 'user-2' })).toBe('customer_ownership_mismatch');
     expect(validatePaddleAttribution({ ...base, eventPlan: 'creator_yearly' })).toBe('plan_attribution_mismatch');
     expect(validatePaddleAttribution({ ...base, eventSubscriptionId: 'sub-2' })).toBe('subscription_ownership_mismatch');
+  });
+
+  describe('checkout create failures', () => {
+    const price = validSandboxPrice({
+      id: 'pri_monthly',
+      amount: '799',
+      interval: 'month',
+      overrideAmount: '34900',
+    });
+
+    async function attempt(options: { create: (input: unknown) => Promise<unknown>; prices?: unknown[] }) {
+      vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+      vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
+      vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
+      vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+      vi.stubEnv('AUTH_SECRET', 'test-quote-signing-secret');
+      vi.stubEnv('PADDLE_CHECKOUT_URL', 'https://studio.example.com/pay');
+      // Quote creation and the provider both resolve the price.
+      const pricesGet = vi.fn();
+      for (const value of options.prices ?? [price, price]) pricesGet.mockResolvedValueOnce(value);
+      const paddle = {
+        prices: { get: pricesGet },
+        transactions: { create: options.create },
+      } as unknown as import('@paddle/paddle-node-sdk').Paddle;
+      const quote = await createSandboxCheckoutQuote(paddle, 'creator_monthly', 'IN');
+      const error = await new PaddleBillingProvider(paddle).createSandboxCheckout({
+        plan: 'creator_monthly',
+        period: quote.period,
+        amount: quote.amount,
+        currency: quote.currency,
+        consentVersion: '2',
+        quoteToken: quote.quoteToken,
+        consentHash: 'a'.repeat(64),
+        userId: 'user-1',
+        reservationId: 'reservation-1',
+      }).then(() => null, (thrown: unknown) => thrown);
+      return error;
+    }
+
+    function failureOf(error: unknown) {
+      expect(error).toBeInstanceOf(PaddleCheckoutCreateError);
+      return (error as PaddleCheckoutCreateError).failure;
+    }
+
+    function apiError(status: number, code = 'checkout_url_invalid') {
+      return new ApiError({
+        type: 'request_error',
+        code,
+        detail: 'The checkout URL is not approved',
+        documentation_url: 'https://developer.paddle.com/errors',
+        errors: [{ field: 'checkout.url', message: 'Not an approved domain' }],
+      }, null, status);
+    }
+
+    it('treats a client-error refusal as rejected and keeps the field detail', async () => {
+      const failure = failureOf(await attempt({
+        create: vi.fn().mockRejectedValue(apiError(400)),
+      }));
+
+      expect(failure).toEqual({
+        kind: 'rejected',
+        reason: 'request_error/checkout_url_invalid',
+        status: 400,
+        fields: [{ field: 'checkout.url', message: 'Not an approved domain' }],
+      });
+    });
+
+    it.each([500, 429])('treats a %i response as uncertain', async (status) => {
+      const failure = failureOf(await attempt({
+        create: vi.fn().mockRejectedValue(apiError(status)),
+      }));
+
+      expect(failure).toMatchObject({ kind: 'uncertain', status });
+    });
+
+    it('treats a network failure as uncertain', async () => {
+      const failure = failureOf(await attempt({
+        create: vi.fn().mockRejectedValue(new TypeError('fetch failed')),
+      }));
+
+      expect(failure).toMatchObject({ kind: 'uncertain', status: null, fields: [] });
+    });
+
+    it('treats a pre-create contract failure as rejected because nothing was created', async () => {
+      const failure = failureOf(await attempt({
+        create: vi.fn(),
+        prices: [price, { ...price, productId: 'pro_other' }],
+      }));
+
+      expect(failure).toMatchObject({ kind: 'rejected', reason: 'price/price_identity' });
+    });
   });
 });

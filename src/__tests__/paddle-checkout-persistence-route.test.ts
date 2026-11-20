@@ -2,6 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 
+const paddleErrors = vi.hoisted(() => {
+  class PaddleCheckoutCreateError extends Error {
+    constructor(readonly failure: {
+      kind: 'rejected' | 'uncertain';
+      reason: string;
+      status: number | null;
+      fields: { field: string; message: string }[];
+    }) {
+      super('Paddle checkout create failed');
+      this.name = 'PaddleCheckoutCreateError';
+    }
+  }
+  return { PaddleCheckoutCreateError };
+});
+
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   reserveCheckout: vi.fn(),
@@ -9,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   updateReservation: vi.fn(),
   createSandboxCheckout: vi.fn(),
   sweepReservations: vi.fn(),
+  failReservation: vi.fn(),
 }));
 
 vi.mock('@/auth', () => ({ auth: mocks.auth }));
@@ -32,15 +48,23 @@ vi.mock('@/lib/billing/operations', () => ({
 }));
 vi.mock('@/lib/billing/reservations', () => ({
   expireStaleUnclaimedCheckoutReservations: mocks.sweepReservations,
+  failUnclaimedReservation: mocks.failReservation,
 }));
 vi.mock('@/lib/billing/paddle', () => ({
   assertSandboxPriceMatches: vi.fn().mockResolvedValue({ id: 'pri-1', productId: 'pro-1' }),
+  describeCheckoutCreateFailure: (error: unknown) => ({
+    kind: 'uncertain' as const,
+    reason: error instanceof Error ? error.name : 'unknown_error',
+    status: null,
+    fields: [],
+  }),
   getPaddleCheckoutUrl: () => 'https://checkout.paddle.com/checkout',
   getPaddleClient: () => ({}),
   getPaddleEnvironment: () => 'sandbox',
   getTrustedPaddleCountry: () => 'IN',
   isPaddleCheckoutEnabled: () => true,
   toPaddleHandoffUrl: (url: string, transactionId: string) => `${url}?_ptxn=${transactionId}`,
+  PaddleCheckoutCreateError: paddleErrors.PaddleCheckoutCreateError,
   PaddlePriceLookupError: class PaddlePriceLookupError extends Error {},
   PaddlePriceMismatchError: class PaddlePriceMismatchError extends Error {},
   PaddleBillingProvider: class {
@@ -90,6 +114,7 @@ beforeEach(() => {
   mocks.findActiveReservation.mockResolvedValue(null);
   mocks.updateReservation.mockResolvedValue(undefined);
   mocks.sweepReservations.mockResolvedValue({ expired: [], linked: [] });
+  mocks.failReservation.mockResolvedValue(true);
 });
 
 describe('Paddle checkout persistence recovery', () => {
@@ -122,6 +147,48 @@ describe('Paddle checkout persistence recovery', () => {
     expect(body.reservationId).toEqual(expect.any(String));
     expect(body.error).toMatch(/check its status/i);
     expect(mocks.reserveCheckout).toHaveBeenCalledTimes(1);
+    expect(mocks.failReservation).not.toHaveBeenCalled();
+  });
+
+  it('releases the reservation when Paddle definitively declines the checkout', async () => {
+    mocks.createSandboxCheckout.mockRejectedValue(new paddleErrors.PaddleCheckoutCreateError({
+      kind: 'rejected',
+      reason: 'request_error/checkout_url_invalid',
+      status: 400,
+      fields: [{ field: 'checkout.url', message: 'Not an approved domain' }],
+    }));
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body).toMatchObject({
+      retryAllowed: true,
+      reason: 'request_error/checkout_url_invalid',
+    });
+    expect(body.error).toMatch(/no payment was taken/i);
+    expect(mocks.failReservation).toHaveBeenCalledWith({ id: expect.any(String), userId: 'user-1' });
+    expect(mocks.updateReservation).not.toHaveBeenCalled();
+    expect(mocks.reserveCheckout).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps blocking when a declined reservation cannot be released', async () => {
+    mocks.failReservation.mockResolvedValue(false);
+    mocks.createSandboxCheckout.mockRejectedValue(new paddleErrors.PaddleCheckoutCreateError({
+      kind: 'rejected',
+      reason: 'request_error/checkout_url_invalid',
+      status: 400,
+      fields: [],
+    }));
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.reservationId).toEqual(expect.any(String));
+    expect(mocks.updateReservation).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: 'pending', remoteStatus: 'provider_create_uncertain' },
+    }));
   });
 
   it('returns the reservation ID when Paddle created a transaction but local linking fails', async () => {

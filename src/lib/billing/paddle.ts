@@ -1,4 +1,4 @@
-import { Environment, Paddle } from '@paddle/paddle-node-sdk';
+import { ApiError, Environment, Paddle } from '@paddle/paddle-node-sdk';
 import crypto from 'crypto';
 import type { BillingPeriod, BillingPlan, BillingProvider, CheckoutConsent, CheckoutQuote, ProviderCheckout } from './contracts';
 import { getServerPricingForCountry } from '@/lib/pricing';
@@ -344,6 +344,49 @@ export class PaddlePriceLookupError extends Error {
   }
 }
 
+export interface PaddleCheckoutCreateFailure {
+  // 'rejected': Paddle answered the create call with a client error, or the
+  // call was never made, so no transaction exists. 'uncertain': the create call
+  // failed in a way that could still have produced a transaction.
+  kind: 'rejected' | 'uncertain';
+  reason: string;
+  status: number | null;
+  fields: { field: string; message: string }[];
+}
+
+export class PaddleCheckoutCreateError extends Error {
+  constructor(readonly failure: PaddleCheckoutCreateFailure) {
+    super(`Paddle checkout create ${failure.kind}: ${failure.reason}`);
+    this.name = 'PaddleCheckoutCreateError';
+  }
+}
+
+export function describeCheckoutCreateFailure(error: unknown): PaddleCheckoutCreateFailure {
+  if (error instanceof ApiError) {
+    const status = typeof error.status === 'number' ? error.status : null;
+    const type = typeof error.type === 'string' && error.type ? error.type : 'api_error';
+    const code = typeof error.code === 'string' && error.code ? error.code : 'unknown';
+    return {
+      // 429 is a throttle: Paddle may have accepted and queued the request.
+      kind: status !== null && status >= 400 && status < 500 && status !== 429
+        ? 'rejected'
+        : 'uncertain',
+      reason: `${type}/${code}`,
+      status,
+      fields: (Array.isArray(error.errors) ? error.errors : []).slice(0, 5).map((entry) => ({
+        field: String(entry.field ?? '').slice(0, 120),
+        message: String(entry.message ?? '').slice(0, 160),
+      })),
+    };
+  }
+  return {
+    kind: 'uncertain',
+    reason: error instanceof Error ? error.name : 'unknown_error',
+    status: null,
+    fields: [],
+  };
+}
+
 function getSandboxQuoteDetails(plan: BillingPlan, country: string): SandboxQuoteDetails | null {
   const config = getSandboxConfiguration(plan);
   if (!config || config.currency !== 'USD' || !/^[A-Z]{2}$/.test(country)) return null;
@@ -606,42 +649,70 @@ export function validatePaddleAttribution(input: {
   return 'ok';
 }
 
+const PRE_CREATE_FAILURE_REASONS: Record<string, string> = {
+  'Paddle live checkout is disabled': 'live_disabled',
+  'Paddle checkout URL is not configured': 'checkout_url_not_configured',
+};
+
+function describePreCreateFailure(error: unknown): PaddleCheckoutCreateFailure {
+  let reason = error instanceof Error ? error.name : 'unknown_error';
+  if (error instanceof PaddlePriceMismatchError) {
+    reason = `price/${error.reason}`;
+  } else if (error instanceof PaddlePriceLookupError) {
+    reason = 'price_lookup_failed';
+  } else if (error instanceof Error && PRE_CREATE_FAILURE_REASONS[error.message]) {
+    reason = PRE_CREATE_FAILURE_REASONS[error.message];
+  }
+  // Every check before transactions.create runs first, so reaching this branch
+  // proves Paddle holds no transaction for the reservation.
+  return { kind: 'rejected', reason, status: null, fields: [] };
+}
+
 export class PaddleBillingProvider implements BillingProvider {
   constructor(private readonly paddle: Paddle) {}
 
   async createSandboxCheckout(input: CheckoutConsent & { userId: string; reservationId: string }): Promise<ProviderCheckout> {
-    if (getPaddleEnvironment() !== 'sandbox') {
-      throw new Error('Paddle live checkout is disabled');
-    }
-    const quote = input.quoteToken ? verifySandboxQuoteToken(input.quoteToken) : null;
-    if (!quote || quote.plan !== input.plan || quote.period !== input.period ||
-        quote.amount !== input.amount || quote.currency !== input.currency ||
-        quote.productId === '') {
-      throw new PaddlePriceMismatchError('quote_configuration');
-    }
-    const price = await assertSandboxPriceMatches(this.paddle, input.plan);
-    if (price.id !== quote.priceId || price.productId !== quote.productId) {
-      throw new PaddlePriceMismatchError('price_identity');
-    }
+    let createAttempted = false;
+    let transaction: Awaited<ReturnType<Paddle['transactions']['create']>>;
+    try {
+      if (getPaddleEnvironment() !== 'sandbox') {
+        throw new Error('Paddle live checkout is disabled');
+      }
+      const quote = input.quoteToken ? verifySandboxQuoteToken(input.quoteToken) : null;
+      if (!quote || quote.plan !== input.plan || quote.period !== input.period ||
+          quote.amount !== input.amount || quote.currency !== input.currency ||
+          quote.productId === '') {
+        throw new PaddlePriceMismatchError('quote_configuration');
+      }
+      const price = await assertSandboxPriceMatches(this.paddle, input.plan);
+      if (price.id !== quote.priceId || price.productId !== quote.productId) {
+        throw new PaddlePriceMismatchError('price_identity');
+      }
 
-    const checkoutUrl = getPaddleCheckoutUrl();
-    if (!checkoutUrl || !isSafePaddleCheckoutUrl(checkoutUrl)) {
-      throw new Error('Paddle checkout URL is not configured');
+      const checkoutUrl = getPaddleCheckoutUrl();
+      if (!checkoutUrl || !isSafePaddleCheckoutUrl(checkoutUrl)) {
+        throw new Error('Paddle checkout URL is not configured');
+      }
+      createAttempted = true;
+      transaction = await this.paddle.transactions.create({
+        checkout: { url: checkoutUrl },
+        items: [{ priceId: quote.priceId, quantity: 1 }],
+        currencyCode: quote.currency,
+        collectionMode: 'automatic',
+        customData: {
+          sup_user_id: input.userId,
+          sup_plan: input.plan,
+          sup_consent_hash: input.consentHash,
+          sup_consent_version: input.consentVersion,
+          sup_reservation_id: input.reservationId,
+          sup_quote_token: input.quoteToken,
+        },
+      });
+    } catch (error) {
+      throw new PaddleCheckoutCreateError(
+        createAttempted ? describeCheckoutCreateFailure(error) : describePreCreateFailure(error),
+      );
     }
-    const transaction = await this.paddle.transactions.create({
-      checkout: { url: checkoutUrl },
-      items: [{ priceId: quote.priceId, quantity: 1 }],
-      currencyCode: quote.currency,
-      collectionMode: 'automatic',
-      customData: {
-        sup_user_id: input.userId,
-        sup_plan: input.plan,
-        sup_consent_hash: input.consentHash,
-        sup_consent_version: input.consentVersion,
-        sup_reservation_id: input.reservationId,
-        sup_quote_token: input.quoteToken,
-      },
-    });
 
     return {
       providerOperationId: transaction.id,
