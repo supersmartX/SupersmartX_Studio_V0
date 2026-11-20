@@ -17,6 +17,7 @@ import {
   isAuthoritativelyPaid,
   isSafePaddleCheckoutUrl,
   normalizePaddleAmount,
+  PaddleBillingProvider,
   toPaddleHandoffUrl,
   validatePaddlePaidTotals,
   validatePaddleAttribution,
@@ -117,6 +118,11 @@ describe('Paddle billing contracts', () => {
 
   it('fails closed without an explicit Paddle environment', () => {
     vi.stubEnv('PADDLE_ENVIRONMENT', '');
+    // Importing Prisma loads the repository .env, so the sandbox price
+    // configuration must be cleared explicitly for this to be hermetic.
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', '');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', '');
     expect(getPaddleEnvironment()).toBeNull();
     expect(getSandboxQuote('creator_monthly')).toBeNull();
   });
@@ -390,6 +396,59 @@ describe('Paddle billing contracts', () => {
     expect(toPaddleHandoffUrl('https://studio.example.com/checkout', txn)).toBeNull();
     expect(toPaddleHandoffUrl(`http://studio.example.com/pay?_ptxn=${txn}`, txn)).toBeNull();
     expect(toPaddleHandoffUrl('https://studio.example.com/pay', '')).toBeNull();
+  });
+
+  it('creates the sandbox transaction against the approved page and returns the handoff URL', async () => {
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+    vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
+    vi.stubEnv('PADDLE_SANDBOX_AMOUNT_MONTHLY', '7.99');
+    vi.stubEnv('PADDLE_SANDBOX_CURRENCY', 'USD');
+    vi.stubEnv('AUTH_SECRET', 'test-quote-signing-secret');
+    vi.stubEnv('PADDLE_CHECKOUT_URL', 'https://studio.example.com/pay');
+    const price = validSandboxPrice({
+      id: 'pri_monthly',
+      amount: '799',
+      interval: 'month',
+      overrideAmount: '34900',
+    });
+    const txn = 'txn_01h8j3k4m5n6p7q8r9s0t1u2v3';
+    const transactionsCreate = vi.fn().mockResolvedValue({
+      id: txn,
+      status: 'ready',
+      checkout: { url: `https://studio.example.com/pay?_ptxn=${txn}` },
+    });
+    const paddle = {
+      prices: { get: vi.fn().mockResolvedValue(price) },
+      transactions: { create: transactionsCreate },
+    } as unknown as import('@paddle/paddle-node-sdk').Paddle;
+
+    const quote = await createSandboxCheckoutQuote(paddle, 'creator_monthly', 'IN');
+    const result = await new PaddleBillingProvider(paddle).createSandboxCheckout({
+      plan: 'creator_monthly',
+      period: 'monthly',
+      amount: quote.amount,
+      currency: quote.currency,
+      consentVersion: '2',
+      quoteToken: quote.quoteToken,
+      consentHash: 'a'.repeat(64),
+      userId: 'user-1',
+      reservationId: 'reservation-1',
+    });
+
+    expect(transactionsCreate).toHaveBeenCalledWith(expect.objectContaining({
+      checkout: { url: 'https://studio.example.com/pay' },
+      items: [{ priceId: 'pri_monthly', quantity: 1 }],
+      currencyCode: 'INR',
+      customData: expect.objectContaining({
+        sup_reservation_id: 'reservation-1',
+        sup_user_id: 'user-1',
+      }),
+    }));
+    expect(result).toMatchObject({
+      providerOperationId: txn,
+      transactionId: txn,
+      checkoutUrl: `https://studio.example.com/pay?_ptxn=${txn}`,
+    });
   });
 
   it('rejects customer, plan and subscription ownership mismatches', () => {

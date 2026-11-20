@@ -155,4 +155,71 @@ describe('Paddle checkout recovery', () => {
       checkoutUrl: 'https://checkout.paddle.com/checkout/txn-recovered',
     });
   });
+
+  it('keeps a recent checkout pending while its create window is still open', async () => {
+    mocks.findReservation.mockResolvedValue({
+      ...reservation,
+      providerTransactionId: null,
+      createdAt: new Date(Date.now() - 60_000),
+    });
+    mocks.transactionList.mockReturnValue({ hasMore: false, next: vi.fn().mockResolvedValue([]) });
+
+    const response = await GET(request());
+
+    expect(await response.json()).toMatchObject({
+      status: 'pending',
+      retryAllowed: false,
+      message: 'Checkout creation is still being reconciled. Do not start another checkout yet.',
+    });
+    expect(mocks.updateReservation).not.toHaveBeenCalled();
+  });
+
+  it('expires a stale reservation Paddle never saw and allows a new checkout', async () => {
+    mocks.findReservation.mockResolvedValue({
+      ...reservation,
+      providerTransactionId: null,
+      createdAt: new Date(Date.now() - 25 * 60_000),
+    });
+    mocks.transactionList.mockReturnValue({ hasMore: false, next: vi.fn().mockResolvedValue([]) });
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: 'failed',
+      retryAllowed: true,
+      checkoutUrl: null,
+    });
+    expect(mocks.updateReservation).toHaveBeenCalledWith({
+      where: {
+        id: 'reservation-1',
+        userId: 'user-1',
+        status: { in: ['reserved', 'pending'] },
+        providerTransactionId: null,
+      },
+      data: { status: 'expired' },
+    });
+  });
+
+  it('does not expire a stale reservation while the transaction search is inconclusive', async () => {
+    mocks.findReservation.mockResolvedValue({
+      ...reservation,
+      providerTransactionId: null,
+      createdAt: new Date(Date.now() - 25 * 60_000),
+    });
+    let pages = 0;
+    mocks.transactionList.mockReturnValue({
+      hasMore: true,
+      next: vi.fn().mockImplementation(async () => {
+        pages += 1;
+        return [];
+      }),
+    });
+
+    const response = await GET(request());
+
+    expect(pages).toBe(5);
+    expect(await response.json()).toMatchObject({ status: 'pending', retryAllowed: false });
+    expect(mocks.updateReservation).not.toHaveBeenCalled();
+  });
 });

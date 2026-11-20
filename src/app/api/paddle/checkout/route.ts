@@ -20,6 +20,8 @@ import {
   reserveCheckout,
   UnresolvedCheckoutReservationError,
 } from '@/lib/billing/operations';
+import { expireStaleUnclaimedCheckoutReservations } from '@/lib/billing/reservations';
+import { getBillingReadiness } from '@/lib/billing/readiness';
 import { getPrisma } from '@/lib/db/prisma';
 import { rateLimit } from '@/lib/rate-limit';
 import { readBoundedBody } from '@/lib/request-body';
@@ -83,6 +85,15 @@ export async function POST(request: NextRequest) {
 
   const paddle = getPaddleClient();
   if (!paddle) return NextResponse.json({ error: 'Paddle is not configured' }, { status: 503 });
+  const readiness = getBillingReadiness();
+  if (!readiness.ready) {
+    console.error('Paddle checkout blocked because billing fulfilment is not ready', {
+      issues: readiness.issues,
+    });
+    return NextResponse.json({
+      error: 'Paddle checkout is unavailable while payment fulfilment is being verified',
+    }, { status: 503 });
+  }
   try {
     const price = await assertSandboxPriceMatches(paddle, body.plan);
     if (price.productId !== quote.productId || price.id !== quote.priceId) {
@@ -106,6 +117,22 @@ export async function POST(request: NextRequest) {
   const provider = new PaddleBillingProvider(paddle);
   if (!getPaddleCheckoutUrl()) {
     return NextResponse.json({ error: 'Paddle payment page is not configured' }, { status: 503 });
+  }
+  try {
+    const reconciled = await expireStaleUnclaimedCheckoutReservations({
+      userId: session.user.id,
+      paddle,
+    });
+    if (reconciled.expired.length > 0 || reconciled.linked.length > 0) {
+      console.warn('Reconciled stale Paddle checkout reservations', {
+        expired: reconciled.expired.length,
+        linked: reconciled.linked.length,
+      });
+    }
+  } catch {
+    // Reconciliation is an optimisation: reserveCheckout still blocks on a
+    // stale row, and the status endpoint can expire it on demand.
+    console.error('Stale Paddle checkout reservation reconciliation failed');
   }
   const reservationId = crypto.randomUUID();
   try {

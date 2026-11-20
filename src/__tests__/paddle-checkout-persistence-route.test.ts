@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   findActiveReservation: vi.fn(),
   updateReservation: vi.fn(),
   createSandboxCheckout: vi.fn(),
+  sweepReservations: vi.fn(),
 }));
 
 vi.mock('@/auth', () => ({ auth: mocks.auth }));
@@ -28,6 +29,9 @@ vi.mock('@/lib/billing/operations', () => ({
   },
   hashCheckoutConsent: () => 'a'.repeat(64),
   reserveCheckout: mocks.reserveCheckout,
+}));
+vi.mock('@/lib/billing/reservations', () => ({
+  expireStaleUnclaimedCheckoutReservations: mocks.sweepReservations,
 }));
 vi.mock('@/lib/billing/paddle', () => ({
   assertSandboxPriceMatches: vi.fn().mockResolvedValue({ id: 'pri-1', productId: 'pro-1' }),
@@ -77,10 +81,15 @@ function request() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('PADDLE_API_KEY', 'pdl_sdbx_test_key');
+  vi.stubEnv('PADDLE_WEBHOOK_SECRET', 'whsec_test');
+  vi.stubEnv('CRON_SECRET', 'cron_test');
+  vi.stubEnv('PADDLE_CLIENT_TOKEN', 'test_client_token');
   mocks.auth.mockResolvedValue({ user: { id: 'user-1' } });
   mocks.reserveCheckout.mockResolvedValue(undefined);
   mocks.findActiveReservation.mockResolvedValue(null);
   mocks.updateReservation.mockResolvedValue(undefined);
+  mocks.sweepReservations.mockResolvedValue({ expired: [], linked: [] });
 });
 
 describe('Paddle checkout persistence recovery', () => {
@@ -137,5 +146,44 @@ describe('Paddle checkout persistence recovery', () => {
       userId: 'user-1',
       reservationId: body.reservationId,
     }));
+  });
+
+  it('refuses to start a checkout when the webhook worker secret is missing', async () => {
+    vi.stubEnv('CRON_SECRET', '');
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error).toMatch(/fulfilment/i);
+    expect(mocks.reserveCheckout).not.toHaveBeenCalled();
+    expect(mocks.createSandboxCheckout).not.toHaveBeenCalled();
+  });
+
+  it('refuses to start a checkout when Paddle webhooks cannot be verified', async () => {
+    vi.stubEnv('PADDLE_WEBHOOK_SECRET', '');
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(503);
+    expect(mocks.reserveCheckout).not.toHaveBeenCalled();
+  });
+
+  it('clears stale reservations before reserving the next checkout', async () => {
+    mocks.sweepReservations.mockResolvedValue({ expired: ['reservation-stale'], linked: [] });
+    mocks.createSandboxCheckout.mockResolvedValue({
+      providerOperationId: 'txn-1',
+      transactionId: 'txn-1',
+      checkoutUrl: 'https://checkout.paddle.com/checkout/txn-1',
+      status: 'created',
+    });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.sweepReservations).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1',
+    }));
+    expect(mocks.reserveCheckout).toHaveBeenCalledTimes(2);
   });
 });

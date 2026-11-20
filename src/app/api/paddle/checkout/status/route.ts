@@ -2,46 +2,14 @@ import { auth } from '@/auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { getPaddleClient, getPaddleEnvironment, isSafePaddleCheckoutUrl } from '@/lib/billing/paddle';
 import { reservationStatusForRemote } from '@/lib/billing/operations';
+import {
+  expireUnclaimedReservation,
+  findReservationTransaction,
+  isStaleCheckoutReservation,
+} from '@/lib/billing/reservations';
 import { getPrisma } from '@/lib/db/prisma';
 
 export const dynamic = 'force-dynamic';
-
-const RECOVERY_PAGE_SIZE = 100;
-const RECOVERY_MAX_PAGES = 5;
-const CHECKOUT_CREATE_WINDOW_MS = 15 * 60_000;
-
-async function findReservationTransaction(reservation: {
-  id: string;
-  userId: string;
-  plan: string;
-  consentHash: string;
-  createdAt: Date;
-}, paddle: NonNullable<ReturnType<typeof getPaddleClient>>) {
-  const createdAtEnd = new Date(Math.min(
-    Date.now(),
-    reservation.createdAt.getTime() + CHECKOUT_CREATE_WINDOW_MS,
-  ));
-  const collection = paddle.transactions.list({
-    'createdAt[GTE]': reservation.createdAt.toISOString(),
-    'createdAt[LTE]': createdAtEnd.toISOString(),
-    perPage: RECOVERY_PAGE_SIZE,
-  });
-  const matches = [];
-
-  for (let page = 0; page < RECOVERY_MAX_PAGES; page += 1) {
-    const transactions = await collection.next();
-    matches.push(...transactions.filter((transaction) => {
-      const customData = transaction.customData ?? {};
-      return customData.sup_reservation_id === reservation.id &&
-        customData.sup_user_id === reservation.userId &&
-        customData.sup_plan === reservation.plan &&
-        customData.sup_consent_hash === reservation.consentHash;
-    }));
-    if (!collection.hasMore) return matches;
-  }
-
-  return null;
-}
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -65,8 +33,19 @@ export async function GET(request: NextRequest) {
   try {
     let transactionId = reservation.providerTransactionId;
     if (!transactionId) {
-      const matches = await findReservationTransaction(reservation, paddle);
+      const matches = await findReservationTransaction(paddle, reservation);
       if (matches === null || matches.length === 0) {
+        // Only an exhausted search proves Paddle never created a transaction.
+        // `null` means the search budget ran out and the outcome is unknown.
+        if (matches !== null && isStaleCheckoutReservation(reservation) &&
+            await expireUnclaimedReservation(reservation)) {
+          return NextResponse.json({
+            status: 'failed',
+            retryAllowed: true,
+            checkoutUrl: null,
+            message: 'The previous checkout attempt expired without creating a Paddle transaction. You can start a new checkout safely.',
+          }, { headers: { 'Cache-Control': 'no-store' } });
+        }
         return NextResponse.json({
           status: 'pending',
           retryAllowed: false,

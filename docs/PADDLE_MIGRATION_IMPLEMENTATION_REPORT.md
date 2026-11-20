@@ -537,3 +537,32 @@ Result: **19 files passed / 6 skipped; 260 tests passed, 106 skipped** (skips
 need `DATABASE_URL`, e.g. `security.test.ts`); TypeScript and focused ESLint
 exited 0. This is local evidence only.
 
+
+## Post-deployment evidence (2026-11-20, 09:04–09:07 UTC)
+
+Read-only production observations after deployment `dpl_5t4iLcWvctGCefWQ7MNNPGsBaAH7`:
+
+- `GET /api/health` → 200, `commit: 808c100`; working tree clean against HEAD, so
+  production runs exactly the reviewed code (the earlier "production still runs
+  `b5437a5`" status is superseded).
+- `GET /pay` → 200 (handoff page deployed).
+- `GET /api/internal/paddle/worker` → **503** `{"error":"Billing worker is not configured"}`,
+  i.e. `CRON_SECRET` is still unset. The webhook trigger returns silently when
+  `CRON_SECRET` is missing, and the daily cron receives the same 503, so no
+  queued event can be processed and no entitlement can be granted.
+- `POST /api/paddle/webhook` without a signature → 401 `Invalid webhook signature`
+  (not 503), so `PADDLE_WEBHOOK_SECRET` and the Paddle client are configured.
+- `POST /api/paddle/checkout` → 409 after one outbound `GET`, 4.45 s. The route
+  can only reach this 409 after session auth, the sandbox gate, quote/consent
+  verification and `paddle.prices.get`. That proves production sandbox env,
+  API key, price IDs and quote signing are valid and the quote matches the
+  provider price. The reachable 409 branch is then `reserveCheckout`: an
+  existing reservation in `reserved`/`pending` (`UnresolvedCheckoutReservationError`,
+  `src/lib/billing/operations.ts:129`, or its P2002 twin). Quote/consent 409s
+  precede the Paddle call; `ActiveBillingSubscriptionError` is unreachable while
+  the worker is 503 because no account can carry a provider subscription.
+- Recovery gap: when the stale reservation has no `providerTransactionId` and
+  Paddle holds no matching transaction, `/api/paddle/checkout/status` returns
+  `pending` with `retryAllowed: false` indefinitely (no reservation expiry in
+  `reserveCheckout`). Progress then requires a one-off reservation-state fix.
+- The original 503 remains unattributed: this log is a checkout 409, not a 503.
