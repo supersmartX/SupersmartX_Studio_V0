@@ -433,6 +433,17 @@ describe('Acceptance criteria — Global pricing UX', () => {
     expect(/setCurrency|selectCurrency|currencySelect/i.test(source)).toBe(false);
   });
 
+  // 11b. Paddle's hosted checkout owns payer details; the modal must not
+  // collect name/email again or interpose a form before the redirect.
+  it('PricingModal has no custom payment form', () => {
+    const { readFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const source = readFileSync(join(process.cwd(), 'src', 'components', 'dialogs', 'PricingModal.tsx'), 'utf8');
+    expect(source).not.toContain('Full Name');
+    expect(source).not.toContain('Continue to Payment');
+    expect(source).not.toContain('type="email"');
+  });
+
   // 12. Landing pricing and PricingModal remain consistent
   it('landing and modal use same canonical pricing source', () => {
     // Both import from @/lib/pricing — verified by imports in source files

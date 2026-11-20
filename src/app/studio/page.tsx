@@ -188,20 +188,17 @@ export default function HomePage() {
   }, [recorder.recordingState, isReview, masterRecordingData]);
 
   const [pendingPricingAfterAuth, setPendingPricingAfterAuth] = useState(false);
-  // Checkout intent from landing page (e.g. ?checkout=creator_monthly → open payment form directly)
+  // Checkout intent from landing page (e.g. ?checkout=creator_monthly → preselect Creator Monthly)
   const [checkoutIntent, setCheckoutIntent] = useState<{ tier: 'creator'; billingPeriod: 'monthly' | 'yearly' } | null>(null);
-  const [pricingInitialStep, setPricingInitialStep] = useState<'select' | 'form'>('select');
   // UX-005: which AuthModal screen to open — 'login' for header "Log in",
   // 'register' (default) for every purchase/guard flow, set at open time.
   const [authIntent, setAuthIntent] = useState<'register' | 'login'>('register');
 
   const handlePricingClick = useCallback(() => {
-    setPricingInitialStep('select');
     ui.setIsPricingModalOpen(true);
   }, [ui]);
 
   const handleUpgradeClick = useCallback(() => {
-    setPricingInitialStep('select');
     ui.setIsPricingModalOpen(true);
   }, [ui]);
 
@@ -258,7 +255,6 @@ export default function HomePage() {
         return;
       }
     }
-    setPricingInitialStep('select');
     ui.setIsPricingModalOpen(true);
   }, [sessionStatus, ui]);
 
@@ -272,7 +268,6 @@ export default function HomePage() {
     } else {
       // Free logged-in user: go directly to pricing/checkout
       // Keep upgrade intent in localStorage for closed-loop restoration
-      setPricingInitialStep('select');
       ui.setIsPricingModalOpen(true);
     }
   }, [session?.user, ui]);
@@ -288,9 +283,8 @@ export default function HomePage() {
     ui.handleAuthSuccess();
     if (pendingPricingAfterAuth) {
       setPendingPricingAfterAuth(false);
-      // Reopen pricing after login so guest can continue checkout
-      // Preserve checkout intent: go straight to payment form if it came from landing/studio CTA
-      setPricingInitialStep(checkoutIntent ? 'form' : 'select');
+      // Reopen pricing after login so the guest can continue checkout with
+      // the captured plan preselected.
       setTimeout(() => ui.setIsPricingModalOpen(true), 250);
       showToast('Logged in — continue to checkout');
     }
@@ -347,7 +341,6 @@ export default function HomePage() {
       if (!intent) return;
 
       setCheckoutIntent(intent);
-      setPricingInitialStep('form');
       try { window.localStorage.removeItem('sxs-pending-plan'); } catch {}
       intentCapturedRef.current = true;
       // Capture only — no timers in this effect. React StrictMode (dev)
@@ -1809,7 +1802,6 @@ export default function HomePage() {
         onClose={() => {
           ui.setIsPricingModalOpen(false);
           setCheckoutIntent(null);
-          setPricingInitialStep('select');
           // Clear upgrade intent if payment wasn't completed
           try { window.localStorage.removeItem('sxs-upgrade-intent'); } catch {}
         }}
@@ -1819,7 +1811,6 @@ export default function HomePage() {
         onAuthRequired={handlePricingAuthRequired}
         initialTier={checkoutIntent?.tier}
         initialBillingPeriod={checkoutIntent?.billingPeriod}
-        initialStep={pricingInitialStep}
       />
 
       <UpgradePromptModal
@@ -1848,10 +1839,9 @@ export default function HomePage() {
         plan={activationModal.plan}
         orderId={activationModal.orderId}
         onRetry={() => {
-          // Straight back to the payment form. The order intent is left in
-          // localStorage on purpose: if this attempt does settle, the
-          // closed-loop restore below still knows which format to reopen on.
-          setPricingInitialStep('form');
+          // Back to the plan grid. The order intent is left in localStorage on
+          // purpose: if this attempt does settle, the closed-loop restore below
+          // still knows which format to reopen on.
           ui.setIsPricingModalOpen(true);
         }}
         onClose={(outcome) => {

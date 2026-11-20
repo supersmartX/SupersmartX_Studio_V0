@@ -3,8 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
-import { useSession } from 'next-auth/react';
-import { formatPrice, formatPriceForCurrency, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
+import { formatPrice, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 import { useRegionalPricing } from '@/hooks/useRegionalPricing';
 import { PRICING_PLANS } from '@/constants';
@@ -20,22 +19,51 @@ interface PricingModalProps {
   onAuthRequired?: () => void;
   initialTier?: TierKey;
   initialBillingPeriod?: BillingPeriod;
-  initialStep?: 'select' | 'form';
 }
 
 type BillingPeriod = 'monthly' | 'yearly';
 
 type TierKey = keyof typeof PRICING_PLANS;
 
+type CheckoutNoticeKind = 'temporary' | 'checking' | 'cancelled' | 'unknown' | 'unavailable' | 'conflict';
 
-function checkoutErrorMessage(err: unknown): string {
-  // Never surface a raw technical string (a fetch failure, a Prisma message,
-  // a DOMException). Anything that isn't a short, human sentence is replaced.
-  const raw = err instanceof Error ? err.message : '';
-  const looksTechnical = !raw || raw.length > 120 || /exception|prisma|undefined|cannot read|null|stack|\/[a-z]+\/|::|error:/i.test(raw);
-  return looksTechnical
-    ? 'We could not reach the payment service. Check your connection and try again.'
-    : raw;
+const CHECKOUT_NOTICE: Record<CheckoutNoticeKind, { title: string; message: string }> = {
+  temporary: {
+    title: "We couldn't start checkout",
+    message: 'Something went wrong while connecting to our payment provider. Please try again.',
+  },
+  checking: {
+    title: "We're checking your checkout",
+    message: "Please wait while we confirm your checkout status. You don't need to start another checkout.",
+  },
+  cancelled: {
+    title: "Payment wasn't completed",
+    message: "Your payment wasn't completed. You can return to your plans and try again.",
+  },
+  unknown: {
+    title: "We're checking your payment",
+    message: "We couldn't confirm your payment status yet. Please don't try another payment until we've checked.",
+  },
+  unavailable: {
+    title: 'This plan is temporarily unavailable',
+    message: "We're unable to process this subscription right now. Please try again later.",
+  },
+  conflict: {
+    title: 'You already have an active subscription',
+    message: 'Your existing subscription remains in place. Review its status from your account menu.',
+  },
+};
+
+// Response bodies can carry provider, database or reservation detail. Only the
+// status and the two routing flags are read here; none of the text is shown.
+function checkoutNoticeFor(
+  status: number,
+  body: { error?: unknown; reservationId?: unknown },
+): CheckoutNoticeKind {
+  if (status === 409 && body.error === 'An active Paddle subscription already exists') return 'conflict';
+  if (typeof body.reservationId === 'string') return 'unknown';
+  if (status === 400 || status === 409 || status === 503) return 'unavailable';
+  return 'temporary';
 }
 
 async function requestCheckoutQuote(period: BillingPeriod): Promise<CheckoutQuote> {
@@ -71,72 +99,37 @@ function getPlanId(tier: TierKey, period: BillingPeriod): string {
   return `${tier}_${period}`;
 }
 
-export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthenticated = false, onAuthRequired, initialTier, initialBillingPeriod, initialStep }: PricingModalProps) {
+export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthenticated = false, onAuthRequired, initialTier, initialBillingPeriod }: PricingModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isOpen, onClose);
-  const [step, setStep] = useState<'select' | 'form' | 'processing' | 'error'>('select');
+  const [step, setStep] = useState<'select' | 'processing' | 'error'>('select');
   const [selectedTier, setSelectedTier] = useState<TierKey>('creator');
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
   const [pendingReservationId, setPendingReservationId] = useState<string | null>(null);
-  const [subscriptionConflict, setSubscriptionConflict] = useState(false);
-  const [checkoutQuote, setCheckoutQuote] = useState<CheckoutQuote | null>(null);
-  const [isLoadingQuote, setIsLoadingQuote] = useState(false);
+  const [notice, setNotice] = useState<CheckoutNoticeKind | null>(null);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   // One checkout creation and hand-off at a time. Two handlers firing
   // before React re-renders (a double tap, Enter plus click) would otherwise
   // POST twice or open the same payment session in two tabs.
   const submitLock = useRef(false);
 
   const selectedPlan = getPlanId(selectedTier, billingPeriod);
-  const { data: session } = useSession();
   // Region detection only runs while the sheet is open, so a page that merely
   // mounts it makes no third-party request. The hook guarantees the loading
   // state always terminates and falls back to the US table.
   const { pricing: currentPricing, isLoading: isLoadingPricing } = useRegionalPricing(isOpen);
 
 
-  // Apply landing/studio checkout intent on open (e.g. ?checkout=creator_monthly → payment form directly)
+  // Apply the landing/studio plan intent on open (e.g. ?checkout=creator_monthly
+  // preselects Creator Monthly) and start from the plan grid.
   useEffect(() => {
     if (!isOpen) return;
     if (initialTier) setSelectedTier(initialTier);
     if (initialBillingPeriod) setBillingPeriod(initialBillingPeriod);
-    if (initialStep) {
-      // Prefill from session when jumping straight to payment form
-      if (initialStep === 'form') {
-        if (session?.user?.email) setEmail((prev) => prev || session.user.email as string);
-        if (session?.user?.name) setName((prev) => prev || (session.user.name as string) || prev);
-      }
-      setStep(initialStep);
-    } else {
-      setStep('select');
-    }
-    setErrorMessage('');
+    setStep('select');
+    setNotice(null);
     setPendingReservationId(null);
-    setSubscriptionConflict(false);
-    setCheckoutQuote(null);
+    setIsCheckingStatus(false);
   }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen || step !== 'form' || selectedTier === 'free') return;
-    let cancelled = false;
-    setCheckoutQuote(null);
-    setIsLoadingQuote(true);
-    setErrorMessage('');
-    requestCheckoutQuote(billingPeriod)
-      .then((quote) => {
-        if (!cancelled) setCheckoutQuote(quote);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setErrorMessage(checkoutErrorMessage(error));
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoadingQuote(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, step, selectedTier, billingPeriod]);
 
   const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
 
@@ -161,11 +154,9 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     setStep('select');
     setSelectedTier('creator');
     setBillingPeriod('monthly');
-    setName('');
-    setEmail('');
-    setErrorMessage('');
+    setNotice(null);
     setPendingReservationId(null);
-    setSubscriptionConflict(false);
+    setIsCheckingStatus(false);
     closeModal();
   }, [closeModal]);
 
@@ -223,32 +214,19 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       handleClose();
       return;
     }
-    if (step === 'select') {
-      if (!email && session?.user?.email) setEmail(session.user.email);
-      if (!name && session?.user?.name) setName(session.user.name);
-      setErrorMessage('');
-      setStep('form');
-      return;
-    }
-    const effectiveEmail = (email || session?.user?.email || '').trim();
-    if (!effectiveEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(effectiveEmail)) {
-      setErrorMessage('Please enter a valid email');
-      return;
-    }
     if (submitLock.current) return;
     submitLock.current = true;
     setStep('processing');
-    setErrorMessage('');
+    setIsCheckingStatus(false);
+    setNotice(null);
     try {
-      if (!checkoutQuote) throw new Error('A confirmed Paddle quote is required before payment');
+      // One quote, then the existing reservation-protected checkout. The
+      // server re-verifies this quote, the live price, the account identity
+      // and the consent hash before any provider transaction is created.
       const quote = await requestCheckoutQuote(billingPeriod);
-      if (quote.plan !== selectedPlan ||
-          quote.country !== checkoutQuote.country ||
-          quote.amount !== checkoutQuote.amount ||
-          quote.currency !== checkoutQuote.currency) {
-        setCheckoutQuote(quote);
-        setStep('form');
-        setErrorMessage('Your confirmed price changed. Review the updated quote before continuing.');
+      if (quote.plan !== selectedPlan) {
+        setNotice('unavailable');
+        setStep('error');
         return;
       }
       const consent = {
@@ -268,60 +246,71 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         credentials: 'same-origin',
         body: JSON.stringify({ ...consent, consentHash }),
       });
-      const checkout = await checkoutResponse.json().catch(() => ({ error: 'Failed to create checkout' }));
+      const checkout = await checkoutResponse.json().catch(() => ({})) as {
+        error?: unknown;
+        reservationId?: unknown;
+        checkoutUrl?: unknown;
+      };
       if (!checkoutResponse.ok) {
         if (typeof checkout.reservationId === 'string') {
           setPendingReservationId(checkout.reservationId);
         }
-        if (checkoutResponse.status === 409 &&
-            checkout.error === 'An active Paddle subscription already exists') {
-          setSubscriptionConflict(true);
-        }
-        throw new Error(checkout.error || 'Failed to create checkout');
+        setNotice(checkoutNoticeFor(checkoutResponse.status, checkout));
+        setStep('error');
+        return;
       }
       if (typeof checkout.checkoutUrl !== 'string' || !checkout.checkoutUrl) {
-        throw new Error('Paddle did not return a checkout URL');
+        setNotice('temporary');
+        setStep('error');
+        return;
       }
       setPendingReservationId(null);
       showToast('Redirecting to Paddle...');
       window.location.assign(checkout.checkoutUrl);
-    } catch (err) {
+    } catch {
+      setNotice('temporary');
       setStep('error');
-      setErrorMessage(checkoutErrorMessage(err));
     } finally {
       submitLock.current = false;
     }
-  }, [selectedPlan, billingPeriod, name, email, step, showToast, isAuthenticated, onAuthRequired, session, handleClose, checkoutQuote]);
+  }, [selectedPlan, billingPeriod, showToast, isAuthenticated, onAuthRequired, handleClose]);
 
   const handleCheckPendingCheckout = useCallback(async () => {
     if (!pendingReservationId || submitLock.current) return;
     submitLock.current = true;
     setStep('processing');
-    setErrorMessage('');
+    setIsCheckingStatus(true);
+    setNotice(null);
     try {
       const response = await fetch(
         `/api/paddle/checkout/status?reservationId=${encodeURIComponent(pendingReservationId)}`,
         { credentials: 'same-origin', cache: 'no-store' },
       );
-      const checkout = await response.json().catch(() => ({ error: 'Checkout status is unavailable' }));
-      if (!response.ok) throw new Error(checkout.error || 'Checkout status is unavailable');
-      if (typeof checkout.checkoutUrl === 'string') {
+      const checkout = await response.json().catch(() => ({})) as {
+        checkoutUrl?: unknown;
+        retryAllowed?: unknown;
+      };
+      if (response.ok && typeof checkout.checkoutUrl === 'string') {
         window.location.assign(checkout.checkoutUrl);
         return;
       }
-      if (checkout.retryAllowed === true) {
+      if (response.ok && checkout.retryAllowed === true) {
+        // The backend verified the earlier attempt ended without a live
+        // transaction, so a new attempt cannot duplicate a payment.
         setPendingReservationId(null);
-        setErrorMessage('The previous checkout has ended. You can safely try again.');
+        setNotice('cancelled');
       } else {
-        setErrorMessage(checkout.message ||
-          'Payment access updates only after Paddle verifies the payment. Check again shortly.');
+        // Any other answer means the outcome is still unknown: never invite a
+        // second payment while the first may be processing.
+        setNotice('unknown');
       }
       setStep('error');
-    } catch (err) {
+    } catch {
+      setNotice('unknown');
       setStep('error');
-      setErrorMessage(checkoutErrorMessage(err));
     } finally {
       submitLock.current = false;
+      setIsCheckingStatus(false);
     }
   }, [pendingReservationId]);
 
@@ -352,8 +341,9 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     const firstTaskControl =
       focusable.find((el) => el.getAttribute('aria-label') !== 'Close') ?? focusable[0];
     firstTaskControl.focus();
-    // `step` is a dependency on purpose: moving select -> form is a new task,
-    // and focus should follow the user into the first field of that step.
+    // `step` is a dependency on purpose: replacing the plan grid with the
+    // processing panel or an outcome message is a new task, and focus may not
+    // stay on a control that no longer exists.
     // `isLoadingPricing` is the important one: while the geo lookup is in
     // flight the body is the UX-013 skeleton, whose bars are aria-hidden
     // placeholders with no focusable control in them — so focusing here would
@@ -393,9 +383,9 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   // both, so they cannot drift apart again.
   const dialogTitle =
     step === 'select' ? 'Choose Your Plan'
-    : step === 'form' ? 'Complete Payment'
-    : step === 'processing' ? 'Processing...'
-    : 'Payment Error';
+    : step === 'processing' ? (isCheckingStatus ? CHECKOUT_NOTICE.checking.title : 'Preparing Secure Checkout')
+    : notice ? CHECKOUT_NOTICE[notice].title
+    : 'Checkout';
 
   return (
     <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={dialogTitle} {...swipeHandlers}>
@@ -544,106 +534,18 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                 </div>
               )}
 
-              {step === 'form' && (
-                <div className="flex flex-col gap-5">
-                  <div className="bg-elevated rounded-xl p-5 flex items-center justify-between">
-                    <div>
-                      <span className="text-sm font-semibold text-text-primary">{PRICING_PLANS[selectedTier].name} {billingPeriod === 'yearly' ? 'Yearly' : 'Monthly'}</span>
-                      <span className="text-xs text-text-muted block mt-1">
-                        Renews every {billingPeriod === 'yearly' ? '12 months' : 'month'} until canceled in {checkoutQuote?.currency ?? '...'}
-                      </span>
-                    </div>
-                    <span className="text-xl font-bold text-text-primary">
-                      {isLoadingQuote
-                        ? 'Confirming...'
-                        : checkoutQuote
-                          ? formatPriceForCurrency(
-                            checkoutQuote.amount,
-                            checkoutQuote.currency,
-                            checkoutQuote.country === 'IN' ? 'en-IN' : 'en-US',
-                          )
-                          : 'Price unavailable'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-text-muted text-center">
-                    Paddle calculates any applicable tax from your billing location and displays the final total before payment.
-                  </p>
-
-                  <div className="flex flex-col gap-4">
-                    <div className="flex flex-col gap-2">
-                      <label htmlFor="pricing-name" className="text-xs font-semibold uppercase tracking-wider text-text-muted">Full Name</label>
-                      <input
-                        id="pricing-name"
-                        type="text"
-                        placeholder="Your name"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        maxLength={200}
-                        className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-lg text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label htmlFor="pricing-email" className="text-xs font-semibold uppercase tracking-wider text-text-muted">Email Address</label>
-                      <input
-                        id="pricing-email"
-                        type="email"
-                        placeholder="you@example.com"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        onBlur={() => {
-                          if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                            setErrorMessage('Please enter a valid email');
-                          } else {
-                            setErrorMessage('');
-                          }
-                        }}
-                        maxLength={254}
-                        className={`w-full px-4 py-3 bg-elevated border rounded-lg text-sm text-text-primary placeholder-text-muted outline-none transition-colors ${
-                          email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-                            ? 'border-recording focus:border-recording'
-                            : 'border-border-subtle focus:border-accent'
-                        }`}
-                      />
-                      {email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && (
-                        <p className="text-[11px] text-recording">Please enter a valid email address</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {errorMessage && (
-                    <p className="text-sm text-recording text-center">{errorMessage}</p>
-                  )}
-
-                  <div className="flex gap-3">
-                    <Button variant="secondary" onClick={() => setStep('select')}>Back</Button>
-                    <Button
-                      variant="primary"
-                      onClick={handleSubscribe}
-                      disabled={isLoadingQuote || !checkoutQuote ||
-                        !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)}
-                      className="flex-1"
-                    >
-                      Continue to Payment
-                    </Button>
-                  </div>
-
-                  <p className="text-xs text-text-muted text-center">
-                    Secure checkout powered by Paddle.
-                  </p>
-                </div>
-              )}
-
               {step === 'processing' && (
                 <div className="flex flex-col items-center gap-3 py-12">
                   <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                  {/* Truthful for both paths through this step: a fresh order is
-                      being created, or an existing one's payment page is being
-                      reopened. */}
-                  <p className="text-sm text-text-secondary">Preparing secure checkout...</p>
+                  <p className="text-sm text-text-secondary text-center" aria-live="polite">
+                    {isCheckingStatus
+                      ? CHECKOUT_NOTICE.checking.message
+                      : 'Connecting to our secure payment provider.'}
+                  </p>
                 </div>
               )}
 
-              {step === 'error' && (
+              {step === 'error' && notice && (
                 <div className="flex flex-col items-center gap-3 py-12">
                   <div className="w-12 h-12 rounded-full bg-recording/10 flex items-center justify-center">
                     <svg className="w-6 h-6 text-recording" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -651,39 +553,24 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     </svg>
                   </div>
                   <div className="text-center">
-                    <p className="text-sm font-semibold text-text-primary">Checkout needs attention</p>
-                    {/* The reason the payment page gave (or a safe generic one
-                        for a transport failure) was held in state but never
-                        shown, so "try again" was blind advice. */}
-                    {errorMessage && (
-                      <p className="text-xs text-text-secondary mt-1">{errorMessage}</p>
-                    )}
-                    {subscriptionConflict && (
-                      <p className="text-xs text-text-secondary mt-1">
-                        Your existing subscription remains in place. Review its status from your account menu.
-                      </p>
-                    )}
+                    <p className="text-sm text-text-secondary">{CHECKOUT_NOTICE[notice].message}</p>
                     <p className="text-xs text-text-secondary mt-1">Your current access stays unchanged until a payment is verified.</p>
                   </div>
-                  <div className="flex flex-col gap-2 w-full max-w-[200px]">
-                    {pendingReservationId ? (
+                  <div className="flex flex-col gap-2 w-full max-w-[220px]">
+                    {notice === 'unknown' && pendingReservationId ? (
                       <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check checkout status</Button>
-                    ) : subscriptionConflict ? (
-                      <Button variant="secondary" onClick={handleClose}>Close</Button>
-                    ) : (
+                    ) : notice === 'temporary' || notice === 'cancelled' ? (
                       <Button
                         variant="secondary"
                         onClick={() => {
-                          setErrorMessage('');
-                          setStep('form');
+                          setNotice(null);
+                          setStep('select');
                         }}
                       >
                         Try again
                       </Button>
-                    )}
-                    {!subscriptionConflict && (
-                      <Button variant="ghost" onClick={handleClose}>Close</Button>
-                    )}
+                    ) : null}
+                    <Button variant="ghost" onClick={handleClose}>Close</Button>
                   </div>
                 </div>
               )}

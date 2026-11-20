@@ -62,11 +62,13 @@ export function PaddleCheckout({ token, transactionId }: { token: string; transa
         }}
         onError={() => setState('error')}
       />
-      <h1 className="text-2xl font-semibold text-text-primary">Complete your payment</h1>
+      <h1 className="text-2xl font-semibold text-text-primary">
+        {state === 'closed' ? "Payment wasn't completed" : 'Complete your payment'}
+      </h1>
       <p role={state === 'error' ? 'alert' : 'status'} aria-live="polite" className="text-text-secondary">
         {state === 'loading' && 'Loading secure checkout…'}
         {state === 'open' && 'Complete payment in the secure checkout. Your access updates after payment is verified.'}
-        {state === 'closed' && 'Checkout was closed. You can reopen the same payment below.'}
+        {state === 'closed' && "Your payment wasn't completed. You can return to your plans and try again."}
         {state === 'pending' && 'Your payment is being verified. Return to Studio to check your access.'}
         {state === 'error' && 'Checkout could not load. Check your connection and reload this page to resume the same payment.'}
       </p>
