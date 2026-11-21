@@ -259,13 +259,14 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         credentials: 'same-origin',
         body: JSON.stringify({ ...consent, consentHash }),
       });
-      const checkout = await checkoutResponse.json().catch(() => ({})) as {
-        error?: unknown;
-        state?: unknown;
-        subscription?: ActiveSubscriptionNotice;
-        reservationId?: unknown;
-        checkoutUrl?: unknown;
-      };
+       const checkout = await checkoutResponse.json().catch(() => ({})) as {
+         status?: unknown;
+         error?: unknown;
+         state?: unknown;
+         subscription?: ActiveSubscriptionNotice;
+         reservationId?: unknown;
+         checkoutUrl?: unknown;
+       };
       if (!checkoutResponse.ok) {
         if (checkout.state === 'active_subscription' && checkout.subscription) {
           setActiveSubscription(checkout.subscription);
@@ -274,6 +275,14 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
           setPendingReservationId(checkout.reservationId);
         }
         setNotice(checkoutNoticeFor(checkoutResponse.status, checkout));
+        setStep('error');
+        return;
+      }
+      if (checkout.status === 'awaiting_confirmation') {
+        // Payment was already received for this reservation; do not treat it as
+        // a checkout failure. Show a verification state and poll for activation.
+        setPendingReservationId(typeof checkout.reservationId === 'string' ? checkout.reservationId : pendingReservationId);
+        setNotice('checking');
         setStep('error');
         return;
       }
@@ -305,9 +314,16 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         { credentials: 'same-origin', cache: 'no-store' },
       );
       const checkout = await response.json().catch(() => ({})) as {
+        status?: unknown;
         checkoutUrl?: unknown;
         retryAllowed?: unknown;
       };
+      if (response.ok && checkout.status === 'awaiting_confirmation') {
+        setPendingReservationId(pendingReservationId);
+        setNotice('checking');
+        setStep('error');
+        return;
+      }
       if (response.ok && typeof checkout.checkoutUrl === 'string') {
         window.location.assign(checkout.checkoutUrl);
         return;
@@ -571,7 +587,6 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                     </svg>
                   </div>
                   <div className="text-center">
-                    <p className="text-base font-semibold text-text-primary">{CHECKOUT_NOTICE[notice].title}</p>
                     {(notice === 'conflict' || notice === 'payment_retry') && activeSubscription ? (
                       <div className="mt-2 space-y-1 text-sm text-text-secondary">
                         <p>You're subscribed to {activeSubscription.plan === 'creator_yearly' ? 'Creator Yearly' : 'Creator Monthly'}.</p>
@@ -592,6 +607,8 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                   </div>
                   <div className="flex flex-col gap-2 w-full max-w-[220px]">
                     {notice === 'unknown' && pendingReservationId ? (
+                      <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check checkout status</Button>
+                    ) : notice === 'checking' && pendingReservationId ? (
                       <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check checkout status</Button>
                     ) : notice === 'conflict' || notice === 'payment_retry' ? (
                       <Button variant="secondary" onClick={handleClose}>Close and manage from account menu</Button>
