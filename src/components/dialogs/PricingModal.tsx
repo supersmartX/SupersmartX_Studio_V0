@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
 import { formatPrice, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
+import { useSession } from 'next-auth/react';
 import { useRegionalPricing } from '@/hooks/useRegionalPricing';
 import { PRICING_PLANS } from '@/constants';
 import type { CheckoutQuote } from '@/lib/billing/contracts';
@@ -122,6 +123,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   // before React re-renders (a double tap, Enter plus click) would otherwise
   // POST twice or open the same payment session in two tabs.
   const submitLock = useRef(false);
+  const { update } = useSession();
 
   const selectedPlan = getPlanId(selectedTier, billingPeriod);
   // Region detection only runs while the sheet is open, so a page that merely
@@ -347,6 +349,39 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       setIsCheckingStatus(false);
     }
   }, [pendingReservationId]);
+
+  useEffect(() => {
+    if (!isOpen || notice !== 'checking' || !pendingReservationId) return;
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 15;
+    const timer = setInterval(async () => {
+      if (cancelled) return;
+      attempts += 1;
+      try {
+        const response = await fetch('/api/paddle/billing', { credentials: 'same-origin', cache: 'no-store' });
+        if (cancelled) return;
+        if (response.ok) {
+          const body = await response.json().catch(() => ({})) as { account?: { status?: string; paidThroughAt?: string | null } };
+          const account = body?.account;
+          if (account?.status === 'active' && account.paidThroughAt && new Date(account.paidThroughAt).getTime() > Date.now()) {
+            cancelled = true;
+            clearInterval(timer);
+            try { await update(); } catch {}
+            setNotice(null);
+            setStep('select');
+            setPendingReservationId(null);
+            showToast('Creator access activated.');
+            return;
+          }
+        }
+      } catch {}
+      if (attempts >= maxAttempts) {
+        clearInterval(timer);
+      }
+    }, 2000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [isOpen, notice, pendingReservationId, update, showToast]);
 
   // UX-012: this dialog has always had NO initial focus — focus stayed on the
   // trigger behind it, so keyboard and screen-reader users opened the pricing

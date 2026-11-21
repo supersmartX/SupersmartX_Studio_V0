@@ -60,15 +60,26 @@ function getPlanFeatures(plan: string): string[] {
   }
 }
 
+const ZERO_DECIMAL_CURRENCIES = new Set(['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']);
+const THREE_DECIMAL_CURRENCIES = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
+
+function minorUnitScale(currency: string): number {
+  const code = currency.toUpperCase();
+  if (ZERO_DECIMAL_CURRENCIES.has(code)) return 1;
+  if (THREE_DECIMAL_CURRENCIES.has(code)) return 1000;
+  return 100;
+}
+
 function formatCurrency(amount: number, currency: string): string {
+  const major = amount / minorUnitScale(currency);
   try {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency,
-      minimumFractionDigits: 2,
-    }).format(amount);
+      minimumFractionDigits: ZERO_DECIMAL_CURRENCIES.has(currency.toUpperCase()) ? 0 : 2,
+    }).format(major);
   } catch {
-    return `${currency} ${amount.toFixed(2)}`;
+    return `${currency} ${major.toFixed(ZERO_DECIMAL_CURRENCIES.has(currency.toUpperCase()) ? 0 : 2)}`;
   }
 }
 
