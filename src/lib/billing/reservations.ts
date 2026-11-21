@@ -317,8 +317,7 @@ export async function reconcileCheckoutReservation(input: {
     };
   }
 
-  if (transaction.status === 'paid' || transaction.status === 'completed' ||
-      transaction.status === 'billed' || transaction.status === 'past_due') {
+  if (transaction.status === 'paid' || transaction.status === 'completed') {
     return {
       kind: 'awaiting_payment',
       reservationId: reservation.id,

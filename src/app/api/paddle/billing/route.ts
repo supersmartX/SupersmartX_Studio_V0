@@ -32,6 +32,22 @@ export async function GET() {
       console.error('Paddle payment-method recovery link is unavailable');
     }
   }
+  // Check if cancellation is confirmed via completed billingOperation
+  // Only confirm if the most recent operation for this subscription is completed
+  // (prevents stale completed operations from previous cycles from confirming)
+  let cancellationConfirmed = false;
+  if (account?.providerSubscriptionId && account.cancelAtPeriodEnd) {
+    const latestCancelOp = await prisma.billingOperation.findFirst({
+      where: {
+        userId: session.user.id,
+        resourceId: account.providerSubscriptionId,
+        operation: 'cancel_at_period_end',
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, status: true },
+    });
+    cancellationConfirmed = latestCancelOp?.status === 'completed';
+  }
   return NextResponse.json({
     account: account ? {
       plan: account.plan,
@@ -39,6 +55,7 @@ export async function GET() {
       paidThroughAt: account.paidThroughAt?.toISOString() ?? null,
       nextChargeAt: account.nextChargeAt?.toISOString() ?? null,
       cancelAtPeriodEnd: account.cancelAtPeriodEnd,
+      cancellationConfirmed,
       canceledAt: account.canceledAt?.toISOString() ?? null,
       paymentMethodUpdateUrl,
     } : null,

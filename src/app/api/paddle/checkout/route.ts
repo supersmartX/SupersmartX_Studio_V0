@@ -59,12 +59,14 @@ function checkoutRecoveryResponse(recovery: CheckoutRecovery): NextResponse | nu
     }, { headers: { 'Cache-Control': 'no-store' } });
   }
   if (recovery.kind === 'awaiting_payment') {
+    // Payment received but local entitlement not yet granted.
+    // Frontend should poll /api/paddle/checkout/status for activation.
     return NextResponse.json({
-      status: 'awaiting_confirmation',
+      status: 'payment_received',
       reservationId: recovery.reservationId,
       retryAllowed: false,
       checkoutUrl: null,
-      message: 'Your payment was received. We are activating your plan now.',
+      message: 'Payment received. Activating your plan...',
     }, { headers: { 'Cache-Control': 'no-store' } });
   }
   if (recovery.kind === 'pending') {

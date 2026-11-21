@@ -145,6 +145,14 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     setIsCheckingStatus(false);
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setPendingReservationId(null);
+      setNotice(null);
+      setStep('select');
+    }
+  }, [isOpen]);
+
   const format = (amount: number) => formatPrice(amount, currentPricing.symbol, currentPricing.locale);
 
   const formatZero = (amount: number) => formatPriceZero(amount, currentPricing.symbol, currentPricing.locale);
@@ -280,7 +288,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         setStep('error');
         return;
       }
-      if (checkout.status === 'awaiting_confirmation') {
+      if (checkout.status === 'payment_received') {
         // Payment was already received for this reservation; do not treat it as
         // a checkout failure. Show a verification state and poll for activation.
         setPendingReservationId(typeof checkout.reservationId === 'string' ? checkout.reservationId : pendingReservationId);
@@ -320,7 +328,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         checkoutUrl?: unknown;
         retryAllowed?: unknown;
       };
-      if (response.ok && checkout.status === 'awaiting_confirmation') {
+      if (response.ok && checkout.status === 'payment_received') {
         setPendingReservationId(pendingReservationId);
         setNotice('checking');
         setStep('error');
@@ -353,26 +361,37 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   useEffect(() => {
     if (!isOpen || notice !== 'checking' || !pendingReservationId) return;
     let cancelled = false;
+    let completed = false;
     let attempts = 0;
     const maxAttempts = 15;
     const timer = setInterval(async () => {
-      if (cancelled) return;
+      if (cancelled || completed) return;
       attempts += 1;
       try {
-        const response = await fetch('/api/paddle/billing', { credentials: 'same-origin', cache: 'no-store' });
-        if (cancelled) return;
+        const response = await fetch(`/api/paddle/checkout/status?reservationId=${encodeURIComponent(pendingReservationId)}`, { credentials: 'same-origin', cache: 'no-store' });
+        if (cancelled || completed) return;
         if (response.ok) {
-          const body = await response.json().catch(() => ({})) as { account?: { status?: string; paidThroughAt?: string | null } };
-          const account = body?.account;
-          if (account?.status === 'active' && account.paidThroughAt && new Date(account.paidThroughAt).getTime() > Date.now()) {
-            cancelled = true;
-            clearInterval(timer);
-            try { await update(); } catch {}
-            setNotice(null);
-            setStep('select');
-            setPendingReservationId(null);
-            showToast('Creator access activated.');
-            return;
+          const body = await response.json().catch(() => ({})) as { account?: { status?: string; paidThroughAt?: string | null }; status?: string };
+          // If checkout status says payment_received, verify entitlement via billing API
+          if (body?.status === 'payment_received') {
+            const billingResponse = await fetch('/api/paddle/billing', { credentials: 'same-origin', cache: 'no-store' });
+            if (cancelled || completed) return;
+            if (billingResponse.ok) {
+              const billing = await billingResponse.json().catch(() => ({})) as { account?: { status?: string; paidThroughAt?: string | null } };
+              const account = billing?.account;
+              if (account?.status === 'active' && account.paidThroughAt && new Date(account.paidThroughAt).getTime() > Date.now()) {
+                completed = true;
+                clearInterval(timer);
+                try { await update(); } catch {}
+                if (cancelled) return;
+                setNotice(null);
+                setStep('select');
+                setPendingReservationId(null);
+                showToast('Creator access activated.');
+                return;
+              }
+            }
+            // payment_received but entitlement not yet active - continue polling
           }
         }
       } catch {}

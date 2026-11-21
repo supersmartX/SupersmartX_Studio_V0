@@ -153,16 +153,16 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const checkoutUrl = resumableCheckoutUrl(transaction);
+const checkoutUrl = resumableCheckoutUrl(transaction);
     return NextResponse.json({
-      status: remoteStatus === 'confirmed' ? 'awaiting_confirmation' : remoteStatus,
+      status: remoteStatus === 'confirmed' ? 'payment_received' : remoteStatus,
       retryAllowed: remoteStatus === 'failed' || remoteStatus === 'canceled',
       checkoutUrl,
       message: remoteStatus === 'confirmed'
-        ? 'Payment was received and is awaiting secure confirmation.'
+        ? 'Payment received. Activating your plan...'
         : remoteStatus === 'pending' && transaction.status !== 'ready'
           ? 'Payment is not complete. Do not start another subscription while recovery is pending.'
-        : null,
+          : null,
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch {
     console.error('Paddle checkout recovery could not verify the transaction');

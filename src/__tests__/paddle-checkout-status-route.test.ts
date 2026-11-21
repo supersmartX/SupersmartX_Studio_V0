@@ -94,7 +94,7 @@ describe('Paddle checkout recovery', () => {
     const response = await GET(request());
 
     expect(await response.json()).toMatchObject({
-      status: 'awaiting_confirmation',
+      status: 'payment_received',
       retryAllowed: false,
       checkoutUrl: null,
     });

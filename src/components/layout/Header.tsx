@@ -19,6 +19,7 @@ interface PaddleBillingSummary {
     paidThroughAt: string | null;
     nextChargeAt: string | null;
     cancelAtPeriodEnd: boolean;
+    cancellationConfirmed: boolean;
     paymentMethodUpdateUrl?: string | null;
   } | null;
   transactions: Array<{
@@ -97,8 +98,10 @@ export function Header({
   const [paddleBilling, setPaddleBilling] = useState<PaddleBillingSummary | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
+  const cancelMutationVersion = useRef(0);
   useEffect(() => {
     if (!showUserMenu || !signedIn) return;
+    const currentVersion = cancelMutationVersion.current;
     let cancelled = false;
     fetch('/api/user/stats', { credentials: 'same-origin' })
       .then((res) => (res.ok ? res.json() : null))
@@ -115,7 +118,10 @@ export function Header({
     fetch('/api/paddle/billing', { credentials: 'same-origin' })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: PaddleBillingSummary | null) => {
-        if (!cancelled && data) setPaddleBilling(data);
+        // Discard stale billing reads that started before a cancellation mutation
+        if (!cancelled && data && cancelMutationVersion.current === currentVersion) {
+          setPaddleBilling(data);
+        }
       })
       .catch(() => {});
     return () => {
@@ -235,8 +241,11 @@ export function Header({
                   {paddleBilling?.account?.nextChargeAt && (
                     <p className="text-[11px] text-text-muted">Next charge {formatBillingDate(paddleBilling.account.nextChargeAt)}</p>
                   )}
-                  {paddleBilling?.account?.cancelAtPeriodEnd && (
+                  {paddleBilling?.account?.cancellationConfirmed && (
                     <p className="text-[11px] text-accent">Cancellation scheduled</p>
+                  )}
+                  {paddleBilling?.account?.cancelAtPeriodEnd && !paddleBilling?.account?.cancellationConfirmed && (
+                    <p className="text-[11px] text-text-muted">Cancellation pending confirmation...</p>
                   )}
                   {paddleBilling?.account && ['past_due', 'payment_failed'].includes(paddleBilling.account.status) && (
                     <p role="status" className="text-[11px] text-warning">Your latest payment needs attention.</p>
@@ -266,13 +275,14 @@ export function Header({
                         ? 'Renew Creator'
                         : 'Upgrade to Creator'}
                   </button>
-                  {paddleBilling?.account && !paddleBilling.account.cancelAtPeriodEnd && (
+                  {paddleBilling?.account && !paddleBilling.account.cancellationConfirmed && (
                     <button
                       role="menuitem"
                       disabled={cancelRequested}
                       onClick={async () => {
                         setCancelRequested(true);
                         setCancelNotice(null);
+                        cancelMutationVersion.current += 1;
                         try {
                           const res = await fetch('/api/paddle/cancel', {
                             method: 'POST',
@@ -283,10 +293,17 @@ export function Header({
                             setCancelNotice('Cancellation is confirmed for the end of your paid period.');
                             setPaddleBilling((current) => current ? {
                               ...current,
+                              account: current.account ? { ...current.account, cancelAtPeriodEnd: true, cancellationConfirmed: true } : current.account,
+                            } : current);
+                            setCancelRequested(false);
+                          } else if (res.status === 202 && result?.status === 'cancellation_pending_reconciliation') {
+                            setCancelNotice('Paddle has not confirmed cancellation yet. Your current access remains active. Click again to check status.');
+                            setPaddleBilling((current) => current ? {
+                              ...current,
                               account: current.account ? { ...current.account, cancelAtPeriodEnd: true } : current.account,
                             } : current);
-                          } else if (res.status === 202 && result?.status === 'cancellation_pending_reconciliation') {
-                            setCancelNotice('Paddle has not confirmed cancellation yet. Your current access remains active. Refresh this page later to check the status.');
+                            // Allow retry to check status
+                            setCancelRequested(false);
                           } else {
                             throw new Error('Cancellation could not be confirmed');
                           }
@@ -297,7 +314,7 @@ export function Header({
                       }}
                       className="w-full text-left px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:bg-elevated"
                     >
-                      {cancelRequested ? 'Cancellation awaiting confirmation' : 'Cancel at period end'}
+                      {cancelRequested ? 'Cancellation awaiting confirmation...' : paddleBilling.account.cancelAtPeriodEnd ? 'Check cancellation status' : 'Cancel at period end'}
                     </button>
                   )}
                   {cancelNotice && (
