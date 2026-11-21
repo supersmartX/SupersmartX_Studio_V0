@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
 /**
@@ -53,6 +53,14 @@ beforeEach(() => {
 });
 
 describe('landing page pricing', () => {
+  // The footer repeats the quoted prices for SEO, so scope price assertions to
+  // the pricing section; a bare screen.getByText would see both occurrences.
+  function quotedPrices() {
+    const section = document.getElementById('pricing');
+    if (!section) throw new Error('Pricing section was not rendered');
+    return within(section);
+  }
+
   it('shows the server-quoted USD price, not a regional catalog price', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
@@ -61,8 +69,8 @@ describe('landing page pricing', () => {
 
     render(<LandingPage />);
 
-    await waitFor(() => expect(screen.getByText(/\$7\.99/)).toBeInTheDocument());
-    expect(screen.queryByText(/£6\.49/)).toBeNull();
+    await waitFor(() => expect(quotedPrices().getByText(/\$7\.99/)).toBeInTheDocument());
+    expect(quotedPrices().queryByText(/£6\.49/)).toBeNull();
   });
 
   it('swaps to the server-quoted yearly price', async () => {
@@ -72,10 +80,10 @@ describe('landing page pricing', () => {
     });
 
     render(<LandingPage />);
-    await waitFor(() => expect(screen.getByText(/\$7\.99/)).toBeInTheDocument());
+    await waitFor(() => expect(quotedPrices().getByText(/\$7\.99/)).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: /^1 year/ }));
 
-    await waitFor(() => expect(screen.getByText(/\$59\.99/)).toBeInTheDocument());
+    await waitFor(() => expect(quotedPrices().getByText(/\$59\.99/)).toBeInTheDocument());
   });
 });
