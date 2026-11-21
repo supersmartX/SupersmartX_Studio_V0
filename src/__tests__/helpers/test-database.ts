@@ -7,23 +7,16 @@
  * is set" is not evidence of a test database. Anything that looks like the
  * deployed one is refused here, and both the shared harness and the run-wide
  * guard read that decision from this module.
+ *
+ * Only the process environment is consulted. Reading `.env`/`.env.local` here
+ * was a footgun: an ordinary local run (where Vite does not export those files
+ * into `process.env`) would be classified from a file the test process never
+ * actually used, and — before the guard threw — silently cleared. A developer
+ * who wants the database suites must export `DATABASE_URL` explicitly, which is
+ * also the only way the destructive suites can run at all.
  */
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 function readConfiguredUrl(): string {
-  if ((process.env.DATABASE_URL ?? '').trim()) return (process.env.DATABASE_URL ?? '').trim();
-  for (const name of ['.env.local', '.env']) {
-    try {
-      const text = readFileSync(join(process.cwd(), name), 'utf8');
-      for (const line of text.split(/\r?\n/)) {
-        const match = line.match(/^\s*DATABASE_URL\s*=\s*(.*)\s*$/);
-        if (!match) continue;
-        return match[1].trim().replace(/^(['"])(.*)\1$/, '$2');
-      }
-    } catch {}
-  }
-  return '';
+  return (process.env.DATABASE_URL ?? '').trim();
 }
 
 const configuredUrl = readConfiguredUrl();

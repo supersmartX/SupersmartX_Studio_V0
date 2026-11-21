@@ -8,17 +8,13 @@ import { AuthModal } from '@/components/auth/AuthModal';
 import {
   formatPrice,
   formatPriceZero,
-  formatPriceForCurrency,
   formatSavingsPercent,
-  getPricingForCountry,
 } from '@/lib/pricing';
 import { useRegionalPricing } from '@/hooks/useRegionalPricing';
 import { PRICING_PLANS } from '@/constants';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { SEO_CONFIG } from '@/lib/seo/config';
 import '@/styles/pricing.css';
-
-const INR_PRICING = getPricingForCountry('IN');
 
 const NAV_LINKS = [
   { label: 'Studio', href: '#top' },
@@ -275,9 +271,9 @@ export default function LandingPage() {
     }
   }, [router]);
 
-  // Prices start on the US table (the region-neutral default) and swap to the
-  // visitor's region once detection resolves — the same table the checkout
-  // sheet shows, so the price advertised here is the price charged there.
+  // The server owns the advertised amount (USD everywhere except India), and
+  // this is the same hook the checkout sheet uses, so the price shown here is
+  // the price the server will charge.
   const { pricing: currentPricing } = useRegionalPricing();
   const format = (amount: number) =>
     formatPrice(amount, currentPricing.symbol, currentPricing.locale);
@@ -1791,7 +1787,7 @@ export default function LandingPage() {
           <div className="lsx-footer-info">
             <p className="lsx-footer-info-title">SupersmartX Studio</p>
             <p className="lsx-footer-info-line">
-              {`Browser-based teleprompter and video recording. Plans: Free (${formatPriceForCurrency(0, 'INR', 'en-IN')}), Creator (${formatPriceForCurrency(INR_PRICING.creatorMonthly, 'INR', 'en-IN')} per month or ${formatPriceForCurrency(INR_PRICING.creatorYearly, 'INR', 'en-IN')} per year). Prices shown in INR.`}
+              {`Browser-based teleprompter and video recording. Plans: Free (${formatZero(0)}), Creator (${format(currentPricing.creatorMonthly)} per month or ${format(currentPricing.creatorYearly)} per year).`}
             </p>
             <p className="lsx-footer-info-line">
               Operated by SupersmartX, India &middot;{' '}

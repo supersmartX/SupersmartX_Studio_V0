@@ -8,12 +8,17 @@ import { LOOKS_PRODUCTION } from './helpers/test-database';
 // `.env.local` would point all 23 of them at the deployed database. This check
 // runs before any test body and is the only one that cannot be forgotten by a
 // new suite.
+//
+// Fail closed: abort the run instead of quietly clearing the URL. Silently
+// blanking it let the destructive suites "pass" by skipping, which hides the
+// misconfiguration and leaves the guard untested. A developer who really wants
+// to run the database suites points DATABASE_URL at a disposable database (or
+// sets ALLOW_TEST_DB=1 for a deliberately throwaway host).
 if (LOOKS_PRODUCTION) {
-  // Remove the deployed URL from the test process even if Vite loaded it from
-  // `.env.local`. This makes every truthiness-based legacy suite gate skip
-  // rather than allowing TRUNCATE/create operations to reach production.
-  process.env.DATABASE_URL = '';
-  process.env.DIRECT_URL = '';
+  throw new Error(
+    'Refusing to run tests: DATABASE_URL points at a production-looking database. ' +
+    'Point it at a disposable database or set ALLOW_TEST_DB=1 deliberately.',
+  );
 }
 
 // jsdom implements Blob/File with slice/size/type but omits the async readers

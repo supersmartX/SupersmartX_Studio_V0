@@ -18,6 +18,10 @@ const PUBLIC_API_ROUTES = [
 
 const EXACT_PUBLIC_API_ROUTES = [
   '/api/paddle/webhook',
+  // Advertising price for the landing page and checkout sheet. Public on
+  // purpose: unauthenticated visitors must see the same amount they will be
+  // charged, and the response contains no customer or configuration data.
+  '/api/paddle/pricing',
 ];
 
 function isPublicRoute(pathname: string): boolean {

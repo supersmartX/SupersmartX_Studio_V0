@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { detectCountry, getPricingForCountry, formatPrice, type RegionalPricing } from '@/lib/pricing';
+import { formatPrice } from '@/lib/pricing';
+import { useRegionalPricing } from '@/hooks/useRegionalPricing';
 import type { PlatformPreset } from '@/types';
 
 interface UpgradePromptModalProps {
@@ -30,24 +30,13 @@ const CREATOR_BENEFITS = [
 
 export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgrade }: UpgradePromptModalProps) {
   const isOpen = platform !== null;
-  const [pricing, setPricing] = useState<RegionalPricing | null>(null);
-  const [pricingFailed, setPricingFailed] = useState(false);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    setPricing(null);
-    setPricingFailed(false);
-    // detectCountry resolves 'US' on its own geo failures, but this is still an
-    // async call across a network boundary — guard it so a rejection can never
-    // strand the dialog on a skeleton indefinitely.
-    detectCountry()
-      .then((country) => setPricing(getPricingForCountry(country)))
-      .catch(() => setPricingFailed(true));
-  }, [isOpen]);
+  // Same canonical source as the landing page and checkout sheet. The hook
+  // never yields an error state, so there is no separate failure branch.
+  const { pricing, isLoading } = useRegionalPricing(isOpen);
 
   if (!platform) return null;
 
-  const monthlyLabel = pricing ? formatPrice(pricing.creatorMonthly, pricing.symbol, pricing.locale) : '';
+  const monthlyLabel = formatPrice(pricing.creatorMonthly, pricing.symbol, pricing.locale);
   const isGuest = !isAuthenticated;
 
   return (
@@ -110,15 +99,13 @@ export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgra
             shimmering forever. min-h matches the resolved line box so the
             swap does not move the button row either. */}
         <div className="flex items-baseline gap-1.5 min-h-[29px]">
-          {pricingFailed ? (
-            <span className="text-[13px] text-text-secondary">Price unavailable right now</span>
-          ) : monthlyLabel ? (
-            <span className="text-[20px] font-bold text-text-primary tabular-nums">{monthlyLabel}</span>
-          ) : (
+          {isLoading ? (
             <>
               <span className="sr-only">Loading price</span>
               <span aria-hidden="true" className="inline-block w-20 h-6 rounded bg-elevated animate-pulse" />
             </>
+          ) : (
+            <span className="text-[20px] font-bold text-text-primary tabular-nums">{monthlyLabel}</span>
           )}
         </div>
         <p className="text-[11px] text-text-secondary">Monthly subscription renews each month until canceled.</p>

@@ -121,17 +121,25 @@ export async function GET(request: NextRequest) {
       }
     }
     if (remoteStatus === 'confirmed') {
-      await requestPaidCheckoutReconciliation({
-        reservation: {
-          id: reservation.id,
-          userId: reservation.userId,
-          plan: reservation.plan,
-          consentHash: reservation.consentHash,
-        },
-        transactionId: transaction.id,
-        occurredAt: transaction.billedAt ? new Date(transaction.billedAt) : null,
-      });
-      after(triggerBillingWorker);
+      // Paddle has confirmed the payment. Entitlement is applied by the durable
+      // worker, so a reconciliation-queue outage must not make the status look
+      // like an unverified/failed checkout: report awaiting_confirmation and let
+      // the webhook path (or a later status poll) enqueue the same event.
+      try {
+        await requestPaidCheckoutReconciliation({
+          reservation: {
+            id: reservation.id,
+            userId: reservation.userId,
+            plan: reservation.plan,
+            consentHash: reservation.consentHash,
+          },
+          transactionId: transaction.id,
+          occurredAt: transaction.billedAt ? new Date(transaction.billedAt) : null,
+        });
+        after(triggerBillingWorker);
+      } catch {
+        console.error('Paid checkout reconciliation could not be queued');
+      }
     }
     if (remoteStatus === 'failed' || remoteStatus === 'canceled') {
       await getPrisma().billingReservation.updateMany({

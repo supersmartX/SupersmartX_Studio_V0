@@ -23,7 +23,12 @@ import {
 } from '@/lib/billing/operations';
 import { getPrisma } from '@/lib/db/prisma';
 import { releaseOrderNotification, tryClaimOrderNotification } from '@/lib/db';
-import { isEmailConfigured, sendPaymentConfirmationEmail } from '@/lib/email';
+import {
+  isEmailConfigured,
+  sendBillingLifecycleEmail,
+  sendBillingOpsAlert,
+  sendPaymentConfirmationEmail,
+} from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -61,6 +66,40 @@ function date(value: unknown): Date | null {
 
 function planValue(value: unknown): 'creator_monthly' | 'creator_yearly' | null {
   return value === 'creator_monthly' || value === 'creator_yearly' ? value : null;
+}
+
+/**
+ * Paddle's `customer` object, when the call asked for it. The provider is the
+ * best source of the address that will actually receive the receipt; the local
+ * account is the fallback for events that do not include it.
+ */
+function providerContact(customer: unknown): { email: string; name: string } | null {
+  const value = record(customer);
+  const email = text(value.email);
+  if (!email) return null;
+  return { email, name: text(value.name) ?? '' };
+}
+
+async function resolveCustomerContact(userId: string): Promise<{ email: string; name: string } | null> {
+  try {
+    const user = await getPrisma().user.findUnique({
+      where: { id: userId },
+      select: { email: true, name: true },
+    });
+    if (!user?.email) return null;
+    return { email: user.email, name: user.name ?? '' };
+  } catch {
+    // A missing/renamed account must not turn a paid event into a retry loop.
+    return null;
+  }
+}
+
+async function notifyBillingOps(subject: string, lines: string[]): Promise<void> {
+  try {
+    await sendBillingOpsAlert({ subject, lines });
+  } catch {
+    console.error('Billing ops alert could not be delivered', subject);
+  }
 }
 
 function providedSecretMatches(request: NextRequest, expected: string): boolean {
@@ -314,29 +353,45 @@ async function processPaidTransaction(
   // Paddle already sends the official invoice. Studio sends a separate account
   // confirmation only after Paddle reports the transaction completed. The
   // provider transaction ID plus a distinct notification kind dedupes retries.
-  if (eventType === 'transaction.completed' && !isEmailConfigured()) {
-    console.warn('Studio payment confirmation skipped: Resend is not configured');
-  }
-  if (eventType === 'transaction.completed' && isEmailConfigured()) {
-    if (!transaction.customer || transaction.customer.id !== customerId || !transaction.customer.email) {
-      throw new Error('Paddle customer email is unavailable for the payment confirmation');
-    }
-    const claimed = await tryClaimOrderNotification(transactionId, 'paddle_receipt');
-    if (claimed) {
-      const sent = await sendPaymentConfirmationEmail({
-        orderId: transactionId,
-        plan,
-        amount: Number(total),
-        currency: transaction.currencyCode,
-        customerName: transaction.customer.name ?? '',
-        customerEmail: transaction.customer.email,
-        billingPeriod: expectedPeriod,
-        accessUntil: periodEndAt.toISOString(),
-        nextChargeAt: date(subscription.nextBilledAt)?.toISOString() ?? null,
-      });
-      if (!sent) {
-        await releaseOrderNotification(transactionId, 'paddle_receipt');
-        throw new Error('Studio payment confirmation email could not be delivered');
+  if (eventType === 'transaction.completed') {
+    if (!isEmailConfigured()) {
+      console.warn('Studio payment confirmation skipped: Resend is not configured');
+    } else {
+      const customer = record(transaction.customer);
+      const providerEmail = customer.id === customerId ? providerContact(customer) : null;
+      const contact = providerEmail ?? await resolveCustomerContact(owner.userId);
+      if (!contact) {
+        // The entitlement is already granted. A missing address is an operator
+        // problem, not a reason to retry the paid event forever.
+        console.warn('Studio payment confirmation skipped: no customer email', transactionId);
+        await notifyBillingOps('Payment confirmation could not be sent', [
+          `Transaction: ${transactionId}`,
+          `User: ${owner.userId}`,
+          'No provider customer email and no local account email was available.',
+        ]);
+      } else {
+        const claimed = await tryClaimOrderNotification(transactionId, 'paddle_receipt');
+        if (claimed) {
+          const sent = await sendPaymentConfirmationEmail({
+            orderId: transactionId,
+            plan,
+            amount: Number(total),
+            currency: transaction.currencyCode,
+            customerName: contact.name,
+            customerEmail: contact.email,
+            billingPeriod: expectedPeriod,
+            accessUntil: periodEndAt.toISOString(),
+            nextChargeAt: date(subscription.nextBilledAt)?.toISOString() ?? null,
+          });
+          if (!sent) {
+            await releaseOrderNotification(transactionId, 'paddle_receipt');
+            await notifyBillingOps('Payment confirmation email could not be delivered', [
+              `Transaction: ${transactionId}`,
+              `User: ${owner.userId}`,
+            ]);
+            throw new Error('Studio payment confirmation email could not be delivered');
+          }
+        }
       }
     }
   }
@@ -363,6 +418,7 @@ async function processSubscriptionEvent(
     customData,
   });
   const scheduledAction = subscription.scheduledChange?.action;
+  const cancelAtPeriodEnd = scheduledAction === 'cancel';
   await applySubscriptionSnapshot({
     eventId,
     leaseToken,
@@ -371,9 +427,43 @@ async function processSubscriptionEvent(
     customerId: subscription.customerId,
     status: subscription.status,
     nextChargeAt: date(subscription.nextBilledAt),
-    cancelAtPeriodEnd: scheduledAction === 'cancel',
+    cancelAtPeriodEnd,
     occurredAt,
   });
+
+  // Cancellation is the lifecycle event customers most often say nobody told
+  // them about. Send it once per subscription, from the account address that
+  // received the receipt. A resumed-then-canceled subscription gets a new
+  // notice because the claim key includes the scheduled-change timestamp when
+  // Paddle provides one.
+  if (cancelAtPeriodEnd && isEmailConfigured() &&
+      ['active', 'trialing', 'past_due'].includes(subscription.status)) {
+    const contact = await resolveCustomerContact(owner.userId);
+    if (contact) {
+      const scheduledAt = text(record(subscription.scheduledChange).createdAt);
+      const claimKey = `${subscriptionId}:${scheduledAt ?? 'cancel_scheduled'}`;
+      const claimed = await tryClaimOrderNotification(claimKey, 'paddle_cancel_scheduled');
+      if (claimed) {
+        const sent = await sendBillingLifecycleEmail({
+          kind: 'cancel_scheduled',
+          customerEmail: contact.email,
+          customerName: contact.name,
+          plan: owner.account.plan,
+          accessUntil: date(subscription.currentBillingPeriod?.endsAt)?.toISOString() ?? null,
+          reference: subscriptionId,
+        });
+        if (!sent) {
+          await releaseOrderNotification(claimKey, 'paddle_cancel_scheduled');
+          await notifyBillingOps('Cancellation notice could not be delivered', [
+            `Subscription: ${subscriptionId}`,
+            `User: ${owner.userId}`,
+          ]);
+        }
+      }
+    } else {
+      console.warn('Cancellation notice skipped: no customer email', subscriptionId);
+    }
+  }
 }
 
 async function processFailedTransaction(
@@ -386,7 +476,7 @@ async function processFailedTransaction(
   if (!paddle) throw new Error('Paddle client is not configured');
   const transactionId = text(eventData.id);
   if (!transactionId) throw new ReviewEventError('failed_transaction_id_missing');
-  const transaction = await paddle.transactions.get(transactionId);
+  const transaction = await paddle.transactions.get(transactionId, { include: ['customer'] });
   if (!transaction.subscriptionId || !transaction.customerId) {
     throw new ReviewEventError('failed_transaction_attribution_missing');
   }
@@ -409,6 +499,45 @@ async function processFailedTransaction(
     providerCustomerId: transaction.customerId,
     occurredAt,
   });
+
+  // Paddle retries the charge on its own schedule; the customer still needs a
+  // plain-language heads-up and a route to fix the payment method.
+  if (isEmailConfigured()) {
+    const customer = record(transaction.customer);
+    const providerEmail = customer.id === transaction.customerId ? providerContact(customer) : null;
+    const contact = providerEmail ?? await resolveCustomerContact(owner.userId);
+    if (contact) {
+      const claimed = await tryClaimOrderNotification(transactionId, 'paddle_payment_failed');
+      if (claimed) {
+        const sent = await sendBillingLifecycleEmail({
+          kind: 'payment_failed',
+          customerEmail: contact.email,
+          customerName: contact.name,
+          plan: owner.account.plan,
+          amount: transaction.details?.totals?.grandTotal
+            ? Number(transaction.details.totals.grandTotal)
+            : null,
+          currency: transaction.currencyCode,
+          reference: transactionId,
+          accessUntil: owner.account.paidThroughAt?.toISOString() ?? null,
+        });
+        if (!sent) {
+          await releaseOrderNotification(transactionId, 'paddle_payment_failed');
+          await notifyBillingOps('Payment-failure notice could not be delivered', [
+            `Transaction: ${transactionId}`,
+            `User: ${owner.userId}`,
+          ]);
+        }
+      }
+    } else {
+      console.warn('Payment-failure notice skipped: no customer email', transactionId);
+    }
+    await notifyBillingOps('Subscription payment failed', [
+      `Transaction: ${transactionId}`,
+      `Subscription: ${transaction.subscriptionId}`,
+      `User: ${owner.userId}`,
+    ]);
+  }
 }
 
 async function processAdjustment(
@@ -427,7 +556,7 @@ async function processAdjustment(
   const paddle = getPaddleClient();
   if (!paddle) throw new Error('Paddle client is not configured');
   const [authoritativeTransaction, adjustments] = await Promise.all([
-    paddle.transactions.get(transactionId),
+    paddle.transactions.get(transactionId, { include: ['customer'] }),
     paddle.adjustments.list({
       id: [adjustmentId],
       transactionId: [transactionId],
@@ -467,6 +596,50 @@ async function processAdjustment(
     updatedAt: new Date(authoritative.updatedAt),
     occurredAt: new Date(authoritative.updatedAt),
   });
+
+  const lifecycle = authoritative.status === 'approved' &&
+    (authoritative.action === 'refund' || authoritative.action === 'chargeback')
+    ? authoritative.action === 'refund' ? 'refund_issued' as const : 'dispute_filed' as const
+    : null;
+  if (lifecycle && isEmailConfigured()) {
+    const customer = record(authoritativeTransaction.customer);
+    const providerEmail = customer.id === authoritative.customerId ? providerContact(customer) : null;
+    const contact = providerEmail ?? await resolveCustomerContact(transaction.userId);
+    if (contact) {
+      const kind = lifecycle === 'refund_issued' ? 'paddle_refund' : 'paddle_dispute';
+      const claimed = await tryClaimOrderNotification(adjustmentId, kind);
+      if (claimed) {
+        const sent = await sendBillingLifecycleEmail({
+          kind: lifecycle,
+          customerEmail: contact.email,
+          customerName: contact.name,
+          plan: transaction.plan,
+          amount: Number(authoritative.totals.total),
+          currency: authoritative.currencyCode,
+          reference: adjustmentId,
+        });
+        if (!sent) {
+          await releaseOrderNotification(adjustmentId, kind);
+          await notifyBillingOps(`${lifecycle === 'refund_issued' ? 'Refund' : 'Dispute'} notice could not be delivered`, [
+            `Adjustment: ${adjustmentId}`,
+            `Transaction: ${transactionId}`,
+            `User: ${transaction.userId}`,
+          ]);
+        }
+      }
+    } else {
+      console.warn('Adjustment notice skipped: no customer email', adjustmentId);
+    }
+    await notifyBillingOps(
+      lifecycle === 'refund_issued' ? 'Refund issued' : 'Chargeback opened',
+      [
+        `Adjustment: ${adjustmentId}`,
+        `Transaction: ${transactionId}`,
+        `Amount: ${authoritative.totals.total} ${authoritative.currencyCode}`,
+        `User: ${transaction.userId}`,
+      ],
+    );
+  }
 }
 
 async function processEvent(event: JsonRecord, eventId: string, leaseToken: string, occurredAt: Date | null) {
@@ -638,7 +811,11 @@ export async function GET(request: NextRequest) {
           counts.review += 1;
         } else {
           await releaseBillingEventLease(candidate.eventId, leaseToken, 'failed', 'provider_or_persistence_error');
-          console.error('Paddle event processing failed', candidate.eventId);
+          console.error(
+            'Paddle event processing failed',
+            candidate.eventId,
+            error instanceof Error ? error.message : 'unknown_error',
+          );
           counts.retry += 1;
         }
       }

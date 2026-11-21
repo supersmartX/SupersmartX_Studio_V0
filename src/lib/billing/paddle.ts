@@ -247,6 +247,37 @@ export function getSandboxPriceId(plan: BillingPlan): string | null {
   return getSandboxConfiguration(plan)?.priceId ?? null;
 }
 
+export interface DisplayPricing {
+  currency: 'USD' | 'INR';
+  monthly: number;
+  yearly: number;
+}
+
+/**
+ * The amount a customer is shown before checkout. It is derived from the same
+ * configuration the quote uses, so the advertised price cannot drift from the
+ * charged price:
+ *  - India is charged the INR table (the Paddle USD price carries an INR
+ *    country override).
+ *  - Everywhere else is charged the configured USD base amount.
+ *
+ * Returns null when the environment is not configured; callers fall back to the
+ * US display table rather than inventing a number.
+ */
+export function getDisplayPricingForCountry(country: string): DisplayPricing | null {
+  if (!/^[A-Z]{2}$/.test(country)) return null;
+  const monthly = getPaddlePriceConfiguration('creator_monthly');
+  const yearly = getPaddlePriceConfiguration('creator_yearly');
+  if (!monthly || !yearly) return null;
+  if (country === 'IN') {
+    const india = getServerPricingForCountry('IN');
+    if (!india) return null;
+    return { currency: 'INR', monthly: india.creatorMonthly, yearly: india.creatorYearly };
+  }
+  if (monthly.currency !== 'USD' || yearly.currency !== 'USD') return null;
+  return { currency: 'USD', monthly: monthly.amount, yearly: yearly.amount };
+}
+
 function parseApprovedCheckoutPage(raw: string): URL | null {
   try {
     const url = new URL(raw.trim());

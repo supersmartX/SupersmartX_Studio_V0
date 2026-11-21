@@ -3,12 +3,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
 /**
- * The landing page used to hard-code the US price table, so a visitor in a
- * region with its own table was quoted one price on the page and a different
- * one in the checkout sheet. It now shares `useRegionalPricing` with the sheet.
+ * The landing page and the checkout sheet must advertise the amount the server
+ * will charge. That amount comes from `/api/paddle/pricing` (USD everywhere
+ * except India); this suite pins the landing page to it and proves the page no
+ * longer swaps in a regional catalog price that checkout would not honour.
  */
 
-const detectCountry = vi.hoisted(() => vi.fn(async () => 'GB'));
+const fetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock('next-auth/react', () => ({
   useSession: () => ({ data: null, status: 'unauthenticated', update: vi.fn() }),
@@ -27,15 +28,11 @@ vi.mock('next/link', () => ({
   ),
 }));
 
-vi.mock('@/lib/pricing', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/pricing')>();
-  return { ...actual, detectCountry: () => detectCountry() };
-});
-
 import LandingPage from '@/app/page';
 
 beforeEach(() => {
-  detectCountry.mockClear();
+  fetchMock.mockReset();
+  vi.stubGlobal('fetch', fetchMock);
   // jsdom omits the Web Animations API; the page's reveal pass only needs to
   // know that nothing is animating.
   if (typeof Element.prototype.getAnimations !== 'function') {
@@ -56,20 +53,29 @@ beforeEach(() => {
 });
 
 describe('landing page pricing', () => {
-  it('shows the detected region’s price, not the US one', async () => {
+  it('shows the server-quoted USD price, not a regional catalog price', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ country: 'GB', currency: 'USD', monthly: 7.99, yearly: 59.99 }),
+    });
+
     render(<LandingPage />);
 
-    // US monthly would be $7.99; the UK table is £6.49.
-    await waitFor(() => expect(screen.getByText(/£6\.49/)).toBeInTheDocument());
-    expect(screen.queryByText(/\$7\.99/)).toBeNull();
+    await waitFor(() => expect(screen.getByText(/\$7\.99/)).toBeInTheDocument());
+    expect(screen.queryByText(/£6\.49/)).toBeNull();
   });
 
-  it('swaps to the yearly price for the detected region', async () => {
+  it('swaps to the server-quoted yearly price', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ country: 'GB', currency: 'USD', monthly: 7.99, yearly: 59.99 }),
+    });
+
     render(<LandingPage />);
-    await waitFor(() => expect(screen.getByText(/£6\.49/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/\$7\.99/)).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: /^1 year/ }));
 
-    await waitFor(() => expect(screen.getByText(/£49\.99/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/\$59\.99/)).toBeInTheDocument());
   });
 });

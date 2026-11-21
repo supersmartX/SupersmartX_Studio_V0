@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   reserveCheckout: vi.fn(),
   findActiveReservation: vi.fn(),
+  findAccount: vi.fn(),
   updateReservation: vi.fn(),
   createSandboxCheckout: vi.fn(),
   sweepReservations: vi.fn(),
@@ -33,6 +34,9 @@ vi.mock('@/lib/db/prisma', () => ({
     billingReservation: {
       update: mocks.updateReservation,
       findFirst: mocks.findActiveReservation,
+    },
+    billingAccount: {
+      findUnique: mocks.findAccount,
     },
   }),
 }));
@@ -112,6 +116,7 @@ beforeEach(() => {
   mocks.auth.mockResolvedValue({ user: { id: 'user-1' } });
   mocks.reserveCheckout.mockResolvedValue(undefined);
   mocks.findActiveReservation.mockResolvedValue(null);
+  mocks.findAccount.mockResolvedValue(null);
   mocks.updateReservation.mockResolvedValue(undefined);
   mocks.sweepReservations.mockResolvedValue({ expired: [], linked: [] });
   mocks.failReservation.mockResolvedValue(true);
