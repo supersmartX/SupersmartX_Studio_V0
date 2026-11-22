@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   createTransaction: vi.fn(),
   claimTransactionGrant: vi.fn(),
   findAccount: vi.fn(),
+  findAccountByCustomerId: vi.fn(),
   updateTransaction: vi.fn(),
   findUserTransactions: vi.fn(),
   upsertAdjustment: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock('@/lib/db/prisma', () => ({
       billingAccount: {
         upsert: mocks.upsertAccount,
         findUnique: mocks.findAccount,
+        findFirst: mocks.findAccountByCustomerId,
         update: mocks.updateAccount,
       },
       billingReservation: {
@@ -113,6 +115,7 @@ beforeEach(() => {
     legacyPlan: 'creator_monthly',
     legacyPaidThroughAt: new Date('2026-12-01T00:00:00.000Z'),
   });
+  mocks.findAccountByCustomerId.mockResolvedValue(null);
   mocks.updateTransaction.mockResolvedValue({});
   mocks.findUserTransactions.mockResolvedValue([{
     plan: 'creator_monthly',

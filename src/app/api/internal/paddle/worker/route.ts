@@ -18,6 +18,7 @@ import {
   applyPaidBillingEvent,
   applySubscriptionSnapshot,
   completeReconciledCancellation,
+  ProviderCustomerIdConflictError,
   releaseBillingEventLease,
   renewBillingEventLease,
 } from '@/lib/billing/operations';
@@ -808,6 +809,9 @@ export async function GET(request: NextRequest) {
       } catch (error) {
         if (error instanceof ReviewEventError) {
           await releaseBillingEventLease(candidate.eventId, leaseToken, 'review', error.message);
+          counts.review += 1;
+        } else if (error instanceof ProviderCustomerIdConflictError) {
+          await releaseBillingEventLease(candidate.eventId, leaseToken, 'review', 'provider_customer_id_conflict_active');
           counts.review += 1;
         } else {
           await releaseBillingEventLease(candidate.eventId, leaseToken, 'failed', 'provider_or_persistence_error');

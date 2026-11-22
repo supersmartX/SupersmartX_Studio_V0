@@ -32,6 +32,20 @@ export class UnresolvedCheckoutReservationError extends Error {
   }
 }
 
+export class ReviewEventError extends Error {
+  constructor(readonly code: string) {
+    super(`Review required: ${code}`);
+    this.name = 'ReviewEventError';
+  }
+}
+
+export class ProviderCustomerIdConflictError extends Error {
+  constructor() {
+    super('Provider customer ID conflict with active subscription');
+    this.name = 'ProviderCustomerIdConflictError';
+  }
+}
+
 export function isNewerBillingEvent(occurredAt: Date | null, lastEventAt: Date | null): boolean {
   if (!lastEventAt) return true;
   return occurredAt !== null && occurredAt >= lastEventAt;
@@ -370,6 +384,45 @@ export async function applyPaidBillingEvent(input: {
       throw new Error('Paid event provider ownership mismatch');
     }
 
+    // Check if another user already has this providerCustomerId
+    const otherAccount = await tx.billingAccount.findFirst({
+      where: {
+        providerCustomerId: input.providerCustomerId,
+        userId: { not: input.userId },
+      },
+      select: { userId: true, providerSubscriptionId: true, status: true, paidThroughAt: true },
+    });
+    if (otherAccount) {
+      // If the other account has an active subscription, this is a conflict requiring review
+      const otherUser = await tx.user.findUnique({
+        where: { id: otherAccount.userId },
+        select: { plan: true, planExpiresAt: true },
+      });
+      const otherIsActive = otherUser && otherUser.plan !== 'free' &&
+        otherUser.planExpiresAt && otherUser.planExpiresAt > new Date();
+      if (otherIsActive) {
+        throw new ProviderCustomerIdConflictError();
+      }
+      // Other account is expired/free - lock the other user to serialize with their entitlement renewals
+      // Then revalidate that the account is still expired before clearing provider IDs
+      await lockBillingUser(tx, otherAccount.userId);
+      const revalidatedOtherAccount = await tx.billingAccount.findUnique({ where: { userId: otherAccount.userId } });
+      if (revalidatedOtherAccount) {
+        const revalidatedOtherUser = await tx.user.findUnique({
+          where: { id: otherAccount.userId },
+          select: { plan: true, planExpiresAt: true },
+        });
+        const otherStillInactive = revalidatedOtherUser && (revalidatedOtherUser.plan === 'free' ||
+          !revalidatedOtherUser.planExpiresAt || revalidatedOtherUser.planExpiresAt <= new Date());
+        if (otherStillInactive) {
+          await tx.billingAccount.update({
+            where: { userId: otherAccount.userId },
+            data: { providerCustomerId: null, providerSubscriptionId: null },
+          });
+        }
+      }
+    }
+
     await tx.billingTransaction.createMany({
       data: [{
         id: crypto.randomUUID(),
@@ -590,6 +643,45 @@ export async function applySubscriptionSnapshot(input: {
         select: { id: true },
       }));
     if (isNewerEvent) {
+      // Check if another user already has this providerCustomerId
+      // This must be inside isNewerEvent to prevent outdated events from clearing another account's provider IDs
+      const otherAccount = await tx.billingAccount.findFirst({
+        where: {
+          providerCustomerId: input.customerId,
+          userId: { not: input.userId },
+        },
+        select: { userId: true, providerSubscriptionId: true, status: true, paidThroughAt: true },
+      });
+      if (otherAccount) {
+        // If the other account has an active subscription, this is a conflict requiring review
+        const otherUser = await tx.user.findUnique({
+          where: { id: otherAccount.userId },
+          select: { plan: true, planExpiresAt: true },
+        });
+        const otherIsActive = otherUser && otherUser.plan !== 'free' &&
+          otherUser.planExpiresAt && otherUser.planExpiresAt > new Date();
+        if (otherIsActive) {
+          throw new ProviderCustomerIdConflictError();
+        }
+        // Other account is expired/free - lock and revalidate before clearing their provider IDs
+        await lockBillingUser(tx, otherAccount.userId);
+        const revalidatedOtherAccount = await tx.billingAccount.findUnique({ where: { userId: otherAccount.userId } });
+        if (revalidatedOtherAccount) {
+          const revalidatedOtherUser = await tx.user.findUnique({
+            where: { id: otherAccount.userId },
+            select: { plan: true, planExpiresAt: true },
+          });
+          const otherStillInactive = revalidatedOtherUser && (revalidatedOtherUser.plan === 'free' ||
+            !revalidatedOtherUser.planExpiresAt || revalidatedOtherUser.planExpiresAt <= new Date());
+          if (otherStillInactive) {
+            await tx.billingAccount.update({
+              where: { userId: otherAccount.userId },
+              data: { providerCustomerId: null, providerSubscriptionId: null },
+            });
+          }
+        }
+      }
+
       await tx.billingAccount.update({
         where: { userId: input.userId },
         data: {

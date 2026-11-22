@@ -41,6 +41,12 @@ vi.mock('@/lib/billing/operations', () => ({
   applySubscriptionSnapshot: mocks.applySubscription,
   completeReconciledCancellation: mocks.completeCancellation,
   releaseBillingEventLease: mocks.release,
+  ProviderCustomerIdConflictError: class ProviderCustomerIdConflictError extends Error {
+    constructor() {
+      super('Provider customer ID conflict with active subscription');
+      this.name = 'ProviderCustomerIdConflictError';
+    }
+  },
 }));
 
 vi.mock('@/lib/billing/paddle', async (importOriginal) => {
