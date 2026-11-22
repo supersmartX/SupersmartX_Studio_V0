@@ -26,7 +26,7 @@ type BillingPeriod = 'monthly' | 'yearly';
 
 type TierKey = keyof typeof PRICING_PLANS;
 
-type CheckoutNoticeKind = 'temporary' | 'checking' | 'cancelled' | 'unknown' | 'unavailable' | 'conflict' | 'payment_retry';
+type CheckoutNoticeKind = 'temporary' | 'checking' | 'activating' | 'cancelled' | 'unknown' | 'unavailable' | 'conflict' | 'payment_retry';
 
 interface ActiveSubscriptionNotice {
   plan: string;
@@ -44,6 +44,10 @@ const CHECKOUT_NOTICE: Record<CheckoutNoticeKind, { title: string; message: stri
   checking: {
     title: "We're checking your checkout",
     message: "Please wait while we confirm your checkout status. You don't need to start another checkout.",
+  },
+  activating: {
+    title: 'Payment confirmed',
+    message: 'Activating your plan. This usually takes a few seconds.',
   },
   cancelled: {
     title: "Payment wasn't completed",
@@ -290,10 +294,26 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       }
       if (checkout.status === 'payment_received') {
         // Payment was already received for this reservation; do not treat it as
-        // a checkout failure. Show a verification state and poll for activation.
-        setPendingReservationId(typeof checkout.reservationId === 'string' ? checkout.reservationId : pendingReservationId);
-        setNotice('checking');
+        // a checkout failure. Verify entitlement immediately via billing API.
+        const reservationId = typeof checkout.reservationId === 'string' ? checkout.reservationId : pendingReservationId;
+        setPendingReservationId(reservationId);
+        setNotice('activating');
         setStep('error');
+        try {
+          const billingResponse = await fetch('/api/paddle/billing', { credentials: 'same-origin', cache: 'no-store' });
+          if (billingResponse.ok) {
+            const billing = await billingResponse.json().catch(() => ({})) as { account?: { status?: string; paidThroughAt?: string | null } };
+            const account = billing?.account;
+            if (account?.status === 'active' && account.paidThroughAt && new Date(account.paidThroughAt).getTime() > Date.now()) {
+              setNotice(null);
+              setStep('select');
+              setPendingReservationId(null);
+              showToast('Creator access activated.');
+              return;
+            }
+          }
+        } catch {}
+        // Entitlement not yet active - polling will handle the rest
         return;
       }
       if (typeof checkout.checkoutUrl !== 'string' || !checkout.checkoutUrl) {
@@ -329,9 +349,24 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         retryAllowed?: unknown;
       };
       if (response.ok && checkout.status === 'payment_received') {
-        setPendingReservationId(pendingReservationId);
-        setNotice('checking');
+        // Payment confirmed - verify entitlement immediately
+        setNotice('activating');
         setStep('error');
+        try {
+          const billingResponse = await fetch('/api/paddle/billing', { credentials: 'same-origin', cache: 'no-store' });
+          if (billingResponse.ok) {
+            const billing = await billingResponse.json().catch(() => ({})) as { account?: { status?: string; paidThroughAt?: string | null } };
+            const account = billing?.account;
+            if (account?.status === 'active' && account.paidThroughAt && new Date(account.paidThroughAt).getTime() > Date.now()) {
+              setNotice(null);
+              setStep('select');
+              setPendingReservationId(null);
+              showToast('Creator access activated.');
+              return;
+            }
+          }
+        } catch {}
+        // Entitlement not yet active - polling will handle the rest
         return;
       }
       if (response.ok && typeof checkout.checkoutUrl === 'string') {
@@ -359,7 +394,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
   }, [pendingReservationId]);
 
   useEffect(() => {
-    if (!isOpen || notice !== 'checking' || !pendingReservationId) return;
+    if (!isOpen || (notice !== 'checking' && notice !== 'activating') || !pendingReservationId) return;
     let cancelled = false;
     let completed = false;
     let attempts = 0;
