@@ -26,7 +26,7 @@ type BillingPeriod = 'monthly' | 'yearly';
 
 type TierKey = keyof typeof PRICING_PLANS;
 
-type CheckoutNoticeKind = 'temporary' | 'checking' | 'activating' | 'cancelled' | 'unknown' | 'unavailable' | 'conflict' | 'payment_retry';
+type CheckoutNoticeKind = 'temporary' | 'checking' | 'activating' | 'cancelled' | 'unknown' | 'unavailable' | 'conflict' | 'payment_retry' | 'timeout';
 
 interface ActiveSubscriptionNotice {
   plan: string;
@@ -65,6 +65,10 @@ const CHECKOUT_NOTICE: Record<CheckoutNoticeKind, { title: string; message: stri
   payment_retry: {
     title: 'Your subscription payment needs attention',
     message: 'Your subscription is already in payment recovery. Update your payment method from the account menu to retry it.',
+  },
+  timeout: {
+    title: 'Taking longer than expected',
+    message: 'Your payment is still being verified. You can check again or continue with Free for now.',
   },
 };
 
@@ -296,6 +300,12 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         // Payment was already received for this reservation; do not treat it as
         // a checkout failure. Verify entitlement immediately via billing API.
         const reservationId = typeof checkout.reservationId === 'string' ? checkout.reservationId : pendingReservationId;
+        if (!reservationId) {
+          // No reservation ID to poll - this shouldn't happen but guard against it
+          setNotice('unknown');
+          setStep('error');
+          return;
+        }
         setPendingReservationId(reservationId);
         setNotice('activating');
         setStep('error');
@@ -305,6 +315,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
             const billing = await billingResponse.json().catch(() => ({})) as { account?: { status?: string; paidThroughAt?: string | null } };
             const account = billing?.account;
             if (account?.status === 'active' && account.paidThroughAt && new Date(account.paidThroughAt).getTime() > Date.now()) {
+              try { await update(); } catch {}
               setNotice(null);
               setStep('select');
               setPendingReservationId(null);
@@ -358,6 +369,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
             const billing = await billingResponse.json().catch(() => ({})) as { account?: { status?: string; paidThroughAt?: string | null } };
             const account = billing?.account;
             if (account?.status === 'active' && account.paidThroughAt && new Date(account.paidThroughAt).getTime() > Date.now()) {
+              try { await update(); } catch {}
               setNotice(null);
               setStep('select');
               setPendingReservationId(null);
@@ -432,6 +444,9 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       } catch {}
       if (attempts >= maxAttempts) {
         clearInterval(timer);
+        if (!cancelled && !completed) {
+          setNotice('timeout');
+        }
       }
     }, 2000);
     return () => { cancelled = true; clearInterval(timer); };
@@ -699,6 +714,10 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                       <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check checkout status</Button>
                     ) : notice === 'checking' && pendingReservationId ? (
                       <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check checkout status</Button>
+                    ) : notice === 'activating' && pendingReservationId ? (
+                      <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check again</Button>
+                    ) : notice === 'timeout' && pendingReservationId ? (
+                      <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check again</Button>
                     ) : notice === 'conflict' || notice === 'payment_retry' ? (
                       <Button variant="secondary" onClick={handleClose}>Close and manage from account menu</Button>
                     ) : notice === 'temporary' || notice === 'cancelled' ? (
