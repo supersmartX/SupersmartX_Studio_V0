@@ -63,7 +63,6 @@ import { ExportModal } from '@/components/dialogs/ExportModal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PricingModal } from '@/components/dialogs/PricingModal';
 import { UpgradePromptModal } from '@/components/dialogs/UpgradePromptModal';
-import { ActivationModal } from '@/components/dialogs/ActivationModal';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { PlatformPreviewSwitcher } from '@/components/studio/PlatformPreviewSwitcher';
 import { RecordingsPanel } from '@/components/studio/LibraryPanel';
@@ -82,8 +81,6 @@ export default function HomePage() {
   const scriptStorage = useScriptStorage();
   const hydrated = useHydrated();
   // `update` is intentionally not destructured here: the plan refresh on the
-  // return trip belongs to ActivationModal, which is the single place that asks
-  // the server what the order actually is.
   const { data: session, status: sessionStatus } = useSession();
   const userPlan = (session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free';
   const isCreatorUser = isCreatorPlan(userPlan);
@@ -205,37 +202,13 @@ export default function HomePage() {
   const [lockedPlatform, setLockedPlatform] = useState<PlatformPreset | null>(null);
 
   // Payment success activation modal
-  const [activationModal, setActivationModal] = useState<{ isOpen: boolean; plan: string; orderId: string | null; reservationId: string | null }>({
-    isOpen: false,
-    plan: '',
-    orderId: null,
-    reservationId: null,
-  });
-
   // Paddle redirects are informational only. Server billing evidence decides
   // whether access is active; the redirect never grants or verifies it.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    const transactionId = params.get('transaction_id');
-    type CheckoutReturnHandoff = { transactionId?: string; reservationId?: string; createdAt?: number };
-    let handoff: CheckoutReturnHandoff | null = null;
-    try {
-      const raw = window.sessionStorage.getItem('sxs-checkout-return');
-      handoff = raw ? JSON.parse(raw) as CheckoutReturnHandoff : null;
-    } catch {}
-    const handoffMatches = Boolean(
-      transactionId &&
-      handoff?.transactionId === transactionId &&
-      typeof handoff.reservationId === 'string' &&
-      typeof handoff.createdAt === 'number' &&
-      Date.now() - handoff.createdAt < 24 * 60 * 60 * 1000,
-    );
-    if (handoffMatches) {
-      const plan = params.get('plan') || 'creator_monthly';
-      setActivationModal({ isOpen: true, plan, orderId: transactionId, reservationId: handoff!.reservationId ?? null });
-      try { window.sessionStorage.removeItem('sxs-checkout-return'); } catch {}
-      // Clean URL without reload
+    try { window.sessionStorage.removeItem('sxs-checkout-return'); } catch {}
+    if (params.has('payment') || params.has('transaction_id') || params.has('order_id')) {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
@@ -1278,7 +1251,6 @@ export default function HomePage() {
   const isBlockingModalOpen =
     ui.isPricingModalOpen ||
     ui.isAuthModalOpen ||
-    activationModal.isOpen ||
     welcomeModal.isVisible ||
     lockedPlatform !== null;
 
@@ -1847,66 +1819,6 @@ export default function HomePage() {
         }}
         onSuccess={handleAuthSuccessWithPricing}
         mode="download"
-      />
-
-      <ActivationModal
-        isOpen={activationModal.isOpen}
-        plan={activationModal.plan}
-        orderId={activationModal.orderId}
-        reservationId={activationModal.reservationId}
-        onRetry={() => {
-          // Back to the plan grid. The order intent is left in localStorage on
-          // purpose: if this attempt does settle, the closed-loop restore below
-          // still knows which format to reopen on.
-          ui.setIsPricingModalOpen(true);
-        }}
-        onClose={(outcome) => {
-          setActivationModal({ isOpen: false, plan: '', orderId: null, reservationId: null });
-
-          if (outcome === 'failed') {
-            // Nothing was activated, so nothing may be treated as if it were.
-            // Dropping the platform intent matters: it is what re-opens the
-            // "Create for {format} with Creator" prompt on every later load,
-            // so a declined payment would otherwise keep asking.
-            try { window.localStorage.removeItem('sxs-upgrade-intent'); } catch {}
-            return;
-          }
-
-          // Closed-loop upgrade: restore the platform the user was trying to use.
-          // ExportModal reads `previewPlatformId` (its initialPlatformId), not
-          // `settings.platformId` — the latter only drives recorder capture via
-          // useStudioConfig. Setting it alone reopened the sheet on the default
-          // format, silently dropping the plan the user just paid for.
-          try {
-            const pendingPlatform = window.localStorage.getItem('sxs-upgrade-intent');
-            if (pendingPlatform) {
-              window.localStorage.removeItem('sxs-upgrade-intent');
-              const restored = pendingPlatform as PlatformId;
-              settings.setPlatformId(restored);
-              setPreviewPlatformId(restored);
-              // IndexedDB restore is async, so the take may not be back in
-              // state yet when the user dismisses the activation modal.
-              // Opening the sheet with no master renders nothing at all, which
-              // reads as a dead screen — so drive the selection now and only
-              // auto-open once the take is actually there.
-              const openSheet = (attempt = 0) => {
-                if (masterRecordingData) {
-                  selectPlatform(
-                    restored,
-                    masterRecordingData.sourceWidth || 1920,
-                    masterRecordingData.sourceHeight || 1080,
-                    getEntitlements(userPlan).maxResolution,
-                  );
-                  setTimeout(() => ui.setIsDrawerVisible(true), 300);
-                  return;
-                }
-                if (attempt >= 10) return;
-                setTimeout(() => openSheet(attempt + 1), 200);
-              };
-              openSheet();
-            }
-          } catch {}
-        }}
       />
 
       <Toast message={toast?.message ?? null} queueLength={queueLength} />

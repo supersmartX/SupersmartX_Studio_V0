@@ -93,15 +93,6 @@ export function VideoPlayer({
     hideControlsTimer.current = setTimeout(() => setControlsVisible(false), 3000);
   }, []);
 
-  const toggleControls = useCallback(() => {
-    if (controlsVisible) {
-      setControlsVisible(false);
-      if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
-    } else {
-      showControls();
-    }
-  }, [controlsVisible, showControls]);
-
   /** Focus entering the controls reveals them immediately, even when the overlay
    *  has never been shown - the overlay is only opacity-hidden, so its controls
    *  are already Tab-reachable while invisible. The hide timer is deliberately

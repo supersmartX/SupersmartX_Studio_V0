@@ -46,8 +46,8 @@ const CHECKOUT_NOTICE: Record<CheckoutNoticeKind, { title: string; message: stri
     message: "Please wait while we confirm your checkout status. You don't need to start another checkout.",
   },
   activating: {
-    title: 'Payment confirmed',
-    message: 'Activating your plan. This usually takes a few seconds.',
+    title: 'Checkout is being confirmed',
+    message: 'Your payment is being confirmed in the background. You can continue using Studio.',
   },
   cancelled: {
     title: "Payment wasn't completed",
@@ -298,34 +298,14 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         return;
       }
       if (checkout.status === 'payment_received') {
-        // Payment was already received for this reservation; do not treat it as
-        // a checkout failure. Verify entitlement immediately via billing API.
         const reservationId = typeof checkout.reservationId === 'string' ? checkout.reservationId : pendingReservationId;
         if (!reservationId) {
-          // No reservation ID to poll - this shouldn't happen but guard against it
-          setNotice('unknown');
-          setStep('error');
+          showToast('Your payment is being checked in the background.');
+          handleClose();
           return;
         }
-        setPendingReservationId(reservationId);
-        setNotice('activating');
-        setStep('error');
-        try {
-          const billingResponse = await fetch('/api/paddle/billing', { credentials: 'same-origin', cache: 'no-store' });
-          if (billingResponse.ok) {
-            const billing = await billingResponse.json().catch(() => ({})) as { account?: { status?: string; paidThroughAt?: string | null } };
-            const account = billing?.account;
-            if (account?.status === 'active' && account.paidThroughAt && new Date(account.paidThroughAt).getTime() > Date.now()) {
-              try { await update(); } catch {}
-              setNotice(null);
-              setStep('select');
-              setPendingReservationId(null);
-              showToast('Creator access activated.');
-              return;
-            }
-          }
-        } catch {}
-        // Entitlement not yet active - polling will handle the rest
+        showToast('Your payment is being confirmed in the background.');
+        handleClose();
         return;
       }
       if (typeof checkout.checkoutUrl !== 'string' || !checkout.checkoutUrl) {
@@ -368,25 +348,9 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         retryAllowed?: unknown;
       };
       if (response.ok && checkout.status === 'payment_received') {
-        // Payment confirmed - verify entitlement immediately
-        setNotice('activating');
-        setStep('error');
-        try {
-          const billingResponse = await fetch('/api/paddle/billing', { credentials: 'same-origin', cache: 'no-store' });
-          if (billingResponse.ok) {
-            const billing = await billingResponse.json().catch(() => ({})) as { account?: { status?: string; paidThroughAt?: string | null } };
-            const account = billing?.account;
-            if (account?.status === 'active' && account.paidThroughAt && new Date(account.paidThroughAt).getTime() > Date.now()) {
-              try { await update(); } catch {}
-              setNotice(null);
-              setStep('select');
-              setPendingReservationId(null);
-              showToast('Creator access activated.');
-              return;
-            }
-          }
-        } catch {}
-        // Entitlement not yet active - polling will handle the rest
+        showToast('Your payment is being confirmed in the background.');
+        handleClose();
+        return;
         return;
       }
       if (response.ok && typeof checkout.checkoutUrl === 'string') {
@@ -417,10 +381,12 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     if (!isOpen || (notice !== 'checking' && notice !== 'activating') || !pendingReservationId) return;
     let cancelled = false;
     let completed = false;
+    let polling = false;
     let attempts = 0;
     const maxAttempts = 15;
     const timer = setInterval(async () => {
-      if (cancelled || completed) return;
+      if (cancelled || completed || polling) return;
+      polling = true;
       attempts += 1;
       try {
         const response = await fetch(`/api/paddle/checkout/status?reservationId=${encodeURIComponent(pendingReservationId)}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -450,6 +416,9 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
           }
         }
       } catch {}
+      finally {
+        polling = false;
+      }
       if (attempts >= maxAttempts) {
         clearInterval(timer);
         if (!cancelled && !completed) {

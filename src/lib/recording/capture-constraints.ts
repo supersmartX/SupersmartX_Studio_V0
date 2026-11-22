@@ -141,7 +141,7 @@ export function readTrackCaptureCapabilities(stream: MediaStream | null): Captur
     return null;
   }
   try {
-    const caps = track.getCapabilities() as any;
+    const caps = track.getCapabilities() as MediaTrackCapabilities;
     const result: CaptureCapabilities = {};
     if (caps.width) result.width = { min: caps.width.min, max: caps.width.max };
     if (caps.height) result.height = { min: caps.height.min, max: caps.height.max };

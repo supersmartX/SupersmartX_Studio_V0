@@ -289,7 +289,7 @@ export async function verifyExportBlob(
       clearTimeout(timer);
       cleanup();
       URL.revokeObjectURL(url);
-      const code = (video.error as any)?.code;
+      const code = video.error?.code;
       resolve({ ok: false, error: `video error code ${code ?? 'unknown'}` });
     };
     video.src = url;

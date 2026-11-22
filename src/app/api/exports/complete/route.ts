@@ -56,14 +56,6 @@ function jobClaimedDurationSeconds(configJson: string | null | undefined): unkno
   }
 }
 
-async function completedResponse(jobId: string, userId: string, stagingKey: string) {
-  const latest = await findExportJobByIdAndUser(jobId, userId);
-  if (latest?.status === 'completed' && latest.resultExportId && latest.resultR2Key && latest.stagingR2Key === stagingKey) {
-    return NextResponse.json({ exportId: latest.resultExportId, r2Key: latest.resultR2Key });
-  }
-  return null;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();

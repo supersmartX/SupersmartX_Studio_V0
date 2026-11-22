@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { findUserById, createExportJob, updateExportJobStatus, getActiveExportJobCount, getMonthlyExportCount } from '@/lib/db';
+import { findUserById, createExportJob, getActiveExportJobCount, getMonthlyExportCount } from '@/lib/db';
 import { getEntitlements, isPlanActive, clampResolution, exceedsResolutionLimit } from '@/lib/entitlements';
 import { getSignedUploadUrl, generateExportStagingKey, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
 import { MAX_EXPORT_DURATION_SECONDS, describeExportDurationLimit } from '@/lib/export/export-limits';
