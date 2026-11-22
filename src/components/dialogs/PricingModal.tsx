@@ -298,14 +298,14 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         return;
       }
       if (checkout.status === 'payment_received') {
-        const reservationId = typeof checkout.reservationId === 'string' ? checkout.reservationId : pendingReservationId;
-        if (!reservationId) {
-          showToast('Your payment is being checked in the background.');
-          handleClose();
-          return;
+        // A checkout creation response is never sufficient proof of payment.
+        // Keep the customer in a recoverable state; only the status endpoint
+        // plus entitlement grant can complete activation.
+        if (typeof checkout.reservationId === 'string') {
+          setPendingReservationId(checkout.reservationId);
         }
-        showToast('Your payment is being confirmed in the background.');
-        handleClose();
+        setNotice('unknown');
+        setStep('error');
         return;
       }
       if (typeof checkout.checkoutUrl !== 'string' || !checkout.checkoutUrl) {
@@ -348,9 +348,11 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
         retryAllowed?: unknown;
       };
       if (response.ok && checkout.status === 'payment_received') {
-        showToast('Your payment is being confirmed in the background.');
-        handleClose();
-        return;
+        // Payment status is not entitlement status. Keep the reservation
+        // visible and let the user explicitly re-check until the worker grants
+        // the entitlement.
+        setNotice('activating');
+        setStep('processing');
         return;
       }
       if (response.ok && typeof checkout.checkoutUrl === 'string') {

@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   createSandboxCheckout: vi.fn(),
   sweepReservations: vi.fn(),
   failReservation: vi.fn(),
+  recoverCheckoutReservation: vi.fn(),
+  requestPaidCheckoutReconciliation: vi.fn(),
 }));
 
 vi.mock('@/auth', () => ({ auth: mocks.auth }));
@@ -53,6 +55,8 @@ vi.mock('@/lib/billing/operations', () => ({
 vi.mock('@/lib/billing/reservations', () => ({
   expireStaleUnclaimedCheckoutReservations: mocks.sweepReservations,
   failUnclaimedReservation: mocks.failReservation,
+  recoverCheckoutReservation: mocks.recoverCheckoutReservation,
+  requestPaidCheckoutReconciliation: mocks.requestPaidCheckoutReconciliation,
 }));
 vi.mock('@/lib/billing/paddle', () => ({
   assertSandboxPriceMatches: vi.fn().mockResolvedValue({ id: 'pri-1', productId: 'pro-1' }),
@@ -120,9 +124,46 @@ beforeEach(() => {
   mocks.updateReservation.mockResolvedValue(undefined);
   mocks.sweepReservations.mockResolvedValue({ expired: [], linked: [] });
   mocks.failReservation.mockResolvedValue(true);
+  mocks.recoverCheckoutReservation.mockResolvedValue({ kind: 'none' });
+  mocks.requestPaidCheckoutReconciliation.mockResolvedValue({ duplicate: false });
 });
 
 describe('Paddle checkout persistence recovery', () => {
+  it('does not present a recovered paid transaction as a new payment success', async () => {
+    mocks.recoverCheckoutReservation.mockResolvedValue({
+      kind: 'awaiting_payment',
+      reservationId: 'reservation-paid',
+      transactionId: 'txn-paid',
+      userId: 'user-1',
+      plan: 'creator_monthly',
+      consentHash: 'a'.repeat(64),
+      remoteStatus: 'paid',
+    });
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body).toMatchObject({
+      state: 'payment_verification_pending',
+      reservationId: 'reservation-paid',
+      transactionId: 'txn-paid',
+      retryAllowed: false,
+      checkoutUrl: null,
+    });
+    expect(body.status).not.toBe('payment_received');
+    expect(mocks.createSandboxCheckout).not.toHaveBeenCalled();
+    expect(mocks.requestPaidCheckoutReconciliation).toHaveBeenCalledWith({
+      reservation: {
+        id: 'reservation-paid',
+        userId: 'user-1',
+        plan: 'creator_monthly',
+        consentHash: 'a'.repeat(64),
+      },
+      transactionId: 'txn-paid',
+    });
+  });
+
   it('returns the existing reservation ID after the per-user uniqueness gate rejects a concurrent checkout', async () => {
     mocks.reserveCheckout.mockRejectedValue(new Prisma.PrismaClientKnownRequestError(
       'Unique constraint failed on the fields: (`user_id`)',

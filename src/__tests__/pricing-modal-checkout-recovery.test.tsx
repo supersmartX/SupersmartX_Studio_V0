@@ -191,6 +191,41 @@ describe('PricingModal checkout', () => {
     expect(await screen.findByText("We're checking your payment")).toBeInTheDocument();
   });
 
+  it('does not close or claim payment when checkout recovery finds a paid transaction', async () => {
+    const onClose = vi.fn();
+    mocks.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => quote })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          state: 'payment_verification_pending',
+          reservationId: 'reservation-paid',
+          transactionId: 'txn-paid',
+          retryAllowed: false,
+          checkoutUrl: null,
+        }),
+      });
+
+    render(
+      <PricingModal
+        isOpen
+        onClose={onClose}
+        showToast={vi.fn()}
+        isAuthenticated
+        initialTier="creator"
+        initialBillingPeriod="monthly"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Subscribe/ }));
+
+    expect(await screen.findByText("We're checking your payment")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(mocks.assign).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Check checkout status' })).toBeInTheDocument();
+  });
+
   it('reports a verified dead attempt as not completed and allows another try', async () => {
     mocks.fetch
       .mockResolvedValueOnce({ ok: true, json: async () => quote })

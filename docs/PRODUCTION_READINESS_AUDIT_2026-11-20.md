@@ -345,3 +345,101 @@ The repository contains no copy of the specified request ID or deployment logs. 
 ## Read-only confirmation
 
 No application files, database schemas/records, provider accounts, environment variables/secrets, Vercel settings, commits, pushes, merges or deployments were changed. The only created file is this audit report.
+# Focused billing readiness follow-up — 2026-11-22
+
+This section records the focused audit performed after the P0 checkout fix. It
+is based on the current working tree, automated tests, and source inspection.
+It is not production verification: no production database, Paddle account, or
+deployed runtime was queried or mutated.
+
+## Evidence confirmed in source
+
+- Checkout creation is authenticated, sandbox-gated, quote-validated, price-
+  validated, reservation-protected, and provider-backed in
+  `src/app/api/paddle/checkout/route.ts`.
+- `src/lib/billing/reservations.ts` retrieves the authoritative Paddle
+  transaction before deciding whether to resume, retain protection, reconcile,
+  or release a reservation. Draft/ready transactions are resumed; uncertain,
+  billed, past-due, and provider-unavailable states remain protected.
+- `src/app/api/paddle/webhook/route.ts` verifies the Paddle signature and writes
+  a durable inbox record before triggering the worker.
+- `src/lib/billing/operations.ts` deduplicates event IDs, uses leases for
+  retryable worker processing, and atomically claims
+  `BillingTransaction.entitlementGrantedAt`. This prevents duplicate webhook
+  delivery or concurrent workers from granting the same transaction twice.
+- `src/app/api/internal/paddle/worker/route.ts` re-fetches Paddle transaction
+  and subscription data, validates ownership, custom metadata, plan, period,
+  amount, and currency before calling the entitlement path.
+- `src/app/api/paddle/activation/route.ts` requires authenticated,
+  reservation-specific correlation and a local entitlement grant before it
+  returns `activated`.
+- `src/app/studio/page.tsx` does not render `ActivationModal`; payment return
+  query parameters are stripped and the client handoff marker is removed.
+  `ActivationModal` still exists as an unreferenced component and its endpoint
+  remains available for legacy/direct callers, but no current Studio route
+  renders it.
+
+## P0 checkout recovery result
+
+The current working-tree fix changes recovered `paid`/`completed` checkout
+responses from a success-shaped `payment_received` response to HTTP 409
+`payment_verification_pending`. The original transaction remains protected and
+reconciliation is requested. `PricingModal` no longer closes or claims payment
+from checkout creation; it shows a recoverable status-check state. The status
+endpoint may still report provider-confirmed payment, but the UI completes only
+after the billing account/entitlement evidence is present.
+
+This change is currently uncommitted. Git HEAD `542e9d8` therefore does not
+contain the P0 fix. Production must not be described as fixed until the change
+is committed, deployed, and verified through the health endpoint and browser
+workflow.
+
+## State and race review
+
+| Scenario | Source result | Evidence |
+|---|---|---|
+| New checkout | Creates one reservation and one Paddle transaction | Checkout route + reservation uniqueness |
+| Draft/ready recovery | Resumes the provider checkout URL | `reservations.ts` resumable-state branch |
+| Paid/completed recovery | Keeps original transaction protected and queues reconciliation | P0 route change + `requestPaidCheckoutReconciliation` |
+| Provider unavailable | Returns pending/503 and does not release | reservation/status routes |
+| Failed/canceled terminal state | Retry is allowed only after provider evidence and safe release | reservation/status routes |
+| Duplicate webhook | Inbox `eventId` dedupe prevents duplicate processing | `receiveBillingEvent` |
+| Concurrent workers | Lease token plus atomic entitlement claim | billing operations |
+| Polling versus worker | Polling can observe payment before entitlement; it keeps polling/status visible | `PricingModal` + checkout status route |
+
+Outstanding runtime risk: the webhook route waits for durable receipt and
+invokes a bounded worker trigger through `after()`. Actual hosting behavior,
+worker reachability, Paddle notification configuration, and delayed-event
+recovery still require Sandbox verification.
+
+## Focused verification
+
+- Billing regression tests: 36 passed across 4 files.
+- TypeScript: passed.
+- ESLint: passed with 13 pre-existing warnings and 0 errors.
+- Production build: passed.
+- Full repository suite was previously observed at 81 files passed, 22 skipped,
+  843 tests passed, and 263 skipped; rerun it before release if any additional
+  source changes are made.
+
+## Deployment verification checklist
+
+1. Confirm the deployed commit from `GET /api/health` (`commit`) matches the
+   commit containing the P0 changes; do not rely on a deployment label alone.
+2. Confirm the deployed bundle contains the new
+   `payment_verification_pending` response contract.
+3. Confirm `PADDLE_ENVIRONMENT` and checkout enablement match the intended
+   Sandbox/Live release policy; Live mutations remain disabled until explicitly
+   approved.
+4. In Paddle Sandbox, test: first-time Subscribe, close without payment,
+   resume draft/ready checkout, delayed webhook, duplicate webhook, failed
+   payment, and verified entitlement activation.
+5. Confirm a direct `/studio` visit with no checkout parameters does not render
+   `ActivationModal` or any payment-confirmation UI.
+6. Confirm the webhook endpoint receives signed events, persists them, and the
+   worker processes them successfully; inspect failed/leased event metrics.
+7. Confirm the account session refreshes after entitlement activation and that
+   the account menu shows Creator status only after server entitlement evidence.
+8. Record the deployed health response, Sandbox transaction IDs, event IDs,
+   reservation IDs, and screenshots as release evidence without using Live
+   payment data.

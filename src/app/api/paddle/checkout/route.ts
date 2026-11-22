@@ -59,15 +59,18 @@ function checkoutRecoveryResponse(recovery: CheckoutRecovery): NextResponse | nu
     }, { headers: { 'Cache-Control': 'no-store' } });
   }
   if (recovery.kind === 'awaiting_payment') {
-    // Payment received but local entitlement not yet granted.
-    // Frontend should poll /api/paddle/checkout/status for activation.
+    // Provider state may already hold money, but checkout creation is not
+    // proof of entitlement. Keep the original transaction protected while
+    // reconciliation completes; never present this as payment success.
     return NextResponse.json({
-      status: 'payment_received',
+      state: 'payment_verification_pending',
       reservationId: recovery.reservationId,
       retryAllowed: false,
       checkoutUrl: null,
-      message: 'Payment received. Activating your plan...',
-    }, { headers: { 'Cache-Control': 'no-store' } });
+      transactionId: recovery.transactionId,
+      remoteStatus: recovery.remoteStatus,
+      message: 'A previous checkout is still being verified. No new payment was started.',
+    }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
   }
   if (recovery.kind === 'pending') {
     return NextResponse.json({
