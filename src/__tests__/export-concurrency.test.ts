@@ -12,7 +12,7 @@ import { createUser, updateUserPlanById, createExportJob } from '@/lib/db';
 
 // Database-backed suite: runs only when DATABASE_URL points at a throwaway
 // PostgreSQL database; otherwise the cases are reported as skipped.
-const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeDb = HAS_TEST_DB ? describe : describe.skip;
 
 // A job abandoned longer than the staleness window must not count as
 // "concurrent". Kept safely above any legitimate single export.
@@ -92,3 +92,4 @@ describeDb('export concurrency guard', () => {
     expect(res.status).toBe(201);
   });
 });
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';

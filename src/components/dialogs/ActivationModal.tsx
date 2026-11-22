@@ -9,6 +9,7 @@ interface ActivationModalProps {
   isOpen: boolean;
   plan: string;
   orderId: string | null;
+  reservationId: string | null;
   /**
    * How the modal left, so the studio can undo the parts of the upgrade that
    * only make sense once a plan is actually live.
@@ -55,28 +56,7 @@ function formatAccessUntil(iso: string | null | undefined): string | null {
   return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
 }
 
-/**
- * Reads the server's answer for the order this modal asked about. A verdict
- * that does not name that order is not an activation — it is treated as "keep
- * waiting", never as success.
- */
-function readVerdict(raw: unknown, requestedOrderId: string): OrderVerdict | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const body = raw as Record<string, unknown>;
-  if (body.status === 'activated') {
-    if (body.orderId !== requestedOrderId) return null;
-    return {
-      status: 'activated',
-      orderId: requestedOrderId,
-      plan: typeof body.plan === 'string' ? body.plan : undefined,
-      expiresAt: typeof body.expiresAt === 'string' ? body.expiresAt : null,
-    };
-  }
-  if (body.status === 'failed') return { status: 'failed', orderId: requestedOrderId };
-  return { status: 'pending' };
-}
-
-export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: ActivationModalProps) {
+export function ActivationModal({ isOpen, plan, orderId, reservationId, onClose, onRetry }: ActivationModalProps) {
   const { update } = useSession();
   const [status, setStatus] = useState<'pending' | 'confirmed' | 'failed'>('pending');
   const [pollCount, setPollCount] = useState(0);
@@ -109,7 +89,8 @@ export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: Act
   /** Ask the server about this order. No order id, no verdict. */
   const verifyOnce = useCallback(async (): Promise<OrderVerdict | null> => {
     try {
-      const res = await fetch('/api/paddle/billing', { credentials: 'same-origin' });
+      if (!orderId || !reservationId) return null;
+      const res = await fetch(`/api/paddle/activation?reservationId=${encodeURIComponent(reservationId)}&transactionId=${encodeURIComponent(orderId)}`, { credentials: 'same-origin', cache: 'no-store' });
       if (!res.ok) return null;
       const body = await res.json().catch(() => null) as {
         account?: { status?: string; plan?: string; paidThroughAt?: string | null };
@@ -130,7 +111,7 @@ export function ActivationModal({ isOpen, plan, orderId, onClose, onRetry }: Act
     } catch {
       return null;
     }
-  }, [orderId]);
+  }, [orderId, reservationId]);
 
   /**
    * Flip to "confirmed" only on an `activated` verdict for this order.

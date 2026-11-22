@@ -16,7 +16,7 @@ import {
 
 // Database-backed suite: runs only when DATABASE_URL points at a throwaway
 // PostgreSQL database; otherwise the cases are reported as skipped.
-const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeDb = HAS_TEST_DB ? describe : describe.skip;
 
 function cleanTestData() {
   resetDb();
@@ -168,3 +168,4 @@ describeDb('PATCH /api/export-jobs/[id] transitions', () => {
     expect((await res.json()).error).toMatch(/Invalid transition: pending/);
   });
 });
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';

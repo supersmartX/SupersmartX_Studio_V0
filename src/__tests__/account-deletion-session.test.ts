@@ -43,7 +43,7 @@ import { reconcileSessionVersion } from '@/lib/session-version';
 
 // Database-backed suite: runs only when DATABASE_URL points at a throwaway
 // PostgreSQL database; otherwise the cases are reported as skipped.
-const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeDb = HAS_TEST_DB ? describe : describe.skip;
 
 function cleanTestData() {
   resetDb();
@@ -244,3 +244,4 @@ describeDb('session-version reconciliation', () => {
     expect(reconcileSessionVersion(null, 12)).toBe(12);
   });
 });
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';

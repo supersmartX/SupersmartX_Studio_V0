@@ -34,7 +34,7 @@ import type { PlanType } from '@/types/db';
 
 // Database-backed suite: runs only when DATABASE_URL points at a throwaway
 // PostgreSQL database; otherwise the cases are reported as skipped.
-const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeDb = HAS_TEST_DB ? describe : describe.skip;
 
 // `@/lib/r2` is mocked above for the route-level tests, so the real key
 // generator must come from the actual module — otherwise these assertions
@@ -512,3 +512,4 @@ describeDb('R2 cleanup', () => {
     });
   });
 });
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';

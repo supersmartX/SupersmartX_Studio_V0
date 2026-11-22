@@ -28,7 +28,7 @@ import {
  * decision, and the TTL lock that serializes a checkout.
  */
 
-const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeDb = HAS_TEST_DB ? describe : describe.skip;
 
 async function makeUser(email = 'lifecycle@example.com') {
   return createUser(email, 'Buyer', 'hash');
@@ -389,3 +389,4 @@ describeDb('checkout_locks', () => {
     expect(await acquireCheckoutLock(two.id, 't2', 60_000)).toBe(true);
   });
 });
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';

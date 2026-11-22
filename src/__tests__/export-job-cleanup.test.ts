@@ -14,7 +14,7 @@ import { setMigrated, createUser, createExport, findExportById } from '@/lib/db'
 
 // Database-backed suite: runs only when DATABASE_URL points at a throwaway
 // PostgreSQL database; otherwise the cases are reported as skipped.
-const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeDb = HAS_TEST_DB ? describe : describe.skip;
 
 const SECRET = 'a-cleanup-secret-for-tests';
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -234,3 +234,4 @@ describeDb('GET /api/export-jobs/cleanup — what it may and may not delete', ()
     expect(await jobExists(outside.jobId)).toBe(false);
   });
 });
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';

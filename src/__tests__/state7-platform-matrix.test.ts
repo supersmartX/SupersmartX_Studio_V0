@@ -44,7 +44,7 @@ import type { PlatformId } from '@/types';
 
 // Database-backed suite: runs only when DATABASE_URL points at a throwaway
 // PostgreSQL database; otherwise the cases are reported as skipped.
-const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeDb = HAS_TEST_DB ? describe : describe.skip;
 
 function cleanTestData() {
   resetDb();
@@ -428,3 +428,4 @@ describeDb('the encoded bytes are checked before anything is uploaded', () => {
     ).rejects.toThrow(/failed verification/i);
   });
 });
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';

@@ -283,6 +283,7 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
          state?: unknown;
          subscription?: ActiveSubscriptionNotice;
          reservationId?: unknown;
+          transactionId?: unknown;
          checkoutUrl?: unknown;
        };
       if (!checkoutResponse.ok) {
@@ -334,6 +335,13 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
       }
       setPendingReservationId(null);
       showToast('Redirecting to Paddle...');
+      try {
+        sessionStorage.setItem('sxs-checkout-return', JSON.stringify({
+          transactionId: typeof checkout.transactionId === 'string' ? checkout.transactionId : null,
+          reservationId: typeof checkout.reservationId === 'string' ? checkout.reservationId : null,
+          createdAt: Date.now(),
+        }));
+      } catch {}
       window.location.assign(checkout.checkoutUrl);
     } catch {
       setNotice('temporary');

@@ -29,7 +29,10 @@ export async function POST() {
   }
   const prisma = getPrisma();
   const account = await prisma.billingAccount.findUnique({ where: { userId: session.user.id } });
-  if (!account?.providerSubscriptionId) return NextResponse.json({ error: 'No Paddle subscription' }, { status: 404 });
+  if (!account?.providerSubscriptionId || account.status !== 'active' ||
+      !account.paidThroughAt || account.paidThroughAt <= new Date()) {
+    return NextResponse.json({ error: 'No eligible active Paddle subscription' }, { status: 404 });
+  }
   if (account.cancelAtPeriodEnd) {
     return NextResponse.json({
       status: 'cancellation_requested',

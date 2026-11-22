@@ -21,7 +21,7 @@ import {
 
 // Database-backed suite: runs only when DATABASE_URL points at a throwaway
 // PostgreSQL database; otherwise the cases are reported as skipped.
-const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeDb = HAS_TEST_DB ? describe : describe.skip;
 
 /**
  * Acceptance (Phase 2/6): the server derives every entitlement from the DB
@@ -151,3 +151,4 @@ describeDb('server-authoritative business logic', () => {
     });
   });
 });
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';

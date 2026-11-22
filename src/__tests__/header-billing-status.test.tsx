@@ -95,7 +95,7 @@ describe('Header — billing status', () => {
       }
       if (url === '/api/paddle/billing') {
         return Promise.resolve({ ok: true, json: async () => ({
-          account: { paidThroughAt: '2027-01-15T09:30:00.000Z', nextChargeAt: '2027-01-15T09:30:00.000Z', cancelAtPeriodEnd: false },
+          account: { status: 'active', paidThroughAt: '2027-01-15T09:30:00.000Z', nextChargeAt: '2027-01-15T09:30:00.000Z', cancelAtPeriodEnd: false },
           transactions: [],
         }) });
       }
@@ -111,7 +111,7 @@ describe('Header — billing status', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Cancel at period end' }));
 
     expect(await screen.findByText(/Paddle has not confirmed cancellation yet/)).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Cancellation awaiting confirmation' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Check cancellation status' })).toBeInTheDocument();
     expect(screen.queryByText('Cancellation scheduled')).toBeNull();
   });
 
@@ -122,7 +122,7 @@ describe('Header — billing status', () => {
       }
       if (url === '/api/paddle/billing') {
         return Promise.resolve({ ok: true, json: async () => ({
-          account: { paidThroughAt: '2027-01-15T09:30:00.000Z', nextChargeAt: '2027-01-15T09:30:00.000Z', cancelAtPeriodEnd: false },
+          account: { status: 'active', paidThroughAt: '2027-01-15T09:30:00.000Z', nextChargeAt: '2027-01-15T09:30:00.000Z', cancelAtPeriodEnd: false },
           transactions: [],
         }) });
       }

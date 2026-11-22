@@ -18,6 +18,7 @@
  *     src/__tests__/postgres-semantics.integration.test.ts
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';
 import { randomUUID } from 'crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { getPrisma, resetPrisma } from '@/lib/db/prisma';
@@ -25,7 +26,7 @@ import { getPrisma, resetPrisma } from '@/lib/db/prisma';
 const DATABASE_URL = (process.env.DATABASE_URL ?? '').trim();
 const isPostgres = /^postgres(ql)?:\/\//i.test(DATABASE_URL);
 const looksLikeProduction = /prod/i.test(DATABASE_URL);
-const ENABLED = isPostgres && !looksLikeProduction;
+const ENABLED = HAS_TEST_DB && isPostgres && !looksLikeProduction;
 
 if (isPostgres && looksLikeProduction) {
   // Refuse to run against an obvious production URL.

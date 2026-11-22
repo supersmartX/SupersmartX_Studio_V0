@@ -53,6 +53,7 @@ import { auth } from '@/auth';
 import { headObject, deleteRecording, getObjectRange } from '@/lib/r2';
 import { POST as completePOST } from '@/app/api/exports/complete/route';
 import { resetDb, getDb } from '@/__tests__/helpers/db';
+import { HAS_TEST_DB } from '@/__tests__/helpers/test-database';
 import {
   setMigrated,
   createUser,
@@ -83,7 +84,7 @@ import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 
 // Database-backed suite: runs only when DATABASE_URL points at a throwaway
 // PostgreSQL database; otherwise the cases are reported as skipped.
-const describeDb = process.env.DATABASE_URL ? describe : describe.skip;
+const describeDb = HAS_TEST_DB ? describe : describe.skip;
 
 /* ------------------------------------------------------------------ *
  * Fixtures and helpers

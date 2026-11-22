@@ -275,7 +275,11 @@ export function Header({
                         ? 'Renew Creator'
                         : 'Upgrade to Creator'}
                   </button>
-                  {paddleBilling?.account && !paddleBilling.account.cancellationConfirmed && (
+                  {paddleBilling?.account &&
+                    isCreator &&
+                    paddleBilling.account.status === 'active' &&
+                    Boolean(paddleBilling.account.paidThroughAt && new Date(paddleBilling.account.paidThroughAt).getTime() > Date.now()) &&
+                    !paddleBilling.account.cancellationConfirmed && (
                     <button
                       role="menuitem"
                       disabled={cancelRequested}

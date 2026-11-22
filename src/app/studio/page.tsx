@@ -205,10 +205,11 @@ export default function HomePage() {
   const [lockedPlatform, setLockedPlatform] = useState<PlatformPreset | null>(null);
 
   // Payment success activation modal
-  const [activationModal, setActivationModal] = useState<{ isOpen: boolean; plan: string; orderId: string | null }>({
+  const [activationModal, setActivationModal] = useState<{ isOpen: boolean; plan: string; orderId: string | null; reservationId: string | null }>({
     isOpen: false,
     plan: '',
     orderId: null,
+    reservationId: null,
   });
 
   // Paddle redirects are informational only. Server billing evidence decides
@@ -216,10 +217,24 @@ export default function HomePage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get('payment') === 'success' || params.has('transaction_id')) {
+    const transactionId = params.get('transaction_id');
+    type CheckoutReturnHandoff = { transactionId?: string; reservationId?: string; createdAt?: number };
+    let handoff: CheckoutReturnHandoff | null = null;
+    try {
+      const raw = window.sessionStorage.getItem('sxs-checkout-return');
+      handoff = raw ? JSON.parse(raw) as CheckoutReturnHandoff : null;
+    } catch {}
+    const handoffMatches = Boolean(
+      transactionId &&
+      handoff?.transactionId === transactionId &&
+      typeof handoff.reservationId === 'string' &&
+      typeof handoff.createdAt === 'number' &&
+      Date.now() - handoff.createdAt < 24 * 60 * 60 * 1000,
+    );
+    if (handoffMatches) {
       const plan = params.get('plan') || 'creator_monthly';
-      const orderId = params.get('transaction_id') || params.get('order_id');
-      setActivationModal({ isOpen: true, plan, orderId });
+      setActivationModal({ isOpen: true, plan, orderId: transactionId, reservationId: handoff!.reservationId ?? null });
+      try { window.sessionStorage.removeItem('sxs-checkout-return'); } catch {}
       // Clean URL without reload
       window.history.replaceState({}, '', window.location.pathname);
     }
@@ -1838,6 +1853,7 @@ export default function HomePage() {
         isOpen={activationModal.isOpen}
         plan={activationModal.plan}
         orderId={activationModal.orderId}
+        reservationId={activationModal.reservationId}
         onRetry={() => {
           // Back to the plan grid. The order intent is left in localStorage on
           // purpose: if this attempt does settle, the closed-loop restore below
@@ -1845,7 +1861,7 @@ export default function HomePage() {
           ui.setIsPricingModalOpen(true);
         }}
         onClose={(outcome) => {
-          setActivationModal({ isOpen: false, plan: '', orderId: null });
+          setActivationModal({ isOpen: false, plan: '', orderId: null, reservationId: null });
 
           if (outcome === 'failed') {
             // Nothing was activated, so nothing may be treated as if it were.
