@@ -80,8 +80,7 @@ export default function HomePage() {
   const focusView = useFocusView();
   const scriptStorage = useScriptStorage();
   const hydrated = useHydrated();
-  // `update` is intentionally not destructured here: the plan refresh on the
-  const { data: session, status: sessionStatus } = useSession();
+  const { data: session, status: sessionStatus, update } = useSession();
   const userPlan = (session?.user?.plan as 'free' | 'creator_monthly' | 'creator_yearly' | 'pro_monthly' | 'pro_yearly') || 'free';
   const isCreatorUser = isCreatorPlan(userPlan);
 
@@ -201,17 +200,62 @@ export default function HomePage() {
 
   const [lockedPlatform, setLockedPlatform] = useState<PlatformPreset | null>(null);
 
-  // Payment success activation modal
-  // Paddle redirects are informational only. Server billing evidence decides
-  // whether access is active; the redirect never grants or verifies it.
+  // Paddle redirects are informational only. On return, use the client marker
+  // solely to locate the server-side reservation and transaction. The server
+  // activation endpoint re-fetches Paddle, verifies correlation, reconciles
+  // the entitlement, and is the only authority for Creator access.
+  const checkoutReturnHandledRef = useRef(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    // Do not consume the handoff while Auth.js is resolving. The return page
+    // can render before the authenticated session arrives; deleting the marker
+    // here would permanently skip server-authoritative reconciliation.
+    if (sessionStatus === 'loading') return;
     const params = new URLSearchParams(window.location.search);
-    try { window.sessionStorage.removeItem('sxs-checkout-return'); } catch {}
+    type CheckoutHandoff = { transactionId?: unknown; reservationId?: unknown; createdAt?: unknown };
+    let handoff: CheckoutHandoff = {};
+    try {
+      const raw = window.sessionStorage.getItem('sxs-checkout-return');
+      if (raw) handoff = JSON.parse(raw) as CheckoutHandoff;
+    } catch {}
+
+    const transactionId = typeof handoff?.transactionId === 'string' ? handoff.transactionId : null;
+    const reservationId = typeof handoff?.reservationId === 'string' ? handoff.reservationId : null;
+    const createdAt = typeof handoff?.createdAt === 'number' ? handoff.createdAt : 0;
+    const isRecent = createdAt > 0 && Date.now() - createdAt < 24 * 60 * 60 * 1000;
+
     if (params.has('payment') || params.has('transaction_id') || params.has('order_id')) {
       window.history.replaceState({}, '', window.location.pathname);
     }
-  }, []);
+
+    if (session?.user?.id && transactionId && reservationId && isRecent && !checkoutReturnHandledRef.current) {
+      checkoutReturnHandledRef.current = true;
+      let cancelled = false;
+      const verifyReturn = async () => {
+        for (let attempt = 0; attempt < 6 && !cancelled; attempt += 1) {
+          try {
+            const response = await fetch(
+              `/api/paddle/activation?reservationId=${encodeURIComponent(reservationId)}&transactionId=${encodeURIComponent(transactionId)}`,
+              { credentials: 'same-origin', cache: 'no-store' },
+            );
+            const result = await response.json().catch(() => ({})) as { status?: string };
+            if (result.status === 'activated') {
+              try { await update(); } catch {}
+              if (!cancelled) showToast('Creator access activated.');
+              return;
+            }
+            if (result.status === 'failed') return;
+          } catch {}
+          if (attempt < 5) await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        }
+      };
+      void verifyReturn();
+      try { window.sessionStorage.removeItem('sxs-checkout-return'); } catch {}
+      return () => { cancelled = true; };
+    }
+
+    try { window.sessionStorage.removeItem('sxs-checkout-return'); } catch {}
+  }, [session?.user?.id, sessionStatus, showToast, update]);
 
   // Free capture is YouTube 16:9 widescreen only. A persisted Creator choice
   // (or a stale upgrade-restore) must not leak a locked capture format into
