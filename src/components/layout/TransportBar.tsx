@@ -160,7 +160,6 @@ function DeviceChip({
   stateLabelOff,
   isOff,
   icon,
-  hasDevices,
   menuKind,
   openMenu,
   setOpenMenu,
@@ -178,7 +177,6 @@ function DeviceChip({
   stateLabelOff: string;
   isOff: boolean;
   icon: ReactNode;
-  hasDevices: boolean;
   menuKind: Exclude<DeviceMenu, null>;
   openMenu: DeviceMenu;
   setOpenMenu: (m: DeviceMenu) => void;
@@ -261,14 +259,12 @@ function DeviceMenuList({
   items,
   selectedDeviceId,
   onSelect,
-  onRefresh,
 }: {
   heading: string;
   emptyText: string;
   items: DeviceMenuItem[];
   selectedDeviceId: string;
   onSelect: (deviceId: string) => void;
-  onRefresh: () => void;
 }) {
   return (
     <div role="menu" aria-label={heading} className="max-h-72 overflow-auto py-1.5">
@@ -424,7 +420,6 @@ export function TransportBar({
           onAudioDeviceChange(deviceId);
           setOpenMenu(null);
         }}
-        onRefresh={onRefreshDevices}
       />
       <div className="border-t border-white/[0.06]">
         <button
@@ -450,7 +445,6 @@ export function TransportBar({
           onVideoDeviceChange(deviceId);
           setOpenMenu(null);
         }}
-        onRefresh={onRefreshDevices}
       />
       <div className="border-t border-white/[0.06]">
         <button
@@ -566,7 +560,6 @@ export function TransportBar({
               inactive={!captureActive}
               title={captureActive ? undefined : 'Enable Camera & Microphone on the canvas to start.'}
               icon={isMicMuted ? <MicrophoneOffIcon className="w-4 h-4" /> : <MicrophoneIcon className="w-4 h-4" />}
-              hasDevices={micItems.length > 0}
               menuKind="mic"
               openMenu={openMenu}
               setOpenMenu={setOpenMenu}
@@ -592,7 +585,6 @@ export function TransportBar({
               inactive={!captureActive}
               title={captureActive ? undefined : 'Enable Camera & Microphone on the canvas to start.'}
               icon={isCameraOn ? <CameraIcon className="w-4 h-4" /> : <CameraOffIcon className="w-4 h-4" />}
-              hasDevices={cameraItems.length > 0}
               menuKind="camera"
               openMenu={openMenu}
               setOpenMenu={setOpenMenu}

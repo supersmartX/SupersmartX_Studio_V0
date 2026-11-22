@@ -177,7 +177,7 @@ export function formatPriceZero(amount: number, symbol: string, locale: string):
   return formatPrice(amount, symbol, locale);
 }
 
-function getCurrencyCode(symbol: string, locale: string): string {
+function getCurrencyCode(symbol: string, _locale: string): string {
   // Map known symbols to ISO currency codes for Intl.NumberFormat
   const symbolMap: Record<string, string> = {
     '$': 'USD', '€': 'EUR', '£': 'GBP', '₹': 'INR', '¥': 'JPY',

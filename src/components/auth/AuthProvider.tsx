@@ -8,8 +8,8 @@ import { SessionProvider } from 'next-auth/react';
  *
  * Without this, the JWT callback re-read the correct plan from the database on
  * every session fetch, but nothing triggered a fetch after the one-shot
- * ActivationModal poll window: a buyer whose webhook settled later kept seeing
- * Free locks and upgrade prompts until a manual reload.
+ * checkout verification window: a buyer whose webhook settled later kept
+ * seeing Free locks and upgrade prompts until a manual reload.
  *
  * 30s is bounded and deliberate - it is long enough to keep request volume
  * negligible, short enough that a paying customer is not left looking at a

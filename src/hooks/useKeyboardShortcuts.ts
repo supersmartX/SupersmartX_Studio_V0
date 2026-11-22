@@ -20,7 +20,6 @@ interface UseKeyboardShortcutsProps {
    * normal page/scroll behaviour for nothing.
    */
   canNudge: boolean;
-  showNudgeToast: (message: string) => void;
 }
 
 export function useKeyboardShortcuts({
@@ -36,7 +35,6 @@ export function useKeyboardShortcuts({
   canRecord,
   isDrawerVisible,
   canNudge,
-  showNudgeToast,
 }: UseKeyboardShortcutsProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

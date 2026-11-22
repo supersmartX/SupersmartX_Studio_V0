@@ -87,7 +87,7 @@ describe('ReviewPlayer transport', () => {
   });
 
   it('seeking by pointer moves the playhead', () => {
-    const { video, state, getByRole } = setup();
+    const { state, getByRole } = setup();
     const seek = getByRole('slider', { name: 'Seek playback position' });
     vi.spyOn(seek, 'getBoundingClientRect').mockReturnValue({
       left: 0,

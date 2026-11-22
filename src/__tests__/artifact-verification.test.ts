@@ -133,14 +133,6 @@ async function exportCount(userId: string): Promise<number> {
   return Number(r.rows[0]?.cnt) || 0;
 }
 
-async function uploadCount(userId: string): Promise<number> {
-  const r = await getDb().execute({
-    sql: 'SELECT upload_count FROM user_stats WHERE user_id = ?',
-    args: [userId],
-  });
-  return Number(r.rows[0]?.upload_count ?? 0);
-}
-
 function stageArtifact(bytes: Uint8Array) {
   r2State.artifact = bytes;
   vi.mocked(headObject).mockResolvedValue({

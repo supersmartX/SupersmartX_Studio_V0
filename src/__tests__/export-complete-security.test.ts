@@ -35,7 +35,6 @@ import {
   setMigrated,
   createUser,
   createExportJob,
-  updateExportJobStatus,
   updateUserPlanById,
   findExportJobByIdAndUser,
   getDailyRecordedSeconds,

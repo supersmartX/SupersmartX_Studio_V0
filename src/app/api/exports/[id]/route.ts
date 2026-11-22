@@ -51,7 +51,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const exp = await findExportByIdAndUser(id, session.user.id);
     if (!exp) return NextResponse.json({ error: 'Export not found' }, { status: 404 });
     return NextResponse.json({ export: exp });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }

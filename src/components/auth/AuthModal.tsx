@@ -33,7 +33,6 @@ export function AuthModal({
   onSuccess,
   title = 'Create an account or log in',
   callbackUrl = '/studio',
-  mode = 'default',
   intent = 'register',
 }: AuthModalProps) {
   const initialStep: 'chooser' | 'email' = intent === 'login' ? 'email' : 'chooser';

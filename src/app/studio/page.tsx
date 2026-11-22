@@ -1240,7 +1240,6 @@ export default function HomePage() {
     canRecord: canStartRecording,
     isDrawerVisible: ui.isDrawerVisible,
     canNudge: prompterScript.length > 0,
-    showNudgeToast: showToast,
   });
 
   // Single authority for review playback: the take may be audible only while
