@@ -1,7 +1,9 @@
 import { auth } from '@/auth';
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { getPrisma } from '@/lib/db/prisma';
 import { getPaddleClient } from '@/lib/billing/paddle';
+import { reconcileCheckoutReservation, requestPaidCheckoutReconciliation } from '@/lib/billing/reservations';
+import { triggerBillingWorker } from '@/lib/billing/worker-trigger';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +12,33 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const prisma = getPrisma();
   const account = await prisma.billingAccount.findUnique({ where: { userId: session.user.id } });
+  const paddle = getPaddleClient();
+  if (paddle) {
+    const openReservations = await prisma.billingReservation.findMany({
+      where: { userId: session.user.id, status: { in: ['reserved', 'pending'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 3,
+    });
+    for (const reservation of openReservations) {
+      const recovery = await reconcileCheckoutReservation({ reservation, paddle });
+      if (recovery.kind === 'awaiting_payment') {
+        try {
+          await requestPaidCheckoutReconciliation({
+            reservation: {
+              id: recovery.reservationId,
+              userId: recovery.userId,
+              plan: recovery.plan,
+              consentHash: recovery.consentHash,
+            },
+            transactionId: recovery.transactionId,
+          });
+          after(triggerBillingWorker);
+        } catch {
+          console.error('Automatic paid checkout reconciliation could not be queued');
+        }
+      }
+    }
+  }
   const transactions = await prisma.billingTransaction.findMany({
     where: { userId: session.user.id },
     orderBy: { createdAt: 'desc' },

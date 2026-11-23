@@ -200,7 +200,23 @@ function FlowStepIcon({ index }: { index: number }) {
 
 export default function LandingPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session, status, update: refreshSession } = useSession();
+
+  // A logout in another open tab is broadcast by Auth.js, but the landing
+  // page can otherwise keep its previous client snapshot until navigation or
+  // the next polling interval. Refresh when this page becomes visible so the
+  // account menu never presents stale authentication state.
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void refreshSession();
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [refreshSession]);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   // UX-005: 'login' opens the sign-in step (Log in buttons), 'register'
   // (default) opens the account chooser (checkout / creator flows).
