@@ -11,7 +11,7 @@ export interface RegionalPricing {
 }
 
 const REGION_PRICING: Record<string, RegionalPricing> = {
-  US: { country: 'US', currency: 'USD', symbol: '$', locale: 'en-US', creatorMonthly: 7.99, creatorYearly: 59.99, proMonthly: 14.99, proYearly: 119.99, pppIndex: 152 },
+  US: { country: 'US', currency: 'USD', symbol: '$', locale: 'en-US', creatorMonthly: 7.99, creatorYearly: 65.99, proMonthly: 14.99, proYearly: 119.99, pppIndex: 152 },
   CH: { country: 'CH', currency: 'CHF', symbol: 'CHF', locale: 'de-CH', creatorMonthly: 8.99, creatorYearly: 69.99, proMonthly: 16.99, proYearly: 139.99, pppIndex: 176 },
   LU: { country: 'LU', currency: 'EUR', symbol: '€', locale: 'lb-LU', creatorMonthly: 8.99, creatorYearly: 69.99, proMonthly: 16.99, proYearly: 139.99, pppIndex: 167 },
   QA: { country: 'QA', currency: 'QAR', symbol: 'QR', locale: 'en-QA', creatorMonthly: 29.99, creatorYearly: 239.99, proMonthly: 56.99, proYearly: 479.99, pppIndex: 160 },

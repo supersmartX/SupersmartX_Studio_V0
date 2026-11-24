@@ -21,7 +21,7 @@ describe('getPricingForCountry', () => {
     expect(pricing.country).toBe('US');
     expect(pricing.currency).toBe('USD');
     expect(pricing.creatorMonthly).toBe(7.99);
-    expect(pricing.creatorYearly).toBe(59.99);
+    expect(pricing.creatorYearly).toBe(65.99);
     expect(pricing.proMonthly).toBe(14.99);
     expect(pricing.proYearly).toBe(119.99);
   });
@@ -118,7 +118,7 @@ describe('getServerPrice', () => {
   });
 
   it('returns creator_yearly price for creator_yearly + USD', () => {
-    expect(getServerPrice('creator_yearly', 'USD')).toBe(59.99);
+    expect(getServerPrice('creator_yearly', 'USD')).toBe(65.99);
   });
 
   it('returns pro_monthly price for pro_monthly + USD', () => {
