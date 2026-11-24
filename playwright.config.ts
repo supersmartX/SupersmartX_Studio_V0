@@ -40,7 +40,10 @@ export default defineConfig({
     { name: 'mobile-chrome', use: { ...devices['Pixel 5'] } },
   ],
   webServer: {
-    command: 'npm run dev',
+    // CI tests the built app (`npm run build` runs in the e2e job first), not
+    // the dev server — dev-mode React hides production-only failures. Local
+    // runs keep `next dev` for fast iteration.
+    command: process.env.CI ? 'npm run start' : 'npm run dev',
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

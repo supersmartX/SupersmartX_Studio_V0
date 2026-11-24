@@ -36,11 +36,34 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
+      - run: npx prisma validate
       - run: npx tsc --noEmit
 
   test:
     name: Tests
     runs-on: ubuntu-latest
+    # The database-backed suites (security, billing lifecycle, quotas,
+    # db-constraints, …) gate themselves on DATABASE_URL pointing at a
+    # throwaway PostgreSQL database — without this service they silently skip
+    # and CI green would mean nothing for DB behavior. See
+    # src/__tests__/helpers/test-database.ts for the prod-look guard.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: studio_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studio_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/studio_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5
@@ -48,14 +71,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
+      # The runtime never migrates; the test run needs the schema, so apply the
+      # committed migrations to the throwaway database first.
+      - run: npx prisma migrate deploy
       - run: npm test
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage/
-          retention-days: 7
 
   e2e:
     name: E2E Tests
@@ -63,12 +82,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
-      CASHFREE_SECRET_KEY: ci-not-a-real-secret
-      CASHFREE_APP_ID: ci-not-a-real-app-id
-      CASHFREE_ENV: production
-      NEXT_PUBLIC_CASHFREE_ENV: production
-      CASHFREE_API_VERSION: '2022-09-01'
-      VERCEL_ENV: production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5
@@ -93,12 +106,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
-      CASHFREE_SECRET_KEY: ci-not-a-real-secret
-      CASHFREE_APP_ID: ci-not-a-real-app-id
-      CASHFREE_ENV: production
-      NEXT_PUBLIC_CASHFREE_ENV: production
-      CASHFREE_API_VERSION: '2022-09-01'
-      VERCEL_ENV: production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5

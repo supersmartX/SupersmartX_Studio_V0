@@ -118,6 +118,25 @@ describeDb('database constraints (acceptance: Data Integrity)', () => {
     expect(await findExportJobByIdAndUser(job.id, alice.id)).toBeDefined();
   });
 
+  it('has the schema-less partial unique indexes (the concurrency authority)', async () => {
+    await ensureMigrated();
+    // These two partial unique indexes are created only by hand-written SQL in
+    // the paddle_billing migration: prisma/schema.prisma cannot express partial
+    // indexes, so Prisma does not know they exist. A future `prisma migrate
+    // dev` would compare its schema-derived DDL with the database and propose
+    // DROP INDEX for both — silently removing the double-checkout and
+    // duplicate-cancellation dedupe that checkout/route.ts relies on (P2002).
+    // This assertion runs in CI against a database built by `prisma migrate
+    // deploy`, so a dropped index fails here instead of in production.
+    const db = getDb();
+    const result = await db.execute({
+      sql: "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname IN ('billing_reservations_one_active_per_user', 'billing_operations_one_open_cancel_per_subscription')",
+    });
+    const names = new Set(result.rows.map((row) => String(row.indexname)));
+    expect(names.has('billing_reservations_one_active_per_user')).toBe(true);
+    expect(names.has('billing_operations_one_open_cancel_per_subscription')).toBe(true);
+  });
+
   it('job cleanup nulls exports.job_id instead of deleting the export', async () => {
     const user = await createUser('cleanup@example.com', 'Cleanup', 'hash');
     const job = await createExportJob(user.id, '{}');
