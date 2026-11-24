@@ -152,7 +152,7 @@ Live checkout and cancellation mutations are disabled in code. The implemented c
 - **FAILURES**: `401`, `404`, `500`. **RATE LIMIT**: none. **IDEMPOTENCY**: read-only.
 
 ### `GET|POST /api/export-jobs/cleanup`
-- **AUTH**: **public route** — secret-gated. Header `x-cleanup-secret` **or** `Authorization: Bearer` (Vercel cron sends `$CRON_SECRET`). Compared with `CLEANUP_SECRET` using `crypto.timingSafeEqual` (length-checked). Missing secret or missing env var → `401` (fail closed).
+- **AUTH**: **public route** — secret-gated. Header `x-cleanup-secret` **or** `Authorization: Bearer` (Vercel cron sends `$CRON_SECRET`). Compared with `CLEANUP_SECRET` (falling back to `CRON_SECRET` when `CLEANUP_SECRET` is unset) using `crypto.timingSafeEqual` (length-checked). Missing secret or no expected secret configured → `401` (fail closed).
 - **INPUT**: none.
 - **SERVER VALIDATION**: constant-time secret compare only.
 - **DB/R2 EFFECT**: lists jobs older than 30 days (excluding completed jobs and any key an `exports` row still references), deletes their R2 staging objects (best-effort), then deletes the `export_jobs` rows. `exports.job_id` is `ON DELETE SET NULL` — completed library entries survive.

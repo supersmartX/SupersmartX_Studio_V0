@@ -1,3 +1,5 @@
+<!-- HISTORICAL DOCUMENT: This file records a past audit or validation run. It is not the current source of truth. Verify every claim against the current codebase before relying on it. -->
+
 # Phase 9 — Final Recording Validation
 
 Validation date: 2026-10-26. Host: Windows 10.0.26300 (x64), 15.4 GB RAM, 48.8 GB free disk at start. App: local Next.js dev server at `http://localhost:3000/studio`.

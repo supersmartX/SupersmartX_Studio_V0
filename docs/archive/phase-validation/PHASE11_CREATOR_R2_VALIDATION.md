@@ -1,3 +1,5 @@
+<!-- HISTORICAL DOCUMENT: This file records a past audit or validation run. It is not the current source of truth. Verify every claim against the current codebase before relying on it. -->
+
 # Phase 11 — Creator and R2 Delivery Validation
 
 Validation date: 2026-10-27. Host: Windows 10.0.26300 (x64). App: local Next.js dev server at `http://localhost:3000`.

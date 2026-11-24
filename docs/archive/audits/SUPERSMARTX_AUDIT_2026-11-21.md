@@ -1,3 +1,5 @@
+<!-- HISTORICAL DOCUMENT: This file records a past audit or validation run. It is not the current source of truth. Verify every claim against the current codebase before relying on it. -->
+
 # SupersmartX Studio — Product Audit (HEAD `b9da87f`)
 
 > Audit date: 2026-11-21. **Read-only.** No source edits, no DB/env/Paddle changes, no commits, no CI status verified via `gh` (CLI unavailable). All findings reflect current state verified against HEAD `b9da87f`; findings identical to the 2026-11-20 audit are only restated if evidence contradicts resolution (see §8).
@@ -25,7 +27,7 @@ Everything here is achievable; the plan (§9) targets P0/P1 to ship revenue-safe
 - **Emails:** confirmation emails wired to `transaction.completed` in the worker (F-37). No emails for failed payment/renewal/cancel/refund (F-04, L2).
 - **Observability:** `/api/observe/client-error`, CSP/HSTS, sign-in CSRF, account deletion R2 purge + identity tombstone, forgot-password anti-enumeration. No admin routes, no telemetry of server errors, no external monitoring verification.
 - **Docs/roadmap:** prior audit doc `docs/PRODUCTION_READINESS_AUDIT_2026-11-20.md`, regional catalog `src/lib/pricing.ts` (63 countries / 49 currencies), configurable margins per currency.
-- **Process:** 4 CI jobs (lint, typecheck, test, e2e, build), daily DB backups (Supabase PITR documented in `docs/DATABASE.md`, unverified), 18 e2e specs with auth helpers.
+- **Process:** 4 CI jobs (lint, typecheck, test, e2e, build), daily DB backups (Supabase PITR documented in `docs/engineering/DATABASE.md`, unverified), 18 e2e specs with auth helpers.
 
 ---
 
@@ -56,9 +58,9 @@ All scenarios evaluated against HEAD code + red tests. **Billing-source-of-truth
 > P0–P3 severity: **P0** = blocks a function or causes real loss; **P1** = blocker at launch; **P2** = meaningful quality; **P3** = low-frequency/nice-to-have. Every finding has: ID, current behavior, expected behavior, exact file/API/DB location, evidence, impact, solution, dependencies, complexity.
 
 ### F-01 — Live checkout unavailable in production (revenue loss at launch) ⚠️ NEW (F-01)
-- **Current:** `isPaddleCheckoutEnabled()` returns true only when `getPaddleEnvironment() === 'sandbox'` (`src/lib/billing/paddle.ts:39-41`). All money-movement routes gate on it: `/api/paddle/checkout` (route.ts:107), `/api/paddle/quote` (route.ts:32), `/api/paddle/cancel` (route.ts:24) → in prod: quote GET returns 503, checkout POST returns 503, cancel is 503. `PADDLE_LIVE_CHECKOUT_DISABLED` is a documented *reserved* kill switch that **no route reads** since the Paddle migration (`docs/PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md:403`; `docs/ENVIRONMENT.md`, `docs/PRODUCTION-RUNBOOK.md:19`) — the real gate is the sandbox-only env check. No production onboarding or live-pricing config exists (`.env.example:56` documents the disabled var; production must set `PADDLE_ENVIRONMENT=live` deliberately).
+- **Current:** `isPaddleCheckoutEnabled()` returns true only when `getPaddleEnvironment() === 'sandbox'` (`src/lib/billing/paddle.ts:39-41`). All money-movement routes gate on it: `/api/paddle/checkout` (route.ts:107), `/api/paddle/quote` (route.ts:32), `/api/paddle/cancel` (route.ts:24) → in prod: quote GET returns 503, checkout POST returns 503, cancel is 503. `PADDLE_LIVE_CHECKOUT_DISABLED` is a documented *reserved* kill switch that **no route reads** since the Paddle migration (`docs/billing/PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md:403`; `docs/operations/ENVIRONMENT.md`, `docs/operations/PRODUCTION-RUNBOOK.md:19`) — the real gate is the sandbox-only env check. No production onboarding or live-pricing config exists (`.env.example:56` documents the disabled var; production must set `PADDLE_ENVIRONMENT=live` deliberately).
 - **Expected:** prod config with live checkout ON; automated launch checklist verifying sandbox→live transition; `isPaddleCheckoutEnabled` extended to a product feature-flag check (not just env), with manual review of live price catalog vs sandbox configs.
-- **Evidence:** `src/lib/billing/paddle.ts:33-50`; callers `src/app/api/paddle/checkout/route.ts:107`, `src/app/api/paddle/quote/route.ts:32`, `src/app/api/paddle/cancel/route.ts:24`; `docs/PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md:403`, `docs/PRODUCTION-RUNBOOK.md:19`, `docs/ENVIRONMENT.md:12`.
+- **Evidence:** `src/lib/billing/paddle.ts:33-50`; callers `src/app/api/paddle/checkout/route.ts:107`, `src/app/api/paddle/quote/route.ts:32`, `src/app/api/paddle/cancel/route.ts:24`; `docs/billing/PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md:403`, `docs/operations/PRODUCTION-RUNBOOK.md:19`, `docs/operations/ENVIRONMENT.md:12`.
 - **Impact:** $0 revenue at launch until a reviewed prod config; users hitting disabled routes get opaque 503s ("Paddle client is not configured" family) — also a support issue.
 - **Solution:** Feature-flag/env matrix (sandbox=ON, prod=ON after admin review), live-price parity test, launch checklist in this doc (§9).
 - **Deps:** Paddle dashboard live prices, sandbox price configs, prod DB.
@@ -110,7 +112,7 @@ All scenarios evaluated against HEAD code + red tests. **Billing-source-of-truth
 ## 5. Confirmed defects — P1 (launch blockers)
 
 ### F-08 — Legacy Cashflow pending-order reconciliation: **removed during migration (L4)** — superseded
-- **Current:** The legacy Cashflow system was deleted in `eb871f7` (the Paddle migration commit): `src/lib/pending-order-reconcile.ts` (-915 lines), `src/lib/pending-order-status.ts` (-112), `src/__tests__/pending-order-reconcile.test.ts` (-685); no `cashflow`/`pending-order` routes or dirs remain (verified via `Get-ChildItem src\app\api -Recurse -Directory | Select-String 'pending|cashflow'` → none).
+- **Current:** The legacy Cashflow system was deleted in `eb871f7` (the Paddle migration commit): `src/lib/billing/reservations.ts` (-915 lines), `src/app/api/paddle/checkout/status/route.ts` (-112), `src/__tests__/pending-order-reconcile.test.ts` (-685); no `cashflow`/`pending-order` routes or dirs remain (verified via `Get-ChildItem src\app\api -Recurse -Directory | Select-String 'pending|cashflow'` → none).
 - **Current gaps:** none from Cashflow (by design, Paddle-native payments reconcile via webhooks → `billing_event` → worker). `src/lib/db/index.ts` `createPendingOrder`/`findPendingOrderClaim` now serve the export-pending-order lifecycle (W8 work), with `createPendingOrder` production callers to be mapped if needed (verified: definition + tests only).
 - **Status:** Resolved by migration — recommend removing this finding; F-05's lack of invoice history (L3 UI) is the remaining adjacent gap.
 
@@ -152,7 +154,7 @@ Observed at HEAD `b9da87f` (reproducible: `npx vitest run src/__tests__/paddle-w
 ## 6. Unverified areas (separate confirmed defects)
 
 These areas are flagged as unverified — evidence is code/docs reading, not live replay:
-1. **Backup/PITR, hot standby, compute/DB reserved regions (L2):** Supabase PITR, hot standby, reserved regions — documented (`docs/DATABASE.md`, `docs/DEPLOYMENT.md`) but **not verified by live replay/failover tests** (no DR test run, no monitoring evidence). Open: DR test to prove recovery point + replication lag.
+1. **Backup/PITR, hot standby, compute/DB reserved regions (L2):** Supabase PITR, hot standby, reserved regions — documented (`docs/engineering/DATABASE.md`, `docs/operations/DEPLOYMENT.md`) but **not verified by live replay/failover tests** (no DR test run, no monitoring evidence). Open: DR test to prove recovery point + replication lag.
 2. **Environment catalog completeness (L4):** `.env.example` and ENVIRONMENT.md may omit newer vars (e.g., worker `AUTH_SECRET` needed by tests, `PADDLE_*_URL` alternatives) — audit via `npx envinfo`/config diff; not yet done.
 3. **Retry/backoff timing (L4, noted in §8):** transient-persistent errors release 'failed' events re-entering at next cron (24h); a P3 improvement is worker-side backoff — unverified how long current crons are.
 4. **DB-guard root cause is now partially narrowed (was F-13):** setup.ts no longer throws; guard disabled or ineffective — needs replay evidence: run `npm run test` with `DATABASE_URL=postgres://guest:guest@localhost:5432/studio?sslmode=disable` (the LOOKS_PRODUCTION placeholder) and observe the guard behavior.
@@ -249,7 +251,7 @@ All items must pass CI green:
 ## Appendix A — Evidence files
 
 - Test logs: `$env:TEMP\sx-test-full.log`, `$env:TEMP\sx-w2.log` (single-run).
-- Relevant code: `src/lib/billing/operations.ts`, `src/lib/billing/paddle.ts`, `src/lib/billing/mailer.ts`, `src/lib/billing/reservations.ts`, `src/lib/pricing.ts`, `src/components/dialogs/PricingModal.tsx`, `src/app/api/paddle/*`, `src/app/api/internal/paddle/worker/route.ts`, `src/lib/entitlements.ts`, `prisma/schema.prisma`, `src/__tests__/paddle-worker-route.test.ts`, `src/__tests__/paddle-checkout-persistence-route.test.ts`, `src/__tests__/paddle-checkout-status-route.test.ts`, `src/__tests__/pricing-modal-checkout-recovery.test.tsx`, `src/__tests__/test-database-guard.test.ts`, `src/__tests__/helpers/test-database.ts`, `src/test/helpers/test-database.ts`, `vitest.config.ts`, `src/__tests__/setup.ts`.
+- Relevant code: `src/lib/billing/operations.ts`, `src/lib/billing/paddle.ts`, `src/lib/email.ts`, `src/lib/billing/reservations.ts`, `src/lib/pricing.ts`, `src/components/dialogs/PricingModal.tsx`, `src/app/api/paddle/*`, `src/app/api/internal/paddle/worker/route.ts`, `src/lib/entitlements.ts`, `prisma/schema.prisma`, `src/__tests__/paddle-worker-route.test.ts`, `src/__tests__/paddle-checkout-persistence-route.test.ts`, `src/__tests__/paddle-checkout-status-route.test.ts`, `src/__tests__/pricing-modal-checkout-recovery.test.tsx`, `src/__tests__/test-database-guard.test.ts`, `src/__tests__/helpers/test-database.ts`, `src/test/helpers/test-database.ts`, `vitest.config.ts`, `src/__tests__/setup.ts`.
 - Verification: `npx tsc --noEmit` exit 0; `npm run lint`: 0 errors / 17 warnings; `npm run test`: 14 failed / 818 passed / 263 skipped.
 
 *(Sections 1–2 are drafting context; the actual audit deliverable is represented by §1–§11.)*

@@ -1,3 +1,5 @@
+<!-- HISTORICAL DOCUMENT: This file records a past audit or validation run. It is not the current source of truth. Verify every claim against the current codebase before relying on it. -->
+
 # FC-1.1 — SupersmartX Studio Product Contract (Re-Baseline)
 
 > **FC-1.0 is historical and its complete original text is unavailable.

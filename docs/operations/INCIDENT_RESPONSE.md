@@ -14,7 +14,7 @@ downloads, webhook failures) / P2 (degraded, single-feature) / P3 (cosmetic).
 3. Classify data vs availability: for suspected corruption, take a snapshot
    BEFORE any repair writes — `pg_dump "$DIRECT_URL"` (session mode, never the
    pooler), or note the restore point in the Supabase dashboard if PITR is
-   enabled (`DATABASE.md` § *Backup and restore*).
+   enabled (`../engineering/DATABASE.md` § *Backup and restore*).
 
 ## Common runbooks
 

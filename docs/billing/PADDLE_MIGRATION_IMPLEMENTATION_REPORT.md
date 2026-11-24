@@ -49,7 +49,7 @@ Local code changes, all covered by the test suites below:
   reader with its 1 MiB limit.
 - Runbook, environment, deployment, database, rollback, architecture and
   troubleshooting docs now describe Paddle Billing only; retired gateway
-  variables (`PADDLE_ENV`, `PADDLE_SECRET_KEY`, `PADDLE_APP_ID`,
+  variables (`PADDLE_ENVIRONMENT`, `PADDLE_API_KEY`, `PADDLE_APP_ID`,
   `PADDLE_API_VERSION`, `BILLING_OPS_SECRET`) and the deleted
   `/api/internal/billing/orders` route were removed.
 
@@ -339,7 +339,7 @@ The fixture gate is fixed, and production-looking URLs are now stripped from the
 - `prisma/schema.prisma`
 - `prisma/migrations/20261118000000_paddle_billing/migration.sql`
 - `scripts/rehearse-paddle-migrations.ps1`
-- `docs/MIGRATION-REHEARSAL.md`
+- `docs/billing/MIGRATION-REHEARSAL.md`
 
 ## Files changed in the current execution
 
@@ -358,8 +358,8 @@ The fixture gate is fixed, and production-looking URLs are now stripped from the
 - `src/__tests__/paddle-checkout-status-route.test.ts`
 - `src/__tests__/pricing-modal-checkout-recovery.test.tsx`
 - `scripts/rehearse-paddle-migrations.ps1`
-- `docs/API-CONTRACTS.md`
-- `docs/PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md`
+- `docs/engineering/API-CONTRACTS.md`
+- `docs/billing/PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md`
 
 ## Sandbox prerequisites
 

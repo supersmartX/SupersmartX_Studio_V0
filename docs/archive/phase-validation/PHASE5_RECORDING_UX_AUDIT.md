@@ -1,3 +1,5 @@
+<!-- HISTORICAL DOCUMENT: This file records a past audit or validation run. It is not the current source of truth. Verify every claim against the current codebase before relying on it. -->
+
 # Phase 5 — Recording UX Audit & Improvements (final report)
 
 Date: 2026-10-24 → 2026-10-25
@@ -55,7 +57,7 @@ Tests / E2E:
 | --- | --- |
 | `npx tsc --noEmit` | ✅ clean (after temporary-spec cleanup) |
 | `npm test` (Vitest) | ✅ 53 files passed / 24 skipped; 636 tests passed / 302 skipped |
-| `npm run build` (Next.js) | ✅ compiled successfully; TS finished; static pages generated; only pre-existing warnings (`PADDLE_SECRET_KEY`, middleware→proxy) |
+| `npm run build` (Next.js) | ✅ compiled successfully; TS finished; static pages generated; only pre-existing warnings (`PADDLE_API_KEY`, middleware→proxy) |
 | `e2e/recording-quality.spec.ts` (Chromium) | ✅ 4/4 |
 | `e2e/recording-loop.spec.ts` (Chromium) | ✅ 14/14 |
 | Phase 5 responsive audit (Chromium) | ✅ 9/9 across 390×844, 375×812, 390×600, 768×1024, 1024×768, 1280×720, 1366×768, 1440×900, 1920×1080 |

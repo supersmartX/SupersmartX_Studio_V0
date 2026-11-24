@@ -23,10 +23,10 @@
 ### What each step means
 
 1. **Contract** — The change is written down first, in the authoritative
-   contract layer: `docs/FC-1.1.md` for product/behaviour decisions (via its
-   §14 Change Request flow), `docs/API-CONTRACTS.md` for route contracts,
-   `docs/DATA-OWNERSHIP.md` for state ownership, `docs/ENTITLEMENTS.md` for plan
-   capabilities, `docs/EXPORT_PIPELINE.md` for the export artifact contract.
+   contract layer: `docs/archive/phase-validation/FC-1.1.md` for product/behaviour decisions (via its
+   §14 Change Request flow), `docs/engineering/API-CONTRACTS.md` for route contracts,
+   `docs/security/DATA-OWNERSHIP.md` for state ownership, `docs/engineering/ENTITLEMENTS.md` for plan
+   capabilities, `docs/engineering/EXPORT_PIPELINE.md` for the export artifact contract.
    A change with no contract representation does not start.
 
 2. **Authorization** — The change is explicitly approved by the owner. Frozen
@@ -97,7 +97,7 @@
 ## How a future change flows (example)
 
 To change an export limit:
-1. Contract: CR against `ENTITLEMENTS.md` + `API-CONTRACTS.md` (and FC-1.1 §14
+1. Contract: CR against `../engineering/ENTITLEMENTS.md` + `../engineering/API-CONTRACTS.md` (and FC-1.1 §14
    if it touches a frozen clause).
 2. Authorization: owner approves the CR in-repo.
 3. Implementation: `entitlements.ts` + the enforcing route(s).

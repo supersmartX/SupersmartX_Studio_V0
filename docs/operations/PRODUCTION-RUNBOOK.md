@@ -3,13 +3,13 @@
 > Phase 4 deliverable. Operational reference for the production environment
 > (Vercel + Supabase PostgreSQL + Cloudflare R2 + Paddle + Resend). **Variable names and
 > operational semantics only — never secret values.** Duplicate operational
-> material in `DEPLOYMENT.md`, `ROLLBACK.md`, `ENVIRONMENT.md`, `TROUBLESHOOTING.md`,
+> material in `../operations/DEPLOYMENT.md`, `../operations/ROLLBACK.md`, `../operations/ENVIRONMENT.md`, `../operations/TROUBLESHOOTING.md`,
 > and `INCIDENT_RESPONSE.md` is cross-referenced rather than copied; where this
 > runbook adds detail it says so.
 
 ## 1. Environment variables (names only)
 
-Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
+Source of truth: `.env.example`. Full semantics: `../operations/ENVIRONMENT.md`.
 
 | Group | Variables | Production notes |
 | ----- | --------- | ---------------- |
@@ -19,7 +19,7 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
 | Payments | `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_ENVIRONMENT`, `PADDLE_LIVE_CHECKOUT_DISABLED`, `PADDLE_CHECKOUT_URL` (optional `PADDLE_CHECKOUT_URLS`), `PADDLE_CLIENT_TOKEN`, `PADDLE_SANDBOX_*` / reserved `PADDLE_LIVE_*` | Paddle **Billing** SDK. `PADDLE_ENVIRONMENT` must be explicitly `sandbox` or `live`; missing/invalid mode disables the client and payment routes answer `503`. Checkout and cancellation are implemented for `sandbox` only, so production checkout stays disabled until a reviewed live change ships. `PADDLE_CLIENT_TOKEN` is the public `test_…` Paddle.js token rendered into `/pay` — never the API key |
 | Email | `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | Optional; mail failures are best-effort and never block activation |
 | Database | `DATABASE_URL`, `DIRECT_URL` | **Both required.** `DATABASE_URL` = Supavisor transaction pooler (`:6543`) for runtime; `DIRECT_URL` = session/direct connection (`:5432`) for `prisma migrate`. Production fails closed (`DatabaseNotConfiguredError`) without a `postgres://` `DATABASE_URL`; there is no file or in-memory fallback |
-| Storage | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_SIGNED_URL_TTL_SECONDS` | All four required or upload/download routes answer `503`. Server-only — never a `NEXT_PUBLIC_R2_*`. Bucket CORS must allow the studio origin (root `DEPLOYMENT.md` §1 “Cloudflare R2 bucket CORS (required for Creator export)”) |
+| Storage | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_SIGNED_URL_TTL_SECONDS` | All four required or upload/download routes answer `503`. Server-only — never a `NEXT_PUBLIC_R2_*`. Bucket CORS must allow the studio origin (root `../operations/DEPLOYMENT.md` §1 “Cloudflare R2 bucket CORS (required for Creator export)”) |
 | Cron/cleanup | `CLEANUP_SECRET`, `CRON_SECRET` | Vercel sends `Authorization: Bearer $CRON_SECRET` to both cron paths: the Paddle worker compares it directly, the 02:00 UTC export sweep compares it against `CLEANUP_SECRET`. Set `CLEANUP_SECRET` to the same value as `CRON_SECRET` |
 | Admin/monitoring | `ADMIN_EMAIL`, `DISCORD_WEBHOOK_URL` | `DISCORD_WEBHOOK_URL` is used **only** by `/api/feedback` (finding F-07) |
 | Observability | `OBSERVE_SALT` (fallback `AUTH_SALT` → `NEXTAUTH_SECRET` → built-in) | Hashes user ids in logs; set `OBSERVE_SALT` explicitly in prod so log correlation survives secret rotation |
@@ -48,11 +48,11 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
   optional PITR add-on; retention and PITR availability are project plan
   settings this repo cannot read — confirm them in the dashboard. Portable
   logical dumps via `pg_dump "$DIRECT_URL"`; restore into a **new** project and
-  verify before any cutover. Full procedure: `DATABASE.md` § *Backup and
+  verify before any cutover. Full procedure: `../engineering/DATABASE.md` § *Backup and
   restore*. A restore is unverified until drilled.
 - **Rollback caveat**: migrations are additive-only, so an older build still
   understands the newer schema (extra tables/columns are ignored) and an app
-  rollback needs no schema rollback — see `ROLLBACK.md`.
+  rollback needs no schema rollback — see `../operations/ROLLBACK.md`.
 - **Fail-closed**: production without a `postgres://` `DATABASE_URL` does not
   silently fall back to a file or `:memory:`; requests error.
 
@@ -64,7 +64,7 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
   URLs (video/mp4 only, single key) or the server-mediated multipart route;
   downloads/preview are 3600 s signed GET URLs.
 - **CORS**: bucket must allow `PUT`/`POST`/`GET` from the studio origin — required
-  for the presigned flow (root `DEPLOYMENT.md` §1 “Cloudflare R2 bucket CORS
+  for the presigned flow (root `../operations/DEPLOYMENT.md` §1 “Cloudflare R2 bucket CORS
   (required for Creator export)”).
 - **Lifecycle hygiene**: nightly cron `GET /api/export-jobs/cleanup` (`0 2 * * *`)
   deletes staging objects + `export_jobs` rows older than 30 days, excluding keys
@@ -76,7 +76,7 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
 ## 4. Paddle (payments)
 
 > Paddle **Billing** through `@paddle/paddle-node-sdk`. The previous gateway flow
-> (`pending_orders`, `/api/paddle/verify`, `PADDLE_ENV`, order termination) is
+> (`pending_orders`, `/api/paddle/verify`, `PADDLE_ENVIRONMENT`, order termination) is
 > retired; those tables and helpers remain only for historical rows.
 
 - **Configuration**: `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, and an explicit
@@ -176,11 +176,11 @@ Source of truth: `.env.example`. Full semantics: `ENVIRONMENT.md`.
 ## 8. Rollback
 
 - **App**: redeploy the previous known-good commit in Vercel (instant) — see
-  `ROLLBACK.md`.
+  `../operations/ROLLBACK.md`.
 - **Schema**: no down-migrations exist; additive-only Prisma migrations mean the
   prior build runs against the current schema safely. Never hand-revert
   `_prisma_migrations` or `schema_meta`; correct the schema forward or restore a
-  backup (`DATABASE.md`).
+  backup (`../engineering/DATABASE.md`).
 - **Env**: rolling back env vars requires redeploy for `NEXT_PUBLIC_*`.
 - **Post-rollback**: re-run `/api/health` + smoke; record the rollback reason.
 
@@ -233,7 +233,7 @@ The current release is **sandbox-only**. `isPaddleCheckoutEnabled()` returns tru
 only for `PADDLE_ENVIRONMENT=sandbox`, so `/api/paddle/quote`, `/checkout`, and
 `/cancel` answer `503` in `live` no matter what credentials are present. Live
 checkout requires a reviewed code change and the evidence listed in
-`PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md`; do not enable it by editing env vars
+`../billing/PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md`; do not enable it by editing env vars
 alone.
 
 - `PADDLE_ENVIRONMENT` is explicit — never inferred from `NODE_ENV`. Missing or

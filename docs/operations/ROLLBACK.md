@@ -19,7 +19,7 @@ and no code in this repo requires downgrading:
 - If a deploy must be reverted because a migration itself is wrong, either
   restore the pre-deploy backup into a scratch Supabase project and cut over, or
   ship a new additive migration that corrects it. Procedure:
-  `DATABASE.md` § *Backup and restore*.
+  `../engineering/DATABASE.md` § *Backup and restore*.
 - Never run `DROP TABLE` by hand; never run `prisma db push` to "reset" a
   schema — it drops the partial unique indexes that enforce one live checkout
   (`billing_reservations_one_active_per_user`, legacy
@@ -38,7 +38,7 @@ and no code in this repo requires downgrading:
 ## Rollback drill (recommended quarterly)
 
 Redeploy the previous production build against a scratch Supabase project
-restored from the latest backup (`DATABASE.md` § *Backup and restore*), replay
+restored from the latest backup (`../engineering/DATABASE.md` § *Backup and restore*), replay
 the smoke list, record result.
 
 ## Paddle rollback boundary

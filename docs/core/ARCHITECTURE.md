@@ -27,7 +27,7 @@ subscriptions. Next.js 16 App Router, React 19, Tailwind 4.
   client-error, feedback, recordings, user stats/delete, exports (list, by id,
   preview, presigned-put, complete), export-jobs
   (create, status patch, cleanup). Full per-route contracts:
-  `API-CONTRACTS.md`.
+  `../engineering/API-CONTRACTS.md`.
 - **Auth**: NextAuth credentials + optional Google OAuth; edge gate in
   `middleware.ts` (JWT with user id required; `PUBLIC_API_ROUTES` allowlist of
   7); every session route re-reads the user from DB — plan never comes from the
@@ -39,7 +39,7 @@ subscriptions. Next.js 16 App Router, React 19, Tailwind 4.
   that re-reads Paddle and projects
   entitlements under a per-user `FOR UPDATE` lock. Unique provider IDs plus an
   atomic `entitlementGrantedAt` claim prevent duplicate grants. Live mutations
-  are disabled in code (`API-CONTRACTS.md`, `ENTITLEMENTS.md`).
+  are disabled in code (`../engineering/API-CONTRACTS.md`, `../engineering/ENTITLEMENTS.md`).
 - **Export jobs**: job state machine (`pending → encoding → uploading →
   completed|failed`) where `completed` is server-only; Phase 3 artifact
   verification in `/api/exports/complete` (final authority over bytes).
@@ -82,7 +82,7 @@ Teleprompter ─┐
 Camera+Mic ───┼─► MediaRecorder ─► IndexedDB ─► MediaBunny encode ─► MP4 Blob ─┐
               │                                                                ├─► R2 (signed PUT or multipart)
 AuthModal ────┼─► NextAuth (credentials/OAuth) ─► PostgreSQL/Supabase ───────┘
-PricingModal ─┼─► /api/paddle/order ─► Paddle ─► webhook ─► plan activation
+PricingModal ─┼─► /api/paddle/quote ─► Paddle ─► webhook ─► plan activation
 LibraryPanel ─┴─► /api/exports, /download, /preview (signed GET URLs)
 ```
 
@@ -104,7 +104,7 @@ LibraryPanel ─┴─► /api/exports, /download, /preview (signed GET URLs)
 - `src/hooks/` — `useExportPipeline`, `useRecorder`, `useCamera`,
   `useMasterRecording`, `useRecordingTimer`, UI hooks.
 - `src/__tests__/` — vitest suites. `e2e/` — Playwright specs.
-- `docs/` — handover docs; the doc map lives in `docs/CHANGE-CONTROL.md` §The rule.
+- `docs/` — handover docs; the doc map lives in `docs/core/CHANGE-CONTROL.md` §The rule.
 
 ## Server-authoritative boundaries
 

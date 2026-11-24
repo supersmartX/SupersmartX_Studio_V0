@@ -155,10 +155,10 @@ configuration is **NOT VERIFIED** regardless of what the source says.
 5. Never run `prisma db push` or `prisma migrate dev` against this project: the
    `pending_orders_one_live_per_user` partial index has no Prisma
    representation, so both report drift and `db push` would drop it. Full
-   rules: `docs/DATABASE.md`.
+   rules: `docs/engineering/DATABASE.md`.
 6. Backups are provider-managed (*Database → Backups*, plus the optional PITR
    add-on). Restore into a new project and verify before any cutover —
-   `docs/DATABASE.md` § *Backup and restore*.
+   `docs/engineering/DATABASE.md` § *Backup and restore*.
 
 ### Cloudflare R2 (Optional — for cloud storage)
 
@@ -250,7 +250,7 @@ npx vitest run src/__tests__/db-constraints.test.ts src/__tests__/db-durability.
 
 **Rollback:** no down-migrations exist; additive-only means the previous build
 reads the newer schema safely. Restore a backup only for a bad data change, not
-for a bad app deploy — see `docs/ROLLBACK.md`.
+for a bad app deploy — see `docs/operations/ROLLBACK.md`.
 
 ---
 
@@ -423,7 +423,7 @@ vercel logs | grep -i error
    and redeploy. Production fails closed (`DATABASE_NOT_CONFIGURED`) rather than
    falling back to another database.
 4. Corruption or a bad write: restore a backup into a scratch project and verify
-   before cutover — `docs/DATABASE.md` § *Backup and restore*. Never repair by
+   before cutover — `docs/engineering/DATABASE.md` § *Backup and restore*. Never repair by
    deleting `pending_orders`/`processed_webhooks` rows.
 
 ### Scenario: Auth Failure

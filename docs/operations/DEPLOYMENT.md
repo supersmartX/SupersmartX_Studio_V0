@@ -25,8 +25,10 @@ works if cron and env are provided equivalently.
 5. Vercel crons: `GET /api/internal/paddle/worker` (`0 3 * * *`, daily — Hobby
    does not allow sub-daily schedules; webhook receipts trigger it in between)
    uses `CRON_SECRET`; `GET /api/export-jobs/cleanup` (`0 2 * * *`) compares the
-   same bearer against `CLEANUP_SECRET`. Vercel sends one bearer value to both,
-   so set `CLEANUP_SECRET` to the same value as `CRON_SECRET`.
+   same bearer against `CLEANUP_SECRET` (falling back to `CRON_SECRET` when
+   `CLEANUP_SECRET` is unset). Vercel sends one bearer value to both, so either
+   set `CLEANUP_SECRET` to the same value as `CRON_SECRET` or set only
+   `CRON_SECRET`.
 6. Domain: apex + www redirect to `studio.` (see `next.config.ts`
    redirects); HSTS preload is enabled — only serve HTTPS.
 
@@ -44,7 +46,7 @@ works if cron and env are provided equivalently.
 The current release is **sandbox-only**. `isPaddleCheckoutEnabled()` returns true
 only for `PADDLE_ENVIRONMENT=sandbox`, so quote, checkout, and cancel answer
 `503` in `live` regardless of credentials. Live checkout requires a reviewed code
-change plus the evidence in `PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md`.
+change plus the evidence in `../billing/PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md`.
 
 - `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, and an explicit `PADDLE_ENVIRONMENT`
   (`sandbox` or `live`) are required. Missing/invalid mode disables the SDK client

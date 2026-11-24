@@ -31,7 +31,7 @@ Checkout and cancellation mutations are implemented for `PADDLE_ENVIRONMENT=sand
 only (`isPaddleCheckoutEnabled()`), and every payment route fails closed with
 `503` when the environment, SDK client, catalog mapping, or approved payment page
 is missing. Live checkout requires a reviewed code change plus the evidence in
-`PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md`. No live payment is required for
+`../billing/PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md`. No live payment is required for
 automated tests: use mocked network and dummy credentials.
 
 Verified webhook events are applied by `GET /api/internal/paddle/worker`, which

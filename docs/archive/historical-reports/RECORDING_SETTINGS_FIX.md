@@ -1,3 +1,5 @@
+<!-- HISTORICAL DOCUMENT: This file records a past audit or validation run. It is not the current source of truth. Verify every claim against the current codebase before relying on it. -->
+
 # Recording settings access - 2026-11-03
 
 Approved scope: keep the Studio web app settings accessible during countdown,

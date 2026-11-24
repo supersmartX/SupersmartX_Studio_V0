@@ -1,3 +1,5 @@
+<!-- HISTORICAL DOCUMENT: This file records a past audit or validation run. It is not the current source of truth. Verify every claim against the current codebase before relying on it. -->
+
 # Phase 10 — Export, Local Master, and R2 Delivery Validation
 
 Validation date: 2026-10-27 local (runs timestamped 2026-10-26 18:33–19:00 UTC). Host: Windows 10.0.26300 (x64). App: local Next.js dev server at `http://localhost:3000/studio`. Browsers: Playwright Chromium 151.0.7922.34 and Microsoft Edge 156.0.4314.42, persistent profiles with the Phase 9 recordings.

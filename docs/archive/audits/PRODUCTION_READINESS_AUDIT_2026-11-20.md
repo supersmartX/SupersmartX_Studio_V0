@@ -1,3 +1,5 @@
+<!-- HISTORICAL DOCUMENT: This file records a past audit or validation run. It is not the current source of truth. Verify every claim against the current codebase before relying on it. -->
+
 # SupersmartX Studio — Production Readiness Audit
 
 **Audit date:** 2026-11-20  
@@ -9,7 +11,7 @@
 
 The supplied audit request ends during section G (“Dependency Map — Show how”). This report covers the visible instructions and includes a dependency map. The checkout was clean before inspection. I read the actual source, schema, migrations, test configuration and current Paddle migration report. I did not inspect credential values, query a database, access Vercel/deployment logs, call Paddle/Cashfree, or access production systems.
 
-The implementation report at `docs/PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md` contains historical and current-status claims, including a record that the two Paddle schema migrations were applied to production. Those statements are repository documentation only; this audit did not independently verify production state. It also contains older sections that conflict with its newer status. Treat the top “Current production-readiness review” as the document’s latest stated status, not fresh external evidence.
+The implementation report at `docs/billing/PADDLE_MIGRATION_IMPLEMENTATION_REPORT.md` contains historical and current-status claims, including a record that the two Paddle schema migrations were applied to production. Those statements are repository documentation only; this audit did not independently verify production state. It also contains older sections that conflict with its newer status. Treat the top “Current production-readiness review” as the document’s latest stated status, not fresh external evidence.
 
 ## A. Executive summary
 
@@ -119,13 +121,13 @@ The reported production `503` cannot be assigned an exact cause from available e
 
 ### HIGH — Runbook and configuration names describe a different Paddle integration
 
-**Evidence:** `.env.example` and runtime use `PADDLE_ENVIRONMENT`, `PADDLE_API_KEY` and `PADDLE_WEBHOOK_SECRET`. `docs/PRODUCTION-RUNBOOK.md` still instructs `PADDLE_ENV`, `NEXT_PUBLIC_PADDLE_ENV`, `PADDLE_SECRET_KEY`, `PADDLE_API_VERSION`, and refers to `/api/paddle/verify`. These names/routes are not the current source contract. The implementation report contains older statements about a five-minute worker and prior lifecycle behavior superseded by its newer section.
+**Evidence:** `.env.example` and runtime use `PADDLE_ENVIRONMENT`, `PADDLE_API_KEY` and `PADDLE_WEBHOOK_SECRET`. `docs/operations/PRODUCTION-RUNBOOK.md` still instructs `PADDLE_ENVIRONMENT`, `PADDLE_CLIENT_TOKEN`, `PADDLE_API_KEY`, `PADDLE_API_VERSION`, and refers to `/api/paddle/verify`. These names/routes are not the current source contract. The implementation report contains older statements about a five-minute worker and prior lifecycle behavior superseded by its newer section.
 
 **Failure:** an operator follows the stale runbook, sets unused variables, leaves required runtime variables absent or expects a route that no longer exists; quote/checkout/webhook calls then fail closed (often 503), and incident response looks in the wrong place.
 
 **Impact:** prolonged checkout outage or webhook outage; possible incorrect manual operations.
 
-**Required resolution:** make `.env.example`, `docs/ENVIRONMENT.md`, deployment/runbook instructions and implementation report agree with the current source. Add a deployment preflight that checks names/presence and environment pairing without printing values.
+**Required resolution:** make `.env.example`, `docs/operations/ENVIRONMENT.md`, deployment/runbook instructions and implementation report agree with the current source. Add a deployment preflight that checks names/presence and environment pairing without printing values.
 
 **Deferrable:** No before enabling billing.
 
@@ -143,7 +145,7 @@ The reported production `503` cannot be assigned an exact cause from available e
 
 ### HIGH — Tax policy and regional eligibility are not launch-verified
 
-**Evidence:** quote UI says Paddle calculates applicable tax and displays a final total (`PricingModal`, around line 569); configured Paddle prices require `taxMode: 'location'` (`src/lib/billing/paddle.ts`); paid-event validation permits tax when totals are internally consistent but verifies actual values only from future provider events. `docs/ENVIRONMENT.md` marks production tax/copy unresolved. No provider account/configuration or tax evidence was inspected.
+**Evidence:** quote UI says Paddle calculates applicable tax and displays a final total (`PricingModal`, around line 569); configured Paddle prices require `taxMode: 'location'` (`src/lib/billing/paddle.ts`); paid-event validation permits tax when totals are internally consistent but verifies actual values only from future provider events. `docs/operations/ENVIRONMENT.md` marks production tax/copy unresolved. No provider account/configuration or tax evidence was inspected.
 
 **Failure:** taxes may be added to the stored regional amount, changing what a customer pays; provider country/currency eligibility, tax registrations, inclusive/exclusive display requirements and invoice treatment remain unproven.
 

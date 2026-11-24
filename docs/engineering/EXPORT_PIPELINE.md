@@ -44,7 +44,7 @@ rotates before comparing, so a 1920×1080 Creator ceiling permits 1080×1920.
 
 Requirement (FC-1.1 Phase 3 boundary): **the server verifies the actual bytes
 before any claim, quota, or DB write exists** — the server is the final
-authority. Contract detail per route: `API-CONTRACTS.md` §4.
+authority. Contract detail per route: `../engineering/API-CONTRACTS.md` §4.
 
 ### Lifecycle
 
@@ -86,14 +86,14 @@ encode → artifact → byte verification → ownership → completion claim →
 8. **record** — `atomicFinalizeExport` writes the `exports` row + job
    `completed` in one token-guarded transaction.
 9. **download** — `/api/download` owner+plan+completed+prefix checks, sign URL
-   **before** consuming the download credit (`API-CONTRACTS.md` §5 ordering note).
+   **before** consuming the download credit (`../engineering/API-CONTRACTS.md` §5 ordering note).
 
 ### Failure & retry semantics
 
 | Class | Examples | Behaviour |
 | ----- | -------- | --------- |
 | Artifact rejection (400) | `not_mp4`, `missing_moov`, `dimension_mismatch`, `duration_mismatch`, `missing_audio`, bad content-type, oversize object | Staging object **deleted**; job stays `uploading` → corrected re-upload + complete retries; **nothing consumed** |
-| Ownership/claim conflicts (403/409/413) | key mismatch, foreign key, concurrent finalization, already completed, verified size > cap | As documented in `API-CONTRACTS.md` §4; quotas reverted where consumed |
+| Ownership/claim conflicts (403/409/413) | key mismatch, foreign key, concurrent finalization, already completed, verified size > cap | As documented in `../engineering/API-CONTRACTS.md` §4; quotas reverted where consumed |
 | R2/IO errors (500/502/503) | reader failure, missing eTag, final-object mismatch | **Not** evidence against the artifact: staging kept (500) or final object deleted + claim released (502); retry-safe |
 | Replay | duplicate `/complete` after success | Idempotent echo of `exportId`/`r2Key` — no double charge, no duplicate rows |
 | Watermark | Free watermark presence | Pixel property — not assertable from container bytes; decoded-pixel proof is the wm-on vs wm-off pill-region diff in `npm run test:mp4` (`scripts/state8-e2e`), geometry/fillText in the `export-watermark` unit tests (documented in `artifact-verification.test.ts:24-27`) |

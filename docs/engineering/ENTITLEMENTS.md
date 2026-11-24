@@ -54,7 +54,7 @@ Rules for maintainers:
   dimensions are ignored or must match the clamped preset exactly.
 - `isPlanActive(expiresAt, plan)`: free is always active; paid without a
   future expiry fails CLOSED (treated as expired).
-- Prices live in `src/lib/pricing.ts`; `/api/paddle/order` resolves price
+- Prices live in `src/lib/pricing.ts`; `/api/paddle/quote` resolves price
   by server geo header (client country is a dev-only fallback) and the
   webhook re-verifies amount/currency against `pending_orders`. The order
   response carries that authoritative amount/currency back to the sheet, which

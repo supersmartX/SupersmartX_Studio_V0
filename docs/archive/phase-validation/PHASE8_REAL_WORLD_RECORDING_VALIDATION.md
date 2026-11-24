@@ -1,3 +1,5 @@
+<!-- HISTORICAL DOCUMENT: This file records a past audit or validation run. It is not the current source of truth. Verify every claim against the current codebase before relying on it. -->
+
 # Phase 8 — Real-World Recording Quality Validation
 
 **Classification: RED for the reviewed capture conditions; root cause unresolved.** This is a finding about these retained captures, not a universal claim about every device or session. The observed recordings repeatedly decode at about 9.96 fps despite 30 fps track settings, and representative video samples are near-black. The samples therefore fail a basic usable-picture check, while the cause (scene, camera state, browser/device path, or capture conditions) was not isolated. Audio quality and A/V sync remain unrateable because the captures contain no controlled speech or sync marker.

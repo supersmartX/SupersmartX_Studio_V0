@@ -284,7 +284,7 @@ corrects the schema. Never hand-revert `_prisma_migrations`.
 
 **A restore is unverified until it has been drilled** — quarterly is the
 suggested cadence: restore the newest backup into a scratch project, run
-`npx prisma migrate status`, run the smoke list from `DEPLOYMENT.md`, and record
+`npx prisma migrate status`, run the smoke list from `../operations/DEPLOYMENT.md`, and record
 the date and result.
 
 `prisma migrate status` is acceptable on a scratch copy but **must not be run
