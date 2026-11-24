@@ -51,7 +51,7 @@ export function getPaddleClient(): Paddle | null {
 
 type PaddleAmountUnit = 'major' | 'minor';
 
-function currencyFractionDigits(currency: string): number | null {
+export function currencyFractionDigits(currency: string): number | null {
   const code = currency.trim().toUpperCase();
   try {
     if (!/^[A-Z]{3}$/.test(code) || !Intl.supportedValuesOf('currency').includes(code)) {

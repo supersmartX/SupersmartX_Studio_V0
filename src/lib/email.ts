@@ -122,85 +122,42 @@ function buildUserConfirmationHtml(data: PaymentEmailData): string {
   const accessUntilStr = formatAccessUntil(data.accessUntil);
   const nextChargeAtStr = formatAccessUntil(data.nextChargeAt);
 
+  const featureRows = getPlanFeatures(data.plan).map(f =>
+    `<tr><td style="padding:7px 0;font-size:13px;color:#d4d4d8;"><span style="display:inline-block;width:20px;height:20px;margin-right:8px;border-radius:50%;background:#312e81;color:#c4b5fd;text-align:center;line-height:20px;">&#10003;</span>${sanitizeHtml(f)}</td></tr>`
+  ).join('');
+
   return `
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background-color:#0a0a0f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0a0f;padding:40px 20px;">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Payment confirmed | SupersmartX Studio</title></head>
+<body style="margin:0;padding:0;background:#09090b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#fafafa;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(145deg,#111827 0%,#09090b 55%,#171126 100%);padding:28px 14px;">
     <tr><td align="center">
-      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#12121a;border-radius:16px;border:1px solid #1e1e2e;overflow:hidden;">
-        <!-- Header -->
-        <tr><td style="padding:32px 32px 24px;border-bottom:1px solid #1e1e2e;">
-          <h1 style="margin:0;font-size:20px;font-weight:700;color:#ffffff;">SupersmartX Studio</h1>
-          <p style="margin:8px 0 0;font-size:14px;color:#a1a1aa;">Payment Confirmation</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;background:#111116;border:1px solid #2a2a35;border-radius:22px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.35);">
+        <tr><td style="padding:26px 30px;border-bottom:1px solid #27272f;">
+          <table role="presentation" width="100%"><tr>
+            <td><div style="font-size:19px;font-weight:800;letter-spacing:-.3px;color:#fff;">SupersmartX <span style="color:#a78bfa;">Studio</span></div><div style="margin-top:5px;font-size:12px;color:#a1a1aa;letter-spacing:.5px;text-transform:uppercase;">Payment confirmation</div></td>
+            <td align="right"><span style="display:inline-block;padding:7px 11px;border-radius:999px;background:#123b2b;color:#86efac;font-size:12px;font-weight:700;">&#10003;&nbsp; Paid</span></td>
+          </tr></table>
         </td></tr>
-
-        <!-- Success Icon -->
-        <tr><td style="padding:32px 32px 0;text-align:center;">
-          <div style="width:56px;height:56px;border-radius:50%;background-color:#22c55e20;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;">
-            <span style="font-size:28px;">&#10003;</span>
-          </div>
-          <h2 style="margin:0;font-size:18px;font-weight:600;color:#ffffff;">Payment Successful</h2>
-          <p style="margin:8px 0 0;font-size:14px;color:#a1a1aa;">Thank you, ${safeName}!</p>
+        <tr><td style="padding:42px 30px 30px;text-align:center;">
+          <div style="width:72px;height:72px;margin:0 auto 20px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#a855f7);box-shadow:0 10px 30px rgba(124,58,237,.35);font-size:38px;line-height:72px;color:#fff;">&#10003;</div>
+          <h1 style="margin:0;font-size:30px;line-height:1.15;letter-spacing:-.8px;color:#fff;">You’re ready to create.</h1>
+          <p style="margin:12px 0 0;font-size:16px;line-height:1.6;color:#a1a1aa;">Thanks, ${safeName}. Your ${sanitizeHtml(planName)} access is now active.</p>
         </td></tr>
-
-        <!-- Receipt -->
-        <tr><td style="padding:24px 32px;">
-          <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#1a1a26;border-radius:12px;border:1px solid #1e1e2e;">
-            <tr><td style="padding:20px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:4px 0;font-size:13px;color:#71717a;">Plan</td>
-                  <td style="padding:4px 0;font-size:13px;color:#ffffff;text-align:right;font-weight:600;">${sanitizeHtml(planName)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0;font-size:13px;color:#71717a;">Amount</td>
-                  <td style="padding:4px 0;font-size:13px;color:#22c55e;text-align:right;font-weight:700;">${sanitizeHtml(price)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0;font-size:13px;color:#71717a;">Access term</td>
-                  <td style="padding:4px 0;font-size:13px;color:#ffffff;text-align:right;">${data.billingPeriod === 'monthly' ? '1 month' : '1 year'}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0;font-size:13px;color:#71717a;">Order ID</td>
-                  <td style="padding:4px 0;font-size:12px;color:#a1a1aa;text-align:right;font-family:monospace;">${safeOrderId}</td>
-                </tr>
-                ${accessUntilStr ? `<tr>
-                  <td style="padding:4px 0;font-size:13px;color:#71717a;">Access until</td>
-                  <td style="padding:4px 0;font-size:13px;color:#ffffff;text-align:right;">${sanitizeHtml(accessUntilStr)}</td>
-                </tr>` : ''}
-                ${nextChargeAtStr ? `<tr>
-                  <td style="padding:4px 0;font-size:13px;color:#71717a;">Next billing date</td>
-                  <td style="padding:4px 0;font-size:13px;color:#ffffff;text-align:right;">${sanitizeHtml(nextChargeAtStr)}</td>
-                </tr>` : ''}
-              </table>
-            </td></tr>
-          </table>
-        </td></tr>
-
-        <!-- Plan Features -->
-        <tr><td style="padding:0 32px 24px;">
-          <p style="margin:0 0 12px;font-size:13px;color:#a1a1aa;font-weight:600;">Your ${sanitizeHtml(planName)} plan includes:</p>
-          <table width="100%" cellpadding="0" cellspacing="0">
-            ${getPlanFeatures(data.plan).map(f =>
-              `<tr><td style="padding:4px 0;font-size:13px;color:#a1a1aa;">&#10003; ${f}</td></tr>`
-            ).join('')}
-          </table>
-        </td></tr>
-
-        <!-- CTA -->
-        <tr><td style="padding:0 32px 32px;">
-          <a href="${APP_URL}/studio" style="display:block;width:100%;padding:14px;background-color:#7C3AED;color:#ffffff;text-align:center;text-decoration:none;border-radius:10px;font-size:14px;font-weight:600;">Open SupersmartX Studio</a>
-        </td></tr>
-
-        <!-- Footer -->
-        <tr><td style="padding:20px 32px;border-top:1px solid #1e1e2e;">
-          <p style="margin:0;font-size:11px;color:#52525b;text-align:center;">
-            This is your SupersmartX Studio payment confirmation. Paddle sends your official invoice separately.<br>
-            Questions? Reply to this email or contact <a href="mailto:${sanitizeAttr(ADMIN_EMAIL)}" style="color:#7C3AED;">${sanitizeHtml(ADMIN_EMAIL)}</a>
-          </p>
-        </td></tr>
+        <tr><td style="padding:0 30px 28px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#1c1730,#17171f);border:1px solid #3b2b63;border-radius:16px;">
+          <tr><td style="padding:22px 24px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="padding:6px 0;color:#a1a1aa;font-size:13px;">Plan</td><td align="right" style="padding:6px 0;color:#fff;font-size:14px;font-weight:700;">${sanitizeHtml(planName)}</td></tr>
+            <tr><td style="padding:6px 0;color:#a1a1aa;font-size:13px;">Amount paid</td><td align="right" style="padding:6px 0;color:#c4b5fd;font-size:19px;font-weight:800;">${sanitizeHtml(price)}</td></tr>
+            <tr><td style="padding:6px 0;color:#a1a1aa;font-size:13px;">Access term</td><td align="right" style="padding:6px 0;color:#e4e4e7;font-size:13px;">${data.billingPeriod === 'monthly' ? '1 month' : '1 year'}</td></tr>
+            ${accessUntilStr ? `<tr><td style="padding:6px 0;color:#a1a1aa;font-size:13px;">Access until</td><td align="right" style="padding:6px 0;color:#fff;font-size:13px;font-weight:600;">${sanitizeHtml(accessUntilStr)}</td></tr>` : ''}
+            ${nextChargeAtStr ? `<tr><td style="padding:6px 0;color:#a1a1aa;font-size:13px;">Next billing date</td><td align="right" style="padding:6px 0;color:#fff;font-size:13px;">${sanitizeHtml(nextChargeAtStr)}</td></tr>` : ''}
+            <tr><td colspan="2" style="padding-top:15px;border-top:1px solid #3b2b63;color:#71717a;font-size:11px;font-family:monospace;word-break:break-all;">Order ${safeOrderId}</td></tr>
+          </table></td></tr>
+        </table></td></tr>
+        <tr><td style="padding:0 30px 26px;"><p style="margin:0 0 14px;color:#fff;font-size:15px;font-weight:700;">Your Creator toolkit is unlocked</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${featureRows}</table></td></tr>
+        <tr><td style="padding:0 30px 38px;text-align:center;"><a href="${APP_URL}/studio" style="display:inline-block;padding:15px 28px;background:#7c3aed;color:#fff;text-decoration:none;border-radius:11px;font-size:15px;font-weight:800;box-shadow:0 8px 20px rgba(124,58,237,.3);">Open Studio&nbsp; &#8594;</a><p style="margin:14px 0 0;color:#71717a;font-size:12px;">Your projects are waiting.</p></td></tr>
+        <tr><td style="padding:22px 30px;border-top:1px solid #27272f;text-align:center;"><p style="margin:0;color:#71717a;font-size:11px;line-height:1.7;">Paddle sends your official invoice separately.<br>Questions? Reply to this email or contact <a href="mailto:${sanitizeAttr(ADMIN_EMAIL)}" style="color:#a78bfa;text-decoration:none;">${sanitizeHtml(ADMIN_EMAIL)}</a></p></td></tr>
       </table>
     </td></tr>
   </table>

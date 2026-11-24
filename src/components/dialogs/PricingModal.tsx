@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
 import { formatPrice, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
@@ -9,6 +10,7 @@ import { useSession } from 'next-auth/react';
 import { useRegionalPricing } from '@/hooks/useRegionalPricing';
 import { PRICING_PLANS } from '@/constants';
 import type { CheckoutQuote } from '@/lib/billing/contracts';
+import { CHECKOUT_NOTICE, checkoutNoticeFor, type CheckoutNoticeKind } from './checkoutNotice';
 import '@/styles/pricing.css';
 
 interface PricingModalProps {
@@ -26,63 +28,12 @@ type BillingPeriod = 'monthly' | 'yearly';
 
 type TierKey = keyof typeof PRICING_PLANS;
 
-type CheckoutNoticeKind = 'temporary' | 'checking' | 'activating' | 'cancelled' | 'unknown' | 'unavailable' | 'conflict' | 'payment_retry' | 'timeout';
-
 interface ActiveSubscriptionNotice {
   plan: string;
   status: string;
   nextChargeAt: string | null;
   paidThroughAt: string | null;
   cancelAtPeriodEnd: boolean;
-}
-
-const CHECKOUT_NOTICE: Record<CheckoutNoticeKind, { title: string; message: string }> = {
-  temporary: {
-    title: "We couldn't start checkout",
-    message: 'Something went wrong while connecting to our payment provider. Please try again.',
-  },
-  checking: {
-    title: "We're checking your checkout",
-    message: "Please wait while we confirm your checkout status. You don't need to start another checkout.",
-  },
-  activating: {
-    title: 'Checkout is being confirmed',
-    message: 'Your payment is being confirmed in the background. You can continue using Studio.',
-  },
-  cancelled: {
-    title: "Payment wasn't completed",
-    message: "Your payment wasn't completed. You can return to your plans and try again.",
-  },
-  unknown: {
-    title: "We're checking your payment",
-    message: "We couldn't confirm your payment status yet. Please don't try another payment until we've checked.",
-  },
-  unavailable: {
-    title: 'This plan is temporarily unavailable',
-    message: "We're unable to process this subscription right now. Please try again later.",
-  },
-  conflict: { title: 'You already have an active subscription', message: 'Your current plan is still active.' },
-  payment_retry: {
-    title: 'Your subscription payment needs attention',
-    message: 'Your subscription is already in payment recovery. Update your payment method from the account menu to retry it.',
-  },
-  timeout: {
-    title: 'Taking longer than expected',
-    message: 'Your payment is still being verified. You can check again or continue with Free for now.',
-  },
-};
-
-// Response bodies can carry provider, database or reservation detail. Only the
-// status and the two routing flags are read here; none of the text is shown.
-function checkoutNoticeFor(
-  status: number,
-  body: { state?: unknown; error?: unknown; reservationId?: unknown },
-): CheckoutNoticeKind {
-  if (status === 409 && body.state === 'active_subscription') return 'conflict';
-  if (status === 409 && body.state === 'payment_action_required') return 'payment_retry';
-  if (typeof body.reservationId === 'string') return 'unknown';
-  if (status === 400 || status === 409 || status === 503) return 'unavailable';
-  return 'temporary';
 }
 
 async function requestCheckoutQuote(period: BillingPeriod): Promise<CheckoutQuote> {
@@ -687,16 +638,21 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
                       <p className="text-sm text-text-secondary">{CHECKOUT_NOTICE[notice].message}</p>
                     )}
                     {notice !== 'conflict' && notice !== 'payment_retry' && <p className="text-xs text-text-secondary mt-1">Your current access stays unchanged until a payment is verified.</p>}
+                    {(notice === 'unknown' || notice === 'timeout' || notice === 'temporary' || notice === 'cancelled') && (
+                      <Link href="/contact" className="mt-3 inline-block text-xs text-accent underline" onClick={handleClose}>
+                        Need help with this payment?
+                      </Link>
+                    )}
                   </div>
                   <div className="flex flex-col gap-2 w-full max-w-[220px]">
                     {notice === 'unknown' && pendingReservationId ? (
-                      <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check checkout status</Button>
+                      <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check previous checkout</Button>
                     ) : notice === 'checking' && pendingReservationId ? (
                       <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check checkout status</Button>
                     ) : notice === 'activating' && pendingReservationId ? (
-                      <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check again</Button>
+                      <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check activation</Button>
                     ) : notice === 'timeout' && pendingReservationId ? (
-                      <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check again</Button>
+                      <Button variant="secondary" onClick={handleCheckPendingCheckout}>Check safely</Button>
                     ) : notice === 'conflict' || notice === 'payment_retry' ? (
                       <Button variant="secondary" onClick={handleClose}>Close and manage from account menu</Button>
                     ) : notice === 'temporary' || notice === 'cancelled' ? (

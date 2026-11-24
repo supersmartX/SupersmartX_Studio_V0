@@ -20,6 +20,11 @@ const SESSION_REFETCH_INTERVAL_SECONDS = 30;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
-    <SessionProvider refetchInterval={SESSION_REFETCH_INTERVAL_SECONDS}>{children}</SessionProvider>
+    <SessionProvider
+      refetchInterval={SESSION_REFETCH_INTERVAL_SECONDS}
+      refetchOnWindowFocus
+    >
+      {children}
+    </SessionProvider>
   );
 }

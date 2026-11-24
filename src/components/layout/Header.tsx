@@ -212,13 +212,14 @@ export function Header({
             </button>
 
             {showUserMenu && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-border-default rounded-lg shadow-lg py-1 z-50" role="menu" aria-label="User menu">
+              <div className="absolute right-0 top-full mt-1 w-64 bg-surface border border-border-default rounded-lg shadow-lg py-1 z-50" role="menu" aria-label="User menu">
                 <div className="px-3 py-2 border-b border-border-subtle">
                   <p className="text-[12px] font-medium text-text-primary truncate">{user.name || 'User'}</p>
                   <p className="text-[11px] text-text-muted truncate">{user.email}</p>
                 </div>
 
                 <div className="px-3 py-2.5 border-b border-border-subtle flex flex-col gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Plan & billing</p>
                   <div className="flex items-center gap-2">
                     <span className={`text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${
                       isCreator ? 'bg-accent/20 text-accent' : 'bg-elevated text-text-secondary'
@@ -261,6 +262,14 @@ export function Header({
                       Retry payment or update payment method
                     </a>
                   )}
+                  <Link
+                    href="/billing"
+                    role="menuitem"
+                    onClick={() => setShowUserMenu(false)}
+                    className="block w-full rounded-md px-2.5 py-1.5 text-[12px] text-text-secondary hover:bg-elevated hover:text-text-primary"
+                  >
+                    Billing history
+                  </Link>
                   <button
                     role="menuitem"
                     onClick={() => {

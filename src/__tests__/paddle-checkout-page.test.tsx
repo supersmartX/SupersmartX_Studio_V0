@@ -31,7 +31,7 @@ describe('Paddle payment page', () => {
     // Deliver the event after initialization, like the real asynchronous SDK.
     const { act } = await import('@testing-library/react');
     act(() => initialize.mock.calls[0][0].eventCallback({ name: 'checkout.completed' }));
-    expect(screen.getByRole('status')).toHaveTextContent('payment is being verified');
+    expect(screen.getByRole('status')).toHaveTextContent('Payment received');
     expect(screen.queryByRole('button', { name: 'Reopen checkout' })).toBeNull();
   });
 

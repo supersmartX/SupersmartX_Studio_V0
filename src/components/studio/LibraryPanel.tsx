@@ -575,7 +575,7 @@ export function RecordingsPanel({
             ) : recordings.length === 0 ? (
               <SectionEmptyState
                 title="No recordings yet"
-                description="Record a video and it will appear here for 24 hours."
+                description="Your next recording will appear here for 24 hours. Start from New Video when you are ready."
               />
             ) : (
               recordings.map((recording) => (
@@ -686,7 +686,7 @@ export function RecordingsPanel({
                 ) : cloudError ? (
                   <p className="text-[12px] text-recording" role="alert">{cloudError}</p>
                 ) : cloudExports.length === 0 ? (
-                  <SectionEmptyState title="No cloud exports yet." />
+                  <SectionEmptyState title="No cloud exports yet." description="Export a recording and your finished video will appear here." />
                 ) : (
                   cloudExports.map(exp => {
                     const quality = formatQualityLabel(exp.outputHeight);
@@ -717,7 +717,7 @@ export function RecordingsPanel({
             ) : localExports.length === 0 ? (
               <SectionEmptyState
                 title="No saved exports yet"
-                description="Videos you&apos;ve exported will appear here."
+                description="Export a recording and your finished video will appear here for download."
               />
             ) : (
               localExports.map(renderLocalRow)

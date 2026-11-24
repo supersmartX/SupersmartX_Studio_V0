@@ -49,7 +49,7 @@ export function InitOverlay({ onInitialize, status, errorMessage, permissionBloc
               : 'Camera & microphone access needed'
             : isLoading
             ? 'Starting your camera...'
-            : 'Studio Ready'}
+            : 'Your studio is ready'}
         </h3>
         <p
           className="text-text-secondary leading-relaxed"
@@ -65,8 +65,15 @@ export function InitOverlay({ onInitialize, status, errorMessage, permissionBloc
                 : 'We could not access your camera or microphone. Choose Retry to try again.')
             : isLoading
             ? 'Allow camera and microphone access when your browser asks.'
-            : 'Enable your camera and microphone to begin recording.'}
+            : 'Allow your camera and microphone, add a script if you want one, then press Record.'}
         </p>
+        {!hasError && !isLoading && (
+          <ol className="mb-4 w-full space-y-1.5 text-left text-xs text-text-secondary">
+            <li><span className="mr-2 font-semibold text-accent">1</span>Allow camera and microphone access</li>
+            <li><span className="mr-2 font-semibold text-accent">2</span>Write or paste your script</li>
+            <li><span className="mr-2 font-semibold text-accent">3</span>Press Record when you are ready</li>
+          </ol>
+        )}
         <Button
           variant="primary"
           size="lg"

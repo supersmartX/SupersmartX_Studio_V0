@@ -15,13 +15,28 @@ export default async function PaymentPage({ searchParams }: {
     typeof transactionId === 'string' && /^txn_[a-z0-9]{26}$/.test(transactionId);
 
   return (
-    <main className="min-h-screen bg-canvas px-6 py-12 text-text-primary">
+    <main className="min-h-screen bg-canvas px-4 py-8 text-text-primary sm:px-6 sm:py-12">
       <div className="mx-auto max-w-lg">
         {available ? <PaddleCheckout token={token} transactionId={transactionId as string} /> : (
-          <section className="space-y-4">
-            <h1 className="text-2xl font-semibold">Checkout is unavailable</h1>
-            <p role="alert" className="text-text-secondary">Return to Studio to check your payment status or start checkout.</p>
-            <Link href="/studio" className="text-accent-text underline">Return to Studio</Link>
+          <section className="overflow-hidden rounded-2xl border border-border-default bg-surface shadow-2xl">
+            <div className="border-b border-border-subtle bg-elevated/40 px-6 py-5 sm:px-8">
+              <p className="text-sm font-semibold tracking-tight text-text-primary">SupersmartX <span className="font-normal text-accent-text">Studio</span></p>
+              <p className="mt-1 text-xs uppercase tracking-[0.16em] text-text-muted">Secure checkout</p>
+            </div>
+            <div className="space-y-5 px-6 py-10 text-center sm:px-8">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-warning/10 text-warning" aria-hidden="true">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.3 3.7 2.8 17a2 2 0 0 0 1.75 3h14.9a2 2 0 0 0 1.75-3L13.7 3.7a2 2 0 0 0-3.4 0Z" /></svg>
+              </div>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight">This checkout link is no longer available</h1>
+                <p role="alert" className="mx-auto mt-3 max-w-sm text-sm leading-6 text-text-secondary">Your account and any previous payment attempt are unchanged. Return to Studio to check your status or safely start again.</p>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+                <Link href="/studio" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-accent px-5 text-sm font-semibold text-white transition hover:bg-accent-hover">Return to Studio</Link>
+                <Link href="/studio?checkout=creator_monthly" className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border-default px-5 text-sm font-medium text-text-secondary transition hover:bg-elevated hover:text-text-primary">View plans</Link>
+              </div>
+              <p className="text-xs text-text-muted">Never submit another payment while a previous checkout is still being checked.</p>
+            </div>
           </section>
         )}
       </div>

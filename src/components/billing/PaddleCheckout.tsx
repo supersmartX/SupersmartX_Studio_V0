@@ -68,13 +68,16 @@ export function PaddleCheckout({ token, transactionId }: { token: string; transa
       <p role={state === 'error' ? 'alert' : 'status'} aria-live="polite" className="text-text-secondary">
         {state === 'loading' && 'Loading secure checkout…'}
         {state === 'open' && 'Complete payment in the secure checkout. Your access updates after payment is verified.'}
-        {state === 'closed' && "Your payment wasn't completed. You can return to your plans and try again."}
-        {state === 'pending' && 'Your payment is being verified. Return to Studio to check your access.'}
-        {state === 'error' && 'Checkout could not load. Check your connection and reload this page to resume the same payment.'}
+        {state === 'closed' && "Your payment wasn't completed. Return to Studio when you're ready to try again."}
+        {state === 'pending' && 'Payment received. Return to Studio while access is being activated.'}
+        {state === 'error' && 'Checkout could not load. Reload this page to resume the same payment. Do not start a second payment.'}
       </p>
       {(state === 'closed' || state === 'open') && <Button onClick={open}>Reopen checkout</Button>}
       {state === 'error' && <Button onClick={() => window.location.reload()}>Reload checkout</Button>}
-      <Link href="/studio" className="block text-accent-text underline">Return to Studio</Link>
+      <div className="space-y-2 text-sm">
+        <Link href="/studio" className="block text-accent-text underline">Return to Studio</Link>
+        {(state === 'closed' || state === 'pending' || state === 'error') && <Link href="/contact" className="block text-text-secondary underline">Need help with this payment?</Link>}
+      </div>
     </section>
   );
 }

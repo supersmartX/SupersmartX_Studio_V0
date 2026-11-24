@@ -178,17 +178,17 @@ describe('PricingModal checkout', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /^Subscribe/ }));
 
-    expect(await screen.findByText("We're checking your payment")).toBeInTheDocument();
-    expect(screen.getByText(/Please don't try another payment/)).toBeInTheDocument();
+    expect(await screen.findByText('Previous checkout needs checking')).toBeInTheDocument();
+    expect(screen.getByText(/Check its status before starting another payment/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     // The backend explanation is never rendered.
     expect(screen.queryByText(/Checkout creation outcome is uncertain/)).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Check checkout status' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check previous checkout' }));
 
     await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(3));
     expect(mocks.assign).not.toHaveBeenCalled();
-    expect(await screen.findByText("We're checking your payment")).toBeInTheDocument();
+    expect(await screen.findByText('Previous checkout needs checking')).toBeInTheDocument();
   });
 
   it('does not close or claim payment when checkout recovery finds a paid transaction', async () => {
@@ -220,10 +220,10 @@ describe('PricingModal checkout', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /^Subscribe/ }));
 
-    expect(await screen.findByText("We're checking your payment")).toBeInTheDocument();
+    expect(await screen.findByText('Previous checkout needs checking')).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
     expect(mocks.assign).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Check checkout status' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check previous checkout' })).toBeInTheDocument();
   });
 
   it('reports a verified dead attempt as not completed and allows another try', async () => {
@@ -253,7 +253,7 @@ describe('PricingModal checkout', () => {
     );
 
     fireEvent.click(await screen.findByRole('button', { name: /^Subscribe/ }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Check checkout status' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Check previous checkout' }));
 
     expect(await screen.findByText("Payment wasn't completed")).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
