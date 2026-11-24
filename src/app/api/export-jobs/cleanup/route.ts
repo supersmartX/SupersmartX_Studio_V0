@@ -36,8 +36,12 @@ async function runCleanup(request: NextRequest): Promise<NextResponse> {
     const secret = readProvidedSecret(request);
 
     // Read per request, and fail closed: with no configured secret there is
-    // nothing to compare against, so the answer is always 401.
-    const cleanupSecret = process.env.CLEANUP_SECRET;
+    // nothing to compare against, so the answer is always 401. Vercel Cron
+    // sends `$CRON_SECRET` to *every* cron path; the deploy runbook says to set
+    // CLEANUP_SECRET to the same value, but if only CRON_SECRET is configured
+    // the sweep would otherwise 401 forever and abandoned staging objects
+    // would accumulate silently. Either secret authenticates.
+    const cleanupSecret = process.env.CLEANUP_SECRET ?? process.env.CRON_SECRET;
     if (!cleanupSecret || !secret) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

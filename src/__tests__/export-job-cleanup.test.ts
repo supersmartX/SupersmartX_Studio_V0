@@ -110,10 +110,24 @@ describeDb('GET /api/export-jobs/cleanup — Vercel cron invocation', () => {
     expect(res.status).toBe(401);
   });
 
-  it('fails closed when CLEANUP_SECRET is not configured', async () => {
+  it('fails closed when no expected secret is configured at all', async () => {
     delete process.env.CLEANUP_SECRET;
+    delete process.env.CRON_SECRET;
     const res = await GET(cronRequest({ authorization: `Bearer ${SECRET}` }));
     expect(res.status).toBe(401);
+  });
+
+  it('accepts the CRON_SECRET Vercel Cron sends when CLEANUP_SECRET alone is unset', async () => {
+    await seedJob({ status: 'failed', r2Key: `exports/${nextId('k')}.mp4` });
+
+    delete process.env.CLEANUP_SECRET;
+    process.env.CRON_SECRET = SECRET;
+    try {
+      const res = await GET(cronRequest({ authorization: `Bearer ${SECRET}` }));
+      expect(res.status).toBe(200);
+    } finally {
+      delete process.env.CRON_SECRET;
+    }
   });
 });
 
