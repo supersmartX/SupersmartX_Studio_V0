@@ -30,7 +30,6 @@ const securityHeaders = [
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' },
   { key: 'X-DNS-Prefetch-Control', value: 'on' },
-  { key: 'X-XSS-Protection', value: '1; mode=block' },
   {
     key: 'Strict-Transport-Security',
     value: 'max-age=63072000; includeSubDomains; preload',
@@ -53,11 +52,16 @@ const securityHeaders = [
       // which is why it surfaced in Incognito. Exact host only: no wildcard.
       `img-src 'self' data: blob: https://lh3.googleusercontent.com${r2ExtraHosts}`,
       "font-src 'self' data: https://fonts.googleapis.com https://fonts.gstatic.com",
-      `connect-src 'self' https://ipapi.co https://ip-api.com${r2ExtraHosts}`,
+      // ip-api.com was removed: its free tier is HTTP-only, so the HTTPS
+      // fallback fetch in src/lib/pricing.ts can never succeed from the
+      // browser — the CSP entry whitelisted a host that always fails. The
+      // pricing geolocation falls back to 'US' via the existing catch.
+      `connect-src 'self' https://ipapi.co${r2ExtraHosts}`,
       `media-src 'self' blob: mediastream: https://d8j0ntlcm91z4.cloudfront.net${r2ExtraHosts}`,
       "worker-src 'self' blob:",
       "frame-src 'none'",
-    ].join('; '),
+    ].join('; ') +
+      "; object-src 'none'; base-uri 'self'; form-action 'self';",
   },
 ];
 
