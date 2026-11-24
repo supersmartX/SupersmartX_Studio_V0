@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger, getRequestId } from '@/lib/observe/logger';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 
 const ALLOWED_KINDS = new Set(['recording_failed', 'video_playback_failed', 'export_encoder_failed', 'export_failed']);
 
 export async function POST(request: NextRequest) {
   try {
+    const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+    const ip = forwarded || request.headers.get('x-real-ip') || 'unknown';
+    const rl = await rateLimitDistributed(`client-error:${ip}`, 30, 60_000);
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } });
+    }
     const requestId = getRequestId(request);
     const body = await request.json().catch(() => ({}));
     const { kind, plan, duration, platform, browser } = body as {

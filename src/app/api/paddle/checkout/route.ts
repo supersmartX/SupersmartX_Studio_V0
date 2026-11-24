@@ -32,7 +32,7 @@ import {
 } from '@/lib/billing/reservations';
 import { getBillingReadiness } from '@/lib/billing/readiness';
 import { getPrisma } from '@/lib/db/prisma';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 import { readBoundedBody } from '@/lib/request-body';
 import type { CheckoutRequest } from '@/lib/billing/contracts';
 import { Prisma } from '@prisma/client';
@@ -102,7 +102,7 @@ async function enqueuePaidReconciliation(recovery: CheckoutRecovery): Promise<vo
 export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl = rateLimit(`paddle-checkout:${session.user.id}`, CHECKOUT_RATE_LIMIT_MAX, CHECKOUT_RATE_LIMIT_WINDOW_MS);
+  const rl = await rateLimitDistributed(`paddle-checkout:${session.user.id}`, CHECKOUT_RATE_LIMIT_MAX, CHECKOUT_RATE_LIMIT_WINDOW_MS);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: 'Too many checkout attempts. Please try again later.' },

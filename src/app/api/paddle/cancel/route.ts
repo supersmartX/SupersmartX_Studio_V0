@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { getPaddleClient, getPaddleEnvironment, isPaddleCheckoutEnabled, PaddleBillingProvider } from '@/lib/billing/paddle';
 import { recordCancellationRequest } from '@/lib/billing/operations';
 import { getPrisma } from '@/lib/db/prisma';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +14,7 @@ const CANCEL_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 export async function POST() {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl = rateLimit(`paddle-cancel:${session.user.id}`, CANCEL_RATE_LIMIT_MAX, CANCEL_RATE_LIMIT_WINDOW_MS);
+  const rl = await rateLimitDistributed(`paddle-cancel:${session.user.id}`, CANCEL_RATE_LIMIT_MAX, CANCEL_RATE_LIMIT_WINDOW_MS);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: 'Too many cancellation attempts. Please try again later.' },

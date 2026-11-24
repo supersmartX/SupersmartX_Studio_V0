@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { findExportByIdAndUser, findUserById, deleteExportByIdAndUser, decrementStorageBytes } from '@/lib/db';
 import { deleteRecording } from '@/lib/r2';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 
 // Phase 2.9: deletion is a high-risk export mutation (DB row + R2 object), so
 // it carries the same per-user boundary as export creation (30/h).
@@ -14,7 +14,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const session = await auth();
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const rl = rateLimit(`export-delete:${session.user.id}`, DELETE_RATE_LIMIT_MAX, DELETE_RATE_LIMIT_WINDOW_MS);
+    const rl = await rateLimitDistributed(`export-delete:${session.user.id}`, DELETE_RATE_LIMIT_MAX, DELETE_RATE_LIMIT_WINDOW_MS);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },

@@ -1,0 +1,3 @@
+-- Billing hardening indexes were already created by the original Paddle billing migration.
+-- This migration is intentionally a no-op and preserves migration history for environments
+-- that received the hardening marker before the rate-limit bucket table was added.

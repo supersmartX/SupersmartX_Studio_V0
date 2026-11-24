@@ -3,7 +3,7 @@ import { auth } from '@/auth';
 import { getSignedDownloadUrl, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
 import { findExportByIdAndUser, findUserById, atomicIncrementDownloadCount, ensureUserStatsRow } from '@/lib/db';
 import { getEntitlements, isPlanActive } from '@/lib/entitlements';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 import type { PlanType } from '@/types/db';
 
 const SIGNED_URL_TTL_SECONDS = (() => {
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: `Storage not configured: ${getR2ConfigurationError()}` }, { status: 503 });
     }
 
-    const rl = rateLimit(`download:${session.user.id}`, DOWNLOAD_RATE_LIMIT_MAX, DOWNLOAD_RATE_LIMIT_WINDOW_MS);
+    const rl = await rateLimitDistributed(`download:${session.user.id}`, DOWNLOAD_RATE_LIMIT_MAX, DOWNLOAD_RATE_LIMIT_WINDOW_MS);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: 'Download rate limit exceeded. Please try again later.' },

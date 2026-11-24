@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createExportJob, findUserById, ensureUserStatsRow, getActiveExportJobCount } from '@/lib/db';
 import { getEntitlements, isPlanActive, isPlatformLockedForUser, clampResolution } from '@/lib/entitlements';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const rl = rateLimit(`export-jobs:create:${session.user.id}`, CREATE_RATE_LIMIT_MAX, CREATE_RATE_LIMIT_WINDOW_MS);
+    const rl = await rateLimitDistributed(`export-jobs:create:${session.user.id}`, CREATE_RATE_LIMIT_MAX, CREATE_RATE_LIMIT_WINDOW_MS);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },

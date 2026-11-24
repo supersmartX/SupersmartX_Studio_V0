@@ -165,7 +165,7 @@ describe('Paddle durable webhook worker', () => {
           sup_consent_hash: scenario === 'wrong-consent' ? 'other' : 'consent' } };
       const renewal = { id: 'txn-renewal', origin: 'subscription_recurring', status: 'completed',
         subscriptionId: 'sub-1', customerId: 'ctm-1', createdAt: '2026-10-01T12:00:00Z',
-        billedAt: '2026-10-01T12:00:00Z', customData, currencyCode: 'USD', address: { countryCode: 'US' },
+        billedAt: '2026-10-01T12:00:00Z', customData: { sup_user_id: 'user-1', sup_plan: 'creator_monthly', sup_reservation_id: 'res-1', sup_consent_hash: 'consent' }, currencyCode: 'USD', address: { countryCode: 'US' },
         items: [{ quantity: 1, price }], details: paidDetails('USD', '799', '0', '799'),
         billingPeriod: { startsAt: '2026-10-01T12:00:00Z', endsAt: '2026-11-01T12:00:00Z' } };
       mocks.findEvents.mockResolvedValue([{ eventId: 'evt-renewal', occurredAt: new Date('2026-10-01T12:00:00Z'),

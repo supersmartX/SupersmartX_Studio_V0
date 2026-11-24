@@ -10,7 +10,7 @@ import {
   PaddlePriceLookupError,
   PaddlePriceMismatchError,
 } from '@/lib/billing/paddle';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 import { readBoundedBody } from '@/lib/request-body';
 
 export const dynamic = 'force-dynamic';
@@ -22,7 +22,7 @@ const MAX_QUOTE_BODY_BYTES = 8_192;
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl = rateLimit(`paddle-quote:${session.user.id}`, QUOTE_RATE_LIMIT_MAX, QUOTE_RATE_LIMIT_WINDOW_MS);
+  const rl = await rateLimitDistributed(`paddle-quote:${session.user.id}`, QUOTE_RATE_LIMIT_MAX, QUOTE_RATE_LIMIT_WINDOW_MS);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: 'Too many quote requests. Please try again later.' },

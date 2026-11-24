@@ -221,8 +221,15 @@ async function processPaidTransaction(
   }
   const config = getPaddlePriceConfiguration(plan);
   if (!config) throw new ReviewEventError('price_mapping_not_configured');
-  const quoteToken = text(authoritativeCustom.sup_quote_token);
-  const consentVersion = text(authoritativeCustom.sup_consent_version);
+  // Paddle may carry the original checkout metadata on the subscription or
+  // webhook snapshot rather than copying every field onto a recurring
+  // transaction. Prefer the authoritative transaction, then fall back to the
+  // verified subscription/event snapshots so valid regional renewals are not
+  // rejected merely because custom-data placement changed.
+  const quoteToken = text(authoritativeCustom.sup_quote_token) ??
+    text(subscriptionCustom.sup_quote_token) ?? text(eventCustomData.sup_quote_token);
+  const consentVersion = text(authoritativeCustom.sup_consent_version) ??
+    text(subscriptionCustom.sup_consent_version) ?? text(eventCustomData.sup_consent_version);
   let expectedCurrency = config.currency;
   let expectedAmount = config.amount;
   let expectedPriceId = config.priceId;

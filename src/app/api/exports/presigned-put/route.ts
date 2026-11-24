@@ -5,7 +5,7 @@ import { getEntitlements, isPlanActive, clampResolution, exceedsResolutionLimit 
 import { getSignedUploadUrl, generateExportStagingKey, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
 import { MAX_EXPORT_DURATION_SECONDS, describeExportDurationLimit } from '@/lib/export/export-limits';
 import { normalizeClaimedHasAudio } from '@/lib/export/artifact-verification';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 import { findExportJobByIdAndUser, setExportJobStagingKey } from '@/lib/db';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     // Throttle before any lookup: this endpoint is the most expensive to reach, so
     // the limiter guards the database read below rather than sitting behind the
     // plan checks.
-    const rl = rateLimit(`presigned:${session.user.id}`, PRESIGNED_RATE_LIMIT_MAX, PRESIGNED_RATE_LIMIT_WINDOW_MS);
+    const rl = await rateLimitDistributed(`presigned:${session.user.id}`, PRESIGNED_RATE_LIMIT_MAX, PRESIGNED_RATE_LIMIT_WINDOW_MS);
     if (!rl.allowed)
       return NextResponse.json(
         { error: 'Rate limited: too many upload requests. Please try again later.' },

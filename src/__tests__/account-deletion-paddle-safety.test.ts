@@ -35,7 +35,7 @@ vi.mock('@/lib/r2', () => ({
   listUserRecordings: mocks.listUserRecordings,
   deleteRecording: mocks.deleteRecording,
 }));
-vi.mock('@/lib/rate-limit', () => ({ rateLimit: mocks.rateLimit }));
+vi.mock('@/lib/rate-limit', () => ({ rateLimit: mocks.rateLimit, rateLimitDistributed: mocks.rateLimit }));
 
 import { DELETE } from '@/app/api/user/delete/route';
 

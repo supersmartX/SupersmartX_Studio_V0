@@ -384,6 +384,17 @@ model BillingAdjustment {
   @@map("billing_adjustments")
 }
 
+model RateLimitBucket {
+  key       String   @id @db.Text
+  count     Int      @default(0)
+  resetAt   DateTime @map("reset_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([resetAt])
+  @@map("rate_limit_buckets")
+}
+
+
 // NOTE: Prisma Migrate (prisma/migrations + the _prisma_migrations table) is the
 // single schema authority. `schema_meta` IS modelled above (see SchemaMeta) only
 // because the current `/api/health` reads it — it is a data table, not a migration

@@ -3,7 +3,8 @@ import { auth } from '@/auth';
 import { findUserById, listUserExportR2Keys, purgeUserOwnedData, deleteUserById, recordDeletedIdentity } from '@/lib/db';
 import { getPrisma } from '@/lib/db/prisma';
 import { listUserRecordings, deleteRecording } from '@/lib/r2';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
+import { getPaddleClient } from '@/lib/billing/paddle';
 
 // Phase 2.9: account deletion is the most destructive account-sensitive
 // mutation, so it carries an explicit per-user boundary regardless of session
@@ -25,7 +26,7 @@ export async function DELETE(_request: NextRequest) {
     const session = await auth();
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const rl = rateLimit(`user-delete:${session.user.id}`, DELETE_RATE_LIMIT_MAX, DELETE_RATE_LIMIT_WINDOW_MS);
+    const rl = await rateLimitDistributed(`user-delete:${session.user.id}`, DELETE_RATE_LIMIT_MAX, DELETE_RATE_LIMIT_WINDOW_MS);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },
@@ -60,6 +61,19 @@ export async function DELETE(_request: NextRequest) {
       !billingAccount.cancelAtPeriodEnd &&
       !['canceled', 'expired'].includes(billingAccount.status),
     );
+    if (billingAccount?.providerSubscriptionId && getPaddleClient()) {
+      try {
+        const remote = await getPaddleClient()!.subscriptions.get(billingAccount.providerSubscriptionId);
+        if (remote.id !== billingAccount.providerSubscriptionId ||
+            !['canceled', 'expired'].includes(String(remote.status))) {
+          return NextResponse.json({
+            error: 'Stop the active Paddle subscription before deleting your account.',
+          }, { status: 409 });
+        }
+      } catch {
+        return NextResponse.json({ error: 'Paddle subscription status could not be verified.' }, { status: 503 });
+      }
+    }
     if (subscriptionMayRenew) {
       return NextResponse.json({
         error: 'Stop future Paddle billing before deleting your account. Your paid access remains through the current period.',

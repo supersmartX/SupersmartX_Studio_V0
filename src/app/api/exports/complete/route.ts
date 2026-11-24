@@ -35,7 +35,7 @@ import {
 } from '@/lib/r2';
 import { collectMp4Metadata, describeArtifactFailure, normalizeClaimedDuration, normalizeClaimedHasAudio, verifyExportArtifact } from '@/lib/export/artifact-verification';
 import { MAX_EXPORT_SIZE_BYTES, MAX_EXPORT_SIZE_MB } from '@/lib/export/export-limits';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 import { LAUNCH_PLATFORM_PRESETS } from '@/constants';
 import type { PlanType } from '@/types/db';
 import type { PlatformId } from '@/types';
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     const session = await auth();
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const rl = rateLimit(`export-complete:${session.user.id}`, COMPLETE_RATE_LIMIT_MAX, COMPLETE_RATE_LIMIT_WINDOW_MS);
+    const rl = await rateLimitDistributed(`export-complete:${session.user.id}`, COMPLETE_RATE_LIMIT_MAX, COMPLETE_RATE_LIMIT_WINDOW_MS);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },

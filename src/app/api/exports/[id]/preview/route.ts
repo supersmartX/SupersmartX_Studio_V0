@@ -3,7 +3,7 @@ import { auth } from '@/auth';
 import { findExportByIdAndUser, findUserById } from '@/lib/db';
 import { getEntitlements, isPlanActive } from '@/lib/entitlements';
 import { getSignedDownloadUrl, isR2Configured, getR2ConfigurationError } from '@/lib/r2';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 import type { PlanType } from '@/types/db';
 
 const PREVIEW_RATE_LIMIT_MAX = 30;
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     if (!isR2Configured()) return NextResponse.json({ error: `Storage not configured: ${getR2ConfigurationError()}` }, { status: 503 });
 
-    const rl = rateLimit(`preview:${session.user.id}`, PREVIEW_RATE_LIMIT_MAX, PREVIEW_RATE_LIMIT_WINDOW_MS);
+    const rl = await rateLimitDistributed(`preview:${session.user.id}`, PREVIEW_RATE_LIMIT_MAX, PREVIEW_RATE_LIMIT_WINDOW_MS);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },

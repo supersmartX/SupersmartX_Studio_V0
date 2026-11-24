@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { consumeResetToken } from '@/lib/db';
 import { updateUserPassword } from '@/lib/user-store';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 import { validatePassword } from '@/lib/validation';
 
 export async function POST(request: NextRequest) {
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     // proxy-appended peer), matching the login limiter — a client-supplied
     // prefix entry would otherwise let callers pick their own rate-limit key.
     const ip = request.headers.get('x-forwarded-for')?.split(',').pop()?.trim() || 'unknown';
-    const { allowed, retryAfterMs } = rateLimit(`reset:${ip}`, 5, 60_000);
+    const { allowed, retryAfterMs } = await rateLimitDistributed(`reset:${ip}`, 5, 60_000);
     if (!allowed) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },

@@ -16,7 +16,7 @@
 --     landed. Treating it as proof was the W8 false-positive defect.
 -- No historical order is closed, deleted, re-granted, or extended. Rows that
 -- need a decision are classified by the operator-driven report/apply step
--- (docs/PRODUCTION-RUNBOOK.md), which reads the gateway; a missing claim is not
+-- (docs/operations/PRODUCTION-RUNBOOK.md), which reads the gateway; a missing claim is not
 -- evidence of an unpaid order either.
 
 ALTER TABLE "pending_orders"

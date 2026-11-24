@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { findUserByEmail } from '@/auth';
 import { createHash, randomBytes } from 'crypto';
 import { saveResetToken } from '@/lib/db';
-import { rateLimit } from '@/lib/rate-limit';
+import { rateLimitDistributed } from '@/lib/rate-limit';
 import { Resend } from 'resend';
 
 const TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     // proxy-appended peer), matching the login limiter — a client-supplied
     // prefix entry would otherwise let callers pick their own rate-limit key.
     const ip = request.headers.get('x-forwarded-for')?.split(',').pop()?.trim() || 'unknown';
-    const { allowed, retryAfterMs } = rateLimit(`forgot:${ip}`, 3, 60_000);
+    const { allowed, retryAfterMs } = await rateLimitDistributed(`forgot:${ip}`, 3, 60_000);
     if (!allowed) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },

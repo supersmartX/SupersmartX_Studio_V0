@@ -133,7 +133,7 @@ if (retainDirectory) {
     '',
     'These are byte-for-byte copies of local master Blobs copied by the validation collector. They remain on this machine. Do not upload them or include them in source control.',
     '',
-    'For each manifest entry, open its retained `.webm` or `.mp4` file and review the video and audio using `docs/PHASE7B_REAL_DEVICE_TEST_PROTOCOL.md`. Enter ratings, observations, evaluator, and sync findings in the Phase 7B results report. The collector does not assign subjective ratings.',
+    'For each manifest entry, open its retained `.webm` or `.mp4` file and review the video and audio using `docs/archive/phase-validation/PHASE7B_REAL_DEVICE_TEST_PROTOCOL.md`. Enter ratings, observations, evaluator, and sync findings in the Phase 7B results report. The collector does not assign subjective ratings.',
     '',
     'Recordings are named by their local master ID. Metadata sidecars redact device and group IDs.',
     '',
