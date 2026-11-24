@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (getPaddleEnvironment() !== 'sandbox') {
+  if (getPaddleEnvironment() === null) {
     return NextResponse.json({ error: 'Paddle checkout recovery is unavailable' }, { status: 503 });
   }
 

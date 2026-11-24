@@ -7,15 +7,22 @@ import { Button } from '@/components/ui/Button';
 
 interface PaddleEvent { name: string }
 interface PaddleBrowser {
-  Environment: { set(environment: 'sandbox'): void };
-  Initialize(options: { token: string; eventCallback(event: PaddleEvent): void }): void;
+  Initialize(options: {
+    token: string;
+    eventCallback(event: PaddleEvent): void;
+    pwCustomer?: { id: string };
+  }): void;
   Update(options: { eventCallback(event: PaddleEvent): void }): void;
   Checkout: { open(options: { transactionId: string }): void };
 }
 
 const initialized = new WeakSet<PaddleBrowser>();
 
-export function PaddleCheckout({ token, transactionId }: { token: string; transactionId: string }) {
+export function PaddleCheckout({ token, transactionId, paddleCustomerId }: {
+  token: string;
+  transactionId: string;
+  paddleCustomerId?: string | null;
+}) {
   const [state, setState] = useState<'loading' | 'open' | 'closed' | 'pending' | 'error'>('loading');
   const provider = useRef<PaddleBrowser | null>(null);
   const ready = useRef(false);
@@ -46,9 +53,14 @@ export function PaddleCheckout({ token, transactionId }: { token: string; transa
             if (!paddle) throw new Error('Checkout is unavailable');
             provider.current = paddle;
             if (!initialized.has(paddle)) {
-              paddle.Environment.set('sandbox');
-              // Paddle automatically opens the transaction in the _ptxn query.
-              paddle.Initialize({ token, eventCallback: onEvent });
+              // With no environment set, Paddle.js initialises for production
+              // (live) and sandbox tokens are rejected — the environment comes
+              // from the deployed configuration, not this script.
+              paddle.Initialize({
+                token,
+                eventCallback: onEvent,
+                ...(paddleCustomerId && { pwCustomer: { id: paddleCustomerId } }),
+              });
               initialized.add(paddle);
             } else {
               paddle.Update({ eventCallback: onEvent });

@@ -18,7 +18,7 @@ export type BillingReadinessIssue =
  */
 export function getBillingReadiness(): { ready: boolean; issues: BillingReadinessIssue[] } {
   const issues: BillingReadinessIssue[] = [];
-  if (getPaddleEnvironment() !== 'sandbox') issues.push('paddle_environment');
+  if (getPaddleEnvironment() === null) issues.push('paddle_environment');
   if (!process.env.PADDLE_API_KEY?.trim()) issues.push('paddle_api_key');
   if (!process.env.PADDLE_WEBHOOK_SECRET?.trim()) issues.push('paddle_webhook_secret');
   if (!process.env.CRON_SECRET?.trim()) issues.push('billing_worker_secret');
@@ -27,9 +27,9 @@ export function getBillingReadiness(): { ready: boolean; issues: BillingReadines
   if (!checkoutUrl) {
     issues.push('paddle_checkout_url');
   } else if (new URL(checkoutUrl).pathname.replace(/\/+$/, '') === '/pay' &&
-      !/^test_[A-Za-z0-9]+$/.test(process.env.PADDLE_CLIENT_TOKEN?.trim() ?? '')) {
+      !/^(test|live)_[A-Za-z0-9]+$/.test(process.env.PADDLE_CLIENT_TOKEN?.trim() ?? '')) {
     // The hosted page is our own /pay page, which cannot initialise Paddle.js
-    // without a sandbox client token.
+    // without a client token for the selected environment.
     issues.push('paddle_client_token');
   }
 

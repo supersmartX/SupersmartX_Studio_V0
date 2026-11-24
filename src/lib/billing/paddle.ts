@@ -37,7 +37,12 @@ export function getPaddleEnvironment(): 'sandbox' | 'live' | null {
 }
 
 export function isPaddleCheckoutEnabled(): boolean {
-  return getPaddleEnvironment() === 'sandbox';
+  const environment = getPaddleEnvironment();
+  if (!environment) return false;
+  if (environment !== 'live') return true;
+  // Operator kill switch for live checkout. Sandbox checkout only needs an
+  // environment to be selected.
+  return process.env.PADDLE_LIVE_CHECKOUT_DISABLED?.trim().toLowerCase() !== 'true';
 }
 
 export function getPaddleClient(): Paddle | null {
@@ -419,7 +424,7 @@ export function describeCheckoutCreateFailure(error: unknown): PaddleCheckoutCre
 }
 
 function getSandboxQuoteDetails(plan: BillingPlan, country: string): SandboxQuoteDetails | null {
-  const config = getSandboxConfiguration(plan);
+  const config = getPaddlePriceConfiguration(plan);
   if (!config || config.currency !== 'USD' || !/^[A-Z]{2}$/.test(country)) return null;
   const indiaPricing = country === 'IN' ? getServerPricingForCountry('IN') : null;
   if (country === 'IN' && !indiaPricing) return null;
@@ -444,7 +449,7 @@ function getSandboxQuoteDetails(plan: BillingPlan, country: string): SandboxQuot
     consentVersion: '2',
     consentText: 'I approve this purchase and understand that the Creator subscription renews at the displayed interval until canceled. Paddle calculates any applicable tax from the billing location and displays the final total before payment.',
     renewalLabel: config.period === 'yearly' ? 'Renews every 12 months' : 'Renews every month',
-    liveCheckoutDisabled: true,
+    liveCheckoutDisabled: false,
   };
 }
 
@@ -534,7 +539,7 @@ export function verifySandboxQuoteToken(
 }
 
 export function verifySandboxPriceRecord(price: PaddlePrice, plan: BillingPlan): void {
-  const config = getSandboxConfiguration(plan);
+  const config = getPaddlePriceConfiguration(plan);
   if (!config || config.currency !== 'USD') throw new PaddlePriceMismatchError('quote_configuration');
   const expectedInterval = config.period === 'monthly' ? 'month' : 'year';
   if (price.id !== config.priceId || !price.productId) {
@@ -582,8 +587,8 @@ export async function assertSandboxPriceMatches(
   paddle: Paddle,
   plan: BillingPlan,
 ): Promise<PaddlePrice> {
-  if (getPaddleEnvironment() !== 'sandbox') throw new Error('Paddle sandbox is not selected');
-  const config = getSandboxConfiguration(plan);
+  if (!isPaddleCheckoutEnabled()) throw new Error('Paddle checkout is not enabled');
+  const config = getPaddlePriceConfiguration(plan);
   if (!config || config.currency !== 'USD') {
     throw new PaddlePriceMismatchError('quote_configuration');
   }
@@ -643,7 +648,7 @@ export async function createSandboxCheckoutQuote(
     consentVersion: '2',
     consentText: details.consentText,
     renewalLabel: details.renewalLabel,
-    liveCheckoutDisabled: true,
+    liveCheckoutDisabled: false,
     quoteToken,
     expiresAt: new Date(expiresAt * 1000).toISOString(),
   };
@@ -706,7 +711,7 @@ export class PaddleBillingProvider implements BillingProvider {
     let createAttempted = false;
     let transaction: Awaited<ReturnType<Paddle['transactions']['create']>>;
     try {
-      if (getPaddleEnvironment() !== 'sandbox') {
+      if (!isPaddleCheckoutEnabled()) {
         throw new Error('Paddle live checkout is disabled');
       }
       const quote = input.quoteToken ? verifySandboxQuoteToken(input.quoteToken) : null;
@@ -762,7 +767,7 @@ export class PaddleBillingProvider implements BillingProvider {
   }
 
   cancelAtPeriodEnd(subscriptionId: string) {
-    if (getPaddleEnvironment() !== 'sandbox') {
+    if (!isPaddleCheckoutEnabled()) {
       throw new Error('Paddle live subscription mutations are disabled');
     }
     return this.paddle.subscriptions.cancel(subscriptionId, { effectiveFrom: 'next_billing_period' });

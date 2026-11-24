@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { PaddleCheckout } from '@/components/billing/PaddleCheckout';
 import { getPaddleEnvironment } from '@/lib/billing/paddle';
+import { getPrisma } from '@/lib/db/prisma';
+import { auth } from '@/auth';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Secure payment | SupersmartX Studio', robots: { index: false, follow: false } };
@@ -11,13 +13,31 @@ export default async function PaymentPage({ searchParams }: {
   const params = await searchParams;
   const transactionId = params._ptxn;
   const token = process.env.PADDLE_CLIENT_TOKEN?.trim() ?? '';
-  const available = getPaddleEnvironment() === 'sandbox' && /^test_[a-zA-Z0-9]+$/.test(token) &&
+  const available = getPaddleEnvironment() !== null && /^(test|live)_[a-zA-Z0-9]+$/.test(token) &&
     typeof transactionId === 'string' && /^txn_[a-z0-9]{26}$/.test(transactionId);
+
+  // Paddle Retain needs the Paddle customer ID (not the internal user ID or
+  // email), so the signed-in customer's provider customer ID is passed through.
+  let paddleCustomerId: string | null = null;
+  if (available) {
+    try {
+      const session = await auth();
+      if (session?.user?.id) {
+        const account = await getPrisma().billingAccount.findUnique({
+          where: { userId: session.user.id },
+          select: { providerCustomerId: true },
+        });
+        paddleCustomerId = account?.providerCustomerId ?? null;
+      }
+    } catch {
+      paddleCustomerId = null;
+    }
+  }
 
   return (
     <main className="min-h-screen bg-canvas px-4 py-8 text-text-primary sm:px-6 sm:py-12">
       <div className="mx-auto max-w-lg">
-        {available ? <PaddleCheckout token={token} transactionId={transactionId as string} /> : (
+        {available ? <PaddleCheckout token={token} transactionId={transactionId as string} paddleCustomerId={paddleCustomerId} /> : (
           <section className="overflow-hidden rounded-2xl border border-border-default bg-surface shadow-2xl">
             <div className="border-b border-border-subtle bg-elevated/40 px-6 py-5 sm:px-8">
               <p className="text-sm font-semibold tracking-tight text-text-primary">SupersmartX <span className="font-normal text-accent-text">Studio</span></p>

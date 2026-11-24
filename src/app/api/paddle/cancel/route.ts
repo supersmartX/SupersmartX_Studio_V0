@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { auth } from '@/auth';
 import { NextResponse } from 'next/server';
-import { getPaddleClient, getPaddleEnvironment, isPaddleCheckoutEnabled, PaddleBillingProvider } from '@/lib/billing/paddle';
+import { getPaddleClient, isPaddleCheckoutEnabled, PaddleBillingProvider } from '@/lib/billing/paddle';
 import { recordCancellationRequest } from '@/lib/billing/operations';
 import { getPrisma } from '@/lib/db/prisma';
 import { rateLimitDistributed } from '@/lib/rate-limit';
@@ -23,9 +23,6 @@ export async function POST() {
   }
   if (!isPaddleCheckoutEnabled()) {
     return NextResponse.json({ error: 'Paddle cancellation is unavailable' }, { status: 503 });
-  }
-  if (getPaddleEnvironment() !== 'sandbox') {
-    return NextResponse.json({ error: 'Live Paddle subscription mutations are disabled' }, { status: 503 });
   }
   const prisma = getPrisma();
   const account = await prisma.billingAccount.findUnique({ where: { userId: session.user.id } });

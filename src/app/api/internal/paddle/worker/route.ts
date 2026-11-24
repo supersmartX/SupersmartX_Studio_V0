@@ -255,7 +255,7 @@ async function processPaidTransaction(
     quoteCreatedAt = date(original.createdAt);
   }
   if (quoteToken) {
-    if (getPaddleEnvironment() !== 'sandbox' || consentVersion !== '2') {
+    if (getPaddleEnvironment() === null || consentVersion !== '2') {
       throw new ReviewEventError('checkout_quote_mismatch');
     }
     const quote = quoteCreatedAt
@@ -290,7 +290,7 @@ async function processPaidTransaction(
       items[0].price.billingCycle.frequency !== 1) {
     throw new ReviewEventError('transaction_price_mismatch');
   }
-  if (getPaddleEnvironment() === 'sandbox') {
+  if (getPaddleEnvironment() !== null) {
     try {
       verifySandboxPriceRecord(items[0].price, plan);
     } catch (error) {

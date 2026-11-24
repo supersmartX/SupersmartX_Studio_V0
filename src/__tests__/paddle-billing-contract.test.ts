@@ -13,9 +13,11 @@ import {
   approvedPaddleCheckoutUrls,
   getPaddleCheckoutUrl,
   getPaddleEnvironment,
+  getPaddlePriceConfiguration,
   getTrustedPaddleCountry,
   getSandboxQuote,
   isAuthoritativelyPaid,
+  isPaddleCheckoutEnabled,
   isSafePaddleCheckoutUrl,
   normalizePaddleAmount,
   PaddleBillingProvider,
@@ -129,6 +131,63 @@ describe('Paddle billing contracts', () => {
     expect(getSandboxQuote('creator_monthly')).toBeNull();
   });
 
+  it('rejects the "production" env value and only accepts sandbox or live', () => {
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'production');
+    expect(getPaddleEnvironment()).toBeNull();
+    expect(isPaddleCheckoutEnabled()).toBe(false);
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'LIVE');
+    expect(getPaddleEnvironment()).toBe('live');
+    vi.stubEnv('PADDLE_ENVIRONMENT', ' Sandbox ');
+    expect(getPaddleEnvironment()).toBe('sandbox');
+  });
+
+  it('keeps the live checkout kill switch effective while sandbox stays reachable', () => {
+    vi.stubEnv('PADDLE_LIVE_CHECKOUT_DISABLED', 'true');
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'live');
+    expect(isPaddleCheckoutEnabled()).toBe(false);
+    vi.stubEnv('PADDLE_LIVE_CHECKOUT_DISABLED', 'TRUE');
+    expect(isPaddleCheckoutEnabled()).toBe(false);
+    vi.stubEnv('PADDLE_LIVE_CHECKOUT_DISABLED', 'false');
+    expect(isPaddleCheckoutEnabled()).toBe(true);
+    vi.stubEnv('PADDLE_LIVE_CHECKOUT_DISABLED', '');
+    expect(isPaddleCheckoutEnabled()).toBe(true);
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
+    vi.stubEnv('PADDLE_LIVE_CHECKOUT_DISABLED', 'true');
+    expect(isPaddleCheckoutEnabled()).toBe(true);
+    vi.stubEnv('PADDLE_ENVIRONMENT', '');
+    expect(isPaddleCheckoutEnabled()).toBe(false);
+  });
+
+  it('reads the live price configuration only when the environment is live', () => {
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'live');
+    vi.stubEnv('PADDLE_LIVE_PRICE_CREATOR_MONTHLY', 'pri_live_monthly');
+    vi.stubEnv('PADDLE_LIVE_PRICE_CREATOR_YEARLY', 'pri_live_yearly');
+    vi.stubEnv('PADDLE_LIVE_AMOUNT_MONTHLY', '7.99');
+    vi.stubEnv('PADDLE_LIVE_AMOUNT_YEARLY', '65.99');
+    vi.stubEnv('PADDLE_LIVE_CURRENCY', 'usd');
+    expect(getPaddlePriceConfiguration('creator_monthly')).toEqual({
+      priceId: 'pri_live_monthly',
+      amount: 7.99,
+      currency: 'USD',
+      period: 'monthly',
+    });
+    expect(getPaddlePriceConfiguration('creator_yearly')).toMatchObject({
+      priceId: 'pri_live_yearly',
+      amount: 65.99,
+      currency: 'USD',
+      period: 'yearly',
+    });
+    // The exact value configured in Vercel Production must stay fail-closed.
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'production');
+    expect(getPaddlePriceConfiguration('creator_monthly')).toBeNull();
+    vi.stubEnv('PADDLE_ENVIRONMENT', 'live');
+    vi.stubEnv('PADDLE_LIVE_AMOUNT_MONTHLY', 'not-a-number');
+    expect(getPaddlePriceConfiguration('creator_monthly')).toBeNull();
+    vi.stubEnv('PADDLE_LIVE_AMOUNT_MONTHLY', '7.99');
+    vi.stubEnv('PADDLE_LIVE_CURRENCY', 'JPY');
+    expect(getPaddlePriceConfiguration('creator_monthly')).toBeNull();
+  });
+
   it('quotes India in INR and other countries at the configured USD base price', () => {
     vi.stubEnv('PADDLE_ENVIRONMENT', 'sandbox');
     vi.stubEnv('PADDLE_SANDBOX_PRICE_CREATOR_MONTHLY', 'pri_monthly');
@@ -138,7 +197,7 @@ describe('Paddle billing contracts', () => {
       amount: 349,
       currency: 'INR',
       period: 'monthly',
-      liveCheckoutDisabled: true,
+      liveCheckoutDisabled: false,
     });
     expect(getSandboxQuote('creator_monthly', 'US')).toMatchObject({
       amount: 7.99,

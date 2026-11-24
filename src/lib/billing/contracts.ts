@@ -11,7 +11,7 @@ export interface CheckoutQuote {
   consentVersion: '2';
   consentText: string;
   renewalLabel: string;
-  liveCheckoutDisabled: true;
+  liveCheckoutDisabled: boolean;
   quoteToken: string;
   expiresAt: string;
 }

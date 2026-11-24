@@ -1,5 +1,6 @@
 import { after, NextRequest, NextResponse } from 'next/server';
 import { getPaddleClient } from '@/lib/billing/paddle';
+import { isPaddleNotificationSource } from '@/lib/billing/paddle-ips';
 import { receiveBillingEvent } from '@/lib/billing/operations';
 import { triggerBillingWorker } from '@/lib/billing/worker-trigger';
 import { readBoundedBody } from '@/lib/request-body';
@@ -13,6 +14,18 @@ export const maxDuration = 60;
 const MAX_WEBHOOK_BODY_BYTES = 1_048_576;
 
 export async function POST(request: NextRequest) {
+  // Live only: reject deliveries whose source address is not one Paddle
+  // publishes for webhook notifications. When the source cannot be verified
+  // (no list, no client IP) the request is not silently trusted — 503 makes
+  // Paddle retry it once verification is possible again.
+  const sourceCheck = await isPaddleNotificationSource(request);
+  if (sourceCheck === 'rejected') {
+    return NextResponse.json({ error: 'Webhook source is not a Paddle notification address' }, { status: 403 });
+  }
+  if (sourceCheck === 'unverifiable') {
+    console.error('Paddle webhook source could not be verified against the live IP list');
+    return NextResponse.json({ error: 'Webhook source could not be verified' }, { status: 503 });
+  }
   const raw = await readBoundedBody(request, MAX_WEBHOOK_BODY_BYTES);
   if (raw === null) {
     return NextResponse.json({ error: 'Webhook payload is too large' }, { status: 413 });
