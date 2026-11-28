@@ -133,7 +133,7 @@ it('renders sign out for an authenticated user', async () => {
 
 describe('humanized billing vocabulary', () => {
   it('maps provider states to user-facing wording', async () => {
-    const { humanizeAccountStatus, humanizeTransactionStatus } = await import('@/hooks/useAccountBilling');
+    const { humanizeAccountStatus, humanizeTransactionStatus } = await import('@/lib/billing/humanize');
     expect(humanizeAccountStatus('past_due').label).toBe('Payment needs attention');
     expect(humanizeAccountStatus('payment_failed').label).toBe('Payment needs attention');
     expect(humanizeAccountStatus('active').label).toBe('Active');
@@ -142,5 +142,35 @@ describe('humanized billing vocabulary', () => {
     expect(humanizeTransactionStatus('past_due')).toBe('Payment failed');
     // The raw provider string must never pass through untouched for account status.
     expect(humanizeAccountStatus('some_new_state').label).not.toBe('some_new_state');
+  });
+});
+
+describe('server/client billing boundary', () => {
+  // Regression: `humanizeAccountStatus` used to live in the "use client"
+  // useAccountBilling module, and /billing (a server component) called it
+  // directly — Next.js throws "Attempted to call ... from the server" at
+  // render time. The formatters now live in a directive-free module; this
+  // guard keeps them there and keeps server components off the client hook.
+  it('keeps the billing formatters out of any client module', async () => {
+    const { readFileSync, readdirSync, statSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const root = process.cwd();
+    const humanize = readFileSync(join(root, 'src', 'lib', 'billing', 'humanize.ts'), 'utf8');
+    // Match a standalone directive, not a mention inside a doc comment.
+    expect(humanize).not.toMatch(/^\s*['"]use client['"]\s*;?\s*$/m);
+
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+        } else if (/\.tsx?$/.test(entry)) {
+          if (readFileSync(full, 'utf8').includes('@/hooks/useAccountBilling')) offenders.push(full);
+        }
+      }
+    };
+    walk(join(root, 'src', 'app'));
+    expect(offenders).toEqual([]);
   });
 });

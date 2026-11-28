@@ -227,7 +227,7 @@ function DeviceChip({
       >
         <span className={isOff ? 'text-recording' : ''}>{icon}</span>
         <span
-          className={`hidden md:inline text-[11px] font-medium tracking-[0.01em] whitespace-nowrap ${
+          className={`hidden 3xl:inline text-[11px] font-medium tracking-[0.01em] whitespace-nowrap ${
             isOff ? 'text-white/90' : inactive ? 'text-text-muted' : 'text-text-secondary'
           }`}
         >
@@ -246,16 +246,13 @@ function DeviceChip({
         <ChevronDownIcon className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* The popover belongs to the chip that owns it: anchored to the chip on
-          desktop (with a caret pointing at it), and a full-width sheet just
-          above the transport on phones so a 280px list can never run off a
-          375px screen. */}
+      {/* The popover is a fixed sheet centred just above the transport at every
+          viewport width. It must not be absolutely positioned inside the chips
+          row: that row is a horizontal scroll container, and a scroll container
+          clips (or scrolls) anything positioned inside it — the menu would be
+          cut off to the bar's 44px height exactly when the row overflows. */}
       {isOpen && menu && (
-        <div className="device-popover absolute bottom-full left-0 z-30 mb-2 max-lg:mb-4 max-sm:fixed max-sm:inset-x-3 max-sm:bottom-20 max-sm:mb-0 animate-popover-in">
-          <span
-            aria-hidden="true"
-            className="device-popover-caret absolute -bottom-1 left-5 hidden h-2.5 w-2.5 rotate-45 rounded-[2px] border-b border-r border-border-default bg-elevated sm:block"
-          />
+        <div className="device-popover fixed bottom-20 left-1/2 z-30 w-[260px] max-w-[calc(100vw-1.5rem)] -translate-x-1/2 animate-popover-in">
           {menu}
         </div>
       )}
@@ -484,7 +481,15 @@ export function TransportBar({
   return (
     <footer
       ref={transportRef}
-      className="relative h-16 lg:h-14 border-t border-border-subtle bg-surface/95 backdrop-blur-sm flex items-center justify-between px-3 sm:px-6 shrink-0 z-20 max-lg:grid max-lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] max-lg:items-center max-lg:gap-2"
+      // Three grid columns at EVERY width (not only below lg): the 1fr side
+      // cells keep the primary action exactly centred whether or not the
+      // right cell has content. A flex mirror (`flex-1` on both zones) was
+      // the previous desktop layout and is what pushed the device chips under
+      // the Record button — flex shares are fixed at 50/50, so any extra left
+      // content (inspector open at 1280–1439, mode labels at 2xl, the daily
+      // budget indicator) overflowed into the centre column instead of
+      // competing for space.
+      className="relative h-16 lg:h-14 border-t border-border-subtle bg-surface/95 backdrop-blur-sm grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 lg:gap-3 px-3 sm:px-6 shrink-0 z-20"
       aria-label="Recording controls"
     >
       {/* UX-002: a disabled Start used to be a dimmed circle whose only
@@ -513,21 +518,20 @@ export function TransportBar({
         </p>
       )}
 
-      {/* Left: the honest clock (idle everywhere, elapsed next to Stop at lg+)
-          then the secondary device chips. The primary action is centred in its
-          own zone, so it reads as the one dominant control at every width. */}
-      {/* Below lg this zone collapses into the bar's own grid (`contents`), so
-          the clock, the primary action and the device chips become three
-          columns with the primary exactly centred. At lg+ the original
-          three-zone flex bar is untouched. */}
-      <div className="flex-1 min-w-0 flex items-center gap-1.5 md:gap-2 lg:gap-3 max-lg:contents">
+      {/* Left: the device chips. The cell is `minmax(0,1fr)`, so the chips row
+          shrinks and scrolls instead of ever running under the centred
+          primary action; the row rarely needs it (labels yield below 3xl). */}
+      <div className="min-w-0 flex items-center gap-2 lg:gap-3 col-start-1 row-start-1">
         <RecordingAnnouncer recordingState={recordingState} elapsedSeconds={elapsedSeconds} />
 
-        {/* Idle clock: the quiet 00:00 stays on the left at every width. The
-            "Ready to record" caption was removed — it duplicated the state the
-            Record button already shows and crowded the phones. */}
+        {/* Idle clock: the quiet 00:00 only where the bar has room to spare
+            (2xl+). Below that it was decorative dead weight that squeezed the
+            device chips toward the centred Record button — and on phones it
+            previously rendered UNDER the chips (both were placed in the same
+            grid cell). Elapsed time is carried by the canvas Timer, and the
+            state by the primary control, so no information is lost. */}
         {isIdle && !hasRecording && (
-          <div className="flex flex-col min-w-0 shrink-0 max-lg:col-start-1 max-lg:row-start-1 max-lg:justify-self-start">
+          <div className="hidden 2xl:flex flex-col min-w-0 shrink-0">
             <span className="text-[15px] font-mono font-semibold text-text-secondary tabular-nums">00:00</span>
             <span className="sr-only">Recording time</span>
           </div>
@@ -558,11 +562,11 @@ export function TransportBar({
             live controls for the finished one. The review surface owns the
             re-acquire/start-fresh path instead. */}
         {!hasRecording && (
-          <div className="shrink-0 flex items-center gap-1 sm:gap-1.5 max-lg:col-start-1 max-lg:row-start-1 max-lg:justify-self-start max-lg:min-w-0 max-lg:overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {/* Capture source — Camera, Screen, or Screen + Webcam. Switching
                 is only allowed while idle so a live take is never disrupted:
                 the group itself unmounts during a take. The mode labels yield
-                to icons below 2xl — the three radios must clear the centred
+                to icons below 3xl — the three radios must clear the centred
                 primary action at common desktop widths (at 1440px the labelled
                 row ran underneath the Record button, which then swallowed
                 every click meant for the camera chip). Accessible names are
@@ -584,7 +588,7 @@ export function TransportBar({
                 title="Record camera"
               >
                 <CameraIcon className="w-3.5 h-3.5" />
-                <span className="hidden 2xl:inline">Camera</span>
+                <span className="hidden 3xl:inline">Camera</span>
               </button>
               <button
                 type="button"
@@ -601,7 +605,7 @@ export function TransportBar({
                 title={screenShareSupported ? 'Share screen' : 'Screen sharing is not supported in this browser'}
               >
                 <ScreenShareIcon className="w-3.5 h-3.5" />
-                <span className="hidden 2xl:inline">Screen</span>
+                <span className="hidden 3xl:inline">Screen</span>
               </button>
               <button
                 type="button"
@@ -619,7 +623,7 @@ export function TransportBar({
               >
                 <ScreenShareIcon className="w-3.5 h-3.5" />
                 <CameraIcon className="-ml-2 w-3 h-3" />
-                <span className="hidden 2xl:inline">Screen + Cam</span>
+                <span className="hidden 3xl:inline">Screen + Cam</span>
               </button>
             </div>
             )}
@@ -716,7 +720,7 @@ export function TransportBar({
           pause/stop is absolutely positioned so the primary never drifts off
           centre: to its right from sm up, to its left on phones (the device
           chips own the right edge there). */}
-      <div className="relative flex items-center justify-center gap-2 sm:gap-3 shrink-0 max-lg:col-start-2 max-lg:row-start-1 max-lg:justify-self-center max-lg:z-10">
+      <div className="relative flex items-center justify-center gap-2 sm:gap-3 shrink-0 col-start-2 row-start-1">
         {/* In review, Export is the primary action and Retake lives on the
             review surface. Leaving a second Record here duplicated the action
             and implied the finished take could be overwritten in place. */}
@@ -835,11 +839,11 @@ export function TransportBar({
         )}
       </div>
 
-      {/* Right zone: mirrors the left zone's `flex-1` so the primary action
-          stays optically centred. The Free daily budget indicator lives here —
-          always visible, not a toast the user has to catch. */}
+      {/* Right zone: the mirror 1fr cell that keeps the primary action
+          centred; it hosts the Free daily budget indicator when there is one
+          — always visible, not a toast the user has to catch. */}
       <div
-        className="ml-2 sm:ml-0 shrink-0 sm:flex-1 min-w-0 max-lg:hidden flex justify-end"
+        className="shrink-0 min-w-0 flex justify-end justify-self-end col-start-3 row-start-1"
         aria-hidden={!dailyBudget}
       >
         {dailyBudget && (

@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { getPrisma } from '@/lib/db/prisma';
 import { currencyFractionDigits } from '@/lib/billing/paddle';
-import { humanizeAccountStatus, humanizeTransactionStatus } from '@/hooks/useAccountBilling';
+import { humanizeAccountStatus, humanizeTransactionStatus } from '@/lib/billing/humanize';
 
 export const dynamic = 'force-dynamic';
 

@@ -6,7 +6,8 @@ import { useSession, signOut } from 'next-auth/react';
 import { ShareIcon, DownloadIcon, SettingsIcon } from '@/components/icons';
 import { isCreatorPlan } from '@/lib/entitlements';
 import { useDismissOnOutsideClick } from '@/hooks/useDismissOnOutsideClick';
-import { useAccountBilling, formatBillingDate } from '@/hooks/useAccountBilling';
+import { useAccountBilling } from '@/hooks/useAccountBilling';
+import { formatBillingDate } from '@/lib/billing/humanize';
 
 interface HeaderProps {
   hasRecording: boolean;

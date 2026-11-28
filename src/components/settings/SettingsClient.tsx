@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { PricingModal } from '@/components/dialogs/PricingModal';
 import { Toast } from '@/components/common/Toast';
 import { useToast } from '@/hooks/useToast';
-import { useAccountBilling, formatBillingDate, humanizeAccountStatus } from '@/hooks/useAccountBilling';
+import { useAccountBilling } from '@/hooks/useAccountBilling';
+import { formatBillingDate, humanizeAccountStatus } from '@/lib/billing/humanize';
 import { isCreatorPlan } from '@/lib/entitlements';
 
 /**

@@ -11,6 +11,13 @@
  */
 
 @theme {
+  /* ── Breakpoints ──────────────────────────────────────────────────────────
+     Transport-bar text labels ("Camera", "Screen + Cam", "On/Off") only fit
+     once the studio's fixed panels (sidebar + inspector ≈ 520px) leave the
+     bar real room. 2xl (1536px) was not enough: at 1536–1750 the labelled row
+     overflowed into the centred Record button. 3xl is where labels return. */
+  --breakpoint-3xl: 110rem;
+
   /* ── Color: Canvas ─────────────────────────────────────────────────────── */
   --color-canvas:        #09090B;
   --color-surface:       #111113;
