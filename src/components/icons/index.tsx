@@ -275,6 +275,14 @@ export function FullscreenIcon({ className = 'w-4 h-4' }: IconProps) {
   );
 }
 
+export function ScreenShareIcon({ className = 'w-4 h-4' }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    </svg>
+  );
+}
+
 export function AlignLeftIcon({ className = 'w-4 h-4' }: IconProps) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -320,6 +328,24 @@ export function EyeIcon({ className = 'w-4 h-4' }: IconProps) {
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    </svg>
+  );
+}
+
+export function EyeOffIcon({ className = 'w-4 h-4' }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3l18 18" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.585 10.587a2 2 0 002.828 2.826" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6.256 6.626C4.3 7.817 2.937 9.787 2.458 12c1.274 4.057 5.065 7 9.542 7 1.816 0 3.52-.482 4.993-1.322M9.88 5.226A9.947 9.947 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.03 10.03 0 01-1.62 2.947" />
+    </svg>
+  );
+}
+
+export function MinusIcon({ className = 'w-4 h-4' }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h14" />
     </svg>
   );
 }

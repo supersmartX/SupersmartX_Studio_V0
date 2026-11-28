@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
+import { Inter, Instrument_Serif } from 'next/font/google';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 import { SEO_CONFIG } from '@/lib/seo/config';
 import { JsonLd, organizationSchema, websiteSchema, softwareApplicationSchema } from '@/components/seo/JsonLd';
@@ -8,6 +8,18 @@ import './globals.css';
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
+});
+
+// Display accent for the landing page's italic serif highlights (hero
+// "3 Hours", final CTA "in one take"). Loaded once here as a variable — the
+// landing previously re-imported Inter AND Instrument Serif from Google
+// Fonts inside an injected <style>, doubling the Inter download and relying
+// on a render-blocking @import.
+const instrumentSerif = Instrument_Serif({
+  subsets: ['latin'],
+  weight: '400',
+  style: ['normal', 'italic'],
+  variable: '--font-instrument',
 });
 
 export const viewport: Viewport = {
@@ -85,8 +97,8 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${inter.variable} text-sm antialiased`}
-        style={{ fontFamily: 'var(--font-inter), system-ui, sans-serif', background: 'var(--color-canvas)', color: '#fff' }}
+        className={`${inter.variable} ${instrumentSerif.variable} text-sm antialiased`}
+        style={{ background: 'var(--color-canvas)', color: 'var(--color-text-primary)' }}
         suppressHydrationWarning
       >
         <AuthProvider>{children}</AuthProvider>

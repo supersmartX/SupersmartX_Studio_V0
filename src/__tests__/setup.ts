@@ -57,6 +57,61 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
 }
 
+// jsdom omits PointerEvent entirely, so fireEvent.pointerDown/Move/Up build
+// generic Events without pointerId/clientX — the webcam overlay drag math
+// would read NaN from every pointer event. This constructor mirrors the part
+// of the spec the drag handlers rely on (MouseEvent geometry + pointerId).
+if (typeof window !== 'undefined' && typeof window.PointerEvent === 'undefined') {
+  class PointerEventStub extends MouseEvent {
+    public pointerId: number;
+    public pointerType: string;
+    public isPrimary: boolean;
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 0;
+      this.pointerType = init.pointerType ?? '';
+      this.isPrimary = init.isPrimary ?? false;
+    }
+  }
+  window.PointerEvent = PointerEventStub as unknown as typeof PointerEvent;
+}
+
+// jsdom has no MediaStream at all. The composition layer builds its output as
+// `new MediaStream([canvasTrack, ...audioTracks])`; this minimal
+// constructor-tracks-only stand-in matches the surface the recorder and the
+// compositor read (getTracks/getVideoTracks/getAudioTracks). Streams in tests
+// that only need to BE a MediaStream keep using object doubles.
+if (typeof globalThis.MediaStream === 'undefined') {
+  class MediaStreamStub {
+    private tracks: MediaStreamTrack[];
+    constructor(tracks?: MediaStreamTrack[] | MediaStreamTrack) {
+      this.tracks = Array.isArray(tracks) ? [...tracks] : tracks ? [tracks] : [];
+    }
+    getTracks(): MediaStreamTrack[] {
+      return [...this.tracks];
+    }
+    getVideoTracks(): MediaStreamTrack[] {
+      return this.getTracks().filter((t) => t.kind === 'video');
+    }
+    getAudioTracks(): MediaStreamTrack[] {
+      return this.getTracks().filter((t) => t.kind === 'audio');
+    }
+    addTrack(track: MediaStreamTrack): void {
+      if (!this.tracks.includes(track)) this.tracks.push(track);
+    }
+    removeTrack(track: MediaStreamTrack): void {
+      this.tracks = this.tracks.filter((t) => t !== track);
+    }
+    get id(): string {
+      return 'stub-stream';
+    }
+    clone(): MediaStream {
+      return new MediaStreamStub([...this.tracks]) as unknown as MediaStream;
+    }
+  }
+  globalThis.MediaStream = MediaStreamStub as unknown as typeof MediaStream;
+}
+
 beforeEach(() => {
   document.body.innerHTML = '<div id="root"></div>';
 });

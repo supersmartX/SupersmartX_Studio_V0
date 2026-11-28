@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import type { TeleprompterSettings, AspectRatio, PlatformId } from '@/types';
+import type { TeleprompterSettings, AspectRatio, PlatformId, WebcamOverlaySettings } from '@/types';
 import { DEFAULT_SETTINGS, PLATFORM_PRESETS, DEFAULT_PLATFORM_ID } from '@/constants';
+import { DEFAULT_WEBCAM_OVERLAY, sanitizeWebcamOverlay } from '@/lib/recording/webcam-overlay';
 
 const SETTINGS_KEY = 'sxs-studio-settings';
 
@@ -16,6 +17,7 @@ interface PersistedSettings {
   customAspectRatio: AspectRatio;
   customWidth: number;
   customHeight: number;
+  webcamOverlay?: WebcamOverlaySettings;
 }
 
 function loadSettings(): PersistedSettings | null {
@@ -57,6 +59,7 @@ export function useSettings() {
   const [customAspectRatio, setCustomAspectRatio] = useState<AspectRatio>('16:9');
   const [customWidth, setCustomWidth] = useState(1920);
   const [customHeight, setCustomHeight] = useState(1080);
+  const [webcamOverlay, setWebcamOverlayState] = useState<WebcamOverlaySettings>(DEFAULT_WEBCAM_OVERLAY);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
@@ -71,6 +74,9 @@ export function useSettings() {
       if (saved.customAspectRatio) setCustomAspectRatio(saved.customAspectRatio);
       if (saved.customWidth !== undefined) setCustomWidth(saved.customWidth);
       if (saved.customHeight !== undefined) setCustomHeight(saved.customHeight);
+      // Screen+webcam composition layout survives reloads; sanitized because a
+      // stale or hand-edited payload must never produce an off-canvas overlay.
+      if (saved.webcamOverlay) setWebcamOverlayState(sanitizeWebcamOverlay(saved.webcamOverlay));
     }
     setIsLoaded(true);
   }, []);
@@ -90,10 +96,15 @@ export function useSettings() {
         customAspectRatio,
         customWidth,
         customHeight,
+        webcamOverlay,
       });
     }, 500);
     return () => clearTimeout(timer);
-  }, [teleprompter, isMirrored, countdownEnabled, selectedVideoDevice, selectedAudioDevice, platformId, customAspectRatio, customWidth, customHeight, isLoaded]);
+  }, [teleprompter, isMirrored, countdownEnabled, selectedVideoDevice, selectedAudioDevice, platformId, customAspectRatio, customWidth, customHeight, webcamOverlay, isLoaded]);
+
+  const setWebcamOverlay = useCallback((patch: Partial<WebcamOverlaySettings>) => {
+    setWebcamOverlayState((prev) => sanitizeWebcamOverlay({ ...prev, ...patch }));
+  }, []);
 
   const setTeleprompter = useCallback((settings: TeleprompterSettings) => {
     setTeleprompterState(settings);
@@ -123,6 +134,8 @@ export function useSettings() {
     setCustomWidth,
     customHeight,
     setCustomHeight,
+    webcamOverlay,
+    setWebcamOverlay,
     aspectRatio,
     isLoaded,
   }), [
@@ -130,6 +143,7 @@ export function useSettings() {
     isMirrored, countdownEnabled,
     selectedVideoDevice, selectedAudioDevice,
     platformId, customAspectRatio, customWidth, customHeight,
+    webcamOverlay, setWebcamOverlay,
     aspectRatio, isLoaded,
   ]);
 }

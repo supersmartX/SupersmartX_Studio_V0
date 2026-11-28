@@ -40,6 +40,8 @@ interface InspectorPanelProps {
   /** Opens the pricing flow — used by the teleprompter script-limit notice. */
   onUpgradeClick: () => void;
   teleprompterNotice?: string | null;
+  /** True while screen sharing: the teleprompter is hidden, so the script editor is read-only and cannot activate it. */
+  screenShareActive?: boolean;
   script: string;
   onScriptChange: (value: string) => void;
   onClearScript: () => void;
@@ -66,6 +68,7 @@ export function InspectorPanel({
   onCountdownToggle,
   onUpgradeClick,
   teleprompterNotice,
+  screenShareActive = false,
   script,
   onScriptChange,
   onClearScript,
@@ -180,6 +183,7 @@ export function InspectorPanel({
       onCountdownToggle={onCountdownToggle}
       onUpgradeClick={onUpgradeClick}
       teleprompterNotice={teleprompterNotice}
+      screenShareActive={screenShareActive}
       script={script}
       onScriptChange={onScriptChange}
       onClearScript={onClearScript}
@@ -365,6 +369,7 @@ function InspectorContent({
   onCountdownToggle,
   onUpgradeClick,
   teleprompterNotice,
+  screenShareActive,
   script,
   onScriptChange,
   onClearScript,
@@ -384,6 +389,7 @@ function InspectorContent({
   onCountdownToggle: () => void;
   onUpgradeClick: () => void;
   teleprompterNotice?: string | null;
+  screenShareActive?: boolean;
   script: string;
   onScriptChange: (value: string) => void;
   onClearScript: () => void;
@@ -433,6 +439,9 @@ function InspectorContent({
   const showScript = inspectorContext === 'preparing' || isCapturing;
   const showTeleprompter = showScript;
   const showCamera = showScript;
+  // Screen sharing hides the teleprompter, so the script editor must not be
+  // able to (re)activate it mid-share — same read-only treatment as capture.
+  const isScriptReadOnly = isCapturing || !!screenShareActive;
 
   return (
     <div className="p-4 flex flex-col gap-5">
@@ -477,9 +486,15 @@ function InspectorContent({
             />
           </div>
 
+          {screenShareActive && (
+            <p className="text-caption text-text-secondary leading-snug">
+              Screen sharing is active — the teleprompter is hidden until sharing stops.
+            </p>
+          )}
+
           <textarea
             value={script}
-            readOnly={isCapturing}
+            readOnly={isScriptReadOnly}
             onChange={(e) => onScriptChange(e.target.value)}
             className="w-full min-h-[120px] bg-elevated border border-border-subtle rounded-lg p-3 text-body-sm text-text-primary placeholder-text-muted resize-none outline-none focus:border-accent transition-colors leading-relaxed"
             placeholder="Paste or write your script here..."
@@ -500,7 +515,7 @@ function InspectorContent({
                 onClearScript();
               }}
               className="relative inline-flex items-center min-h-[24px] text-caption text-text-secondary hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed after:absolute after:-inset-x-2 after:-inset-y-[11px] after:content-['']"
-              disabled={isCapturing}
+              disabled={isScriptReadOnly}
               suppressHydrationWarning
             >
               Clear
@@ -517,7 +532,7 @@ function InspectorContent({
             where you left off. Clearing site data removes it.
           </p>
 
-          {!isCapturing && <InspirationLoader onLoad={onLoadInspiration} hasExistingScript={!!script.trim()} />}
+          {!isScriptReadOnly && <InspirationLoader onLoad={onLoadInspiration} hasExistingScript={!!script.trim()} />}
           </>)}
         </div>
       </Card>

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
 import { formatPrice, formatPriceZero, formatSavingsPercent, type RegionalPricing } from '@/lib/pricing';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 import { useSession } from 'next-auth/react';
 import { useRegionalPricing } from '@/hooks/useRegionalPricing';
 import { PRICING_PLANS } from '@/constants';
@@ -141,48 +142,6 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     setIsCheckingStatus(false);
     closeModal();
   }, [closeModal]);
-
-  // The dialog panel — the boundary for the Tab trap below, and the root the
-  // initial-focus effect queries. Declared up here because the trap effect
-  // closes over it.
-  const dialogRef = useRef<HTMLDivElement>(null);
-  // The control that opened this dialog, so closing hands focus back to it.
-  const returnFocusRef = useRef<HTMLElement | null>(null);
-
-  // Escape dismisses; Tab is trapped inside the sheet. This dialog is modal in
-  // every other respect (backdrop, scroll lock, aria-modal), so keyboard focus
-  // must not be able to fall out onto the page behind it.
-  useEffect(() => {
-    if (!shouldRender) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleClose();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const root = dialogRef.current;
-      if (!root) return;
-      const focusable = Array.from(
-        root.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        )
-      ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first || !root.contains(document.activeElement)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (document.activeElement === last || !root.contains(document.activeElement)) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [shouldRender, handleClose]);
 
   const handleSubscribe = useCallback(async () => {
     if (!isAuthenticated) {
@@ -382,65 +341,19 @@ export function PricingModal({ isOpen, onClose, showToast, userPlan, isAuthentic
     return () => { cancelled = true; clearInterval(timer); };
   }, [isOpen, notice, pendingReservationId, update, showToast]);
 
-  // UX-012: this dialog has always had NO initial focus — focus stayed on the
-  // trigger behind it, so keyboard and screen-reader users opened the pricing
-  // sheet with nothing focused inside it. Same rule the shared Modal uses (an
-  // explicit opt-in marker, else the first control that is not the header
-  // Close). Deliberately NOT a refactor into the shared Modal: unifying the
-  // dialog systems is Phase 6 work and out of this phase's scope.
-  useEffect(() => {
-    if (!shouldRender || isLoadingPricing) return;
-    const root = dialogRef.current;
-    if (!root) return;
-
-    const explicit = root.querySelector<HTMLElement>('[data-modal-initial-focus]');
-    // A disabled marker (here: the CTA when the viewer already holds the
-    // selected tier) cannot take focus, so it must not end the search.
-    if (explicit && !explicit.hasAttribute('disabled')) {
-      explicit.focus();
-      return;
-    }
-    const focusable = Array.from(
-      root.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-    ).filter((el) => !el.hasAttribute('disabled'));
-    if (focusable.length === 0) return;
-    const firstTaskControl =
-      focusable.find((el) => el.getAttribute('aria-label') !== 'Close') ?? focusable[0];
-    firstTaskControl.focus();
-    // `step` is a dependency on purpose: replacing the plan grid with the
-    // processing panel or an outcome message is a new task, and focus may not
-    // stay on a control that no longer exists.
-    // `isLoadingPricing` is the important one: while the geo lookup is in
-    // flight the body is the UX-013 skeleton, whose bars are aria-hidden
-    // placeholders with no focusable control in them — so focusing here would
-    // find the header Close as the only candidate and land focus on "leave".
-    // Waiting until real content exists is what makes the task-control rule
-    // below mean anything.
-  }, [shouldRender, step, isLoadingPricing]);
-
-  // Record the trigger when the sheet opens; hand focus back once it is gone.
-  // Only restores when focus would otherwise be lost, so a dialog stacked on
-  // top of this one keeps its own focus.
-  useEffect(() => {
-    if (shouldRender) {
-      const active = document.activeElement;
-      returnFocusRef.current = active instanceof HTMLElement ? active : null;
-      return;
-    }
-    const target = returnFocusRef.current;
-    returnFocusRef.current = null;
-    const active = document.activeElement;
-    const focusIsLost =
-      active === null ||
-      active === document.body ||
-      active === document.documentElement ||
-      !active.isConnected;
-    if (target && target.isConnected && focusIsLost) {
-      target.focus();
-    }
-  }, [shouldRender]);
+  // The dialog panel — the boundary for the shared dialog focus contract
+  // (Tab trap, Escape, initial focus on the task control, focus return).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus({
+    shouldRender,
+    onClose: closeModal,
+    containerRef: dialogRef,
+    // A step change (grid → processing/outcome) is a new task; while the geo
+    // lookup is in flight the body is the UX-013 skeleton whose bars are
+    // aria-hidden placeholders — waiting for real content is what makes the
+    // task-control rule mean anything.
+    initialFocusDeps: [step, isLoadingPricing],
+  });
 
   if (!shouldRender) return null;
 

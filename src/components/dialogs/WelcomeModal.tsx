@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { CloseIcon } from '@/components/icons';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 
 interface WelcomeModalProps {
   isVisible: boolean;
@@ -22,27 +23,23 @@ export function WelcomeModal({
 }: WelcomeModalProps) {
   const { isClosing, shouldRender, handleClose: closeModal, swipeHandlers } = useModalAnimation(isVisible, onExploreStudio);
 
-  // The dialog panel — the boundary for the Tab trap below.
+  // The dialog panel — the boundary for the shared dialog focus contract.
   const panelRef = useRef<HTMLDivElement>(null);
-  // The control that opened this dialog, so closing hands focus back to it.
-  const returnFocusRef = useRef<HTMLElement | null>(null);
 
-  // Escape dismisses, Tab is trapped inside the sheet, and the primary action
-  // takes focus on open. This dialog is modal in every other respect, so
-  // keyboard focus must not be able to fall out onto the page behind it.
-  useEffect(() => {
-    if (!shouldRender) return;
-    const active = document.activeElement;
-    returnFocusRef.current = active instanceof HTMLElement ? active : null;
-
-    // Land on the primary task ("Get Started"), not on "leave this dialog" —
-    // but only when that control is already inside the visible body. On a
-    // short viewport the CTA sits below the fold, and focusing it scrolled the
-    // body ~350px so the dialog opened mid-content with its title off-screen.
-    // In that case focus lands on the dialog's own heading: it is visible at
-    // the top, it names the dialog, and the first Tab still reaches the CTA.
-    const container = panelRef.current;
-    if (container) {
+  useDialogFocus({
+    shouldRender,
+    onClose: closeModal,
+    containerRef: panelRef,
+    focusOnOpen: () => {
+      // Land on the primary task ("Get Started"), not on "leave this dialog" —
+      // but only when that control is already inside the visible body. On a
+      // short viewport the CTA sits below the fold, and focusing it scrolled
+      // the body ~350px so the dialog opened mid-content with its title
+      // off-screen. In that case focus lands on the dialog's own heading: it
+      // is visible at the top, it names the dialog, and the first Tab still
+      // reaches the CTA.
+      const container = panelRef.current;
+      if (!container) return;
       const scroller = container.querySelector<HTMLElement>('[data-welcome-scroll]');
       const focusable = Array.from(
         container.querySelectorAll<HTMLElement>(
@@ -58,51 +55,8 @@ export function WelcomeModal({
       const heading = container.querySelector<HTMLElement>('[data-welcome-heading]');
       (taskVisible ? firstTaskControl : heading ?? focusable[0])?.focus({ preventScroll: true });
       if (scroller) scroller.scrollTop = 0;
-    }
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        closeModal();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const root = panelRef.current;
-      if (!root) return;
-      const focusable = Array.from(
-        root.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        )
-      ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first || !root.contains(document.activeElement)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (document.activeElement === last || !root.contains(document.activeElement)) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      // Hand focus back to the trigger once the sheet is gone.
-      const target = returnFocusRef.current;
-      returnFocusRef.current = null;
-      const nowActive = document.activeElement;
-      const focusIsLost =
-        nowActive === null ||
-        nowActive === document.body ||
-        nowActive === document.documentElement ||
-        !nowActive.isConnected;
-      if (target && target.isConnected && focusIsLost) {
-        target.focus();
-      }
-    };
-  }, [shouldRender, closeModal]);
+    },
+  });
 
   if (!shouldRender) return null;
 

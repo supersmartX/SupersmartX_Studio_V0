@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { NUDGE_AMOUNT_KEYBOARD, PLATFORM_PRESETS, DEFAULT_PLATFORM_ID } from '@/constants';
 
 import { useWelcomeModal } from '@/hooks/useWelcomeModal';
 import { useCamera } from '@/hooks/useCamera';
 import { useRecorder } from '@/hooks/useRecorder';
+import { useScreenCapture } from '@/hooks/useScreenCapture';
 import { useScriptStorage } from '@/hooks/useScriptStorage';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useFocusView } from '@/hooks/useFocusView';
@@ -17,6 +18,8 @@ import { useExportPipeline } from '@/hooks/useExportPipeline';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useMicMuteSync } from '@/hooks/useMicMuteSync';
 import { useVoiceFollow } from '@/hooks/useVoiceFollow';
+import { useScreenCameraComposition } from '@/hooks/useScreenCameraComposition';
+import { FALLBACK_CAMERA_ASPECT } from '@/lib/recording/webcam-overlay';
 
 import { useStudioConfig } from '@/hooks/useStudioConfig';
 import { useStudioCamera } from '@/hooks/useStudioCamera';
@@ -30,7 +33,7 @@ import { isReviewState, resolveStudioPhase } from '@/lib/review-state';
 import { addDailyRecordingSeconds, canRecordToday, getDailyRecordingRemainingInFlight } from '@/lib/daily-recording';
 import { getTeleprompterSessionCap, getTeleprompterRemainingInSession } from '@/lib/teleprompter-session';
 import { runRecordingPreflight } from '@/lib/recording/preflight';
-import { readTrackCaptureInfo } from '@/lib/recording/capture-constraints';
+import { readTrackCaptureInfo, buildPreferredAudioConstraints } from '@/lib/recording/capture-constraints';
 import { deriveAspectRatioLabel } from '@/lib/recording/aspect-ratio';
 import { getRecording, saveRecording, type StoredRecording } from '@/lib/recording-store';
 import {
@@ -67,10 +70,11 @@ import { AuthModal } from '@/components/auth/AuthModal';
 import { PlatformPreviewSwitcher } from '@/components/studio/PlatformPreviewSwitcher';
 import { RecordingsPanel } from '@/components/studio/LibraryPanel';
 import { RecordingStatusLine } from '@/components/studio/RecordingStatusLine';
+import { ScreenWebcamPreview } from '@/components/studio/ScreenWebcamPreview';
 import { Toast } from '@/components/common/Toast';
-import { TrashIcon } from '@/components/icons';
+import { ScreenShareIcon, TrashIcon } from '@/components/icons';
 import { formatTime } from '@/utils/format';
-import type { TabType, PlatformId, PlatformPreset, MasterRecording } from '@/types';
+import type { TabType, PlatformId, PlatformPreset, MasterRecording, CaptureSource } from '@/types';
 
 export default function HomePage() {
   // Base hooks (called first, no ordering dependency)
@@ -86,8 +90,73 @@ export default function HomePage() {
 
   // Core infrastructure hooks
   const { settings, recordingConfig } = useStudioConfig();
+  const [captureSource, setCaptureSource] = useState<CaptureSource>('camera');
   const camera = useCamera();
-  const recorder = useRecorder(camera.stream);
+
+  const screenMicStreamRef = useRef<MediaStream | null>(null);
+  const [screenMicStream, setScreenMicStream] = useState<MediaStream | null>(null);
+  const stopScreenMicStream = useCallback(() => {
+    const current = screenMicStreamRef.current;
+    screenMicStreamRef.current = null;
+    if (current) {
+      current.getTracks().forEach((t) => { try { t.stop(); } catch { /* ignore */ } });
+    }
+    setScreenMicStream(null);
+  }, []);
+
+  const handleScreenStreamEndedRef = useRef<() => void>(() => {});
+  const screenCapture = useScreenCapture({
+    onStreamEnded: () => handleScreenStreamEndedRef.current(),
+  });
+
+  // Screen-share interlock: the teleprompter is a private reading aid, so it
+  // must never render while the user's screen is being shared. Suppression is
+  // a pure display gate — the script (the prompter's persisted state) is never
+  // touched — so when sharing ends for any reason (Stop sharing, the browser's
+  // native sharing bar, a cancelled or failed request) the overlay comes back
+  // exactly as it was and nothing is left disabled.
+  const isScreenShareActive = screenCapture.isActive;
+
+  const screenVideoTrack = captureSource !== 'camera' ? (screenCapture.stream?.getVideoTracks()[0] ?? null) : null;
+  const cameraMicTrack = captureSource === 'screen'
+    ? (camera.stream?.getAudioTracks().find((t) => t.readyState === 'live') ?? null)
+    : null;
+  const screenMicTrack = captureSource === 'screen'
+    ? (screenMicStream?.getAudioTracks().find((t) => t.readyState === 'live') ?? null)
+    : null;
+  const activeMicTrack = cameraMicTrack ?? screenMicTrack;
+
+  // Screen + Webcam composition (Loom-style). The screen, camera and mic stay
+  // separate sources; the compositor paints them into one canvas each frame
+  // and hands the existing recorder a single composed MediaStream. Changing
+  // the webcam's visibility/position/shape mid-take only affects the draw
+  // pass — the composed stream identity (and therefore the recording) holds.
+  const cameraAspect = useMemo(() => {
+    const track = camera.stream?.getVideoTracks()[0];
+    if (!track || typeof track.getSettings !== 'function') return FALLBACK_CAMERA_ASPECT;
+    try {
+      const s = track.getSettings();
+      if (s.width && s.height) return s.width / s.height;
+    } catch { /* test doubles */ }
+    return FALLBACK_CAMERA_ASPECT;
+  }, [camera.stream]);
+
+  const composition = useScreenCameraComposition({
+    screenStream: captureSource === 'screen-camera' ? screenCapture.stream : null,
+    cameraStream: captureSource === 'screen-camera' ? camera.stream : null,
+    overlay: settings.webcamOverlay,
+    cameraAspect,
+    enabled: captureSource === 'screen-camera',
+  });
+
+  const activeCaptureStream = useMemo(() => {
+    if (captureSource === 'screen-camera') return composition.composedStream;
+    if (captureSource !== 'screen') return camera.stream;
+    if (!screenVideoTrack) return null;
+    return new MediaStream([screenVideoTrack, ...(activeMicTrack ? [activeMicTrack] : [])]);
+  }, [captureSource, camera.stream, screenVideoTrack, activeMicTrack, composition.composedStream]);
+
+  const recorder = useRecorder(activeCaptureStream);
 
   // Camera management hook (device auto-selection is driven by the page, so
   // the hook stays a set of stable callbacks).
@@ -506,7 +575,27 @@ export default function HomePage() {
   const handleStopAndReleaseCamera = useCallback(() => {
     recorderStop();
     cameraStop();
-  }, [recorderStop, cameraStop]);
+    if (captureSource !== 'camera') {
+      screenCapture.stop();
+      stopScreenMicStream();
+    }
+  }, [recorderStop, cameraStop, captureSource, screenCapture, stopScreenMicStream]);
+
+  handleScreenStreamEndedRef.current = () => {
+    const state = recorder.recordingState;
+    if (state === 'recording' || state === 'paused' || state === 'countdown') {
+      if (state === 'countdown') {
+        recorder.cancelCountdown();
+      } else {
+        recorderStop();
+      }
+      showToast('Screen sharing stopped — recording saved.');
+    } else {
+      showToast('Screen sharing stopped.');
+    }
+    stopScreenMicStream();
+    setCaptureSource('camera');
+  };
 
   const { elapsedSeconds, resetTimer } = useRecordingTimer({
     recordingState: recorder.recordingState,
@@ -517,6 +606,9 @@ export default function HomePage() {
   });
 
   const isRecordingOrPaused = recorder.recordingState === 'recording' || recorder.recordingState === 'paused';
+  // Device (re)acquisition is only safe when no take is in flight or being
+  // counted down to — same contract the TransportBar's device pickers use.
+  const isIdlePreRecord = recorder.recordingState === 'idle' || recorder.recordingState === 'completed';
 
   // A physical camera/microphone loss is a real capture failure, not a UI
   // toggle. `useCamera` reports it as an error and releases the remaining
@@ -559,17 +651,21 @@ export default function HomePage() {
     teleprompterActiveRef.current = teleprompterActive;
   }, [teleprompterActive]);
   const teleprompterSessionCap = getTeleprompterSessionCap({ isCreator: isCreatorUser, recordingCapSeconds: recordingCap });
+  // Suppressed (hidden behind a screen share) prompter time does not drain the
+  // Free allowance: the user cannot read an overlay that is not rendered.
   const teleprompterRemaining = getTeleprompterRemainingInSession(
     teleprompterSessionCap,
-    isRecordingOrPaused && teleprompterActive ? elapsedSeconds : 0,
+    isRecordingOrPaused && teleprompterActive && !isScreenShareActive ? elapsedSeconds : 0,
   );
   const teleprompterDisabled = teleprompterRemaining !== null && teleprompterActive && teleprompterRemaining <= 0;
   const teleprompterRemainingDisplay = isCreatorUser ? null : teleprompterRemaining;
-  const teleprompterNotice = isCreatorUser
-    ? null
-    : teleprompterDisabled
-      ? `Teleprompter limit reached (3 min per recording on Free). Upgrade to Creator for unlimited.`
-      : `Free plan: ${Math.max(1, Math.ceil((teleprompterRemainingDisplay ?? 0) / 60))} min teleprompter for this recording`;
+  const teleprompterNotice = isScreenShareActive
+    ? 'Screen sharing is active — the teleprompter is hidden until sharing stops.'
+    : isCreatorUser
+      ? null
+      : teleprompterDisabled
+        ? `Teleprompter limit reached (3 min per recording on Free). Upgrade to Creator for unlimited.`
+        : `Free plan: ${Math.max(1, Math.ceil((teleprompterRemainingDisplay ?? 0) / 60))} min teleprompter for this recording`;
 
   // Camera on/off — defaults to ON. Toggling disables/enables the video track
   // on the live stream so the mic and the take stay alive while video is off.
@@ -588,37 +684,36 @@ export default function HomePage() {
   // their camera off. A video take with the video track disabled is a black
   // recording, so "off" is a blocker, not a silent capture choice.
   const canStartRecording =
-    isCameraOn &&
-    (!!camera.stream || camera.hasInitialized || isReview) &&
-    camera.status !== 'requesting' &&
-    // A failed/disconnected camera must not leave Start looking armed: the
-    // overlay's Retry is the recovery path, and the hint below says so.
-    camera.status !== 'error';
+    captureSource === 'camera'
+      ? isCameraOn &&
+        (!!camera.stream || camera.hasInitialized || isReview) &&
+        camera.status !== 'requesting' &&
+        camera.status !== 'error'
+      : screenCapture.isSupported &&
+        screenCapture.status !== 'requesting' &&
+        (isReview || !!screenCapture.stream || recorder.recordingState === 'idle');
 
-  // The matching reason, in the same order. `null` means "nothing is blocking
-  // you" and the transport renders no hint at all. This names the real blocker
-  // (camera/microphone permission and acquisition) rather than a hardcoded
-  // string: the daily Free budget is NOT one of them, because it does not
-  // disable the button — it is enforced at click time in handleRecordStart.
-  //
-  // One branch per camera status, so the hint can never disagree with the
-  // overlay above it. The error branch deliberately does NOT restate the
-  // overlay's `errorMessage` (permission denied, device in use, not found…):
-  // it says what to do about it instead, which is true for every error cause
-  // and duplicates none of them.
   const recordBlockerHint = !canStartRecording
-    ? camera.status === 'requesting'
-      ? 'Allow camera and microphone access to start recording.'
-      : camera.status === 'error'
-        ? camera.permissionBlocked
-          ? 'Camera or microphone access is blocked. Allow it in your browser settings, then use Retry.'
-          : 'Camera setup failed. Use Retry on the canvas to try again.'
-        : !camera.stream && !camera.hasInitialized
-          ? 'Enable Camera & Microphone on the canvas to start recording.'
-          : !isCameraOn
-            ? 'Turn your camera on to start recording.'
-            : 'Enable Camera & Microphone on the canvas to start recording.'
-    : null;
+    ? captureSource !== 'camera'
+      ? !screenCapture.isSupported
+        ? 'Screen sharing is not supported in this browser.'
+        : screenCapture.status === 'requesting'
+          ? 'Choose a screen, window, or tab to share.'
+          : screenCapture.errorMessage || 'Share your screen to start recording.'
+      : camera.status === 'requesting'
+        ? 'Allow camera and microphone access to start recording.'
+        : camera.status === 'error'
+          ? camera.permissionBlocked
+            ? 'Camera or microphone access is blocked. Allow it in your browser settings, then use Retry.'
+            : 'Camera or microphone is unavailable. Use Retry on the canvas to try again.'
+          : !camera.stream && !camera.hasInitialized
+            ? 'Enable Camera & Microphone on the canvas to start recording.'
+            : !isCameraOn
+              ? 'Turn your camera on to start recording.'
+              : 'Enable Camera & Microphone on the canvas to start recording.'
+    : captureSource !== 'camera' && !screenCapture.isActive
+      ? 'You’ll choose a screen, window, or tab when recording starts.'
+      : null;
 
   // Local UI state
   const isMobile = useMediaQuery('(max-width: 640px)');
@@ -633,7 +728,7 @@ export default function HomePage() {
   // change — including a stream acquired after the toggle (Stop → Start, a
   // device switch), whose fresh tracks arrive enabled. Without this the button
   // reported "muted" while the recording captured live audio.
-  useMicMuteSync(isMicMuted, camera.stream);
+  useMicMuteSync(isMicMuted, activeCaptureStream);
   // Apply the persisted camera-on preference after mount so hydration stays
   // consistent (server always renders the camera-ON default).
   useEffect(() => {
@@ -674,7 +769,7 @@ export default function HomePage() {
   const [voiceFollowOn, setVoiceFollowOn] = useState(false);
   const voiceFollow = useVoiceFollow({
     script: scriptStorage.script,
-    enabled: voiceFollowOn && canVoiceFollow(userPlan),
+    enabled: voiceFollowOn && canVoiceFollow(userPlan) && !isScreenShareActive,
     muted: isMicMuted,
     paused: recorder.recordingState === 'paused',
     containerRef: prompterContainerRef,
@@ -756,6 +851,22 @@ export default function HomePage() {
     const stream = await handleCameraInitialize();
     if (stream) setFreshSessionNeedsCamera(false);
   }, [handleCameraInitialize]);
+
+  // Entering Screen + Webcam needs the camera for the floating overlay (and
+  // the mic). Acquire it as soon as the mode is chosen so the composition and
+  // device picking are ready before Record; a denial is recoverable — Record
+  // then proceeds screen-only with a toast (see handleRecordStart).
+  const cameraInitRequestedRef = useRef(false);
+  useEffect(() => {
+    if (captureSource !== 'screen-camera') {
+      cameraInitRequestedRef.current = false;
+      return;
+    }
+    if (camera.hasInitialized || camera.status === 'requesting') return;
+    if (cameraInitRequestedRef.current) return;
+    cameraInitRequestedRef.current = true;
+    void handleCameraPermissionRequest();
+  }, [captureSource, camera.hasInitialized, camera.status, handleCameraPermissionRequest]);
 
   const handleNewVideo = useCallback(() => {
     // Never destroy a take in flight. New Video is a "start over" for an
@@ -1033,31 +1144,122 @@ export default function HomePage() {
     },
   }), [voiceEngagedRef]);
 
+  const ensureScreenMicStream = useCallback(async (): Promise<MediaStream | null> => {
+    const existing = screenMicStreamRef.current;
+    if (existing && existing.getAudioTracks().some((t) => t.readyState === 'live')) return existing;
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return null;
+    try {
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: buildPreferredAudioConstraints(settings.selectedAudioDevice),
+        video: false,
+      });
+      screenMicStreamRef.current = mic;
+      setScreenMicStream(mic);
+      return mic;
+    } catch {
+      return null;
+    }
+  }, [settings.selectedAudioDevice]);
+
   const handleRecordStart = useCallback(async () => {
-    // Free: enforce 10 min TOTAL recording per day (downloads stay unlimited)
     if (!isCreatorUser && !canRecordToday()) {
-      showToast('Your device-local Free recording allowance is used for today. It may reset if site data is cleared or you switch browser profiles.');
-      ui.setIsPricingModalOpen(true);
+      showToast('Your device-local Free recording allowance is used for today. Come back tomorrow, or upgrade to Creator for unlimited recording.');
       return;
     }
 
-    // Camera released after a previous take (or never enabled): acquire a
-    // clean stream first. Pre-permission users go through the Enable-camera
-    // overlay instead of a silent no-op — except in review, which renders
-    // over the Canvas children and would otherwise hide that overlay behind a
-    // document that has no camera at all. After an upgrade return there is no
-    // InitOverlay to click, so Start acquires on demand; it is a user gesture,
-    // so the browser permission prompt is the expected affordance.
-    let liveStream = camera.stream;
-    if (!liveStream) {
-      if (!camera.hasInitialized && !isReview) return;
-      liveStream = await handleCameraInitialize();
-      if (!liveStream) {
-        // The overlay now carries the reason (permission denied, device in
-        // use, disconnected…); this names the moment so the click that just
-        // did nothing is explained rather than silent.
-        showToast('We could not reconnect to your camera. Check the details on the canvas, then try again.');
+    recorder.resetRecording();
+    resetTimer();
+    resetVoiceFollow();
+
+    let liveStream = null;
+    if (captureSource === 'screen-camera') {
+      let displayStream = screenCapture.stream;
+      if (!displayStream || displayStream.getVideoTracks().length === 0) {
+        displayStream = await screenCapture.start();
+      }
+      if (!displayStream) {
+        showToast(screenCapture.errorMessage ?? 'Screen sharing was cancelled.');
         return;
+      }
+      const screenVideo = displayStream.getVideoTracks()[0];
+      if (!screenVideo) {
+        showToast('No screen video was available. Try sharing again.');
+        return;
+      }
+
+      // The webcam overlay needs the camera. A denial or failure here is NOT
+      // fatal — the take proceeds screen-only (with the mic if any) and says
+      // so, instead of losing the share the user just picked.
+      let webcamStream = camera.stream;
+      if (!webcamStream || webcamStream.getVideoTracks().length === 0) {
+        webcamStream = await handleCameraInitialize();
+      }
+      if (!webcamStream || webcamStream.getVideoTracks().length === 0) {
+        showToast('Camera unavailable — recording your screen without the webcam.');
+      } else if (!isCameraOn) {
+        setIsCameraOn(true);
+        try { localStorage.setItem('sxs-camera-on', 'true'); } catch { /* ignore */ }
+        const videoTrack = webcamStream.getVideoTracks()[0];
+        if (videoTrack) videoTrack.enabled = true;
+        showToast('Camera turned on for your retake.');
+      }
+
+      // Composition is the recorder input: the composed stream is built from
+      // the FRESHEST stream objects (React may not have re-rendered yet).
+      const composed = await composition.ensureReady({
+        screenStream: displayStream,
+        cameraStream: webcamStream,
+      });
+      if (!composed) {
+        showToast('Could not compose the screen recording. Try sharing again.');
+        return;
+      }
+      liveStream = composed;
+    } else if (captureSource === 'screen') {
+      let displayStream = screenCapture.stream;
+      if (!displayStream || displayStream.getVideoTracks().length === 0) {
+        displayStream = await screenCapture.start();
+      }
+      if (!displayStream) {
+        showToast(screenCapture.errorMessage ?? 'Screen sharing was cancelled.');
+        return;
+      }
+      const screenVideo = displayStream.getVideoTracks()[0];
+      if (!screenVideo) {
+        showToast('No screen video was available. Try sharing again.');
+        return;
+      }
+      // Preserve any audio the user opted to share (e.g. tab audio), then
+      // add microphone narration. Mic is preferred from an existing camera
+      // stream to avoid an extra permission prompt.
+      const displayAudioTracks = displayStream.getAudioTracks().filter((t) => t.readyState === 'live');
+      let micTracks = camera.stream?.getAudioTracks().filter((t) => t.readyState === 'live') ?? [];
+      if (micTracks.length === 0) {
+        const micStream = await ensureScreenMicStream();
+        micTracks = micStream?.getAudioTracks().filter((t) => t.readyState === 'live') ?? [];
+      }
+      // Avoid duplicating the same track if it appears in both sources.
+      const seenTrackIds = new Set<string>();
+      const mergedAudio = [...displayAudioTracks, ...micTracks].filter((t) => {
+        if (seenTrackIds.has(t.id)) return false;
+        seenTrackIds.add(t.id);
+        return true;
+      });
+      liveStream = new MediaStream([screenVideo, ...mergedAudio]);
+    } else {
+      liveStream = camera.stream;
+      if (!liveStream) {
+        if (!camera.hasInitialized && !isReview) return;
+        liveStream = await handleCameraInitialize();
+        if (!liveStream) {
+          showToast("Couldn't start the camera. Check permissions and try again.");
+          return;
+        }
+      }
+      if (!isCameraOn) {
+        setIsCameraOn(true);
+        try { localStorage.setItem('sxs-camera-on', 'true'); } catch { /* ignore */ }
+        showToast('Camera turned on for your retake.');
       }
     }
 
@@ -1075,28 +1277,14 @@ export default function HomePage() {
       if (issue.severity === 'warning') showToast(issue.message);
     }
 
-    if (prompterContainerRef.current) {
-      prompterContainerRef.current.scrollTop = 0;
-      // A fresh take starts voice follow from the top as well (CR-002).
-      resetVoiceFollow();
-    }
-
-    resetTimer();
-
     const { scrollCallback, checkEndCallback } = buildScrollAndCheckEnd();
-
-    // FC-1.0 countdown + DC-2: the countdown setting decides whether capture
-    // waits; the teleprompter's auto-stop is the only stop that announces
-    // itself with a toast (an ordinary Stop never reaches this callback).
     recorder.startRecording(scrollCallback, checkEndCallback, liveStream, {
       countdown: settings.countdownEnabled,
       onScriptEnd: () => showToast('Script ended — recording stopped'),
-      // A MediaRecorder failure used to be console-only: the UI fell back to
-      // idle with no word. The hook supplies the human-readable message.
-      onError: (message) => showToast(message),
+      onError: (message: string) => showToast(message),
       recovery: recoverySink,
     });
-  }, [camera, recorder, settings.teleprompter.scrollSpeed, settings.teleprompter.scrollSpeedMultiplier, settings.countdownEnabled, resetTimer, isCreatorUser, showToast, ui, handleCameraInitialize, isReview, resetVoiceFollow, buildScrollAndCheckEnd, recoverySink]);
+  }, [captureSource, camera.stream, camera.hasInitialized, composition, ensureScreenMicStream, handleCameraInitialize, isCameraOn, isCreatorUser, isReview, recorder, recoverySink, resetTimer, resetVoiceFollow, screenCapture, settings.countdownEnabled, showToast, buildScrollAndCheckEnd]);
 
   const handleRecordStop = useCallback(() => {
     if (recorder.recordingState === 'recording' || recorder.recordingState === 'paused') {
@@ -1324,10 +1512,13 @@ export default function HomePage() {
 
   // Dimension truth is used by the RecordingStatusLine while a take is in
   // flight: the ACTUAL MediaStream track settings, never a configured target
-  // dressed up as capture (the old always-on dimensions chip was removed with
-  // the clean-canvas redesign; during a take the status line owns the real
-  // numbers, and outside a take the UI simply doesn't claim any).
-  const liveCaptureInfo = readTrackCaptureInfo(camera.stream);
+  // dressed up as capture. For screen-family sources this is the screen /
+  // composed track's real geometry, not the camera's.
+  const liveCaptureInfo = readTrackCaptureInfo(
+    captureSource === 'camera'
+      ? camera.stream
+      : composition.composedStream ?? screenCapture.stream,
+  );
 
   const inspectorProps = {
     settings: settings.teleprompter,
@@ -1340,6 +1531,7 @@ export default function HomePage() {
     onCountdownToggle: () => settings.setCountdownEnabled((prev) => !prev),
     onUpgradeClick: handleUpgradeClick,
     teleprompterNotice,
+    screenShareActive: isScreenShareActive,
     script: scriptStorage.script,
     onScriptChange: scriptStorage.setScript,
     onClearScript: scriptStorage.clearScript,
@@ -1347,7 +1539,7 @@ export default function HomePage() {
     progress: scriptStorage.progress,
     onLoadInspiration: scriptStorage.loadInspiration,
     voiceFollow: {
-      visible: voiceFollow.supported && canVoiceFollow(userPlan),
+      visible: voiceFollow.supported && canVoiceFollow(userPlan) && !isScreenShareActive,
       enabled: voiceFollowOn,
       onChange: setVoiceFollowOn,
       phase: voiceFollow.phase,
@@ -1477,21 +1669,99 @@ export default function HomePage() {
                 reviewActive={isReview && isStudio && !ui.isDrawerVisible && !reviewPlaybackSuppressed}
                 statusBadge={<RecordingBadge recordingState={recorder.recordingState} />}
               >
-                <CameraPreview
-                  stream={camera.stream}
-                  isMirrored={settings.isMirrored}
-                  focusViewEnabled={focusView.isEnabled}
-                />
+                {captureSource === 'screen-camera' ? (
+                  <ScreenWebcamPreview
+                    canvasEl={composition.canvasEl}
+                    overlay={settings.webcamOverlay}
+                    onOverlayChange={settings.setWebcamOverlay}
+                    cameraAspect={cameraAspect}
+                    screenActive={screenCapture.isActive}
+                    isCameraOn={isCameraOn}
+                    onCameraToggle={handleCameraToggle}
+                    videoDevices={camera.videoDevices}
+                    selectedVideoDevice={settings.selectedVideoDevice}
+                    onVideoDeviceChange={handleVideoDeviceChange}
+                    deviceChangeLocked={!isIdlePreRecord}
+                  />
+                ) : (
+                  <CameraPreview
+                    stream={captureSource === 'screen' ? screenCapture.stream : camera.stream}
+                    isMirrored={captureSource === 'camera' ? settings.isMirrored : false}
+                    focusViewEnabled={focusView.isEnabled}
+                    objectFit={captureSource === 'screen' ? 'contain' : 'cover'}
+                  />
+                )}
 
                 {/* Camera-off state: an honest overlay over the frozen frame.
                     Only when the capture session exists AND the user turned
                     the video track off — never a fake stream, and it disappears
                     the instant the track is live again. */}
-                {!isReview && camera.hasInitialized && camera.status !== 'error' && camera.stream && !isCameraOn && (
+                {captureSource !== 'screen' && !isReview && camera.hasInitialized && camera.status !== 'error' && camera.stream && !isCameraOn && (
+                  <CameraOffOverlay onEnable={handleCameraToggle} isMicMuted={isMicMuted} />
+                )}
+                {captureSource !== 'screen' && !isReview && !isCameraOn && !camera.hasInitialized && camera.status === 'idle' && (
                   <CameraOffOverlay onEnable={handleCameraToggle} isMicMuted={isMicMuted} />
                 )}
 
-                {teleprompterDisabled ? (
+                {captureSource !== 'camera' && !screenCapture.stream && !isReview && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
+                    <div className="flex max-w-sm flex-col items-center gap-3 rounded-xl border border-border-default bg-surface/95 p-6 text-center shadow-2xl">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-accent/30 bg-accent/10 text-accent">
+                        <ScreenShareIcon className="h-7 w-7" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[15px] font-semibold text-text-primary">Share your screen</p>
+                        <p className="text-[13px] leading-relaxed text-text-secondary">
+                          Choose an entire screen, window, or browser tab in the browser picker. Your screen will appear here before you record.
+                        </p>
+                      </div>
+                      {screenCapture.errorMessage && (
+                        <p className="w-full rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-[12px] text-error">
+                          {screenCapture.errorMessage}
+                        </p>
+                      )}
+                      {captureSource === 'screen-camera' && camera.status === 'error' && camera.errorMessage && (
+                        <p className="w-full rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
+                          {camera.errorMessage}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => { void screenCapture.start(); }}
+                        disabled={!screenCapture.isSupported || screenCapture.status === 'requesting'}
+                        className="min-h-[44px] rounded-full bg-accent px-5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {screenCapture.status === 'requesting' ? 'Waiting for selection…' : 'Share screen'}
+                      </button>
+                      {!screenCapture.isSupported && (
+                        <p className="text-[12px] text-text-tertiary">
+                          Screen sharing is not supported in this browser.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {captureSource !== 'camera' && screenCapture.stream && !isReview && recorder.recordingState === 'idle' && (
+                  <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { void screenCapture.start(); }}
+                      className="rounded-lg border border-border-default bg-surface/90 px-3 py-1.5 text-[12px] font-medium text-text-secondary backdrop-blur-sm transition-colors hover:bg-elevated hover:text-text-primary"
+                    >
+                      Change source
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => screenCapture.stop()}
+                      className="rounded-lg border border-border-default bg-surface/90 px-3 py-1.5 text-[12px] font-medium text-text-secondary backdrop-blur-sm transition-colors hover:bg-elevated hover:text-text-primary"
+                    >
+                      Stop sharing
+                    </button>
+                  </div>
+                )}
+
+                {teleprompterDisabled && !isScreenShareActive ? (
                   <div className="absolute inset-0 z-20 flex items-center justify-center p-4">
                     <div className="flex flex-col items-center gap-3 max-w-sm text-center rounded-xl bg-surface/95 border border-border-default p-5 shadow-2xl">
                       <span className="text-[12px] font-bold uppercase tracking-wider text-warning">Teleprompter limit reached</span>
@@ -1506,7 +1776,7 @@ export default function HomePage() {
                       </button>
                     </div>
                   </div>
-                ) : prompterScript ? (
+                ) : prompterScript && !isScreenShareActive ? (
                   <TeleprompterOverlay
                     ref={prompterContainerRef}
                     script={scriptStorage.script}
@@ -1565,11 +1835,16 @@ export default function HomePage() {
                 {/* Shown before first enable AND after a failure/disconnect so
                     Retry is always the visible recovery. Never during an
                     active capture: the user must keep seeing (and reaching)
-                    Stop — the overlay returns the moment the take ends. */}
+                    Stop — the overlay returns the moment the take ends. In
+                    Screen + Webcam a DENIED camera must not wall off the
+                    screen-share card (Record proceeds screen-only), so the
+                    fullscreen overlay yields there and the camera error is
+                    shown inside the share card instead. */}
                 {!camera.isInitialized &&
                   (freshSessionNeedsCamera || !camera.hasInitialized || camera.status === 'error') &&
                   recorder.recordingState !== 'recording' &&
-                  recorder.recordingState !== 'paused' && (
+                  recorder.recordingState !== 'paused' &&
+                  !(captureSource === 'screen-camera' && camera.status === 'error') && (
                   <InitOverlay
                     onInitialize={handleCameraPermissionRequest}
                     status={camera.status === 'ready' ? 'idle' : camera.status}
@@ -1722,6 +1997,11 @@ export default function HomePage() {
                 isMicMuted={isMicMuted}
                 elapsedSeconds={elapsedSeconds}
                 recordBlockerHint={recordBlockerHint}
+                  captureSource={captureSource}
+                  onCaptureSourceChange={setCaptureSource}
+                  isScreenSharing={screenCapture.isActive}
+                  screenShareSupported={screenCapture.isSupported}
+                  screenShareSurface={screenCapture.displaySurface}
                 onMicToggle={handleMicToggle}
                 onCameraToggle={handleCameraToggle}
                 isCameraOn={isCameraOn}

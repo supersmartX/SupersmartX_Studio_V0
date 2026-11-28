@@ -15,9 +15,9 @@ import { PRICING_PLANS } from '@/constants';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { SEO_CONFIG } from '@/lib/seo/config';
 import '@/styles/pricing.css';
+import '@/styles/landing.css';
 
 const NAV_LINKS = [
-  { label: 'Studio', href: '#top' },
   { label: 'How It Works', href: '#how-it-works' },
   { label: 'Pricing', href: '#pricing' },
 ];
@@ -92,7 +92,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'Do I need editing software or editing skills?',
-    a: 'No. There is no timeline to edit. Creator Pro renders native, perfectly framed 9:16, 16:9 and 1:1 ratios without re-cropping footage or touching timeline software.',
+    a: 'No. There is no timeline to edit. Creator renders native, perfectly framed 9:16, 16:9 and 1:1 ratios without re-cropping footage or touching timeline software.',
   },
   {
     q: 'What do I need to get started?',
@@ -128,14 +128,41 @@ function GrainOverlay() {
 // Confined to the hero: below the fold the page is a solid canvas so the copy
 // sections sit on a stable contrast surface.
 function HeroVideo() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [cdnFailed, setCdnFailed] = useState(false);
+
+  // The looping clip is decoration. Visitors who ask the OS for reduced
+  // motion get a still first frame instead of a permanently moving backdrop;
+  // the scrim keeps the copy readable either way.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const apply = () => {
+      if (mediaQuery.matches) {
+        video.pause();
+      } else {
+        // jsdom's play() returns undefined; real browsers return a promise.
+        const playback = video.play();
+        if (playback) playback.catch(() => {});
+      }
+    };
+    apply();
+    mediaQuery.addEventListener('change', apply);
+    return () => mediaQuery.removeEventListener('change', apply);
+  }, []);
+
   return (
-    <div className="lsx-hero-photo" aria-hidden="true">
-      <video autoPlay muted loop playsInline preload="auto">
-        <source
-          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260818_072341_50851634-bbc3-4c33-9acc-7647d4db44aa.mp4"
-          type="video/mp4"
-        />
-      </video>
+    <div className={`lsx-hero-photo ${cdnFailed ? 'lsx-hero-photo--fallback' : ''}`} aria-hidden="true">
+      {!cdnFailed && (
+        <video ref={videoRef} autoPlay muted loop playsInline preload="auto">
+          <source
+            src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260818_072341_50851634-bbc3-4c33-9acc-7647d4db44aa.mp4"
+            type="video/mp4"
+            onError={() => setCdnFailed(true)}
+          />
+        </video>
+      )}
       <div className="lsx-hero-scrim" />
     </div>
   );
@@ -237,6 +264,19 @@ export default function LandingPage() {
   const userMenuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // A completed password reset hands off here: the reset page stores
+  // sxs-open-login and links to "/" with a "Log in" label, so honor the label
+  // by opening the sign-in step instead of dropping the user on the hero.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('sxs-open-login') === '1') {
+        sessionStorage.removeItem('sxs-open-login');
+        setAuthIntent('login');
+        setIsAuthModalOpen(true);
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -422,813 +462,6 @@ export default function LandingPage() {
 
   return (
     <>
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Instrument+Serif:ital@1&display=swap');
-
-.lsx-hero-photo { position: absolute; inset: 0; z-index: 0; opacity: 0; transition: opacity 1.05s cubic-bezier(0.16, 1, 0.3, 1); }
-.lsx-hero-photo video { width: 100%; height: 100%; object-fit: cover; }
-.lsx-hero-photo.lsx-is-in { opacity: 1; }
-.lsx-hero-scrim {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(9,9,11,0.58) 0%, rgba(9,9,11,0.4) 42%, rgba(9,9,11,0.92) 100%);
-}
-
-.lsx-page {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  min-height: 100vh;
-  min-height: 100dvh;
-  background: var(--color-canvas);
-}
-
-.lsx-header {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  padding: var(--lsx-header-y, 22px) var(--lsx-header-x, 40px) 10px;
-  z-index: 50;
-  position: relative;
-}
-
-.lsx-logo {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  justify-self: start;
-  font-size: var(--lsx-logo, 15.5px);
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  color: #fff;
-  /* UX-007: 24px-tall logo link gets a ≥40px hit box without layout shift. */
-  position: relative;
-}
-.lsx-logo::after {
-  content: '';
-  position: absolute;
-  inset: -10px -8px;
-}
-.lsx-logo-suffix { font-weight: 400; }
-
-.lsx-site-nav {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-self: center;
-}
-.lsx-nav-mobile-cta { display: none; }
-
-.lsx-nav-pill {
-  height: var(--lsx-nav-h, 40px);
-  padding: 0 18px;
-  border-radius: 7px;
-  overflow: hidden;
-  position: relative;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: var(--color-surface);
-  color: #fff;
-  font-size: var(--lsx-nav, 14px);
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-}
-.lsx-nav-pill:hover {
-  background: rgba(255,255,255,0.05);
-}
-.lsx-nav-pill:focus-visible {
-  outline: 2px solid var(--color-accent-hover);
-  outline-offset: 2px;
-}
-
-.lsx-header-cta-wrap { justify-self: end; }
-
-.lsx-btn {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--lsx-btn-h, 40px);
-  padding: 0 16px;
-  border-radius: 6px;
-  font-size: var(--lsx-btn, 13.5px);
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
-}
-
-.lsx-btn-solid {
-  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-dark) 100%);
-  color: #fff;
-  border: 1px solid var(--color-accent);
-}
-.lsx-btn-solid:hover {
-  background: linear-gradient(135deg, var(--color-accent-hover) 0%, var(--color-accent) 100%);
-  border-color: var(--color-accent-hover);
-}
-.lsx-btn-solid:focus-visible {
-  outline: 2px solid var(--color-accent-hover);
-  outline-offset: 2px;
-}
-
-.lsx-btn-ghost {
-  background: var(--color-surface);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,0.1);
-}
-.lsx-btn-ghost:hover {
-  background: rgba(255,255,255,0.05);
-}
-.lsx-btn-ghost:focus-visible {
-  outline: 2px solid var(--color-accent-hover);
-  outline-offset: 2px;
-}
-
-.lsx-hero-btn {
-  height: var(--lsx-hero-btn-h, 42px);
-  padding: 0 18px;
-}
-/* The primary CTA label is a full sentence: allow it to wrap rather than clip
-   on narrow phones instead of inheriting .lsx-btn's nowrap. */
-.lsx-hero-cta {
-  height: auto;
-  min-height: var(--lsx-hero-btn-h, 42px);
-  padding: 12px 22px;
-  line-height: 1.25;
-  white-space: normal;
-  text-align: center;
-}
-.lsx-hero-ghost {
-  background: var(--color-surface);
-  border: 1px solid rgba(255,255,255,0.1);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-}
-.lsx-hero-ghost:hover {
-  background: rgba(255,255,255,0.05);
-}
-
-.lsx-hero {
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 72px 24px var(--lsx-hero-gap, 88px);
-  min-height: 0;
-}
-
-.lsx-hero-copy {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  max-width: var(--lsx-copy-max, 900px);
-  width: 100%;
-}
-
-.lsx-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 22px;
-  padding: 9px 15px;
-  border: 1px solid rgba(124,58,237,0.25);
-  border-radius: 5px;
-  background: rgba(124,58,237,0.08);
-  color: #fff;
-  font-size: var(--lsx-badge, 12.5px);
-  font-weight: 400;
-  letter-spacing: -0.01em;
-}
-.lsx-badge-star {
-  filter: drop-shadow(0 0 3px rgba(255,255,255,0.45));
-}
-
-.lsx-hero h1 {
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: var(--lsx-h1, 48px);
-  font-weight: 500;
-  letter-spacing: -0.045em;
-  line-height: 1.12;
-  color: #fff;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
-}
-
-.lsx-headline-line {
-  display: block;
-  overflow: hidden;
-  padding: 0.06em 0.15em 0.14em;
-}
-
-.lsx-headline-line em {
-  font-family: 'Instrument Serif', 'Times New Roman', Times, serif;
-  font-style: italic;
-  font-weight: 400;
-  font-size: 1.08em;
-  letter-spacing: -0.03em;
-  color: var(--color-accent);
-}
-
-.lsx-lede {
-  max-width: var(--lsx-lede-max, 620px);
-  margin-top: 18px;
-  color: var(--color-text-secondary);
-  font-size: var(--lsx-lede, 15.5px);
-  font-weight: 400;
-  line-height: 1.55;
-  letter-spacing: -0.015em;
-}
-
-.lsx-hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 28px;
-}
-
-.lsx-cta-support {
-  margin-top: 16px;
-  font-size: var(--lsx-support, 12.5px);
-  letter-spacing: -0.005em;
-  color: rgba(255,255,255,0.55);
-}
-
-.lsx-burger {
-  display: none;
-  width: 42px;
-  height: 42px;
-  border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: var(--color-surface);
-  z-index: 60;
-  cursor: pointer;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0;
-}
-.lsx-burger-bar {
-  display: block;
-  width: 16px;
-  height: 1.5px;
-  background: #fff;
-  border-radius: 1px;
-  transition: transform 0.25s ease, opacity 0.2s ease;
-}
-.lsx-burger.is-open .lsx-burger-bar:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
-.lsx-burger.is-open .lsx-burger-bar:nth-child(2) { opacity: 0; }
-.lsx-burger.is-open .lsx-burger-bar:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
-.lsx-burger:hover {
-  border-color: rgba(255,255,255,0.32);
-  background: rgba(255,255,255,0.05);
-}
-
-.lsx-appear { opacity: 1; animation-duration: 1.05s; animation-fill-mode: both; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); animation-delay: var(--lsx-d, 0.08s); }
-.lsx-appear.lsx-is-in { animation: none; opacity: 1; transform: none; clip-path: none; filter: none; }
-
-.lsx-appear--scale { animation-name: lsx-in-scale; }
-.lsx-appear--soft { animation-name: lsx-in-soft; }
-.lsx-appear--mask { animation-name: lsx-in-mask; }
-.lsx-appear--pop { animation-name: lsx-in-pop; }
-.lsx-appear--btn { animation-name: lsx-in-btn; }
-.lsx-appear--side { animation-name: lsx-in-side; }
-.lsx-appear--stat { animation-name: lsx-in-stat; }
-
-.lsx-badge-star { animation: lsx-in-star 0.9s 0.28s both cubic-bezier(0.16, 1, 0.3, 1); }
-.lsx-badge-star.lsx-is-in { animation: none; }
-.lsx-hero h1 em { animation: lsx-in-em 1.2s 0.72s both cubic-bezier(0.16, 1, 0.3, 1); }
-.lsx-hero h1 em.lsx-is-in { animation: none; opacity: 1; filter: none; }
-
-@keyframes lsx-in-scale { from { opacity: 0; transform: scale(0.84); } }
-@keyframes lsx-in-soft { from { opacity: 0; transform: translateY(14px); } }
-@keyframes lsx-in-mask { from { opacity: 0; transform: translateY(40%); } }
-@keyframes lsx-in-pop { 0% { opacity: 0; transform: scale(0.9); } 70% { transform: scale(1.03); } 100% { opacity: 1; transform: scale(1); } }
-@keyframes lsx-in-btn { from { opacity: 0; transform: translateY(18px) scale(0.94); } }
-@keyframes lsx-in-side { from { opacity: 0; transform: translateX(22px); } }
-@keyframes lsx-in-stat { from { opacity: 0; transform: translateY(20px); } }
-@keyframes lsx-in-star { 0% { opacity: 0; transform: scale(0.2) rotate(-50deg); } 65% { opacity: 1; transform: scale(1.2) rotate(8deg); } 100% { opacity: 1; transform: scale(1) rotate(0deg); } }
-@keyframes lsx-in-em { from { opacity: 0.35; filter: blur(4px); } }
-
-@media (prefers-reduced-motion: reduce) {
-  .lsx-appear, .lsx-hero-photo, .lsx-hero h1 em, .lsx-badge-star { opacity: 1 !important; transform: none !important; clip-path: none !important; filter: none !important; animation: none !important; }
-}
-
-@media (min-width: 1600px) {
-  .lsx-page { --lsx-logo: 17px; --lsx-nav: 15px; --lsx-nav-h: 44px; --lsx-btn: 15px; --lsx-btn-h: 44px; --lsx-hero-btn-h: 48px; --lsx-h1: 64px; --lsx-lede: 18px; --lsx-badge: 13.5px; --lsx-support: 14px; --lsx-header-y: 28px; --lsx-header-x: 64px; --lsx-copy-max: 980px; --lsx-lede-max: 680px; }
-}
-@media (min-width: 1920px) {
-  .lsx-page { --lsx-logo: 18px; --lsx-nav: 16px; --lsx-nav-h: 48px; --lsx-btn: 16px; --lsx-btn-h: 48px; --lsx-hero-btn-h: 52px; --lsx-h1: 76px; --lsx-lede: 20px; --lsx-badge: 14.5px; --lsx-support: 15px; --lsx-header-y: 32px; --lsx-header-x: 80px; --lsx-copy-max: 1120px; --lsx-lede-max: 740px; }
-}
-@media (min-width: 2560px) {
-  .lsx-page { --lsx-h1: 88px; --lsx-lede: 22px; --lsx-header-x: 120px; --lsx-copy-max: 1280px; --lsx-lede-max: 800px; }
-}
-@media (min-width: 901px) and (max-width: 1599px) {
-  .lsx-page { --lsx-h1: 54px; --lsx-lede: 16px; --lsx-header-x: 48px; --lsx-copy-max: 900px; }
-}
-@media (min-width: 901px) and (max-width: 1279px) {
-  .lsx-page { --lsx-logo: 15px; --lsx-nav: 13px; --lsx-nav-h: 40px; --lsx-btn: 13px; --lsx-btn-h: 40px; --lsx-hero-btn-h: 40px; --lsx-h1: 42px; --lsx-lede: 15px; --lsx-badge: 12px; --lsx-support: 12px; --lsx-header-y: 16px; --lsx-header-x: 28px; --lsx-hero-gap: 88px; --lsx-copy-max: 760px; --lsx-lede-max: 560px; }
-}
-@media (min-width: 901px) and (max-height: 850px) {
-  .lsx-page { --lsx-header-y: 14px; --lsx-hero-gap: 64px; --lsx-h1: 40px; }
-}
-@media (min-width: 901px) and (max-height: 720px) {
-  .lsx-page { --lsx-h1: 34px; --lsx-lede: 14px; --lsx-hero-gap: 48px; --lsx-nav-h: 40px; --lsx-btn-h: 40px; --lsx-hero-btn-h: 40px; }
-}
-
-@media (min-width: 901px) {
-  .lsx-page { min-height: 100vh; min-height: 100dvh; }
-  /* Fill the first screen minus the header so the hero reads as a full stage
-     instead of a short band above the next section. */
-  .lsx-hero { min-height: calc(100vh - 90px); min-height: calc(100svh - 90px); }
-}
-
-@media (max-width: 900px) {
-  .lsx-header { grid-template-columns: 1fr auto; gap: 8px; padding: 16px 18px; }
-  .lsx-header-cta-wrap { display: none; }
-  .lsx-burger { display: flex; }
-  .lsx-site-nav { display: none; }
-  .lsx-hero { padding: 48px 20px 56px; min-height: auto; }
-  .lsx-page { --lsx-logo: 16px; --lsx-btn: 15px; --lsx-btn-h: 46px; --lsx-hero-btn-h: 50px; --lsx-h1: 34px; --lsx-lede: 16px; --lsx-badge: 13.5px; --lsx-support: 13px; --lsx-header-x: 18px; --lsx-hero-gap: 56px; --lsx-copy-max: 100%; --lsx-lede-max: 100%; }
-  .lsx-hero h1 { line-height: 1.16; }
-}
-
-@media (max-width: 560px) {
-  .lsx-page { --lsx-h1: 30px; --lsx-lede: 15.5px; --lsx-header-x: 16px; }
-  .lsx-hero-actions { flex-direction: column; width: 100%; max-width: 340px; }
-  .lsx-hero-actions .lsx-btn { width: 100%; }
-}
-
-@media (max-width: 380px) {
-  .lsx-page { --lsx-h1: 27px; }
-}
-
-.lsx-mobile-nav-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.lsx-mobile-nav-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.92);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  animation: lsx-fade-in 0.25s ease-out;
-}
-.lsx-mobile-nav-content {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 28px;
-  padding: 48px 32px;
-  width: 100%;
-  max-width: 360px;
-  animation: lsx-slide-up-nav 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.lsx-mobile-nav-close {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: var(--color-surface);
-  color: rgba(255,255,255,0.5);
-  cursor: pointer;
-  transition: color 0.2s ease, background 0.2s ease;
-}
-.lsx-mobile-nav-close:hover {
-  color: #fff;
-  background: rgba(255,255,255,0.08);
-}
-
-.lsx-section {
-  position: relative;
-  padding: 104px 24px;
-  border-top: 1px solid rgba(255,255,255,0.06);
-  background: var(--color-canvas);
-}
-.lsx-section-inner {
-  max-width: 1040px;
-  margin: 0 auto;
-}
-.lsx-section-header {
-  text-align: center;
-  margin-bottom: 56px;
-}
-.lsx-section-label {
-  display: inline-block;
-  padding: 6px 14px;
-  border-radius: 5px;
-  border: 1px solid rgba(124,58,237,0.25);
-  background: rgba(124,58,237,0.08);
-  color: var(--color-accent-text);
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  margin-bottom: 20px;
-}
-.lsx-section-title {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-size: clamp(28px, 3.6vw, 40px);
-  font-weight: 500;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-  color: #fff;
-  margin-bottom: 14px;
-  text-wrap: balance;
-}
-.lsx-section-subtitle {
-  /* 0.45 fell just under WCAG AA (4.5:1) against the page background at 16px.
-     0.5 clears it while keeping the subtitle clearly secondary to the heading. */
-  color: rgba(255,255,255,0.5);
-  font-size: 16px;
-  line-height: 1.6;
-  max-width: 560px;
-  margin: 0 auto;
-}
-
-/* ── Problem / outcome ─────────────────────────────────────────────────── */
-.lsx-lead-in {
-  text-align: center;
-  font-size: 15px;
-  color: rgba(255,255,255,0.5);
-  margin: -28px 0 30px;
-}
-.lsx-waste-grid {
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  max-width: 780px;
-  margin: 0 auto;
-  padding: 0;
-}
-.lsx-waste-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 15px 18px;
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 12px;
-  background: rgba(255,255,255,0.02);
-  font-size: 14.5px;
-  line-height: 1.35;
-  color: rgba(255,255,255,0.58);
-}
-.lsx-waste-mark {
-  display: inline-flex;
-  flex-shrink: 0;
-  color: rgba(239,68,68,0.7);
-}
-.lsx-waste-text {
-  text-decoration: line-through;
-  text-decoration-color: rgba(239,68,68,0.5);
-  text-decoration-thickness: 1px;
-}
-
-/* ── Value engine ──────────────────────────────────────────────────────── */
-.lsx-metrics {
-  position: relative;
-  padding: 76px 24px;
-  border-top: 1px solid rgba(255,255,255,0.06);
-  background:
-    radial-gradient(ellipse 70% 120% at 50% 0%, rgba(124,58,237,0.12), transparent 65%),
-    var(--color-canvas);
-}
-.lsx-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
-  max-width: 1040px;
-  margin: 0 auto;
-  text-align: center;
-}
-.lsx-metric-value {
-  font-size: clamp(32px, 4.4vw, 52px);
-  font-weight: 500;
-  letter-spacing: -0.04em;
-  line-height: 1.05;
-  color: #fff;
-}
-.lsx-metric-label {
-  margin-top: 12px;
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.48);
-}
-
-/* ── Mechanism / workflow ──────────────────────────────────────────────── */
-.lsx-flow-steps {
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 22px;
-  margin: 0;
-  padding: 0;
-}
-.lsx-flow-step {
-  position: relative;
-  padding: 28px 26px 30px;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.07);
-  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.012));
-}
-.lsx-flow-step::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  right: -15px;
-  width: 8px;
-  height: 8px;
-  border-top: 1.5px solid rgba(139,92,246,0.55);
-  border-right: 1.5px solid rgba(139,92,246,0.55);
-  transform: translateY(-50%) rotate(45deg);
-}
-.lsx-flow-step:last-child::after { display: none; }
-.lsx-flow-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-.lsx-flow-step-num {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--color-accent-text);
-}
-.lsx-flow-stage {
-  padding-left: 10px;
-  border-left: 1px solid rgba(255,255,255,0.14);
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.42);
-}
-.lsx-flow-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 11px;
-  background: rgba(124,58,237,0.12);
-  border: 1px solid rgba(124,58,237,0.24);
-  color: var(--color-accent-hover);
-  margin-bottom: 18px;
-}
-.lsx-flow-step-title {
-  font-size: 17px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  color: #fff;
-  margin-bottom: 10px;
-}
-.lsx-flow-step-desc {
-  font-size: 14px;
-  line-height: 1.65;
-  color: rgba(255,255,255,0.55);
-}
-
-/* ── Pricing ───────────────────────────────────────────────────────────── */
-.lsx-plan-note {
-  margin: 22px 0 24px;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: rgba(255,255,255,0.5);
-}
-/* Equal-height cards leave the shorter plan with dead space, so pin each CTA
-   to the card floor and let the copy above it stay top-aligned. */
-.lsx-page .lsx-pricing-card { display: flex; flex-direction: column; }
-.lsx-page .lsx-pricing-btn { margin-top: auto; }
-
-/* ── Final CTA ─────────────────────────────────────────────────────────── */
-.lsx-final {
-  position: relative;
-  padding: 104px 24px 120px;
-  border-top: 1px solid rgba(255,255,255,0.06);
-  text-align: center;
-  background:
-    radial-gradient(ellipse 60% 90% at 50% 100%, rgba(124,58,237,0.14), transparent 62%),
-    var(--color-canvas);
-}
-.lsx-final-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  max-width: 720px;
-  margin: 0 auto;
-}
-.lsx-final-title {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-size: clamp(30px, 4.2vw, 48px);
-  font-weight: 500;
-  letter-spacing: -0.035em;
-  line-height: 1.12;
-  color: #fff;
-  margin-bottom: 32px;
-  text-wrap: balance;
-}
-.lsx-final-title em {
-  font-family: 'Instrument Serif', 'Times New Roman', Times, serif;
-  font-style: italic;
-  font-weight: 400;
-  font-size: 1.08em;
-  letter-spacing: -0.03em;
-  color: var(--color-accent-text);
-}
-.lsx-final-btn {
-  height: auto;
-  min-height: 52px;
-  padding: 14px 28px;
-  font-size: 15px;
-  line-height: 1.25;
-  white-space: normal;
-  text-align: center;
-}
-.lsx-final .lsx-cta-support { color: rgba(255,255,255,0.5); }
-
-@media (max-width: 900px) {
-  .lsx-section { padding: 76px 20px; }
-  .lsx-section-header { margin-bottom: 40px; }
-  .lsx-waste-grid { grid-template-columns: 1fr; gap: 10px; }
-  .lsx-metrics { padding: 56px 20px; }
-  .lsx-metrics-grid { grid-template-columns: 1fr; gap: 32px; }
-  .lsx-flow-steps { grid-template-columns: 1fr; gap: 34px; }
-  .lsx-flow-step::after {
-    top: auto;
-    bottom: -21px;
-    left: 50%;
-    right: auto;
-    transform: translateX(-50%) rotate(135deg);
-  }
-  .lsx-final { padding: 80px 20px 88px; }
-}
-
-@media (max-width: 700px) {
-  .lsx-section { padding: 64px 20px; }
-  .lsx-pricing-grid { grid-template-columns: 1fr; max-width: 400px; }
-  .lsx-pricing-toggle-btn { padding: 8px 14px; font-size: 12px; }
-}
-
-.lsx-mobile-nav-links {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-}
-.lsx-mobile-nav-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 56px;
-  width: 100%;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.1);
-  background: var(--color-surface);
-  color: #fff;
-  font-size: 19px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  text-decoration: none;
-  font-family: inherit;
-  transition: background 0.2s ease, border-color 0.2s ease;
-}
-.lsx-mobile-nav-link:hover {
-  background: rgba(255,255,255,0.05);
-}
-.lsx-mobile-nav-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-  padding-top: 12px;
-}
-.lsx-mobile-nav-btn {
-  width: 100%;
-  height: 52px;
-  font-size: 16px;
-}
-@keyframes lsx-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes lsx-slide-up-nav {
-  from { opacity: 0; transform: translateY(24px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.lsx-footer {
-  border-top: 1px solid rgba(255,255,255,0.06);
-  padding: 48px var(--lsx-header-x, 40px);
-  background: var(--color-canvas);
-}
-.lsx-footer-bottom {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  /* §8 landing contrast: was 0.3 alpha = 2.59:1 - a real AA failure on legal
-     and copyright text. 0.5 lifts the composited colour to ~rgb(132,132,134)
-     (5.3:1). The hover state is raised with it so the affordance stays
-     clearly perceptible rather than collapsing into a near-invisible step. */
-  color: rgba(255,255,255,0.5);
-}
-.lsx-footer-link {
-  color: rgba(255,255,255,0.5);
-  text-decoration: none;
-  transition: color 0.2s ease;
-  /* UX-007: 18px-tall legal links grow to a ≥40px hit box (no layout shift). */
-  position: relative;
-  /* A 12px text box is below WCAG 2.5.8's 24px target height even though the
-     ::after hit area is large; give the link itself the minimum box so the
-     measured target and the real target agree. */
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-}
-.lsx-footer-link::after {
-  content: '';
-  position: absolute;
-  inset: -11px -8px;
-}
-.lsx-footer-link:hover {
-  color: rgba(255,255,255,0.7);
-}
-.lsx-footer-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  max-width: 720px;
-  margin: 0 auto 28px;
-  text-align: center;
-  font-size: 12px;
-  line-height: 1.6;
-  color: rgba(255,255,255,0.5);
-}
-.lsx-footer-info-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: rgba(255,255,255,0.7);
-}
-.lsx-footer-info-link {
-  color: rgba(255,255,255,0.5);
-  text-decoration: none;
-  transition: color 0.2s ease;
-}
-.lsx-footer-info-link:hover {
-  color: rgba(255,255,255,0.7);
-}
-/* §8 landing contrast: the pricing-period colour is defined in
-   src/styles/pricing.css, which is imported by BOTH this page and the studio's
-   PricingModal. Editing it there would restyle the studio too, so the landing
-   value is overridden here instead, scoped to .lsx-page (specificity 0,2,0
-   beats the shared 0,1,0 rule). Only this page's copy changes. */
-.lsx-page .lsx-pricing-period {
-  color: rgba(255,255,255,0.5);
-}
-`,
-        }}
-      />
 
       <GrainOverlay />
       <JsonLd
@@ -1414,7 +647,7 @@ export default function LandingPage() {
           <button
             ref={menuButtonRef}
             type="button"
-            className={`lsx-burger${menuOpen ? 'is-open' : ''}`}
+            className={`lsx-burger ${menuOpen ? 'is-open' : ''}`}
             aria-controls="lsx-mobile-nav"
             aria-expanded={menuOpen}
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
@@ -1647,7 +880,7 @@ export default function LandingPage() {
             <div className="lsx-pricing-grid">
               <div className="lsx-pricing-card">
                 <div className="lsx-pricing-card-header">
-                  <h3 className="lsx-pricing-plan">Free Plan</h3>
+                  <h3 className="lsx-pricing-plan">Free</h3>
                   <div className="lsx-pricing-price">
                     {formatZero(0)}
                     <span className="lsx-pricing-period">/forever</span>
@@ -1685,9 +918,9 @@ export default function LandingPage() {
                 </button>
               </div>
               <div className="lsx-pricing-card lsx-pricing-card--pro">
-                <div className="lsx-pricing-badge">High-ROI Tier</div>
+                <div className="lsx-pricing-badge">Most Popular</div>
                 <div className="lsx-pricing-card-header">
-                  <h3 className="lsx-pricing-plan">Creator Pro</h3>
+                  <h3 className="lsx-pricing-plan">Creator</h3>
                   <div className="lsx-pricing-price">
                     {format(
                       billingPeriod === 'monthly'

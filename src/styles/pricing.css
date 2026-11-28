@@ -101,7 +101,11 @@
 .lsx-pricing-period {
   font-size: 16px;
   font-weight: 400;
-  color: rgba(255,255,255,0.35);
+  /* UX-017: 0.35 alpha measures ~3.2:1 on --color-surface — WCAG AA fail.
+     --color-text-muted (#8D8D96) clears 4.5:1 on every surface this sits on.
+     The landing page's `.lsx-page`-scoped override below (kept for its own
+     value) remains valid but is now redundant for this class. */
+  color: var(--color-text-muted, #8D8D96);
 }
 .lsx-pricing-note {
   font-size: 12px;

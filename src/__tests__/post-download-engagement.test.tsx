@@ -66,7 +66,7 @@ describe('PostDownloadEngagement', () => {
     expect(discord).toHaveAttribute('target', '_blank');
     expect(discord.getAttribute('rel')).toContain('noopener');
 
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Explore Creator Pro' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Explore Creator' }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onExploreCreator).toHaveBeenCalledTimes(1);
     expect(within(dialog).queryByRole('button', { name: 'Open My Library' })).toBeNull();
@@ -87,8 +87,8 @@ describe('PostDownloadEngagement', () => {
 
     const dialog = screen.getByRole('dialog', { name: HEADING });
     expect(within(dialog).getByRole('link', { name: /Join Discord/ })).toBeInTheDocument();
-    expect(within(dialog).queryByRole('button', { name: 'Explore Creator Pro' })).toBeNull();
-    expect(within(dialog).getByText(/Your Creator Pro tools are unlocked/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Explore Creator' })).toBeNull();
+    expect(within(dialog).getByText(/Your Creator tools are unlocked/)).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Open My Library' }));
     expect(onOpenLibrary).toHaveBeenCalledTimes(1);
@@ -227,7 +227,7 @@ describe('ExportModal post-download gating', () => {
     await exportAndDownload();
 
     const popup = await screen.findByRole('dialog', { name: HEADING });
-    expect(within(popup).queryByRole('button', { name: 'Explore Creator Pro' })).toBeNull();
+    expect(within(popup).queryByRole('button', { name: 'Explore Creator' })).toBeNull();
     fireEvent.click(within(popup).getByRole('button', { name: 'Open My Library' }));
     expect(props.onOpenLibrary).toHaveBeenCalledTimes(1);
   });

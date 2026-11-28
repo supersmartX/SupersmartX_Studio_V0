@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { getPrisma } from '@/lib/db/prisma';
 import { currencyFractionDigits } from '@/lib/billing/paddle';
+import { humanizeAccountStatus, humanizeTransactionStatus } from '@/hooks/useAccountBilling';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,8 +61,18 @@ export default async function BillingPage() {
 
         <section className="grid gap-4 sm:grid-cols-3">
           <div className="rounded-xl border border-border-default bg-surface p-5"><p className="text-xs uppercase tracking-wide text-text-muted">Plan</p><p className="mt-2 text-lg font-semibold">{account?.plan === 'free' || !account ? 'Free' : 'Creator'}</p></div>
-          <div className="rounded-xl border border-border-default bg-surface p-5"><p className="text-xs uppercase tracking-wide text-text-muted">Status</p><p className="mt-2 text-lg font-semibold capitalize">{account?.status ?? 'free'}</p></div>
+          <div className="rounded-xl border border-border-default bg-surface p-5"><p className="text-xs uppercase tracking-wide text-text-muted">Status</p><p className={`mt-2 text-lg font-semibold ${humanizeAccountStatus(account?.status).tone === 'warning' ? 'text-warning' : ''}`}>{humanizeAccountStatus(account?.status).label}</p></div>
           <div className="rounded-xl border border-border-default bg-surface p-5"><p className="text-xs uppercase tracking-wide text-text-muted">Access until</p><p className="mt-2 text-lg font-semibold">{formatDate(account?.paidThroughAt ?? null)}</p></div>
+        </section>
+
+        {/* The cancellation and payment-recovery actions live on the account
+            page — this screen is the ledger. The pointer keeps them one click
+            away without duplicating the three-state cancel flow here. */}
+        <section className="rounded-xl border border-border-default bg-surface p-5">
+          <p className="text-sm text-text-secondary">
+            Manage your plan, payment method or cancellation from{' '}
+            <Link href="/settings" className="font-medium text-accent-text hover:text-accent">Account settings</Link>.
+          </p>
         </section>
 
         <section className="overflow-hidden rounded-xl border border-border-default bg-surface">
@@ -72,8 +83,14 @@ export default async function BillingPage() {
             <div className="divide-y divide-border-subtle">
               {transactions.map((transaction) => (
                 <div key={transaction.providerTransactionId} className="grid gap-2 px-5 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center">
-                  <div><p className="font-medium">{transaction.providerTransactionId}</p><p className="text-xs text-text-muted">{formatDate(transaction.paidAt ?? transaction.createdAt)}</p></div>
-                  <span className="text-sm capitalize text-text-secondary">{transaction.status}</span>
+                  {/* The date and the human status are the content; the raw
+                      provider transaction id is reference material, not a
+                      headline — it stays in the small print for support. */}
+                  <div>
+                    <p className="font-medium">{formatDate(transaction.paidAt ?? transaction.createdAt)}</p>
+                    <p className="text-xs text-text-muted">Transaction {transaction.providerTransactionId}</p>
+                  </div>
+                  <span className="text-sm text-text-secondary">{humanizeTransactionStatus(transaction.status)}</span>
                   <span className="font-medium">{formatAmount(Number(transaction.amount), transaction.currency)}</span>
                 </div>
               ))}

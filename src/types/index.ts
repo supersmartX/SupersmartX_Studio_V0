@@ -1,5 +1,27 @@
 export type RecordingState = 'idle' | 'countdown' | 'recording' | 'paused' | 'completed';
 
+export type CaptureSource = 'camera' | 'screen' | 'screen-camera';
+
+/** Shape of the floating webcam overlay composited over a screen recording. */
+export type WebcamShape = 'circle' | 'rounded';
+
+/**
+ * Screen+webcam composition settings. Position is the overlay CENTER in
+ * normalized canvas coordinates (0..1) and `scale` is the overlay height as a
+ * fraction of the canvas height — resolution-independent, so the layout holds
+ * across canvas sizes and survives persistence.
+ */
+export interface WebcamOverlaySettings {
+  visible: boolean;
+  x: number;
+  y: number;
+  scale: number;
+  shape: WebcamShape;
+  mirrored: boolean;
+  /** Preferred camera device; empty string = browser default. */
+  deviceId: string;
+}
+
 export type ExportStep = 'platform' | 'encoding' | 'done';
 
 export type TabType = 'studio' | 'library';

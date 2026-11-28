@@ -26,6 +26,10 @@ export function IconRail({
   onNewVideo,
   onShowShortcuts,
 }: IconRailProps) {
+  // Future modules (Create, Video Editor, My Projects, Templates) join the
+  // primary group below as they ship — see src/constants/future-modules.ts
+  // for the target IA and the ship checklist. Nothing is rendered from that
+  // registry until then: a nav entry without a destination is a dead link.
   return (
     <nav className="hidden xl:flex w-[200px] h-full border-r border-border-subtle bg-surface flex-col shrink-0 overflow-hidden" aria-label="Main navigation">
       <div className="flex flex-col gap-0.5 px-3 pt-5 pb-2">

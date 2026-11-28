@@ -2,7 +2,7 @@
 
 import { useRef, useCallback, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import type { RecordingState } from '@/types';
+import type { RecordingState, CaptureSource } from '@/types';
 import { formatTime } from '@/utils/format';
 import {
   CameraIcon,
@@ -15,8 +15,10 @@ import {
   PlayIcon,
   RecordIcon,
   RefreshIcon,
+  ScreenShareIcon,
   StopIcon,
 } from '@/components/icons';
+import { DailyRecordingIndicator } from '@/components/studio/DailyRecordingIndicator';
 
 /**
  * Stable id for the line that names the current Start blocker.
@@ -43,6 +45,11 @@ interface TransportBarProps {
   onMicToggle: () => void;
   onCameraToggle: () => void;
   isCameraOn: boolean;
+  captureSource: CaptureSource;
+  onCaptureSourceChange: (source: CaptureSource) => void;
+  isScreenSharing: boolean;
+  screenShareSupported: boolean;
+  screenShareSurface?: 'monitor' | 'window' | 'browser' | null;
   /**
    * True only while a live capture stream exists. Before permission is granted
    * (or after a failure) the mic/camera chips are not live controls, so they
@@ -76,6 +83,15 @@ interface TransportBarProps {
   onVideoDeviceChange: (deviceId: string) => void;
   onAudioDeviceChange: (deviceId: string) => void;
   onRefreshDevices: () => void;
+  /**
+   * The Free daily recording budget, already resolved by the caller from real
+   * state (`null` remaining = Creator/unlimited). When provided it renders the
+   * DailyRecordingIndicator in the bar's right zone — until now that budget
+   * was only ever announced in toasts and enforced by an auto-stop, with no
+   * always-visible read-out. Omitted (tests, other hosts) renders the zone
+   * exactly as before: an empty optical mirror.
+   */
+  dailyBudget?: { remainingSeconds: number | null; totalSeconds: number } | null;
 }
 
 /**
@@ -308,6 +324,11 @@ export function TransportBar({
   hasRecording,
   isMicMuted,
   isCameraOn,
+  captureSource,
+  onCaptureSourceChange,
+  isScreenSharing,
+  screenShareSupported,
+  screenShareSurface = null,
   captureActive,
   elapsedSeconds,
   recordBlockerHint = null,
@@ -326,6 +347,7 @@ export function TransportBar({
   onVideoDeviceChange,
   onAudioDeviceChange,
   onRefreshDevices,
+  dailyBudget = null,
 }: TransportBarProps) {
   const isIdle = recordingState === 'idle' || recordingState === 'completed';
   const isRecording = recordingState === 'recording';
@@ -533,17 +555,75 @@ export function TransportBar({
 
         {/* Preparing/recording only. In review the camera and microphone are
             released, so these chips would edit the NEXT take while looking like
-            live controls for the finished one (and the mic chip does not mute
-            review playback - the player's own sound button does). The review
-            tray is the only decision surface; the transport keeps its height so
-            the canvas never jumps. */}
+            live controls for the finished one. The review surface owns the
+            re-acquire/start-fresh path instead. */}
         {!hasRecording && (
-          <div className="flex items-center gap-1.5 md:gap-2 lg:gap-3 max-lg:col-start-3 max-lg:row-start-1 max-lg:justify-self-end">
-            {/* Mic chip — toggle is the primary tap; the chevron opens the device
-                list (replaces the permanent selects above the canvas). During an
-                active take or countdown, switching a device would tear the stream
-                down under the capture, so only the chevron is disabled — mute
-                stays available mid-take by design. */}
+          <div className="shrink-0 flex items-center gap-1 sm:gap-1.5 max-lg:col-start-1 max-lg:row-start-1 max-lg:justify-self-start max-lg:min-w-0 max-lg:overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {/* Capture source — Camera, Screen, or Screen + Webcam. Switching
+                is only allowed while idle so a live take is never disrupted:
+                the group itself unmounts during a take. The mode labels yield
+                to icons below 2xl — the three radios must clear the centred
+                primary action at common desktop widths (at 1440px the labelled
+                row ran underneath the Record button, which then swallowed
+                every click meant for the camera chip). Accessible names are
+                pinned by aria-label, so the icon-only form keeps its contract. */}
+            {isIdle && (
+            <div className="inline-flex items-center rounded-lg border border-border-default bg-surface/60 p-0.5 shrink-0" role="radiogroup" aria-label="Capture source">
+              <button
+                type="button"
+                role="radio"
+                aria-label="Camera"
+                aria-checked={captureSource === 'camera'}
+                onClick={() => onCaptureSourceChange('camera')}
+                disabled={devicePickUnavailable}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors min-h-[36px] ${
+                  captureSource === 'camera'
+                    ? 'bg-elevated text-text-primary shadow-sm'
+                    : 'text-text-muted hover:text-text-secondary'
+                } disabled:opacity-40 disabled:cursor-not-allowed`}
+                title="Record camera"
+              >
+                <CameraIcon className="w-3.5 h-3.5" />
+                <span className="hidden 2xl:inline">Camera</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-label="Screen"
+                aria-checked={captureSource === 'screen'}
+                onClick={() => onCaptureSourceChange('screen')}
+                disabled={devicePickUnavailable || !screenShareSupported}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors min-h-[36px] ${
+                  captureSource === 'screen'
+                    ? 'bg-elevated text-text-primary shadow-sm'
+                    : 'text-text-muted hover:text-text-secondary'
+                } disabled:opacity-40 disabled:cursor-not-allowed`}
+                title={screenShareSupported ? 'Share screen' : 'Screen sharing is not supported in this browser'}
+              >
+                <ScreenShareIcon className="w-3.5 h-3.5" />
+                <span className="hidden 2xl:inline">Screen</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-label="Screen + Cam"
+                aria-checked={captureSource === 'screen-camera'}
+                onClick={() => onCaptureSourceChange('screen-camera')}
+                disabled={devicePickUnavailable || !screenShareSupported}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors min-h-[36px] ${
+                  captureSource === 'screen-camera'
+                    ? 'bg-elevated text-text-primary shadow-sm'
+                    : 'text-text-muted hover:text-text-secondary'
+                } disabled:opacity-40 disabled:cursor-not-allowed`}
+                title={screenShareSupported ? 'Record your screen with a floating webcam' : 'Screen sharing is not supported in this browser'}
+              >
+                <ScreenShareIcon className="w-3.5 h-3.5" />
+                <CameraIcon className="-ml-2 w-3 h-3" />
+                <span className="hidden 2xl:inline">Screen + Cam</span>
+              </button>
+            </div>
+            )}
+
             <DeviceChip
               deviceName="Microphone"
               ariaLabel={
@@ -554,49 +634,85 @@ export function TransportBar({
                   : 'Mic off — not started'
               }
               ariaPressed={captureActive ? isMicMuted : undefined}
-              stateLabel="Mic on"
-              stateLabelOff="Mic off"
-              isOff={captureActive && isMicMuted}
-              inactive={!captureActive}
-              title={captureActive ? undefined : 'Enable Camera & Microphone on the canvas to start.'}
-              icon={isMicMuted ? <MicrophoneOffIcon className="w-4 h-4" /> : <MicrophoneIcon className="w-4 h-4" />}
+              stateLabel="On"
+              stateLabelOff={captureActive ? 'Muted' : 'Off'}
+              isOff={!captureActive || isMicMuted}
+              icon={
+                !captureActive || isMicMuted ? (
+                  <MicrophoneOffIcon className="w-4 h-4" />
+                ) : (
+                  <MicrophoneIcon className="w-4 h-4" />
+                )
+              }
               menuKind="mic"
               openMenu={openMenu}
               setOpenMenu={setOpenMenu}
               onToggle={onMicToggle}
               disabled={devicePickUnavailable || !captureActive}
+              inactive={!captureActive}
               menu={micMenu}
             />
 
-            {/* Camera chip — same pattern as the mic chip. */}
-            <DeviceChip
-              deviceName="Camera"
-              ariaLabel={
-                captureActive
-                  ? isCameraOn
-                    ? 'Turn off camera'
-                    : 'Turn on camera'
-                  : 'Camera off — not started'
-              }
-              ariaPressed={captureActive ? !isCameraOn : undefined}
-              stateLabel="Camera on"
-              stateLabelOff="Camera off"
-              isOff={captureActive && !isCameraOn}
-              inactive={!captureActive}
-              title={captureActive ? undefined : 'Enable Camera & Microphone on the canvas to start.'}
-              icon={isCameraOn ? <CameraIcon className="w-4 h-4" /> : <CameraOffIcon className="w-4 h-4" />}
-              menuKind="camera"
-              openMenu={openMenu}
-              setOpenMenu={setOpenMenu}
-              onToggle={onCameraToggle}
-              disabled={devicePickUnavailable || !captureActive}
-              menu={cameraMenu}
-            />
+            {captureSource !== 'camera' && (
+              <div
+                className="inline-flex h-11 shrink-0 items-stretch overflow-hidden rounded-xl border border-accent/30 bg-accent/10 text-accent"
+                title={
+                  isScreenSharing
+                    ? `Screen sharing active${screenShareSurface ? ` (${screenShareSurface === 'monitor' ? 'Entire Screen' : screenShareSurface === 'window' ? 'Window' : 'Browser Tab'})` : ''}`
+                    : 'Screen sharing not started'
+                }
+              >
+                <span className="flex shrink-0 items-center justify-center gap-1.5 px-2.5 sm:px-3 text-sm font-medium">
+                  <ScreenShareIcon className="w-4 h-4" />
+                  <span className="hidden sm:inline">
+                    {isScreenSharing
+                      ? screenShareSurface === 'monitor'
+                        ? 'Entire Screen'
+                        : screenShareSurface === 'window'
+                          ? 'Window'
+                          : screenShareSurface === 'browser'
+                            ? 'Tab'
+                            : 'Sharing'
+                      : 'Screen'}
+                  </span>
+                </span>
+              </div>
+            )}
+            {captureSource !== 'screen' && (
+              <DeviceChip
+                deviceName="Camera"
+                ariaLabel={
+                  captureActive
+                    ? isCameraOn
+                      ? 'Turn off camera'
+                      : 'Turn on camera'
+                    : 'Camera off — not started'
+                }
+                ariaPressed={captureActive ? !isCameraOn : undefined}
+                stateLabel="On"
+                stateLabelOff="Off"
+                isOff={!captureActive || !isCameraOn}
+                icon={
+                  !captureActive || !isCameraOn ? (
+                    <CameraOffIcon className="w-4 h-4" />
+                  ) : (
+                    <CameraIcon className="w-4 h-4" />
+                  )
+                }
+                menuKind="camera"
+                openMenu={openMenu}
+                setOpenMenu={setOpenMenu}
+                onToggle={onCameraToggle}
+                disabled={devicePickUnavailable || !captureActive}
+                inactive={!captureActive}
+                menu={cameraMenu}
+              />
+            )}
           </div>
         )}
       </div>
 
-      {/* Center: the primary action — exact centre of the bar. Secondary
+            {/* Center: the primary action — exact centre of the bar. Secondary
           pause/stop is absolutely positioned so the primary never drifts off
           centre: to its right from sm up, to its left on phones (the device
           chips own the right edge there). */}
@@ -719,10 +835,21 @@ export function TransportBar({
         )}
       </div>
 
-      {/* Right zone: an empty mirror of the left zone. `flex-1` on both sides
-          is what keeps the primary action optically centred in the bar.
-          Settings has a single entry point in the header. */}
-      <div className="ml-2 sm:ml-0 shrink-0 sm:flex-1 min-w-0 max-lg:hidden" aria-hidden="true" />
+      {/* Right zone: mirrors the left zone's `flex-1` so the primary action
+          stays optically centred. The Free daily budget indicator lives here —
+          always visible, not a toast the user has to catch. */}
+      <div
+        className="ml-2 sm:ml-0 shrink-0 sm:flex-1 min-w-0 max-lg:hidden flex justify-end"
+        aria-hidden={!dailyBudget}
+      >
+        {dailyBudget && (
+          <DailyRecordingIndicator
+            remainingSeconds={dailyBudget.remainingSeconds}
+            totalSeconds={dailyBudget.totalSeconds}
+            isRecording={isRecording || isPaused}
+          />
+        )}
+      </div>
     </footer>
   );
 }

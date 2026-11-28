@@ -83,7 +83,7 @@ export function PostDownloadEngagement({
                 <CrownIcon className="h-4 w-4 text-accent-text" />
               </span>
               <div className="min-w-0">
-                <h3 className="text-[13px] font-semibold text-text-primary">Your Creator Pro tools are unlocked</h3>
+                <h3 className="text-[13px] font-semibold text-text-primary">Your Creator tools are unlocked</h3>
                 <p className="mt-1 text-[12px] leading-relaxed text-text-secondary">
                   Unlimited recording, every platform format, 1080p with no watermark and a Cloud Library.
                 </p>
@@ -96,7 +96,7 @@ export function PostDownloadEngagement({
                     }}
                     className="mt-2 inline-flex min-h-[36px] items-center gap-1.5 rounded-md text-[12px] font-semibold text-accent-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   >
-                    {onOpenLibrary ? 'Open My Library' : 'Share Studio Link'}
+                    {onOpenLibrary ? 'Open My Library' : 'Invite someone to Studio'}
                     <ArrowRightIcon className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -110,7 +110,7 @@ export function PostDownloadEngagement({
                 <CrownIcon className="h-4 w-4 text-accent-text" />
               </span>
               <div className="min-w-0">
-                <h3 className="text-[13px] font-semibold text-text-primary">Upgrade to Creator Pro</h3>
+                <h3 className="text-[13px] font-semibold text-text-primary">Upgrade to Creator</h3>
                 <p className="mt-1 text-[12px] leading-relaxed text-text-secondary">
                   Unlimited recording, every platform format, 1080p with no watermark and a Cloud Library.
                 </p>
@@ -122,7 +122,7 @@ export function PostDownloadEngagement({
                   }}
                   className="mt-2 inline-flex min-h-[36px] items-center gap-1.5 rounded-md text-[12px] font-semibold text-accent-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
-                  Explore Creator Pro
+                  Explore Creator
                   <ArrowRightIcon className="h-3.5 w-3.5" />
                 </button>
               </div>

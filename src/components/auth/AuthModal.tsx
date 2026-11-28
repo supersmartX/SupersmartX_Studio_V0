@@ -4,11 +4,13 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { signIn, useSession } from 'next-auth/react';
 import { validatePassword } from '@/lib/validation';
 import { CloseIcon } from '@/components/icons';
+import { Button } from '@/components/ui/Button';
 import { StepItem } from './StepItem';
 import { SocialButton } from './SocialButton';
 import { InputGroup } from './InputGroup';
 import { BrandLogo } from './BrandLogo';
 import { GoogleIcon, EyeIcon } from './AuthIcons';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 import { useModalAnimation } from '@/hooks/useModalAnimation';
 
 interface AuthModalProps {
@@ -43,9 +45,10 @@ export function AuthModal({
   const [loginPassword, setLoginPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
-  const [step, setStep] = useState<'chooser' | 'email'>(initialStep);
+  const [step, setStep] = useState<'chooser' | 'email' | 'forgot'>(initialStep);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [forgotSent, setForgotSent] = useState(false);
   const { update } = useSession();
 
   // The modal body persists across opens (it only unmounts its output), so the
@@ -65,6 +68,36 @@ export function AuthModal({
       setIsLoading(false);
     }
   }, [callbackUrl]);
+
+  // Password recovery. The endpoint is enumeration-safe: it answers {ok:true}
+  // whether or not the address belongs to an account, so the UI must promise
+  // nothing beyond "a link was sent if the account exists".
+  const handleForgotSubmit = useCallback(async () => {
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Please enter a valid email address');
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok && res.status !== 429) throw new Error('failed');
+      if (res.status === 429) {
+        setError('Too many requests. Please wait a minute and try again.');
+        setIsLoading(false);
+        return;
+      }
+      setForgotSent(true);
+      setIsLoading(false);
+    } catch {
+      setError('Something went wrong. Please try again.');
+      setIsLoading(false);
+    }
+  }, [email]);
 
   const handleEmailSubmit = useCallback(async () => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -125,6 +158,7 @@ export function AuthModal({
     setPassword('');
     setLoginPassword('');
     setError('');
+    setForgotSent(false);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -137,126 +171,51 @@ export function AuthModal({
   // The dialog panel itself — the boundary for the Tab trap below.
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Escape closes like every other modal. The auth step holds no destructive
-  // state (credentials are never persisted until success), so dismissal is safe.
-  // Tab is trapped so keyboard focus cannot fall out onto the page behind —
-  // the dialog is modal in every other respect, so it must be modal to Tab too.
-  useEffect(() => {
-    if (!shouldRender) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleModalClose();
-        return;
-      }
-      if (e.key !== 'Tab') return;
+  // Shared dialog contract: Escape closes (auth holds no destructive state —
+  // credentials are never persisted until success), Tab is trapped so focus
+  // cannot fall out onto the page behind, and focus returns to the trigger on
+  // close. Trigger capture uses 'interaction' because snapshotting
+  // `document.activeElement` on open does NOT work here: the login/register
+  // inputs' `autoFocus` runs during React's commit phase, before any effect,
+  // so the snapshot would capture the input itself — which is destroyed on
+  // close, leaving keyboard focus stranded on <body>. Instead the hook records
+  // the last interaction that landed while the dialog was still closed; that
+  // is the real trigger, whether the browser focuses buttons on click (Chrome)
+  // or not (Firefox/Safari).
+  useDialogFocus({
+    shouldRender,
+    onClose: handleModalClose,
+    containerRef: panelRef,
+    triggerCapture: 'interaction',
+    focusOnOpen: () => {
       const container = panelRef.current;
       if (!container) return;
+      // A field inside the dialog may already hold focus — the register
+      // step's First Name input and the sign-in step's email input set
+      // autoFocus deliberately (see InputGroup, UX-012). Moving focus again
+      // here would override that choice and land on the Google button
+      // instead, so only act when nothing inside has focus yet.
+      if (container.contains(document.activeElement)) return;
+      const explicit = container.querySelector<HTMLElement>('[data-modal-initial-focus]');
+      if (explicit && !explicit.hasAttribute('disabled')) {
+        explicit.focus();
+        return;
+      }
       const focusable = Array.from(
         container.querySelectorAll<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
         )
       ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first || !container.contains(document.activeElement)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (document.activeElement === last || !container.contains(document.activeElement)) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [shouldRender, handleModalClose]);
+      const firstTaskControl =
+        focusable.find((el) => el.getAttribute('aria-label') !== 'Close') ?? focusable[0];
+      firstTaskControl?.focus();
+    },
+  });
 
-  // Focus the dialog's first task control on open (never the Close button —
-  // that would focus "leave this dialog"), and hand focus back to the trigger
-  // on close so keyboard users don't get dumped onto <body>.
-  const returnFocusRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    if (!shouldRender) return;
-    const container = panelRef.current;
-    if (!container) return;
-    // A field inside the dialog may already hold focus — the register
-    // step's First Name input and the sign-in step's email input set
-    // autoFocus deliberately (see InputGroup, UX-012). Moving focus again
-    // here would override that choice and land on the Google button
-    // instead, so only act when nothing inside has focus yet.
-    const active = document.activeElement;
-    if (container.contains(active)) return;
-    const explicit = container.querySelector<HTMLElement>('[data-modal-initial-focus]');
-    if (explicit && !explicit.hasAttribute('disabled')) {
-      explicit.focus();
-      return;
-    }
-    const focusable = Array.from(
-      container.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-    ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
-    const firstTaskControl =
-      focusable.find((el) => el.getAttribute('aria-label') !== 'Close') ?? focusable[0];
-    firstTaskControl?.focus();
-  }, [shouldRender]);
-
-  // Return focus to the control that opened this dialog. Snapshotting
-  // `document.activeElement` when the dialog opens does NOT work here: the
-  // login/register inputs' `autoFocus` runs during React's commit phase, before
-  // any effect, so the snapshot would capture the input itself — which is
-  // destroyed on close, leaving keyboard focus stranded on <body>.
-  //
-  // Instead record the last interaction that landed while the dialog was still
-  // closed; that is the real trigger, whether the browser focuses buttons on
-  // click (Chrome) or not (Firefox/Safari). The listeners are attached on mount
-  // because the trigger's pointerdown/focusin fires before `shouldRender` ever
-  // flips true, so gating them on the open state would always miss it.
-  const shouldRenderRef = useRef(shouldRender);
-  shouldRenderRef.current = shouldRender;
-  useEffect(() => {
-    const remember = (target: EventTarget | null) => {
-      // Only a pre-open interaction counts as the trigger; anything that lands
-      // after the dialog is up (backdrop, focus trap) must not overwrite it.
-      if (shouldRenderRef.current) return;
-      if (!(target instanceof HTMLElement)) return;
-      if (target === document.body || target === document.documentElement) return;
-      returnFocusRef.current = target;
-    };
-    const onFocusIn = (e: FocusEvent) => remember(e.target);
-    const onPointerDown = (e: PointerEvent) => remember(e.target);
-    document.addEventListener('focusin', onFocusIn, true);
-    document.addEventListener('pointerdown', onPointerDown, true);
-    return () => {
-      document.removeEventListener('focusin', onFocusIn, true);
-      document.removeEventListener('pointerdown', onPointerDown, true);
-    };
-  }, []);
-
-  // Hand focus back once the dialog is gone, but only if it would otherwise be
-  // lost (still on <body> or a detached node), so we never steal focus from a
-  // dialog that opened on top of this one.
-  useEffect(() => {
-    if (shouldRender) return;
-    const target = returnFocusRef.current;
-    returnFocusRef.current = null;
-    const active = document.activeElement;
-    const focusIsLost =
-      active === null ||
-      active === document.body ||
-      active === document.documentElement ||
-      !active.isConnected;
-    if (target && target.isConnected && focusIsLost) {
-      target.focus();
-    }
-  }, [shouldRender]);
-
-  if (!shouldRender) return null;
+if (!shouldRender) return null;
 
   return (
-    <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={step === 'chooser' ? 'Create New Profile' : 'Enter your email'} {...swipeHandlers}>
+    <div className={`fixed inset-0 z-modal isolate flex items-center justify-center p-4 ${isClosing ? 'pointer-events-none' : ''}`} role="dialog" aria-modal="true" aria-label={step === 'chooser' ? 'Create New Profile' : step === 'forgot' ? 'Reset your password' : 'Enter your email'} {...swipeHandlers}>
       <div
         className={`absolute inset-0 bg-black/95 backdrop-blur-xl ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
         onClick={handleModalClose}
@@ -323,7 +282,7 @@ export function AuthModal({
               </div>
                 <div>
                 <h2 className="text-3xl font-medium tracking-tight text-text-primary">
-                  {step === 'chooser' ? 'Create New Profile' : 'Enter your email'}
+                  {step === 'chooser' ? 'Create New Profile' : step === 'forgot' ? 'Reset your password' : 'Enter your email'}
                 </h2>
                 {step === 'chooser' && (
                   <p className="text-text-secondary text-sm mt-1">
@@ -333,6 +292,11 @@ export function AuthModal({
                 {step === 'email' && (
                   <p className="text-text-secondary text-sm mt-1">
                     We&apos;ll log you in with your email.
+                  </p>
+                )}
+                {step === 'forgot' && (
+                  <p className="text-text-secondary text-sm mt-1">
+                    Enter your email and we&apos;ll send you a reset link.
                   </p>
                 )}
               </div>
@@ -415,13 +379,14 @@ export function AuthModal({
                 )}
 
                 {/* Submit */}
-                <button
+                <Button
                   onClick={handleEmailSubmit}
                   disabled={isLoading}
-                  className="w-full h-12 bg-accent text-white font-semibold rounded-lg hover:bg-accent-hover active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                  size="lg"
+                  className="w-full"
                 >
                   {isLoading ? 'Creating Account...' : 'Create Account'}
-                </button>
+                </Button>
 
                 {/* Footer */}
                 <p className="text-sm text-text-secondary text-center">
@@ -438,31 +403,31 @@ export function AuthModal({
 
             {step === 'email' && (
               <>
-                {intent === 'login' && (
-                  <>
-                    {/* Social Buttons - available when user explicitly chose to log in */}
-                    <div className="grid grid-cols-1 gap-3">
-                      <SocialButton
-                        label="Google"
-                        onClick={handleGoogleSignIn}
-                        disabled={isLoading}
-                        icon={<GoogleIcon />}
-                      />
-                    </div>
+                {/* Social Buttons — shown on every path into this step. The
+                    register→login handoff previously lost the Google option
+                    the chooser had just shown (the block was gated on
+                    intent === 'login'), so a user could arrive here with a
+                    narrower set of providers than a moment earlier. */}
+                <div className="grid grid-cols-1 gap-3">
+                  <SocialButton
+                    label="Google"
+                    onClick={handleGoogleSignIn}
+                    disabled={isLoading}
+                    icon={<GoogleIcon />}
+                  />
+                </div>
 
-                    {/* Divider */}
-                    <div className="relative">
-                      <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-white/10" />
-                      </div>
-                      <div className="relative flex justify-center">
-                        <span className="bg-canvas px-4 text-xs font-medium text-text-secondary uppercase tracking-widest">
-                          Or
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                )}
+                {/* Divider */}
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-white/10" />
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="bg-canvas px-4 text-xs font-medium text-text-secondary uppercase tracking-widest">
+                      Or
+                    </span>
+                  </div>
+                </div>
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor="auth-login-email" className="text-sm font-medium text-text-primary">Email address</label>
                   <input
@@ -504,13 +469,91 @@ export function AuthModal({
                   <p className="text-xs text-recording text-center">{error}</p>
                 )}
 
-                <button
+                <Button
                   onClick={handleEmailSubmit}
                   disabled={isLoading || !email || !loginPassword}
-                  className="w-full h-12 bg-accent text-white font-semibold rounded-lg hover:bg-accent-hover active:scale-[0.98] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                  size="lg"
+                  className="w-full"
                 >
                   {isLoading ? 'Signing in...' : 'Log in'}
-                </button>
+                </Button>
+
+                <p className="text-sm text-text-secondary text-center">
+                  <button
+                    type="button"
+                    onClick={() => { setError(''); setForgotSent(false); setStep('forgot'); }}
+                    className="relative text-text-secondary font-medium hover:text-text-primary hover:underline after:absolute after:-inset-x-3 after:-inset-y-2 after:content-['']"
+                  >
+                    Forgot password?
+                  </button>
+                </p>
+              </>
+            )}
+
+            {step === 'forgot' && (
+              <>
+                {forgotSent ? (
+                  <div className="space-y-5" role="status">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent-muted">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent-text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="2" y="4" width="20" height="16" rx="2" />
+                        <path d="m22 7-10 6L2 7" />
+                      </svg>
+                    </div>
+                    <p className="text-sm text-text-secondary text-center leading-relaxed">
+                      If that email belongs to an account, a reset link is on
+                      its way. It expires in one hour — check your spam folder
+                      if it doesn&apos;t arrive.
+                    </p>
+                    <Button
+                      type="button"
+                      onClick={() => { setForgotSent(false); setStep('email'); }}
+                      size="lg"
+                      className="w-full"
+                    >
+                      Back to log in
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="auth-forgot-email" className="text-sm font-medium text-text-primary">Email address</label>
+                      <input
+                        id="auth-forgot-email"
+                        type="email"
+                        placeholder="you@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleForgotSubmit()}
+                        autoFocus
+                        className="w-full bg-elevated border border-border-subtle rounded-lg h-11 px-4 text-text-primary text-sm placeholder:text-text-muted focus:border-accent outline-none transition-all"
+                      />
+                    </div>
+
+                    {error && (
+                      <p className="text-xs text-recording text-center">{error}</p>
+                    )}
+
+                    <Button
+                      onClick={handleForgotSubmit}
+                      disabled={isLoading || !email}
+                      size="lg"
+                      className="w-full"
+                    >
+                      {isLoading ? 'Sending...' : 'Send reset link'}
+                    </Button>
+
+                    <p className="text-sm text-text-secondary text-center">
+                      <button
+                        type="button"
+                        onClick={() => { setError(''); setStep('email'); }}
+                        className="relative text-text-secondary font-medium hover:text-text-primary hover:underline after:absolute after:-inset-x-3 after:-inset-y-2 after:content-['']"
+                      >
+                        Back to log in
+                      </button>
+                    </p>
+                  </>
+                )}
               </>
             )}
           </div>

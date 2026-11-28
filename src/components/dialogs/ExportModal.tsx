@@ -9,6 +9,7 @@ import { PostDownloadEngagement } from './PostDownloadEngagement';
 import { shouldShowPostDownloadEngagement, markPostDownloadEngagementShown } from '@/lib/engagement';
 import { VideoPlayer } from '@/components/studio/VideoPlayer';
 import { generateFilename } from '@/services/download.service';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 import { setPendingDownload, stashPendingDownloadExportId } from '@/lib/auth-guard';
 import { getEntitlements, isCreatorPlan, isPlatformLockedForUser } from '@/lib/entitlements';
 import type { ExportStep, PlatformId, ExportConfig, MasterRecording, ExportJob } from '@/types';
@@ -401,73 +402,24 @@ export function ExportModal({
     closeModal();
   }, [closeModal, onChangeFormat]);
 
-  // Focus into the dialog on open. The sheet used to leave focus on the
-  // trigger behind it, so the first Tab was the only way in and Enter could
-  // re-fire the background control. Same contract as the shared Modal and
-  // PricingModal: an explicit [data-modal-initial-focus] marker, else the
-  // first control that is not the header Close. `step` and `hasMaster` are
-  // dependencies because each step is a new task and the loading skeleton is
-  // replaced by real content when a restored take finishes reading back.
-  useEffect(() => {
-    if (!shouldRender) return;
-    const root = panelRef.current;
-    if (!root) return;
-    const explicit = root.querySelector<HTMLElement>('[data-modal-initial-focus]');
-    if (explicit && !explicit.hasAttribute('disabled')) {
-      explicit.focus();
-      return;
-    }
-    const focusable = Array.from(
-      root.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-    ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
-    if (focusable.length === 0) return;
-    const firstTaskControl =
-      focusable.find((el) => el.getAttribute('aria-label') !== 'Close') ?? focusable[0];
-    firstTaskControl.focus();
-  }, [shouldRender, step, hasMaster]);
-
-  // Escape dismisses; Tab is kept inside the sheet so keyboard focus cannot
-  // fall out onto the page behind a dialog that is modal in every other
-  // respect. The skeleton panel takes the same ref, so the trap is active
-  // before the take is readable too.
-  useEffect(() => {
-    if (!shouldRender) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      // A confirmation raised from inside this sheet owns both keys while it is
-      // open; otherwise one Escape would dismiss the sheet behind it and one
-      // Tab would pull focus out of the alertdialog. The post-download popup is
-      // a dialog in its own right and owns both keys the same way.
-      if (confirmCancelOpen || confirmPracticeOpen || isEngagementOpen) return;
-      if (e.key === 'Escape') {
-        closeModal();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const container = panelRef.current;
-      if (!container) return;
-      const focusable = Array.from(
-        container.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        )
-      ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first || !container.contains(document.activeElement)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (document.activeElement === last || !container.contains(document.activeElement)) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [shouldRender, closeModal, confirmCancelOpen, confirmPracticeOpen, isEngagementOpen]);
+  // Escape dismisses, Tab is trapped, and focus lands on the step's task on
+  // open — the same contract as the shared Modal and PricingModal. Trigger
+  // capture and focus return stay local to this dialog (triggerCapture
+  // 'none'): opening the sheet makes the studio shell inert, which blurs the
+  // trigger to <body> before any effect could snapshot it, and "Change
+  // format" prefers restoring to the review tray's format chip. `step` and
+  // `hasMaster` re-run the initial focus because each step is a new task and
+  // the loading skeleton is replaced by real content when a restored take
+  // finishes reading back. The skeleton panel takes the same ref, so the
+  // trap is active before the take is readable too.
+  useDialogFocus({
+    shouldRender,
+    onClose: closeModal,
+    containerRef: panelRef,
+    triggerCapture: 'none',
+    suspended: confirmCancelOpen || confirmPracticeOpen || isEngagementOpen,
+    initialFocusDeps: [step, hasMaster],
+  });
 
   if (!shouldRender) return null;
 
@@ -738,7 +690,11 @@ export function ExportModal({
                   className="w-full gap-2"
                 >
                   <ShareIcon className="w-4 h-4" />
-                  Share Studio Link
+                  {/* Deliberately not "share your video": this hands off the
+                      app's URL (see useShare), never the recording. The label
+                      names the app so the affordance cannot be misread right
+                      after a download completes. */}
+                  Invite someone to Studio
                 </Button>
 
                 <Button

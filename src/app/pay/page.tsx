@@ -53,7 +53,7 @@ export default async function PaymentPage({ searchParams }: {
               </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
                 <Link href="/studio" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-accent px-5 text-sm font-semibold text-white transition hover:bg-accent-hover">Return to Studio</Link>
-                <Link href="/studio?checkout=creator_monthly" className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border-default px-5 text-sm font-medium text-text-secondary transition hover:bg-elevated hover:text-text-primary">View plans</Link>
+                <Link href="/studio" className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border-default px-5 text-sm font-medium text-text-secondary transition hover:bg-elevated hover:text-text-primary">View plans</Link>
               </div>
               <p className="text-xs text-text-muted">Never submit another payment while a previous checkout is still being checked.</p>
             </div>

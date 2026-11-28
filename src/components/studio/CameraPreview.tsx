@@ -12,12 +12,15 @@ interface CameraPreviewProps {
   stream: MediaStream | null;
   isMirrored?: boolean;
   focusViewEnabled: boolean;
+  /** Screen shares should use contain so the whole display is visible. */
+  objectFit?: 'cover' | 'contain';
 }
 
 export function CameraPreview({
   stream,
   isMirrored = true,
   focusViewEnabled,
+  objectFit = 'cover',
 }: CameraPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playError, setPlayError] = useState(false);
@@ -103,7 +106,7 @@ export function CameraPreview({
       muted
       aria-label="Camera preview"
       aria-hidden="true"
-      className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+      className={`absolute inset-0 w-full h-full ${objectFit === 'contain' ? 'object-contain' : 'object-cover'} transition-opacity duration-300 ${
         isMirrored ? 'mirrored' : ''
       } ${focusViewEnabled ? 'blur-xl opacity-40' : ''}`}
     />

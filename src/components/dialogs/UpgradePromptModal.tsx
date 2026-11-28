@@ -25,7 +25,7 @@ const CREATOR_BENEFITS = [
   'All supported platform formats',
   '1080p with no watermark',
   'Voice-activated teleprompter',
-  'Cloud video library',
+  'Cloud Library',
 ];
 
 export function UpgradePromptModal({ platform, isAuthenticated, onClose, onUpgrade }: UpgradePromptModalProps) {

@@ -44,6 +44,9 @@ interface NavItem {
  * right pattern here rather than `role="menu"`: it is a list of navigation
  * destinations, it is fully operable with Tab and Escape alone, and it does not
  * promise the arrow-key roving focus that a real menu widget owes the user.
+ *
+ * Future modules (Create, Video Editor, My Projects, Templates) extend the
+ * items below as they ship — see src/constants/future-modules.ts.
  */
 export function CompactNavMenu({
   activePanel,

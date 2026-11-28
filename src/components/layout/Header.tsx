@@ -1,50 +1,12 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import { ShareIcon, DownloadIcon, SettingsIcon } from '@/components/icons';
 import { isCreatorPlan } from '@/lib/entitlements';
 import { useDismissOnOutsideClick } from '@/hooks/useDismissOnOutsideClick';
-
-/** Stored billing facts from `/api/user/stats` (the DB is the authority). */
-interface BillingStatus {
-  planExpiresAt: string | null;
-  planActive: boolean;
-}
-
-interface PaddleBillingSummary {
-  account: {
-    status: string;
-    paidThroughAt: string | null;
-    nextChargeAt: string | null;
-    cancelAtPeriodEnd: boolean;
-    cancellationConfirmed: boolean;
-    paymentMethodUpdateUrl?: string | null;
-  } | null;
-  transactions: Array<{
-    id: string;
-    status: string;
-    amount: number;
-    currency: string;
-    paidAt: string | null;
-    refundedAt: string | null;
-    disputedAt: string | null;
-  }>;
-}
-
-function formatBillingDate(iso: string): string | null {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  // UTC on purpose: the stored expiry is an instant, and rendering it in the
-  // viewer's zone could show a date one day earlier than the receipt e-mail.
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-}
+import { useAccountBilling, formatBillingDate } from '@/hooks/useAccountBilling';
 
 interface HeaderProps {
   hasRecording: boolean;
@@ -93,41 +55,10 @@ export function Header({
   // Billing status is read from the server when the menu opens: the session's
   // plan is enough to know whether access is active, but not when it ends, and
   // an expired plan is indistinguishable from never having bought one without
-  // the stored date.
-  const [billing, setBilling] = useState<BillingStatus | null>(null);
-  const [paddleBilling, setPaddleBilling] = useState<PaddleBillingSummary | null>(null);
-  const [cancelRequested, setCancelRequested] = useState(false);
-  const [cancelNotice, setCancelNotice] = useState<string | null>(null);
-  const cancelMutationVersion = useRef(0);
-  useEffect(() => {
-    if (!showUserMenu || !signedIn) return;
-    const currentVersion = cancelMutationVersion.current;
-    let cancelled = false;
-    fetch('/api/user/stats', { credentials: 'same-origin' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { planExpiresAt?: string | null; planActive?: boolean } | null) => {
-        if (cancelled || !data) return;
-        setBilling({
-          planExpiresAt: data.planExpiresAt ?? null,
-          planActive: Boolean(data.planActive),
-        });
-      })
-      .catch(() => {
-        // Status is an enhancement: the menu still opens without it.
-      });
-    fetch('/api/paddle/billing', { credentials: 'same-origin' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: PaddleBillingSummary | null) => {
-        // Discard stale billing reads that started before a cancellation mutation
-        if (!cancelled && data && cancelMutationVersion.current === currentVersion) {
-          setPaddleBilling(data);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [showUserMenu, signedIn]);
+  // the stored date. The fetch + cancellation mutation live in the shared
+  // useAccountBilling hook (the /settings page offers the identical flow).
+  const { stats: billing, paddle: paddleBilling, cancelRequested, cancelNotice, cancelAtPeriodEnd } =
+    useAccountBilling({ enabled: showUserMenu && signedIn });
 
   const accessUntil =
     billing?.planActive && billing.planExpiresAt
@@ -263,6 +194,14 @@ export function Header({
                     </a>
                   )}
                   <Link
+                    href="/settings"
+                    role="menuitem"
+                    onClick={() => setShowUserMenu(false)}
+                    className="block w-full rounded-md px-2.5 py-1.5 text-[12px] text-text-secondary hover:bg-elevated hover:text-text-primary"
+                  >
+                    Account settings
+                  </Link>
+                  <Link
                     href="/billing"
                     role="menuitem"
                     onClick={() => setShowUserMenu(false)}
@@ -292,39 +231,7 @@ export function Header({
                     <button
                       role="menuitem"
                       disabled={cancelRequested}
-                      onClick={async () => {
-                        setCancelRequested(true);
-                        setCancelNotice(null);
-                        cancelMutationVersion.current += 1;
-                        try {
-                          const res = await fetch('/api/paddle/cancel', {
-                            method: 'POST',
-                            credentials: 'same-origin',
-                          });
-                          const result = await res.json().catch(() => null) as { status?: string } | null;
-                          if (res.ok && result?.status === 'cancellation_requested') {
-                            setCancelNotice('Cancellation is confirmed for the end of your paid period.');
-                            setPaddleBilling((current) => current ? {
-                              ...current,
-                              account: current.account ? { ...current.account, cancelAtPeriodEnd: true, cancellationConfirmed: true } : current.account,
-                            } : current);
-                            setCancelRequested(false);
-                          } else if (res.status === 202 && result?.status === 'cancellation_pending_reconciliation') {
-                            setCancelNotice('Paddle has not confirmed cancellation yet. Your current access remains active. Click again to check status.');
-                            setPaddleBilling((current) => current ? {
-                              ...current,
-                              account: current.account ? { ...current.account, cancelAtPeriodEnd: true } : current.account,
-                            } : current);
-                            // Allow retry to check status
-                            setCancelRequested(false);
-                          } else {
-                            throw new Error('Cancellation could not be confirmed');
-                          }
-                        } catch {
-                          setCancelRequested(false);
-                          setCancelNotice('Cancellation could not be confirmed. Check your billing status before submitting another request.');
-                        }
-                      }}
+                      onClick={cancelAtPeriodEnd}
                       className="w-full text-left px-2.5 py-1.5 rounded-md text-[12px] font-medium text-text-secondary hover:bg-elevated"
                     >
                       {cancelRequested ? 'Cancellation awaiting confirmation...' : paddleBilling.account.cancelAtPeriodEnd ? 'Check cancellation status' : 'Cancel at period end'}
