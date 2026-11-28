@@ -10,6 +10,7 @@ import {
   drawComposedFrame,
   fitContainRect,
   sanitizeWebcamOverlay,
+  sizeCanvasForAspect,
   webcamNormalizedSize,
 } from '@/lib/recording/webcam-overlay';
 
@@ -236,5 +237,35 @@ describe('webcam overlay geometry', () => {
       drawComposedFrame(ctx, CANVAS_W, CANVAS_H, video(), { ...video(), readyState: 0 } as unknown as HTMLVideoElement, { ...DEFAULT_WEBCAM_OVERLAY, visible: true }, CAMERA_ASPECT);
       expect(calls.filter((c) => c === 'draw').length).toBe(1);
     });
+  });
+});
+
+describe('sizeCanvasForAspect', () => {
+  it('keeps a matching-aspect source untouched', () => {
+    expect(sizeCanvasForAspect(1280, 720, 16 / 9)).toEqual({ width: 1280, height: 720 });
+  });
+
+  it('crops the sides of a landscape screen into a portrait format', () => {
+    // 9:16 from a 1280x720 capture: height wins, width is cropped to 405.
+    expect(sizeCanvasForAspect(1280, 720, 9 / 16)).toEqual({ width: 406, height: 720 });
+  });
+
+  it('crops top/bottom of a tall screen into a landscape format', () => {
+    expect(sizeCanvasForAspect(720, 1280, 16 / 9)).toEqual({ width: 720, height: 406 });
+  });
+
+  it('returns even dimensions for encoder compatibility', () => {
+    const sized = sizeCanvasForAspect(1081, 721, 16 / 9)!;
+    expect(sized.width % 2).toBe(0);
+    expect(sized.height % 2).toBe(0);
+  });
+
+  it('returns null when the source geometry is unknown', () => {
+    expect(sizeCanvasForAspect(0, 0, 16 / 9)).toBeNull();
+    expect(sizeCanvasForAspect(Number.NaN, 720, 16 / 9)).toBeNull();
+  });
+
+  it('falls back to 16:9 for a degenerate target aspect', () => {
+    expect(sizeCanvasForAspect(1280, 720, Number.NaN)).toEqual({ width: 1280, height: 720 });
   });
 });

@@ -14,6 +14,8 @@ import type { WebcamOverlaySettings, WebcamShape } from '@/types';
 /** Overlay height as a fraction of canvas height — clamp range. */
 export const WEBCAM_SCALE_MIN = 0.12;
 export const WEBCAM_SCALE_MAX = 0.45;
+/** Per-press resize step, shared by the toolbar buttons and keyboard nudges. */
+export const WEBCAM_SCALE_STEP = 0.03;
 /** Keep-out margin between the overlay and the canvas edges (fraction). */
 export const WEBCAM_EDGE_MARGIN = 0.02;
 
@@ -53,6 +55,30 @@ export function sanitizeWebcamOverlay(raw: unknown): WebcamOverlaySettings {
 export function clampScale(scale: number): number {
   if (!Number.isFinite(scale)) return DEFAULT_WEBCAM_OVERLAY.scale;
   return Math.min(WEBCAM_SCALE_MAX, Math.max(WEBCAM_SCALE_MIN, scale));
+}
+
+/**
+ * Crop a source capture (width/height) to `targetAspect` the way
+ * drawVideoCover paints it: the SMALLER dimension wins, the other is cropped
+ * around the center. The composed canvas gets these dims, so the recording —
+ * and therefore the live preview — already carries the recording format's
+ * shape and the screen fills the platform frame with no letterbox bars.
+ * Dimensions are rounded to even numbers (encoder-friendly). Returns null
+ * when the source geometry is not known yet.
+ */
+export function sizeCanvasForAspect(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetAspect: number,
+): { width: number; height: number } | null {
+  if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight)) return null;
+  if (sourceWidth <= 0 || sourceHeight <= 0) return null;
+  const aspect = Number.isFinite(targetAspect) && targetAspect > 0 ? targetAspect : 16 / 9;
+  const even = (value: number) => Math.max(2, 2 * Math.round(value / 2));
+  if (sourceWidth / sourceHeight > aspect) {
+    return { width: even(sourceHeight * aspect), height: even(sourceHeight) };
+  }
+  return { width: even(sourceWidth), height: even(sourceWidth / aspect) };
 }
 
 /**

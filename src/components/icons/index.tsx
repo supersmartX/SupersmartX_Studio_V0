@@ -342,6 +342,15 @@ export function EyeOffIcon({ className = 'w-4 h-4' }: IconProps) {
   );
 }
 
+/** Mirror — two arrows pointing at each other across a vertical axis. */
+export function FlipIcon({ className = 'w-4 h-4' }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7L4 12l4 5M16 7l4 5-4 5M12 4v16" />
+    </svg>
+  );
+}
+
 export function MinusIcon({ className = 'w-4 h-4' }: IconProps) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">

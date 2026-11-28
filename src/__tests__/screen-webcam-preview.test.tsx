@@ -5,10 +5,10 @@ import { DEFAULT_WEBCAM_OVERLAY } from '@/lib/recording/webcam-overlay';
 import type { WebcamOverlaySettings } from '@/types';
 
 /**
- * The Screen + Webcam interaction surface: drag, resize, shape, corner
- * presets, mirror, show/hide, camera device and camera-off — the toolbar and
- * frame contract the recording reliability rules depend on (visibility changes
- * are UI-only and must never touch the recording path).
+ * The Screen + Webcam composition surface: the draggable/resizable webcam
+ * frame aligned over the canvas. Its controls live in the WebcamToolbar tray
+ * BELOW the preview (see webcam-toolbar.test.tsx) — this surface must render
+ * no chrome over the recorded pixels at all.
  */
 
 type PreviewProps = Parameters<typeof ScreenWebcamPreview>[0];
@@ -16,8 +16,6 @@ type MockFn = ReturnType<typeof vi.fn>;
 
 function props(overrides: Partial<PreviewProps> = {}): PreviewProps & {
   onOverlayChange: MockFn;
-  onCameraToggle: MockFn;
-  onVideoDeviceChange: MockFn;
 } {
   const base = {
     canvasEl: null,
@@ -25,18 +23,9 @@ function props(overrides: Partial<PreviewProps> = {}): PreviewProps & {
     onOverlayChange: vi.fn(),
     cameraAspect: 16 / 9,
     screenActive: true,
-    isCameraOn: true,
-    onCameraToggle: vi.fn(),
-    videoDevices: [
-      { deviceId: 'cam-a', kind: 'videoinput', label: 'Built-in Camera', groupId: 'g', toJSON: () => {} } as MediaDeviceInfo,
-      { deviceId: 'cam-b', kind: 'videoinput', label: 'External Camera', groupId: 'g', toJSON: () => {} } as MediaDeviceInfo,
-    ],
-    selectedVideoDevice: 'cam-a',
-    onVideoDeviceChange: vi.fn(),
-    deviceChangeLocked: false,
     ...overrides,
   };
-  return base as PreviewProps & { onOverlayChange: MockFn; onCameraToggle: MockFn; onVideoDeviceChange: MockFn };
+  return base as PreviewProps & { onOverlayChange: MockFn };
 }
 
 function lastChange(mock: { mock: { calls: unknown[][] } }): Partial<WebcamOverlaySettings> {
@@ -44,26 +33,13 @@ function lastChange(mock: { mock: { calls: unknown[][] } }): Partial<WebcamOverl
   return mock.mock.calls[mock.mock.calls.length - 1][0] as Partial<WebcamOverlaySettings>;
 }
 
-describe('ScreenWebcamPreview toolbar', () => {
-  // One render per test: testing-library cleanup runs between tests, not
-  // between renders, so a shared beforeEach render would leave a second live
-  // instance in the DOM and duplicate every query.
-  function renderPreview(overrides: Partial<PreviewProps> = {}) {
-    const p = props(overrides);
-    render(<ScreenWebcamPreview {...p} />);
-    return p;
-  }
-
-  it('hides the webcam without touching any recording control', () => {
-    const p = renderPreview();
-    fireEvent.click(screen.getByRole('button', { name: 'Hide webcam' }));
-    expect(lastChange(p.onOverlayChange)).toEqual({ visible: false });
-  });
-
-  it('restores a hidden webcam', () => {
-    const p = renderPreview({ overlay: { ...DEFAULT_WEBCAM_OVERLAY, x: 0.8, y: 0.8, scale: 0.25, visible: false } });
-    fireEvent.click(screen.getByRole('button', { name: 'Show webcam' }));
-    expect(lastChange(p.onOverlayChange)).toEqual({ visible: true });
+describe('ScreenWebcamPreview surface', () => {
+  it('renders no toolbar over the recording — controls live in the tray below', () => {
+    render(<ScreenWebcamPreview {...props()} />);
+    expect(screen.queryByTestId('webcam-toolbar')).not.toBeInTheDocument();
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+    // The letterboxed canvas strip is still addressable for the tray layout.
+    expect(screen.getByTestId('webcam-canvas-strip')).toBeInTheDocument();
   });
 
   it('hides the overlay frame when the webcam is hidden', () => {
@@ -74,64 +50,10 @@ describe('ScreenWebcamPreview toolbar', () => {
     expect(screen.getByTestId('webcam-overlay-frame')).toBeInTheDocument();
   });
 
-  it('resizes within the scale clamp', () => {
-    const p = renderPreview();
-    const smaller = screen.getByRole('button', { name: 'Make webcam smaller' });
-    fireEvent.click(smaller);
-    expect(lastChange(p.onOverlayChange).scale).toBeCloseTo(p.overlay.scale - 0.03, 6);
-  });
-
-  it('disables resize buttons at the clamps', () => {
-    const { unmount } = render(
-      <ScreenWebcamPreview {...props({ overlay: { ...DEFAULT_WEBCAM_OVERLAY, x: 0.8, y: 0.8, scale: 0.12 } })} />,
-    );
-    expect(screen.getByRole('button', { name: 'Make webcam smaller' })).toBeDisabled();
-    unmount();
-    render(<ScreenWebcamPreview {...props({ overlay: { ...DEFAULT_WEBCAM_OVERLAY, x: 0.8, y: 0.8, scale: 0.45 } })} />);
-    expect(screen.getByRole('button', { name: 'Make webcam larger' })).toBeDisabled();
-  });
-
-  it('toggles the camera shape', () => {
-    const p = renderPreview();
-    fireEvent.click(screen.getByRole('button', { name: 'Use circular webcam shape' }));
-    expect(lastChange(p.onOverlayChange)).toEqual({ shape: 'circle' });
-  });
-
-  it('toggles mirroring with a pressed state', () => {
-    const p = renderPreview();
-    const mirror = screen.getByRole('button', { name: 'Disable webcam mirroring' });
-    expect(mirror).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(mirror);
-    expect(lastChange(p.onOverlayChange)).toEqual({ mirrored: false });
-  });
-
-  it('moves the overlay with corner presets', () => {
-    const p = renderPreview();
-    fireEvent.click(screen.getByRole('button', { name: 'Move webcam to top left' }));
-    const patch = lastChange(p.onOverlayChange) as { x: number; y: number };
-    expect(patch.x).toBeLessThan(0.25);
-    expect(patch.y).toBeLessThan(0.25);
-  });
-
-  it('selects a camera device', () => {
-    const p = renderPreview();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Webcam camera device' }), {
-      target: { value: 'cam-b' },
-    });
-    expect(p.onVideoDeviceChange).toHaveBeenCalledWith('cam-b');
-  });
-
-  it('locks camera device switching while a take is live', () => {
-    renderPreview({ deviceChangeLocked: true });
-    expect(screen.getByRole('combobox', { name: 'Webcam camera device' })).toBeDisabled();
-  });
-
-  it('offers an explicit camera capture off switch (distinct from Hide)', () => {
-    const p = renderPreview();
-    fireEvent.click(screen.getByRole('button', { name: 'Turn camera capture off' }));
-    expect(p.onCameraToggle).toHaveBeenCalledTimes(1);
-    // Hide and camera-off are separate controls.
-    expect(screen.getByRole('button', { name: 'Hide webcam' })).toBeInTheDocument();
+  it('renders the frame only over a live screen share', () => {
+    const p = props({ screenActive: false });
+    render(<ScreenWebcamPreview {...p} />);
+    expect(screen.queryByTestId('webcam-overlay-frame')).not.toBeInTheDocument();
   });
 });
 
@@ -142,9 +64,9 @@ describe('ScreenWebcamPreview drag', () => {
     const frame = screen.getByTestId('webcam-overlay-frame');
 
     // jsdom gives elements zero-size rects; the drag math divides by the
-    // display size, so seed the content box with a real rect.
-    const host = screen.getByTestId('webcam-toolbar').parentElement!;
-    Object.defineProperty(host, 'getBoundingClientRect', {
+    // display size, so seed the fitted canvas strip with a real rect.
+    const strip = screen.getByTestId('webcam-canvas-strip');
+    Object.defineProperty(strip, 'getBoundingClientRect', {
       value: () => ({ width: 1000, height: 562.5, top: 0, left: 0 } as DOMRect),
       configurable: true,
     });
@@ -166,8 +88,8 @@ describe('ScreenWebcamPreview drag', () => {
     const p = props();
     render(<ScreenWebcamPreview {...p} />);
     const frame = screen.getByTestId('webcam-overlay-frame');
-    const host = screen.getByTestId('webcam-toolbar').parentElement!;
-    Object.defineProperty(host, 'getBoundingClientRect', {
+    const strip = screen.getByTestId('webcam-canvas-strip');
+    Object.defineProperty(strip, 'getBoundingClientRect', {
       value: () => ({ width: 1000, height: 562.5, top: 0, left: 0 } as DOMRect),
       configurable: true,
     });
@@ -208,14 +130,5 @@ describe('ScreenWebcamPreview keyboard', () => {
     render(<ScreenWebcamPreview {...p} />);
     fireEvent.keyDown(screen.getByTestId('webcam-overlay-frame'), { key: 'a' });
     expect(p.onOverlayChange).not.toHaveBeenCalled();
-  });
-});
-
-describe('ScreenWebcamPreview frame visibility', () => {
-  it('renders the toolbar before the screen share starts (pre-configure)', () => {
-    const p = props({ screenActive: false });
-    render(<ScreenWebcamPreview {...p} />);
-    expect(screen.getByTestId('webcam-toolbar')).toBeInTheDocument();
-    expect(screen.queryByTestId('webcam-overlay-frame')).not.toBeInTheDocument();
   });
 });

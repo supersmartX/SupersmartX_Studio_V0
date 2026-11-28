@@ -6,6 +6,7 @@ import {
   FALLBACK_CANVAS_HEIGHT,
   FALLBACK_CANVAS_WIDTH,
   drawComposedFrame,
+  sizeCanvasForAspect,
 } from '@/lib/recording/webcam-overlay';
 
 interface UseScreenCameraCompositionOptions {
@@ -25,6 +26,15 @@ interface UseScreenCameraCompositionOptions {
   overlay: WebcamOverlaySettings;
   /** Camera frame aspect (width/height); keeps circle/rounded sizing honest. */
   cameraAspect: number;
+  /**
+   * The RECORDING FORMAT's aspect (width/height). The composed canvas adopts
+   * this shape — the screen capture is center-cropped to fill it — so the
+   * live preview fills the platform frame edge to edge and the webcam
+   * overlay is positioned in the same coordinates the export will keep.
+   * Changing it rebuilds the composed stream (idle only; the format picker
+   * is closed during a take). Defaults to 16/9.
+   */
+  canvasAspect?: number;
   enabled: boolean;
 }
 
@@ -126,6 +136,7 @@ export function useScreenCameraComposition({
   cameraStream,
   overlay,
   cameraAspect,
+  canvasAspect,
   enabled,
 }: UseScreenCameraCompositionOptions): ScreenCameraComposition {
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
@@ -138,10 +149,15 @@ export function useScreenCameraComposition({
   const rafRef = useRef<number | null>(null);
   const overlayRef = useRef(overlay);
   const cameraAspectRef = useRef(cameraAspect);
+  const canvasAspectRef = useRef<number>(canvasAspect ?? 16 / 9);
   const audioSignatureRef = useRef('');
+  // Tracks whether the canvas still carries the fallback dims or real source
+  // geometry — width-comparison broke once the fallback became aspect-aware.
+  const canvasSizedFromSourceRef = useRef(false);
 
   overlayRef.current = overlay;
   cameraAspectRef.current = cameraAspect;
+  canvasAspectRef.current = canvasAspect ?? 16 / 9;
 
   // Lazily create the canvas + hidden source videos once (client only).
   useEffect(() => {
@@ -209,6 +225,7 @@ export function useScreenCameraComposition({
     const current = composedRef.current;
     composedRef.current = null;
     audioSignatureRef.current = '';
+    canvasSizedFromSourceRef.current = false;
     if (current) {
       // Only the compositor's OWN canvas track may be stopped here — the
       // audio tracks belong to the caller's screen/camera streams.
@@ -290,6 +307,38 @@ export function useScreenCameraComposition({
     return composed;
   }, [startDrawLoop]);
 
+  // Crop the screen source's real geometry to the recording format's aspect
+  // (center crop, same math the export applies). Track settings are preferred,
+  // decoded video metadata is the fallback. Returns false when nothing is
+  // known yet — the canvas keeps its fallback dims until geometry arrives.
+  const applySourceGeometry = useCallback((screen: MediaStream): boolean => {
+    const canvas = canvasRef.current;
+    if (!canvas) return false;
+    let width = 0;
+    let height = 0;
+    try {
+      const [videoTrack] = screen.getVideoTracks();
+      const settings = videoTrack?.getSettings();
+      width = settings?.width ?? 0;
+      height = settings?.height ?? 0;
+    } catch {
+      // Ignore; fall through to video element geometry.
+    }
+    if (!(width > 0 && height > 0)) {
+      const video = screenVideoRef.current;
+      width = video?.videoWidth ?? 0;
+      height = video?.videoHeight ?? 0;
+    }
+    const sized = sizeCanvasForAspect(width, height, canvasAspectRef.current);
+    if (!sized) return false;
+    if (canvas.width !== sized.width || canvas.height !== sized.height) {
+      canvas.width = sized.width;
+      canvas.height = sized.height;
+    }
+    canvasSizedFromSourceRef.current = true;
+    return true;
+  }, []);
+
   const syncScreen = useCallback((): MediaStream | null => {
     const screen = screenStreamRef.current;
     const canvas = canvasRef.current;
@@ -302,36 +351,42 @@ export function useScreenCameraComposition({
       screenVideo.srcObject = screen;
       tryPlay(screenVideo);
     }
-    const signature = audioSignature;
-    if (!composedRef.current || signature !== audioSignatureRef.current) {
-      // Size the canvas from the real capture geometry — only at composition
-      // build time, never mid-take (a mid-take resize would corrupt the
-      // encoder's track).
-      const [videoTrack] = screen.getVideoTracks();
-      let width = 0;
-      let height = 0;
-      try {
-        const settings = videoTrack?.getSettings();
-        width = settings?.width ?? 0;
-        height = settings?.height ?? 0;
-      } catch {
-        // Ignore; fall through to video element geometry.
-      }
-      if (width > 0 && height > 0) {
-        canvas.width = width;
-        canvas.height = height;
-      }
+    // The composition is rebuilt when the audio set OR the recording format's
+    // aspect changes (both idle-only events), or when real source geometry
+    // arrives for a canvas still on its fallback dims. The canvas is resized
+    // only at composition build time, never mid-take (a mid-take resize
+    // would corrupt the encoder's track).
+    const geometrySignature = `${audioSignature}|${canvasAspectRef.current}`;
+    const needsBuild = !composedRef.current || geometrySignature !== audioSignatureRef.current;
+    const needsGeometry = !canvasSizedFromSourceRef.current && screenVideo.videoWidth > 0;
+    if (needsBuild || needsGeometry) {
+      applySourceGeometry(screen);
       buildComposed();
-      audioSignatureRef.current = audioSignature;
+      audioSignatureRef.current = geometrySignature;
     }
     return composedRef.current;
-  }, [enabled, audioSignature, buildComposed, releaseComposed]);
+  }, [enabled, audioSignature, applySourceGeometry, buildComposed, releaseComposed]);
 
   // Attach / detach the screen source reactively (preview needs the composed
-  // canvas live even before Record is pressed).
+  // canvas live even before Record is pressed). `canvasAspect` is included so
+  // a recording-format change rebuilds the composition (idle-only event).
   useEffect(() => {
     syncScreen();
-  }, [screenStream, enabled, audioSignature, syncScreen]);
+  }, [screenStream, enabled, audioSignature, canvasAspect, syncScreen]);
+
+  // Track settings can be empty on some engines; the decoded frame size is
+  // the reliable geometry. When it arrives after the first build (canvas
+  // still on fallback dims), re-sync so the preview adopts the recording
+  // format's shape at the source's real resolution without pressing Record.
+  useEffect(() => {
+    const video = screenVideoRef.current;
+    if (!enabled || !video) return;
+    const onMetadata = () => {
+      syncScreen();
+    };
+    video.addEventListener('loadedmetadata', onMetadata);
+    return () => video.removeEventListener('loadedmetadata', onMetadata);
+  }, [enabled, screenStream, syncScreen]);
 
   // Attach the camera source. Video identity changes never rebuild the output.
   useEffect(() => {
@@ -372,15 +427,15 @@ export function useScreenCameraComposition({
     }
     const composed = composedRef.current;
     if (!composed) return syncScreen();
-    if (screenVideo.videoWidth > 0 && canvasRef.current.width === FALLBACK_CANVAS_WIDTH) {
-      // Track settings were unavailable at build time — adopt real geometry
-      // now, while the take has not started and the canvas is not captured.
-      canvasRef.current.width = screenVideo.videoWidth;
-      canvasRef.current.height = screenVideo.videoHeight || FALLBACK_CANVAS_HEIGHT;
+    if (!canvasSizedFromSourceRef.current && screenVideo.videoWidth > 0) {
+      // Track settings were unavailable at build time — adopt the decoded
+      // frame size (cropped to the recording format's aspect) now, while the
+      // take has not started.
+      applySourceGeometry(screen);
     }
     startDrawLoop();
     return composed;
-  }, [syncScreen, startDrawLoop]);
+  }, [syncScreen, startDrawLoop, applySourceGeometry]);
 
   // Full cleanup on disable/unmount: stop the compositor's canvas track and
   // loop, detach the hidden videos. Source streams stay owned by their hooks.

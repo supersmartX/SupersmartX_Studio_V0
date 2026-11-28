@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
-import { NUDGE_AMOUNT_KEYBOARD, PLATFORM_PRESETS, DEFAULT_PLATFORM_ID } from '@/constants';
+import { ASPECT_RATIO_PRESETS, NUDGE_AMOUNT_KEYBOARD, PLATFORM_PRESETS, DEFAULT_PLATFORM_ID } from '@/constants';
 
 import { useWelcomeModal } from '@/hooks/useWelcomeModal';
 import { useCamera } from '@/hooks/useCamera';
@@ -19,7 +19,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useMicMuteSync } from '@/hooks/useMicMuteSync';
 import { useVoiceFollow } from '@/hooks/useVoiceFollow';
 import { useScreenCameraComposition } from '@/hooks/useScreenCameraComposition';
-import { FALLBACK_CAMERA_ASPECT } from '@/lib/recording/webcam-overlay';
+import { FALLBACK_CAMERA_ASPECT, FALLBACK_CANVAS_WIDTH, FALLBACK_CANVAS_HEIGHT } from '@/lib/recording/webcam-overlay';
 
 import { useStudioConfig } from '@/hooks/useStudioConfig';
 import { useStudioCamera } from '@/hooks/useStudioCamera';
@@ -71,6 +71,7 @@ import { PlatformPreviewSwitcher } from '@/components/studio/PlatformPreviewSwit
 import { RecordingsPanel } from '@/components/studio/LibraryPanel';
 import { RecordingStatusLine } from '@/components/studio/RecordingStatusLine';
 import { ScreenWebcamPreview } from '@/components/studio/ScreenWebcamPreview';
+import { WebcamToolbar, ScreenShareActions } from '@/components/studio/WebcamToolbar';
 import { Toast } from '@/components/common/Toast';
 import { ScreenShareIcon, TrashIcon } from '@/components/icons';
 import { formatTime } from '@/utils/format';
@@ -141,11 +142,16 @@ export default function HomePage() {
     return FALLBACK_CAMERA_ASPECT;
   }, [camera.stream]);
 
+  // The composed canvas adopts the RECORDING FORMAT's shape: the screen share
+  // is center-cropped into it, so the preview fills the platform frame edge
+  // to edge and the webcam overlay is positioned in export-true coordinates.
+  const captureAspectPreset = ASPECT_RATIO_PRESETS[settings.aspectRatio] ?? ASPECT_RATIO_PRESETS['16:9'];
   const composition = useScreenCameraComposition({
     screenStream: captureSource === 'screen-camera' ? screenCapture.stream : null,
     cameraStream: captureSource === 'screen-camera' ? camera.stream : null,
     overlay: settings.webcamOverlay,
     cameraAspect,
+    canvasAspect: captureAspectPreset.width / captureAspectPreset.height,
     enabled: captureSource === 'screen-camera',
   });
 
@@ -1657,6 +1663,7 @@ export default function HomePage() {
               )}
 
               <div className="flex flex-1 min-h-0 min-w-0 flex-col lg:flex-row">
+              <div className="flex flex-1 min-h-0 min-w-0 flex-col">
               <Canvas
                 focusViewEnabled={focusView.isEnabled}
                 onFocusViewToggle={focusView.toggle}
@@ -1676,12 +1683,6 @@ export default function HomePage() {
                     onOverlayChange={settings.setWebcamOverlay}
                     cameraAspect={cameraAspect}
                     screenActive={screenCapture.isActive}
-                    isCameraOn={isCameraOn}
-                    onCameraToggle={handleCameraToggle}
-                    videoDevices={camera.videoDevices}
-                    selectedVideoDevice={settings.selectedVideoDevice}
-                    onVideoDeviceChange={handleVideoDeviceChange}
-                    deviceChangeLocked={!isIdlePreRecord}
                   />
                 ) : (
                   <CameraPreview
@@ -1739,25 +1740,6 @@ export default function HomePage() {
                         </p>
                       )}
                     </div>
-                  </div>
-                )}
-
-                {captureSource !== 'camera' && screenCapture.stream && !isReview && recorder.recordingState === 'idle' && (
-                  <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { void screenCapture.start(); }}
-                      className="rounded-lg border border-border-default bg-surface/90 px-3 py-1.5 text-[12px] font-medium text-text-secondary backdrop-blur-sm transition-colors hover:bg-elevated hover:text-text-primary"
-                    >
-                      Change source
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => screenCapture.stop()}
-                      className="rounded-lg border border-border-default bg-surface/90 px-3 py-1.5 text-[12px] font-medium text-text-secondary backdrop-blur-sm transition-colors hover:bg-elevated hover:text-text-primary"
-                    >
-                      Stop sharing
-                    </button>
                   </div>
                 )}
 
@@ -1853,6 +1835,52 @@ export default function HomePage() {
                   />
                 )}
               </Canvas>
+
+              {/* Screen-share tools live OUTSIDE the platform frame: this tray
+                  sits below the canvas on every platform format and viewport,
+                  so no control ever covers the recorded pixels. It stays
+                  mounted for the whole capture session (the toolbar is
+                  DOM-only chrome; the idle-only share actions join the pill
+                  behind a divider, so the row height never changes when a
+                  take starts or stops) and only unmounts on review or when
+                  leaving a screen capture mode. */}
+              {(captureSource === 'screen-camera' || captureSource === 'screen') && !isReview && (
+                <div className="shrink-0 w-full px-3 pb-2">
+                  {captureSource === 'screen-camera' ? (
+                    <WebcamToolbar
+                      overlay={settings.webcamOverlay}
+                      onOverlayChange={settings.setWebcamOverlay}
+                      canvasAspect={
+                        composition.canvasEl && composition.canvasEl.width > 0
+                          ? composition.canvasEl.width / composition.canvasEl.height
+                          : FALLBACK_CANVAS_WIDTH / FALLBACK_CANVAS_HEIGHT
+                      }
+                      cameraAspect={cameraAspect}
+                      isCameraOn={isCameraOn}
+                      onCameraToggle={handleCameraToggle}
+                      videoDevices={camera.videoDevices}
+                      selectedVideoDevice={settings.selectedVideoDevice}
+                      onVideoDeviceChange={handleVideoDeviceChange}
+                      deviceChangeLocked={!isIdlePreRecord}
+                      showShareActions={!!screenCapture.stream && recorder.recordingState === 'idle'}
+                      onChangeSource={() => { void screenCapture.start(); }}
+                      onStopSharing={() => screenCapture.stop()}
+                    />
+                  ) : (
+                    !!screenCapture.stream && recorder.recordingState === 'idle' && (
+                      <div className="flex w-full justify-center">
+                        <div className="flex items-center gap-0.5 rounded-2xl border border-border-default bg-surface/95 p-1 shadow-2xl">
+                          <ScreenShareActions
+                            onChangeSource={() => { void screenCapture.start(); }}
+                            onStopSharing={() => screenCapture.stop()}
+                          />
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+              </div>
 
               {/* Review controls occupy their own space so the entire platform
                   frame and playback controls remain visible at every size. */}

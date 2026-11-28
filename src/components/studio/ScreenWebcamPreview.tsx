@@ -6,23 +6,12 @@ import {
   FALLBACK_CANVAS_HEIGHT,
   FALLBACK_CANVAS_WIDTH,
   FALLBACK_CAMERA_ASPECT,
-  WEBCAM_SCALE_MAX,
-  WEBCAM_SCALE_MIN,
+  WEBCAM_SCALE_STEP,
   clampOverlayCenter,
   clampScale,
   computeWebcamRect,
   fitContainRect,
-  cornerOverlayPosition,
-  type WebcamCorner,
 } from '@/lib/recording/webcam-overlay';
-import {
-  CameraIcon,
-  CameraOffIcon,
-  EyeIcon,
-  EyeOffIcon,
-  MinusIcon,
-  PlusIcon,
-} from '@/components/icons';
 
 interface ScreenWebcamPreviewProps {
   /**
@@ -37,28 +26,20 @@ interface ScreenWebcamPreviewProps {
   cameraAspect: number;
   /** Live screen share — the overlay frame only exists over a live canvas. */
   screenActive: boolean;
-  isCameraOn: boolean;
-  onCameraToggle: () => void;
-  videoDevices: MediaDeviceInfo[];
-  selectedVideoDevice: string;
-  onVideoDeviceChange: (deviceId: string) => void;
-  /** Device switching re-acquires the stream — locked while a take is live. */
-  deviceChangeLocked: boolean;
 }
 
 const MOVE_STEP = 0.01;
 const MOVE_STEP_LARGE = 0.05;
-const SCALE_STEP = 0.03;
 
 /**
  * The Screen + Webcam composition surface: the compositor canvas as the
- * preview, the draggable/resizable webcam frame aligned EXACTLY over the
- * camera's position inside that canvas (both derive from computeWebcamRect),
- * and the floating webcam toolbar.
+ * preview and the draggable/resizable webcam frame aligned EXACTLY over the
+ * camera's position inside that canvas (both derive from computeWebcamRect).
  *
- * The frame and toolbar are plain DOM on top of the canvas — they are never
- * part of the recorded pixels, so interacting with them mid-take cannot
- * disturb the recording.
+ * The frame is plain DOM on top of the canvas — it is never part of the
+ * recorded pixels, so interacting with it mid-take cannot disturb the
+ * recording. Its controls live in the WebcamToolbar tray BELOW this preview,
+ * outside the platform frame, so no tool ever covers the recorded image.
  */
 export function ScreenWebcamPreview({
   canvasEl,
@@ -66,12 +47,6 @@ export function ScreenWebcamPreview({
   onOverlayChange,
   cameraAspect,
   screenActive,
-  isCameraOn,
-  onCameraToggle,
-  videoDevices,
-  selectedVideoDevice,
-  onVideoDeviceChange,
-  deviceChangeLocked,
 }: ScreenWebcamPreviewProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -219,11 +194,11 @@ export function ScreenWebcamPreview({
           break;
         case '+':
         case '=':
-          onOverlayChange({ scale: clampScale(overlay.scale + SCALE_STEP) });
+          onOverlayChange({ scale: clampScale(overlay.scale + WEBCAM_SCALE_STEP) });
           break;
         case '-':
         case '_':
-          onOverlayChange({ scale: clampScale(overlay.scale - SCALE_STEP) });
+          onOverlayChange({ scale: clampScale(overlay.scale - WEBCAM_SCALE_STEP) });
           break;
         default:
           handled = false;
@@ -233,27 +208,11 @@ export function ScreenWebcamPreview({
     [moveOverlay, onOverlayChange, overlay.x, overlay.y, overlay.scale],
   );
 
-  const moveCorner = useCallback(
-    (corner: WebcamCorner) => {
-      const position = cornerOverlayPosition(
-        corner,
-        overlay.scale,
-        overlay.shape,
-        effectiveCameraAspect,
-        canvasAspect,
-      );
-      onOverlayChange(position);
-    },
-    [overlay.scale, overlay.shape, effectiveCameraAspect, canvasAspect, onOverlayChange],
-  );
-
-  const toolbarButton =
-    'flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg px-2 text-[11px] font-medium text-text-secondary transition-colors hover:bg-white/[0.07] hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40';
-
   return (
     <div ref={boxRef} className="absolute inset-0 flex items-center justify-center overflow-hidden">
       <div
         ref={contentRef}
+        data-testid="webcam-canvas-strip"
         className="relative"
         style={{
           width: fit.w > 0 ? `${fit.w}px` : undefined,
@@ -295,136 +254,6 @@ export function ScreenWebcamPreview({
             />
           </div>
         )}
-
-        {/* Floating webcam toolbar. DOM-only chrome over the canvas — it is
-            never part of the recorded composition, so it can stay live (and
-            usable) while a take is running. */}
-        <div
-          role="toolbar"
-          aria-label="Webcam controls"
-          data-testid="webcam-toolbar"
-          onPointerDown={(e) => e.stopPropagation()}
-          className="absolute bottom-3 left-1/2 z-30 flex -translate-x-1/2 flex-wrap items-center justify-center gap-0.5 rounded-2xl border border-border-default bg-surface/95 p-1 shadow-2xl backdrop-blur-sm max-w-[calc(100%_-_1.5rem)]"
-        >
-          <button
-            type="button"
-            onClick={() => onOverlayChange({ visible: !overlay.visible })}
-            aria-label={overlay.visible ? 'Hide webcam' : 'Show webcam'}
-            title={overlay.visible ? 'Hide webcam (recording continues without it)' : 'Show webcam'}
-            className={toolbarButton}
-          >
-            {overlay.visible ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
-            <span className="ml-1 hidden sm:inline">{overlay.visible ? 'Hide' : 'Show'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onOverlayChange({ scale: clampScale(overlay.scale - SCALE_STEP) })}
-            disabled={overlay.scale <= WEBCAM_SCALE_MIN}
-            aria-label="Make webcam smaller"
-            title="Smaller"
-            className={toolbarButton}
-          >
-            <MinusIcon className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onOverlayChange({ scale: clampScale(overlay.scale + SCALE_STEP) })}
-            disabled={overlay.scale >= WEBCAM_SCALE_MAX}
-            aria-label="Make webcam larger"
-            title="Larger"
-            className={toolbarButton}
-          >
-            <PlusIcon className="h-4 w-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onOverlayChange({ shape: overlay.shape === 'circle' ? 'rounded' : 'circle' })}
-            aria-pressed={overlay.shape === 'circle'}
-            aria-label={overlay.shape === 'circle' ? 'Use rounded rectangle webcam shape' : 'Use circular webcam shape'}
-            title={overlay.shape === 'circle' ? 'Rounded rectangle' : 'Circle'}
-            className={toolbarButton}
-          >
-            {overlay.shape === 'circle' ? (
-              <span aria-hidden="true" className="block h-3.5 w-3.5 rounded-[4px] border-2 border-current" />
-            ) : (
-              <span aria-hidden="true" className="block h-3.5 w-3.5 rounded-full border-2 border-current" />
-            )}
-          </button>
-
-          {/* Corner presets — a 2x2 mini-grid reads as "position" at a glance. */}
-          <div className="grid grid-cols-2 gap-0.5 rounded-lg p-0.5" role="group" aria-label="Webcam position presets">
-            {(
-              [
-                ['top-left', 'Move webcam to top left'],
-                ['top-right', 'Move webcam to top right'],
-                ['bottom-left', 'Move webcam to bottom left'],
-                ['bottom-right', 'Move webcam to bottom right'],
-              ] as const
-            ).map(([corner, label]) => (
-              <button
-                key={corner}
-                type="button"
-                onClick={() => moveCorner(corner)}
-                aria-label={label}
-                title={label}
-                className="flex h-[17px] w-[17px] items-center justify-center rounded-[3px] p-0 text-text-muted transition-colors hover:bg-white/[0.1] hover:text-text-primary"
-              >
-                <span
-                  aria-hidden="true"
-                  className="block h-1.5 w-1.5 rounded-[1px] bg-current"
-                  style={{ margin: 'auto' }}
-                />
-              </button>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => onOverlayChange({ mirrored: !overlay.mirrored })}
-            aria-pressed={overlay.mirrored}
-            aria-label={overlay.mirrored ? 'Disable webcam mirroring' : 'Mirror webcam preview'}
-            title="Mirror"
-            className={toolbarButton}
-          >
-            <span className="hidden sm:inline">Mirror</span>
-            <span className="sm:hidden" aria-hidden="true">M</span>
-          </button>
-
-          <select
-            aria-label="Webcam camera device"
-            title="Camera device"
-            value={overlay.deviceId || selectedVideoDevice}
-            onChange={(e) => onVideoDeviceChange(e.target.value)}
-            disabled={deviceChangeLocked || videoDevices.length === 0}
-            className="ml-0.5 max-w-[110px] rounded-lg border border-border-default bg-elevated px-1.5 py-1.5 text-[11px] text-text-secondary transition-colors hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {videoDevices.length === 0 && <option value="">No camera found</option>}
-            {videoDevices.map((device) => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.label || `Camera ${device.deviceId.slice(0, 8)}`}
-              </option>
-            ))}
-          </select>
-
-          {/* Explicit camera-off: unlike Hide (which only stops drawing), this
-              actually stops camera capture — mic audio stays alive. */}
-          <button
-            type="button"
-            onClick={onCameraToggle}
-            aria-pressed={isCameraOn ? undefined : true}
-            aria-label={isCameraOn ? 'Turn camera capture off' : 'Turn camera capture on'}
-            title={isCameraOn ? 'Turn camera capture off' : 'Turn camera capture on'}
-            className={toolbarButton}
-          >
-            {isCameraOn ? (
-              <CameraIcon className="h-4 w-4" />
-            ) : (
-              <CameraOffIcon className="h-4 w-4 text-recording" />
-            )}
-          </button>
-        </div>
       </div>
     </div>
   );

@@ -178,4 +178,42 @@ describe('useScreenCameraComposition', () => {
     // The canvas itself still exists for the preview surface.
     expect(result.current.canvasEl).not.toBeNull();
   });
+
+  it('crops the composed canvas to the recording format aspect (no letterbox preview)', async () => {
+    // A 1280x720 screen shared into a 9:16 format: the canvas must become
+    // 406x720 (center crop), so the preview fills the platform frame and the
+    // recording already carries the export's shape.
+    const { result } = await act(async () => setup({ canvasAspect: 9 / 16 }));
+    await act(async () => {
+      await result.current.ensureReady();
+    });
+    expect(result.current.canvasEl!.width).toBe(406);
+    expect(result.current.canvasEl!.height).toBe(720);
+  });
+
+  it('rebuilds the composed stream when the recording format changes while idle', async () => {
+    const { result, rerender } = await act(async () => setup({ canvasAspect: 16 / 9 }));
+    await act(async () => {
+      await result.current.ensureReady();
+    });
+    const before = result.current.composedStream;
+    expect(before).not.toBeNull();
+
+    await act(async () => {
+      rerender({
+        screenStream: fakeStream([screenVideoTrack, screenAudioTrack]),
+        cameraStream: fakeStream([cameraVideoTrack, micTrack]),
+        overlay: { ...DEFAULT_WEBCAM_OVERLAY },
+        cameraAspect: 16 / 9,
+        canvasAspect: 1, // square format
+        enabled: true,
+      });
+    });
+    const rebuilt = result.current.composedStream;
+    expect(rebuilt).not.toBe(before);
+    expect(result.current.canvasEl!.width).toBe(720);
+    expect(result.current.canvasEl!.height).toBe(720);
+    // The retired canvas track was stopped (same contract as a device switch).
+    expect(canvasTrack.stop).toHaveBeenCalled();
+  });
 });
